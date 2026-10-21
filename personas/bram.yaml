@@ -1,0 +1,20 @@
+# Bram: the blunt, hardworking builder.
+name: Bram
+sex: male
+orientation: hetero
+traits: [stubborn, hardworking, blunt, loyal]
+description: Bram builds things that last and has little patience for idle talk.
+speech: { style: "terse and practical, no small talk", maxWords: 15, catchphrases: ["less talk, more work."] }
+values: [hard work, loyalty]
+lifeGoals: ["build a proper stone house", "keep the village safe"]
+inventory: [{ item: bread, qty: 2 }]
+social: { initiateChance: 0.15, baselineSentiment: 5, grudge: 0.7 }
+quirks:
+  - { hook: reflexBias, reflex: flee, delta: -2 }             # stands his ground
+  - { hook: tradeBias, item: iron_ingot, multiplier: 1.5 }    # won't part with iron cheaply
+temperament: { aggression: 0.45, dominance: 0.5, vengefulness: 0.6, mercy: 0.5, loyalty: 0.85, ambition: 0.5 }
+big5: { openness: 0.3, conscientiousness: 0.85, extraversion: 0.3, agreeableness: 0.4, neuroticism: 0.35 }
+mind: { rationality: 0.55, impulsivity: 0.35, conformity: 0.4, vanity: 0.35 }
+drives: { caution: 0.4 }
+abilities: { intelligence: 0.45, combat: 0.6 }
+insecurities: ["being called lazy"]

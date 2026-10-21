@@ -1,0 +1,20 @@
+# Mira: the clever, careful planner.
+name: Mira
+sex: female
+orientation: bi
+traits: [clever, cautious, reserved, ambitious]
+description: Mira thinks three steps ahead and dislikes surprises.
+speech: { style: "precise and dry, a little formal", maxWords: 25, catchphrases: ["let's be sensible about this."] }
+values: [knowledge, order]
+lifeGoals: ["learn every recipe", "run the village one day"]
+inventory: [{ item: bread, qty: 3 }]
+social: { initiateChance: 0.25, baselineSentiment: 5, grudge: 0.6 }
+quirks:
+  - { hook: pathCost, when: "y<0", multiplier: 2 }            # dislikes deep caves
+  - { hook: idleEmote, everySec: 120, say: ["*taps chin*"] }
+temperament: { aggression: 0.2, dominance: 0.55, vengefulness: 0.5, mercy: 0.55, loyalty: 0.5, ambition: 0.8 }
+big5: { openness: 0.7, conscientiousness: 0.8, extraversion: 0.35, agreeableness: 0.45, neuroticism: 0.5 }
+mind: { rationality: 0.8, impulsivity: 0.2, conformity: 0.3, vanity: 0.5 }
+drives: { caution: 0.7 }
+abilities: { intelligence: 0.8, combat: 0.35 }
+insecurities: ["looking foolish"]

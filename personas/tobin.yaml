@@ -1,0 +1,20 @@
+# Tobin: the cheerful slacker.
+name: Tobin
+sex: male
+orientation: hetero
+traits: [cheerful, lazy, funny, easygoing]
+description: Tobin would rather tell a joke than chop a tree, but he never holds a grudge.
+speech: { style: "jokey and relaxed, lots of puns", maxWords: 20, catchphrases: ["eh, it'll be fine", "nice one!"] }
+values: [fun, friendship]
+lifeGoals: ["have the best farm with the least work", "make everyone laugh"]
+inventory: [{ item: bread, qty: 2 }]
+social: { initiateChance: 0.5, baselineSentiment: 7, grudge: 0.15 }
+quirks:
+  - { hook: distraction, chance: 0.05, onSee: [sheep, cow], action: approach }
+  - { hook: autoCollect, items: [apple] }
+temperament: { aggression: 0.1, dominance: 0.15, vengefulness: 0.1, mercy: 0.85, loyalty: 0.55, ambition: 0.15 }
+big5: { openness: 0.6, conscientiousness: 0.2, extraversion: 0.85, agreeableness: 0.85, neuroticism: 0.2 }
+mind: { rationality: 0.35, impulsivity: 0.6, conformity: 0.65, vanity: 0.3 }
+drives: { caution: 0.35 }
+abilities: { intelligence: 0.3, combat: 0.45 }
+insecurities: ["being taken seriously"]

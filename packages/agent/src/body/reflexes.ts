@@ -95,12 +95,17 @@ export class ReflexController {
 
   constructor(
     private readonly bot: Bot,
-    private readonly hooks: ReflexHooks,
+    private hooks: ReflexHooks,
     private readonly logger: Logger,
     private readonly opts: ReflexOptions = {},
   ) {
     this.swings = new SwingTracker(bot);
     this.lastHealth = bot.health;
+  }
+
+  /** The agent plugs its state in after the body has connected. */
+  setHooks(hooks: Partial<ReflexHooks>): void {
+    this.hooks = { ...this.hooks, ...hooks };
   }
 
   get active(): boolean {

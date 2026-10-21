@@ -12,6 +12,7 @@
     "setup": "tsx scripts/setup.ts",
     "start": "tsx scripts/start.ts",
     "server": "tsx scripts/server.ts",
+    "agent": "tsx scripts/agent.ts",
     "doctor": "tsx scripts/doctor.ts",
     "server-mode": "tsx scripts/server-mode.ts",
     "chat-discovery": "tsx scripts/chat-discovery.ts",
