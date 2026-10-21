@@ -25,6 +25,8 @@ export interface SkillRunRecord {
   slip: SlipKind | null;
   startedAt: number;
   durationMs: number;
+  /** Something was gained on the way, even if the whole task didn't finish. */
+  progressed?: boolean;
 }
 
 export function snapshotBody(bot: Bot): BodySnapshot {
@@ -214,6 +216,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     slip,
     startedAt,
     durationMs: Date.now() - startedAt,
+    progressed: [...diffInventory(before.inventory, after.inventory).values()].some((n) => n > 0),
   };
   deps.logger.debug({ module: 'skill', ...record }, `skill ${skill.name} ${record.ok ? 'ok' : 'failed'}`);
   return record;

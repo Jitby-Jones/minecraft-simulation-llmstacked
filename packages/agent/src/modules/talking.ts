@@ -64,6 +64,8 @@ export interface TalkingOptions {
   conversations: Conversations;
   executor: SkillExecutor;
   me: AgentName;
+  /** Memories relevant to what was just said (M4), hearsay labeled. */
+  recall?: (text: string, k: number) => Promise<string[]>;
   rng?: () => number;
   now?: () => number;
 }
@@ -236,9 +238,17 @@ export class Talking {
     const conv = s.conversations[convId];
     const transcript = (conv?.transcript ?? []).slice(-8).map((u) => `${u.from === this.o.me ? 'You' : u.from}: ${u.text}`);
     const activity = s.option ? `${s.option.option}${s.option.skill ? ` (${s.option.skill})` : ''}${s.option.progress ? `, ${s.option.progress}` : ''}` : 'nothing in particular';
+    const query = incoming.map((u) => u.text).join(' ') || intent.gist;
+    const remembered = this.o.recall ? await this.o.recall(query, 3).catch(() => [] as string[]) : [];
+    const onMind = s.workmem
+      .slice(-3)
+      .map((w) => w.text)
+      .filter((t) => !remembered.includes(t));
     const user = [
       `Right now you are: ${activity}.`,
       s.selfSummary ? `About you: ${s.selfSummary}` : '',
+      onMind.length > 0 ? `On your mind: ${onMind.join('; ')}` : '',
+      remembered.length > 0 ? `You remember:\n${remembered.map((m) => `- ${m}`).join('\n')}` : '',
       `What you want to get across: ${intent.stance} — ${intent.gist}`,
       transcript.length > 0 ? `Conversation so far:\n${transcript.join('\n')}` : 'You are starting the conversation.',
       incoming.length > 0 ? `Reply to: ${incoming.map((u) => `${u.from}: "${u.text}"`).join(' / ')}` : '',

@@ -151,6 +151,8 @@ export interface ActionRecord {
   ts: number;
   durationMs: number;
   error?: string;
+  /** Gained something on the way even though it failed (partial progress is not being stuck). */
+  progressed?: boolean;
 }
 
 export type CommitmentStatus = 'proposed' | 'accepted' | 'fulfilled' | 'broken' | 'cancelled';

@@ -65,10 +65,22 @@ export class Agent {
     this.conversations = new Conversations({ store: this.store, bus: this.bus, logger, me: username, inRange: () => this.perception.peopleInRange(), now });
     this.executor = new SkillExecutor({ store: this.store, bus: this.bus, body, logger, levers, now });
     this.awareness = new ActionAwareness({ store: this.store, bus: this.bus, logger, now });
-    this.talking = new Talking({ store: this.store, bus: this.bus, body, logger, llm, conversations: this.conversations, executor: this.executor, me: username, now });
-    this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
     this.memory = o.memory ? new Memory({ store: this.store, bus: this.bus, logger, db: o.memory.db, embedder: o.memory.embedder, llm, me: username, now }) : null;
-    const memories = this.memory ? (k: number) => (this.memory as Memory).forPacket(k) : undefined;
+    const mem = this.memory;
+    const memories = mem ? (k: number) => mem.forPacket(k) : undefined;
+    this.talking = new Talking({
+      store: this.store,
+      bus: this.bus,
+      body,
+      logger,
+      llm,
+      conversations: this.conversations,
+      executor: this.executor,
+      me: username,
+      ...(mem ? { recall: (text: string, k: number) => mem.relevantTo(text, k) } : {}),
+      now,
+    });
+    this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
     this.cc = new CognitiveController({
       store: this.store,
       bus: this.bus,

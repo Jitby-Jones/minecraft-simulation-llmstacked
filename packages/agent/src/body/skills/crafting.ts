@@ -6,7 +6,8 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { countItem } from '../inventory';
 import { CATEGORIES, normalizeItemName } from '../items';
-import { findNearestBlocks, findPlaceableSpot } from '../world';
+import { findKnownBlocks } from '../sightings';
+import { findPlaceableSpot } from '../world';
 import { placeItemAt } from './building';
 import { abortable, errMsg, gotoNear, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -76,7 +77,7 @@ async function findOrPlace(ctx: SkillContext, blockName: string, itemName: strin
   const { bot } = ctx;
   const id = bot.registry.blocksByName[blockName]?.id;
   if (id === undefined) return null;
-  const near = findNearestBlocks(bot, [id], 24, 1)[0];
+  const near = findKnownBlocks(bot, [id], 24, 1)[0];
   if (near) {
     if (near.position.distanceTo(bot.entity.position) > 3.5) await gotoNear(ctx, near.position, 2);
     return bot.blockAt(near.position);

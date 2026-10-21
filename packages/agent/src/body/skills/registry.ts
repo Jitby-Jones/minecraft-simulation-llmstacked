@@ -6,6 +6,7 @@ import { deposit, withdraw } from './containers';
 import { gather, mine, pickup } from './gathering';
 import { place, shelter } from './building';
 import { obtain } from './planner';
+import { prospect } from './prospecting';
 import { explore, flee, follow, goTo, look, wait } from './movement';
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
@@ -21,6 +22,7 @@ export const SKILLS: readonly AnySkill[] = [
   gather,
   mine,
   pickup,
+  prospect,
   craft,
   smelt,
   obtain,
@@ -68,6 +70,9 @@ const ALIASES: Readonly<Record<string, string>> = {
   hold: 'equip',
   run: 'flee',
   wander: 'explore',
+  prospecting: 'prospect',
+  tunnel: 'prospect',
+  search_ore: 'prospect',
 };
 
 export function getSkill(name: string): AnySkill | null {

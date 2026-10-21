@@ -8,7 +8,8 @@ import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import { countItem } from '../inventory';
 import { CATEGORIES, itemMatcher, normalizeItemName } from '../items';
-import { blockIdsDropping, findNearestBlocks } from '../world';
+import { findKnownBlocks } from '../sightings';
+import { blockIdsDropping } from '../world';
 import { craft, resolveCraftTarget, smelt } from './crafting';
 import { gather, isFoodName } from './gathering';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -121,7 +122,7 @@ class WorldScan {
   /** The nearest block that drops `item`, if any within 32 blocks. */
   sample(item: string): { harvestTools?: Record<string, boolean> } | null {
     return this.memo(`sample:${item}`, () => {
-      const b = findNearestBlocks(this.bot, this.drops(item), 32, 1)[0];
+      const b = findKnownBlocks(this.bot, this.drops(item), 32, 1)[0];
       return b ? { harvestTools: (b as unknown as { harvestTools?: Record<string, boolean> }).harvestTools } : null;
     });
   }
@@ -133,7 +134,7 @@ class WorldScan {
         .filter((b) => /_(log|stem)$/.test(b.name))
         .map((b) => b.id);
       const out = new Set<string>();
-      for (const b of findNearestBlocks(this.bot, ids, 32, 24)) {
+      for (const b of findKnownBlocks(this.bot, ids, 32, 24)) {
         const w = woodOf(b.name);
         if (w) out.add(w);
       }
@@ -144,7 +145,7 @@ class WorldScan {
   stationNearby(name: string): boolean {
     return this.memo(`station:${name}`, () => {
       const id = this.bot.registry.blocksByName[name]?.id;
-      return id !== undefined && findNearestBlocks(this.bot, [id], 24, 1).length > 0;
+      return id !== undefined && findKnownBlocks(this.bot, [id], 24, 1).length > 0;
     });
   }
 

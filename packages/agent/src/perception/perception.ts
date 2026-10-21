@@ -8,6 +8,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { AgentBus } from '../bus';
 import { inventoryDigest, inventoryStacks } from '../body/inventory';
+import { Sightings } from '../body/sightings';
 import { canSee, isHostile, isNight } from '../body/world';
 import { detectAddressee } from '../modules/conversations';
 import { newSocialProfile } from '../state/social';
@@ -31,11 +32,10 @@ const HEAR_RADIUS = 4;
 const MAX_ENTITIES = 24;
 const RING_ACTIONS = 20;
 const RING_SYSTEM = 20;
-const INTERESTING_BLOCKS = [
-  'crafting_table', 'furnace', 'chest', 'barrel', 'white_bed', 'red_bed', 'coal_ore', 'iron_ore', 'copper_ore', 'gold_ore',
-  'diamond_ore', 'deepslate_iron_ore', 'deepslate_coal_ore', 'deepslate_diamond_ore', 'oak_log', 'birch_log', 'spruce_log',
-  'jungle_log', 'acacia_log', 'dark_oak_log', 'cherry_log', 'mangrove_log', 'water', 'lava',
-];
+// Blocks worth noting: rare ones (also remembered as sightings, which is what lets skills target them) and a few
+// landmarks.
+const RARE_BLOCK = /_ore$|^ancient_debris$|_bed$|^(crafting_table|furnace|blast_furnace|smoker|chest|trapped_chest|barrel|anvil|enchanting_table|brewing_stand)$/;
+const LANDMARK_BLOCK = /_log$|^(water|lava)$/;
 
 let seq = 0;
 const nextId = (p: string) => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -259,21 +259,31 @@ export class Perception {
     );
   }
 
+  private blockIds: { rare: number[]; landmark: number[] } | null = null;
+
   private updateBlocks(): void {
     const bot = this.o.bot;
-    const ids = INTERESTING_BLOCKS.map((n) => bot.registry.blocksByName[n]?.id).filter((x): x is number => x !== undefined);
+    this.blockIds ??= {
+      rare: bot.registry.blocksArray.filter((b) => RARE_BLOCK.test(b.name)).map((b) => b.id),
+      landmark: bot.registry.blocksArray.filter((b) => LANDMARK_BLOCK.test(b.name)).map((b) => b.id),
+    };
     const now = this.now();
-    const found = bot.findBlocks({ matching: ids, maxDistance: 16, count: 40 });
+    const sightings = Sightings.for(bot);
     const notes: BlockNote[] = [];
     const per = new Map<string, number>();
-    for (const p of found) {
-      const b = bot.blockAt(p);
-      if (!b) continue;
-      if ((per.get(b.name) ?? 0) >= 3) continue;
-      if (!canSee(bot, p.offset(0.5, 0.5, 0.5), 17)) continue;
-      per.set(b.name, (per.get(b.name) ?? 0) + 1);
-      notes.push({ name: b.name, pos: { x: p.x, y: p.y, z: p.z }, distance: Math.round(p.distanceTo(bot.entity.position)), seenAt: now });
-    }
+    const scan = (ids: number[], count: number, remember: boolean) => {
+      for (const p of bot.findBlocks({ matching: ids, maxDistance: 16, count })) {
+        const b = bot.blockAt(p);
+        if (!b || !canSee(bot, p.offset(0.5, 0.5, 0.5), 17)) continue;
+        if (remember) sightings.record(b);
+        if ((per.get(b.name) ?? 0) >= 3 || notes.length >= 24) continue;
+        per.set(b.name, (per.get(b.name) ?? 0) + 1);
+        notes.push({ name: b.name, pos: { x: p.x, y: p.y, z: p.z }, distance: Math.round(p.distanceTo(bot.entity.position)), seenAt: now });
+      }
+    };
+    scan(this.blockIds.rare, 64, true);
+    scan(this.blockIds.landmark, 24, false);
+    notes.sort((a, b) => a.distance - b.distance);
     const key = notes.map((n) => `${n.name}@${n.pos.x},${n.pos.y},${n.pos.z}`).join(';');
     if (key === this.lastBlocksKey) return;
     this.lastBlocksKey = key;

@@ -7,7 +7,8 @@
 import type { Logger, Quirk } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
-import { blockIdsNamed, canSee, findNearestBlocks } from '../body/world';
+import { findKnownBlocks } from '../body/sightings';
+import { blockIdsNamed } from '../body/world';
 import { itemMatcher } from '../body/items';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -73,8 +74,11 @@ export class QuirkRunner {
     this.o.quirks.forEach((q, i) => {
       switch (q.hook) {
         case 'idleEmote': {
+          // "Idle" socially: not in a conversation and not busy with something that can't be talked over (humming
+          // while chopping wood is fine).
           const due = (this.lastEmote.get(i) ?? now) + q.everySec * 1000 * (0.8 + 0.4 * this.rng());
-          if (now < due || s.flags.inDanger || this.o.executor.busy || this.o.peopleInRange().length === 0) return;
+          const chatting = Object.values(s.conversations).some((c) => c.status === 'active');
+          if (now < due || chatting || !this.interruptible() || this.o.peopleInRange().length === 0) return;
           this.lastEmote.set(i, now);
           const line = q.say[Math.floor(this.rng() * q.say.length)];
           if (line) void this.o.body.say(line).catch(() => undefined);
@@ -109,7 +113,7 @@ export class QuirkRunner {
             const bot = this.o.body.bot;
             const block = dropped
               ? undefined
-              : findNearestBlocks(bot, blockIdsNamed(bot, item), 8, 4).find((b) => canSee(bot, b.position.offset(0.5, 0.5, 0.5), 9));
+              : findKnownBlocks(bot, blockIdsNamed(bot, item), 8, 1)[0];
             if (!dropped && !block) continue;
             this.collectedAt.set(item, now);
             this.o.cc.impulse({

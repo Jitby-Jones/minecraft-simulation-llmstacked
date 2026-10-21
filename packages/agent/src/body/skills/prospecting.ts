@@ -1,0 +1,160 @@
+// prospect: look for ore the way a player does when none is in sight (§13 rule 4: gather and mine only target ore the
+// bot has seen). It digs a staircase down into the stone toward the depth where that ore is common, then a straight
+// 1×2 tunnel, looking at the walls as it goes, and stops as soon as the ore comes into sight. Liquid ahead makes it
+// turn; bedrock or a gap it can't bridge ends the tunnel.
+
+import { z } from 'zod';
+import type { Bot } from 'mineflayer';
+import { Vec3 } from 'vec3';
+import { itemMatcher } from '../items';
+import { findKnownBlocks } from '../sightings';
+import { blockIdsDropping, isAirLike, isSolid } from '../world';
+import { abortable, errMsg, goals, stopMotion, throwIfAborted, waitMs } from './util';
+import { defineSkill, type SkillContext, SkillAbortedError } from './types';
+
+/** Feet height where each ore is common in today's overworld generation. */
+const ORE_DEPTH: readonly [RegExp, number][] = [
+  [/coal/, 40],
+  [/copper/, 40],
+  [/iron/, 14],
+  [/lapis/, 0],
+  [/gold/, -16],
+  [/redstone/, -56],
+  [/diamond/, -56],
+  [/emerald/, 60],
+];
+const DIRS: Readonly<Record<string, Vec3>> = {
+  east: new Vec3(1, 0, 0),
+  west: new Vec3(-1, 0, 0),
+  south: new Vec3(0, 0, 1),
+  north: new Vec3(0, 0, -1),
+};
+const FACES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, -1, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+const BRIDGE_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff'];
+
+class Blocked extends Error {}
+
+function oreIds(bot: Bot, item: string): number[] {
+  return blockIdsDropping(bot, itemMatcher(item)).filter((id) => /_ore$|^ancient_debris$/.test(bot.registry.blocks[id]?.name ?? ''));
+}
+
+function liquidAround(bot: Bot, p: Vec3): string | null {
+  for (const f of FACES) {
+    const n = bot.blockAt(p.plus(f));
+    if (n && (n.name === 'water' || n.name === 'lava')) return n.name;
+  }
+  return null;
+}
+
+/** Clears one block (and whatever gravel or sand falls into it). */
+async function clear(ctx: SkillContext, p: Vec3): Promise<void> {
+  const { bot } = ctx;
+  for (let i = 0; i < 6; i++) {
+    throwIfAborted(ctx.signal);
+    const b = bot.blockAt(p);
+    if (!b) throw new Blocked('the ground ahead is not loaded');
+    if (b.name === 'water' || b.name === 'lava') throw new Blocked(`${b.name} ahead`);
+    if (isAirLike(b)) return;
+    if (b.name === 'bedrock' || b.hardness === null || b.hardness < 0) throw new Blocked(`${b.name} ahead`);
+    const liquid = liquidAround(bot, p);
+    if (liquid) throw new Blocked(`${liquid} ahead`);
+    const tool = bot.pathfinder.bestHarvestTool(b);
+    if (tool) await bot.equip(tool, 'hand');
+    await abortable(ctx.signal, bot.dig(b, true), () => bot.stopDigging());
+    await waitMs(ctx, 150);
+  }
+  throw new Blocked('gravel keeps falling');
+}
+
+/** Walks onto the cleared step (the cheapest path there is the one we just dug). */
+async function stepTo(ctx: SkillContext, p: Vec3): Promise<void> {
+  const { bot } = ctx;
+  bot.pathfinder.setMovements(ctx.movements());
+  await abortable(ctx.signal, bot.pathfinder.goto(new goals.GoalBlock(p.x, p.y, p.z)), () => stopMotion(bot));
+}
+
+async function bridge(ctx: SkillContext, p: Vec3): Promise<void> {
+  const { bot } = ctx;
+  if (isSolid(bot.blockAt(p))) return;
+  const item = bot.inventory.items().find((i) => BRIDGE_BLOCKS.includes(i.name));
+  if (!item) throw new Blocked('a gap ahead and nothing to fill it with');
+  const below = bot.blockAt(p.offset(0, -1, 0));
+  const side = FACES.map((f) => bot.blockAt(p.plus(f))).find((n) => n && isSolid(n) && !n.position.equals(p.offset(0, 1, 0)));
+  const ref = isSolid(below) ? below : side;
+  if (!ref) throw new Blocked('a gap ahead with nothing to build on');
+  await bot.equip(item, 'hand');
+  await bot.placeBlock(ref, p.minus(ref.position));
+}
+
+export const prospect = defineSkill({
+  name: 'prospect',
+  description: 'prospect {item, maxBlocks?, direction?} — dig down and tunnel to look for an ore you have not seen yet (needs a pickaxe)',
+  argsSchema: z.object({
+    item: z.string().min(1),
+    maxBlocks: z.coerce.number().min(4).max(96).default(48),
+    direction: z.enum(['north', 'south', 'east', 'west']).optional(),
+  }),
+  talkOverable: true,
+  slipKinds: [],
+  expect: () => ({ kind: 'none' }),
+  async run(ctx, args) {
+    const { bot } = ctx;
+    const ids = oreIds(bot, args.item);
+    if (ids.length === 0) return { ok: false, observed: 'nothing to look for', error: `${args.item} doesn't come from ore` };
+    const seen = () => findKnownBlocks(bot, ids, 16, 1)[0];
+    const already = seen();
+    if (already) return { ok: true, observed: `already know of ${already.name} at ${already.position.toString()}` };
+    if (!bot.inventory.items().some((i) => i.name.endsWith('_pickaxe'))) {
+      return { ok: false, observed: 'no pickaxe', error: 'need a pickaxe to dig for ore' };
+    }
+    const oreName = bot.registry.blocks[ids[0] ?? -1]?.name ?? args.item;
+    const depth = ORE_DEPTH.find(([re]) => re.test(oreName))?.[1] ?? 14;
+    const minY = (bot.game as unknown as { minY?: number }).minY ?? -64;
+    const startY = Math.floor(bot.entity.position.y);
+    // Below the ore's usual depth already (or on a flat world): stay just under the surface, with a roof if the
+    // ground is thick enough.
+    const targetY = Math.max(minY + 2, Math.min(depth, startY - 3));
+    const names = Object.keys(DIRS);
+    let dirName = args.direction ?? names[Math.floor(ctx.rng.next() * names.length)] ?? 'east';
+    let dug = 0;
+    let turns = 0;
+    let lastBlock = '';
+    try {
+      while (dug < args.maxBlocks) {
+        throwIfAborted(ctx.signal);
+        const d = DIRS[dirName] ?? new Vec3(1, 0, 0);
+        const feet = bot.entity.position.floored();
+        const down = feet.y > targetY;
+        const next = down ? feet.plus(d).offset(0, -1, 0) : feet.plus(d);
+        try {
+          // A staircase step needs the head room at our current height too.
+          if (down) await clear(ctx, feet.plus(d).offset(0, 1, 0));
+          await clear(ctx, next.offset(0, 1, 0));
+          await clear(ctx, next);
+          await bridge(ctx, next.offset(0, -1, 0));
+        } catch (err) {
+          if (!(err instanceof Blocked) || turns >= 2) throw err;
+          lastBlock = err.message;
+          turns++;
+          dirName = names[(names.indexOf(dirName) + 1 + Math.floor(ctx.rng.next() * 3)) % names.length] ?? 'east';
+          continue;
+        }
+        const found = seen();
+        if (found) return { ok: true, observed: `found ${found.name} at ${found.position.toString()} after digging ${dug} blocks` };
+        await stepTo(ctx, next);
+        dug++;
+        ctx.progress(`tunneling ${dirName}, ${dug} blocks`);
+        const after = seen();
+        if (after) return { ok: true, observed: `found ${after.name} at ${after.position.toString()} after digging ${dug} blocks` };
+      }
+    } catch (err) {
+      if (err instanceof SkillAbortedError) throw err;
+      return { ok: false, observed: `dug ${dug} blocks, no ${oreName} seen`, error: errMsg(err) };
+    }
+    return {
+      ok: false,
+      observed: `dug ${dug} blocks${lastBlock ? ` (${lastBlock})` : ''}, no ${oreName} seen`,
+      error: `no ${oreName} found in ${dug} blocks of tunnel`,
+    };
+  },
+});

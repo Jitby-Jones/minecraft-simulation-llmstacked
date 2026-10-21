@@ -78,7 +78,6 @@ export function nearbyHostiles(bot: Bot, radius: number): Entity[] {
   return out.sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position));
 }
 
-/** Block ids whose drops include an item matching `matcher` (e.g. cobblestone ← stone, cobblestone). */
 // Mobs whose ambient sounds carry through walls (groans, rattles, hisses). Creepers are silent until they fuse.
 const NOISY = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'spider', 'cave_spider',
   'enderman', 'witch', 'pillager', 'vindicator', 'evoker', 'ravager', 'phantom', 'zombified_piglin', 'piglin', 'hoglin', 'zoglin',
@@ -89,6 +88,7 @@ export function audibleHostiles(bot: Bot, radius: number): Entity[] {
   return nearbyHostiles(bot, radius).filter((e) => NOISY.has(e.name ?? ''));
 }
 
+/** Block ids whose drops include an item matching `matcher` (e.g. cobblestone ← stone, cobblestone). */
 export function blockIdsDropping(bot: Bot, matcher: ItemMatcher): number[] {
   const reg = bot.registry;
   const ids: number[] = [];
@@ -115,6 +115,7 @@ export function blockIdsNamed(bot: Bot, raw: string): number[] {
   return bot.registry.blocksArray.filter((b) => m.matches(b.name)).map((b) => b.id);
 }
 
+/** Every loaded block, seen or not: skills go through `findKnownBlocks` (sightings.ts) instead. */
 export function findNearestBlocks(bot: Bot, ids: number[], maxDistance = 48, count = 16): Block[] {
   if (ids.length === 0) return [];
   const positions = bot.findBlocks({ matching: ids, maxDistance, count });

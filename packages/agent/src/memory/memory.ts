@@ -93,7 +93,11 @@ export class Memory {
         const u = e.utterance;
         if (u.text.split(/\s+/).length < 4) return;
         const trust = this.o.store.state.social[u.from]?.trust ?? 0.5;
-        pushWorkmem(this.o.store, `${u.from} said: "${u.text}"`, 0.35 + 0.2 * trust, `told_by:${u.from}`, { aboutAgent: u.from, now: this.now() });
+        const asked = /\?\s*$/.test(u.text);
+        pushWorkmem(this.o.store, `${u.from} ${asked ? 'asked' : 'said'}: "${u.text}"`, (asked ? 0.25 : 0.35) + 0.2 * trust, `told_by:${u.from}`, {
+          aboutAgent: u.from,
+          now: this.now(),
+        });
       }),
     );
   }
@@ -229,6 +233,12 @@ export class Memory {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, k);
+  }
+
+  /** Memories that bear on something just said (Talking), hearsay labeled; nothing already on mind. */
+  async relevantTo(text: string, k = 3, minScore = 0.2): Promise<string[]> {
+    const onMind = new Set(this.o.store.state.workmem.map((w) => w.text));
+    return (await this.recall(text, k + onMind.size)).filter((m) => !onMind.has(m.text) && m.score >= minScore).slice(0, k).map((m) => m.label);
   }
 
   /** What the CC packet should be reminded of now: the goal, the people around, the last thing said to us. */

@@ -23,6 +23,9 @@ export interface ExecutorOptions {
 const ACTION_LOG = 30;
 
 /** Which skill an option runs, and with what. */
+/** What the `explore` option runs (also its stuck key). */
+export const EXPLORE_ARGS = { distance: 32 } as const;
+
 export function skillForOption(opt: ActiveOption, nearAgent: (name: string, within: number) => boolean): { skill: string; args: Record<string, unknown> } {
   switch (opt.option) {
     case 'work':
@@ -35,7 +38,7 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     case 'follow':
       return opt.targetAgent ? { skill: 'follow', args: { agent: opt.targetAgent, distance: 3 } } : { skill: 'wait', args: { seconds: 5 } };
     case 'explore':
-      return { skill: 'explore', args: { distance: 32 } };
+      return { skill: 'explore', args: { ...EXPLORE_ARGS } };
     case 'flee':
       return { skill: 'flee', args: opt.targetAgent ? { from: opt.targetAgent } : {} };
     case 'talk':
@@ -150,6 +153,7 @@ export class SkillExecutor {
         ts: r.startedAt,
         durationMs: r.durationMs,
         ...(r.error ? { error: r.error } : r.mismatch ? { error: `expected ${r.expected}, saw ${r.observed}` } : {}),
+        ...(!ok && r.progressed ? { progressed: true } : {}),
       };
       store.update('actionLog', (log) => [...log, rec as ActionRecord].slice(-ACTION_LOG), `action ${r.skill}`);
       logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');

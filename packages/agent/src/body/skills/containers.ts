@@ -6,7 +6,7 @@ import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { countItem } from '../inventory';
 import { armorSlotOf, isWeapon, itemMatcher } from '../items';
-import { findNearestBlocks } from '../world';
+import { findKnownBlocks } from '../sightings';
 import { errMsg, gotoNear, throwIfAborted } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -24,7 +24,7 @@ async function reachContainer(ctx: SkillContext, pos: { x?: number; y?: number; 
   if (pos.x !== undefined && pos.y !== undefined && pos.z !== undefined) block = bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
   else {
     const ids = CONTAINERS.map((n) => bot.registry.blocksByName[n]?.id).filter((v): v is number => v !== undefined);
-    block = findNearestBlocks(bot, ids, 24, 1)[0] ?? null;
+    block = findKnownBlocks(bot, ids, 24, 1)[0] ?? null;
   }
   if (!block || !CONTAINERS.includes(block.name)) return null;
   if (block.position.distanceTo(bot.entity.position) > 3.5) await gotoNear(ctx, block.position, 2);

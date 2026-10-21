@@ -26,6 +26,9 @@ export function taskKey(skill: string, args: Record<string, unknown>): string {
   return `${skill}(${sorted})`;
 }
 
+/** Skills whose failures can still be partial progress (they collect things). */
+const GATHERING = new Set(['obtain', 'gather', 'mine', 'craft', 'smelt', 'pickup', 'withdraw']);
+
 function describe(r: ActionRecord): string {
   const args = Object.entries(r.args)
     .map(([k, v]) => `${k} ${typeof v === 'string' ? v : JSON.stringify(v)}`)
@@ -34,7 +37,8 @@ function describe(r: ActionRecord): string {
 }
 
 export class ActionAwareness {
-  private readonly fails = new Map<string, number[]>();
+  /** Failure times and weights per task: a failure that still gained something counts half. */
+  private readonly fails = new Map<string, { t: number; w: number }[]>();
   private readonly stuckUntil = new Map<string, { until: number; why: string }>();
   private readonly now: () => number;
   private off: (() => void) | null = null;
@@ -90,11 +94,12 @@ export class ActionAwareness {
     if (r.skill === 'wait') return;
     const why = r.error ?? `expected ${r.expected}, saw ${r.observed}`;
     if (r.error?.startsWith('aborted') || r.error === 'time is up') return;
-    const list = [...(this.fails.get(key) ?? []), t].filter((x) => t - x < (this.o.windowMs ?? 10 * 60_000));
+    const w = r.progressed && GATHERING.has(r.skill) ? 0.5 : 1;
+    const list = [...(this.fails.get(key) ?? []), { t, w }].filter((x) => t - x.t < (this.o.windowMs ?? 10 * 60_000));
     this.fails.set(key, list);
     // The executor records a postcondition mismatch as "expected …, saw …".
     const mismatch = r.error?.startsWith('expected ') ?? false;
-    if (list.length >= 3) {
+    if (list.reduce((a, x) => a + x.w, 0) >= 3) {
       this.fails.delete(key);
       this.stuckUntil.set(key, { until: t + (this.o.stuckForMs ?? 5 * 60_000), why });
       this.o.store.update('flags', (f) => ({ ...f, stuck: true }), 'stuck');

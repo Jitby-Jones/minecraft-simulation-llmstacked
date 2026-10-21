@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import type { Item } from 'prismarine-item';
 import { armorSlotOf, armorTier, itemMatcher } from '../items';
-import { findNearestBlocks } from '../world';
+import { findKnownBlocks } from '../sightings';
 import { abortable, errMsg, gotoNear, waitMs } from './util';
 import { defineSkill, SkillAbortedError } from './types';
 
@@ -100,7 +100,7 @@ export const sleep = defineSkill({
   async run(ctx) {
     const { bot } = ctx;
     const bedIds = bot.registry.blocksArray.filter((b) => b.name.endsWith('_bed')).map((b) => b.id);
-    const bed = findNearestBlocks(bot, bedIds, 24, 1)[0];
+    const bed = findKnownBlocks(bot, bedIds, 24, 1)[0];
     if (!bed) return { ok: false, observed: 'no bed', error: 'no bed nearby' };
     try {
       if (bed.position.distanceTo(bot.entity.position) > 2.5) await gotoNear(ctx, bed.position, 1);

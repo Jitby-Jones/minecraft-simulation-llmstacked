@@ -37,6 +37,7 @@ export function talkRules(maxWords: number): string {
     'You are chatting with people near you in Minecraft.',
     `Write only your next line: plain text, one line, at most ${maxWords} words. No quotes, no name prefix, no commands.`,
     'Stay in character. Talk like a person in this world, about this world.',
+    'Don\'t make up facts about places, people or things you haven\'t seen or been told about. When you pass on something you heard from someone, say who told you ("Bram says...") and don\'t present it as certain.',
   ].join('\n');
 }
 

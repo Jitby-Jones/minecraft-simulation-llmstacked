@@ -5,7 +5,8 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
-import { blockIdsDropping, blockIdsNamed, findNearestBlocks } from '../world';
+import { findKnownBlocks, isInferable } from '../sightings';
+import { blockIdsDropping, blockIdsNamed } from '../world';
 import { abortable, errMsg, goals, stopMotion, throwIfAborted } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -61,7 +62,7 @@ async function collectUntil(
     throwIfAborted(ctx.signal);
     // Prefer blocks within reach of the ground we stand on: low logs before the canopy, near before far.
     const feetY = bot.entity.position.y;
-    const candidates = findNearestBlocks(bot, blockIds, maxDistance, 24)
+    const candidates = findKnownBlocks(bot, blockIds, maxDistance, 24)
       .filter((b) => !skipped.has(b.position.toString()))
       .sort(
         (a, b) =>
@@ -73,7 +74,11 @@ async function collectUntil(
       return {
         ok: false,
         observed: `got ${got}/${qty} ${matcher.label}`,
-        error: lastError || `no ${label} within ${maxDistance} blocks`,
+        error:
+          lastError ||
+          (blockIds.some((id) => isInferable(bot.registry.blocks[id]?.name ?? ''))
+            ? `no ${label} within ${maxDistance} blocks`
+            : `haven't seen any ${label} around here`),
       };
     }
     const harvestable = candidates.filter((b) => !lacksHarvestTool(bot, b));

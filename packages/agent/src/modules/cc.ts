@@ -15,7 +15,7 @@ import type { ActionAwareness } from './awareness';
 import { taskKey } from './awareness';
 import { buildPacket } from './bottleneck';
 import { evalCondition } from './conditions';
-import type { SkillExecutor } from './executor';
+import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 
@@ -54,6 +54,8 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
 let seq = 0;
 const newId = (p: string, now: number) => `${p}${now.toString(36)}${(seq++).toString(36)}`;
 
+const ORE_LIKE = /ore$|^raw_|^(coal|diamond|emerald|lapis_lazuli|redstone|quartz|ancient_debris)$/;
+
 /** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
 export function codeDecision(s: AgentStateStore['state'], ctx: DecideContext, busy: boolean, isStuck: ValidationEnv['isStuck']): DecisionOutput | null {
   if (ctx.from) {
@@ -77,9 +79,17 @@ export function codeDecision(s: AgentStateStore['state'], ctx: DecideContext, bu
   // Work toward a goal with a machine-checkable target: obtain it (or the prerequisite it said to get first).
   const want = s.goals.current?.doneWhen ? /^inventoryHas:([a-z0-9_]+)\s*>=\s*(\d+)$/i.exec(s.goals.current.doneWhen) : null;
   if (want?.[1] && want[2]) {
-    // Follow only the latest obtain: once the prerequisite is in hand, go back to the goal itself.
-    const last = [...s.actionLog].reverse().find((a) => a.skill === 'obtain');
-    const first = last && !last.ok ? last.error?.match(/get ([a-z0-9_]+) first/)?.[1] : undefined;
+    // Follow only the latest attempt: once the prerequisite is in hand (or the ore found), go back to the goal itself.
+    const last = [...s.actionLog].reverse().find((a) => a.skill === 'obtain' || a.skill === 'prospect');
+    const err = last && !last.ok ? (last.error ?? '') : '';
+    const unseen = last?.skill === 'obtain' ? /haven't seen any ([a-z0-9_]+)/.exec(err)?.[1] : undefined;
+    if (unseen && ORE_LIKE.test(unseen) && !isStuck('prospect', { item: unseen })) {
+      return { option: 'work', task: { skill: 'prospect', args: { item: unseen } }, terminate: { maxSeconds: 420 }, rationale: `code default: dig for ${unseen}` };
+    }
+    if ((unseen || (last?.skill === 'prospect' && err)) && !isStuck('explore', { ...EXPLORE_ARGS })) {
+      return { option: 'explore', terminate: { maxSeconds: 90 }, rationale: 'code default: look somewhere else' };
+    }
+    const first = last?.skill === 'obtain' ? /get ([a-z0-9_]+) first/.exec(err)?.[1] : undefined;
     const item = first && !isStuck('obtain', { item: first, qty: 1 }) ? first : want[1];
     const qty = item === want[1] ? Number(want[2]) : 1;
     if (!isStuck('obtain', { item, qty })) {

@@ -4,21 +4,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type AgentState, ModelsConfigSchema, PersonaSchema, type Quirk, type Utterance, dataPaths, loadVersionsConfig, nullLogger } from '@agora/shared';
+import { type ActionRecord, type AgentState, type DecisionOutput, ModelsConfigSchema, PersonaSchema, type Quirk, type Utterance, dataPaths, loadVersionsConfig, nullLogger } from '@agora/shared';
 import { HashEmbedder, LocalEmbedder, LocalRateLimiter, cosine, fromBlob, startLlm, toBlob } from '@agora/llm';
 import type { Body } from '@agora/agent/body/body';
 import { AgentBus } from '@agora/agent/bus';
+import { isInferable } from '@agora/agent/body/sightings';
 import { MemoryDB } from '@agora/agent/memory/db';
 import { Memory, clusterVectors } from '@agora/agent/memory/memory';
-import type { CognitiveController } from '@agora/agent/modules/cc';
-import type { SkillExecutor } from '@agora/agent/modules/executor';
+import { type CognitiveController, codeDecision } from '@agora/agent/modules/cc';
+import { Conversations } from '@agora/agent/modules/conversations';
+import { SkillExecutor } from '@agora/agent/modules/executor';
+import { leversFor } from '@agora/agent/modules/levers';
+import { Talking } from '@agora/agent/modules/talking';
 import { GoalGen, codeGoal } from '@agora/agent/modules/goalGen';
 import { QuirkRunner } from '@agora/agent/modules/quirkRunner';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
 import { pushWorkmem } from '@agora/agent/state/workmem';
-import type { DecisionOutput } from '@agora/shared';
 import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
 
 const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['curious'], lifeGoals: ['build a lighthouse by the sea'] });
@@ -245,7 +248,7 @@ describe('code quirks (§7)', () => {
     return { s, said, impulses, t, qr };
   }
 
-  it('idleEmote: says a line every so often, only when idle and someone can hear', () => {
+  it('idleEmote: says a line every so often, only when free to talk and someone can hear', () => {
     vi.useFakeTimers();
     const lonely = runner([{ hook: 'idleEmote', everySec: 30, say: ['hm-hm-hmm'] }]);
     lonely.qr.start();
@@ -312,3 +315,88 @@ describe('code quirks (§7)', () => {
     r.qr.stop();
   });
 });
+
+describe('no unperceived information (§13 rule 4)', () => {
+  it('lets skills find the ground anywhere but rare blocks only where seen', () => {
+    for (const b of ['stone', 'deepslate', 'dirt', 'sand', 'oak_log', 'birch_leaves', 'crimson_stem']) expect(isInferable(b)).toBe(true);
+    for (const b of ['iron_ore', 'deepslate_diamond_ore', 'chest', 'crafting_table', 'red_bed', 'cobblestone', 'oak_planks', 'poppy']) expect(isInferable(b)).toBe(false);
+  });
+
+  it('code default: digs for ore it has not seen, looks elsewhere when that fails, and goes back to the goal once found', () => {
+    const never = () => false;
+    const rec = (skill: string, args: Record<string, unknown>, ok: boolean, error?: string): ActionRecord => ({
+      id: `${skill}${String(ok)}`,
+      skill,
+      args,
+      expected: '',
+      observed: '',
+      ok,
+      ts: 0,
+      durationMs: 1000,
+      ...(error ? { error } : {}),
+    });
+    const base = createInitialState({ persona, username: 'Pip', now: 0 });
+    const withLog = (log: ActionRecord[]): AgentState => ({
+      ...base,
+      goals: { ...base.goals, current: { id: 'g', text: 'make an iron pickaxe', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'inventoryHas:iron_pickaxe>=1' } },
+      actionLog: log,
+    });
+    const unseen = rec('obtain', { item: 'iron_pickaxe', qty: 1 }, false, "haven't seen any raw_iron around here");
+    expect(codeDecision(withLog([unseen]), {}, false, never)?.task).toEqual({ skill: 'prospect', args: { item: 'raw_iron' } });
+    const failed = rec('prospect', { item: 'raw_iron' }, false, 'water ahead');
+    expect(codeDecision(withLog([unseen, failed]), {}, false, never)?.option).toBe('explore');
+    const found = rec('prospect', { item: 'raw_iron' }, true);
+    expect(codeDecision(withLog([unseen, found]), {}, false, never)?.task).toEqual({ skill: 'obtain', args: { item: 'iron_pickaxe', qty: 1 } });
+    // Stuck on prospecting: explore instead.
+    const stuckProspect = (skill: string) => skill === 'prospect';
+    expect(codeDecision(withLog([unseen]), {}, false, stuckProspect)?.option).toBe('explore');
+  });
+});
+
+describe('Talking with memory (§4.7, §6.5)', () => {
+  it('puts what bears on the line and what is on its mind into the prompt, hearsay labeled', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: "Bram says they're under the big oak." });
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const said: string[] = [];
+    const body = { say: (t: string) => Promise.resolve(void said.push(t)), skill: () => null, run: () => Promise.reject(new Error('unused')) } as unknown as Body;
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0 });
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const queries: string[] = [];
+    const talking = new Talking({
+      store: s,
+      bus,
+      body,
+      logger: nullLogger(),
+      llm: rt.client,
+      conversations,
+      executor,
+      me: 'Pip',
+      rng: () => 0,
+      recall: (text) => {
+        queries.push(text);
+        return Promise.resolve(['Bram said: "the diamonds are under the big oak" (heard from Bram, unverified)']);
+      },
+    });
+    pushWorkmem(s, 'I fought off a zombie', 0.6, 'self_observed');
+    conversations.start();
+    talking.start();
+    bus.emit({
+      type: 'heard',
+      utterance: { id: 'u', convId: '', from: 'Bram', to: ['Pip'], text: 'Pip, where are the diamonds again?', ts: Date.now(), pos: null, volume: 'normal', outOfSight: false, addressedToMe: true },
+    });
+    for (let i = 0; i < 40 && said.length === 0; i++) await wait(50);
+    expect(said).toEqual(["Bram says they're under the big oak."]);
+    expect(queries).toEqual(['Pip, where are the diamonds again?']);
+    const prompt = JSON.stringify(fake.chatRequests()[0]?.body?.messages ?? []);
+    expect(prompt).toContain('On your mind: I fought off a zombie');
+    expect(prompt).toContain('(heard from Bram, unverified)');
+    expect(prompt).toContain('say who told you');
+    talking.stop();
+    conversations.stop();
+    rt.stop();
+  });
+});
+
