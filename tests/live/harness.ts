@@ -23,6 +23,10 @@ export interface LiveServerOptions {
   flat?: boolean;
   /** Extra server.properties overrides. */
   props?: Record<string, string>;
+  /** Extra plugin jars to install (debug tooling). */
+  extraPlugins?: string[];
+  /** Natural monster spawning (off by default so scenarios stay deterministic). */
+  monsters?: boolean;
 }
 
 export interface LiveServer {
@@ -63,6 +67,7 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
   for (const f of [versions.proximityChat.filename, versions.guardPlugin.filename]) {
     fs.copyFileSync(path.join(main.plugins, f), path.join(dir, 'plugins', f));
   }
+  for (const jarPath of opts.extraPlugins ?? []) fs.copyFileSync(jarPath, path.join(dir, 'plugins', path.basename(jarPath)));
   const world = WorldConfigSchema.parse({});
   fs.mkdirSync(path.join(dir, 'plugins', 'ProximityChat'), { recursive: true });
   fs.writeFileSync(
@@ -82,7 +87,6 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
     props.set('level-type', 'minecraft\\:flat');
     props.set('generate-structures', 'false');
   }
-  props.set('spawn-monsters', 'false');
   props.set('max-players', '20');
   for (const [k, v] of Object.entries(opts.props ?? {})) props.set(k, v);
   fs.writeFileSync(path.join(dir, 'server.properties'), renderProperties(props, 'live test'));
@@ -93,6 +97,8 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
   await paper.waitReady(240_000);
   const rcon = new RconClient('127.0.0.1', rconPort, RCON_PASSWORD);
   await rcon.connect();
+  // 26.1 replaced the spawn-monsters property with a gamerule.
+  await rcon.command(`gamerule spawn_monsters ${opts.monsters ? 'true' : 'false'}`);
   return {
     dir,
     host: '127.0.0.1',

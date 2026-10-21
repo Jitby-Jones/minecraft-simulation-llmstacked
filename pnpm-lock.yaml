@@ -4,6 +4,20 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  mineflayer-utils>mineflayer: 4.39.0
+
+patchedDependencies:
+  mineflayer-pathfinder@2.4.5:
+    hash: d294c03d8ff0ac936dbf63425497764a85cfe69a4611c765d523af4d5dc1d6ce
+    path: patches/mineflayer-pathfinder@2.4.5.patch
+  mineflayer@4.39.0:
+    hash: cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3
+    path: patches/mineflayer@4.39.0.patch
+  prismarine-physics@1.11.1:
+    hash: 0d30a0b0eebc0649e77cd68e03abd43cc96c7c76c5213e096d9545ee421d8d77
+    path: patches/prismarine-physics@1.11.1.patch
+
 importers:
 
   .:
@@ -65,10 +79,10 @@ importers:
         version: 3.117.0
       mineflayer:
         specifier: 4.39.0
-        version: 4.39.0
+        version: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
       mineflayer-armor-manager:
         specifier: 2.0.1
-        version: 2.0.1(mineflayer@4.39.0)
+        version: 2.0.1(mineflayer@4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3))
       mineflayer-auto-eat:
         specifier: 5.0.3
         version: 5.0.3(vec3@0.1.10)
@@ -77,10 +91,19 @@ importers:
         version: 1.6.0
       mineflayer-pathfinder:
         specifier: 2.4.5
-        version: 2.4.5
+        version: 2.4.5(patch_hash=d294c03d8ff0ac936dbf63425497764a85cfe69a4611c765d523af4d5dc1d6ce)
       mineflayer-pvp:
         specifier: 1.3.2
-        version: 1.3.2(prismarine-registry@1.12.0)
+        version: 1.3.2
+      prismarine-block:
+        specifier: 1.23.0
+        version: 1.23.0
+      prismarine-entity:
+        specifier: 2.6.0
+        version: 2.6.0
+      prismarine-item:
+        specifier: 1.18.0
+        version: 1.18.0
       vec3:
         specifier: 0.1.10
         version: 0.1.10
@@ -1230,9 +1253,6 @@ packages:
     resolution: {integrity: sha512-S6x5wmcDmsDRRU/c2dkccDwQPXoFczc5+HpQ2lON8pnvHlnvHAHj5WlLVvw6n6vNyHuVugYrFohYxbS+pvFpKQ==}
     engines: {node: '>=10'}
 
-  minecraft-data@2.221.0:
-    resolution: {integrity: sha512-0AhqzbIKb6WqPSF6qBevaPryeWOz545hLxt6q+gfJF8YIQX/YfkyX/nXWhl+pSIS2rTBcQ0RJkRCtTeRzQwHDA==}
-
   minecraft-data@3.117.0:
     resolution: {integrity: sha512-glKv0EEmVwKvJwdNAKAal2P7gi/nijU9rEMp8gJmqYYRVswS6hA0q9566lcGHH07Ocmpqw5bMRbARC25pR13gA==}
 
@@ -1266,10 +1286,6 @@ packages:
 
   mineflayer-utils@0.1.4:
     resolution: {integrity: sha512-8+0dbGAjA6FO62/W80v5k44AuSAcwJUMdpMAAGhjI9AdCDz+UuyTnNkPBncF4EcLY7yUUdtA7m/OXQZKFdWOlg==}
-
-  mineflayer@2.41.0:
-    resolution: {integrity: sha512-IFFy4NgF24FU2PkAwazJphl2F+3gpbpN578ex0sq1XfcBBRge3kCz1UC2KDMjKI+V/8vffOL+OEnug9jt3f7Vw==}
-    engines: {node: '>=14'}
 
   mineflayer@4.39.0:
     resolution: {integrity: sha512-HptE++dIG55aRmT7GIj3QComS6MhEXstE3RJSuYMFhLtobsQhJJsqWmY9ObfiLp84MrS6Q4Em+wUH0rVQMXLJw==}
@@ -1468,9 +1484,6 @@ packages:
 
   prismarine-registry@1.12.0:
     resolution: {integrity: sha512-OC5U6YrflY6OcAWRZEqe2HGZuNp0bIuP7H+oKEHD6rLfKNDxo8Ymx5eh2VvrZWnMVugpwID1Qj/UjA4MoCzNDw==}
-
-  prismarine-windows@1.6.0:
-    resolution: {integrity: sha512-026LG1yR76Xb62kM+W83IWT7Wy2yKplllbXNFBF2m0Lr4k4YpYKnpLb8tRft8MLOLRbYAt/KnxE/YKvRZul7kw==}
 
   prismarine-windows@2.10.0:
     resolution: {integrity: sha512-ssXLGAr7W9JLvvLjYMoo1j4j6AdJaoIb0/HlqkWMWlQqvZJeiS4zyBjJY6+GtR4OzpjkEf6IvF5cNXhHFpbcZQ==}
@@ -2765,8 +2778,6 @@ snapshots:
       escape-string-regexp: 4.0.0
     optional: true
 
-  minecraft-data@2.221.0: {}
-
   minecraft-data@3.117.0: {}
 
   minecraft-folder-path@1.2.0: {}
@@ -2796,15 +2807,15 @@ snapshots:
       - encoding
       - supports-color
 
-  mineflayer-armor-manager@2.0.1(mineflayer@4.39.0):
+  mineflayer-armor-manager@2.0.1(mineflayer@4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)):
     dependencies:
       minecraft-data: 3.117.0
-      mineflayer: 4.39.0
+      mineflayer: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
 
   mineflayer-auto-eat@5.0.3(vec3@0.1.10):
     dependencies:
       '@nxg-org/mineflayer-util-plugin': 1.9.4(vec3@0.1.10)
-      mineflayer: 4.39.0
+      mineflayer: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -2812,79 +2823,55 @@ snapshots:
 
   mineflayer-collectblock@1.6.0:
     dependencies:
-      mineflayer: 4.39.0
-      mineflayer-pathfinder: 2.4.5
+      mineflayer: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
+      mineflayer-pathfinder: 2.4.5(patch_hash=d294c03d8ff0ac936dbf63425497764a85cfe69a4611c765d523af4d5dc1d6ce)
       mineflayer-tool: 1.2.0
     transitivePeerDependencies:
       - encoding
       - supports-color
 
-  mineflayer-pathfinder@2.4.5:
+  mineflayer-pathfinder@2.4.5(patch_hash=d294c03d8ff0ac936dbf63425497764a85cfe69a4611c765d523af4d5dc1d6ce):
     dependencies:
       minecraft-data: 3.117.0
       prismarine-block: 1.23.0
       prismarine-entity: 2.6.0
       prismarine-item: 1.18.0
       prismarine-nbt: 2.8.0
-      prismarine-physics: 1.11.1
+      prismarine-physics: 1.11.1(patch_hash=0d30a0b0eebc0649e77cd68e03abd43cc96c7c76c5213e096d9545ee421d8d77)
       vec3: 0.1.10
     transitivePeerDependencies:
       - supports-color
 
-  mineflayer-pvp@1.3.2(prismarine-registry@1.12.0):
+  mineflayer-pvp@1.3.2:
     dependencies:
-      mineflayer: 4.39.0
-      mineflayer-pathfinder: 2.4.5
-      mineflayer-utils: 0.1.4(prismarine-registry@1.12.0)
+      mineflayer: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
+      mineflayer-pathfinder: 2.4.5(patch_hash=d294c03d8ff0ac936dbf63425497764a85cfe69a4611c765d523af4d5dc1d6ce)
+      mineflayer-utils: 0.1.4
     transitivePeerDependencies:
       - encoding
-      - prismarine-registry
       - supports-color
 
   mineflayer-tool@1.2.0:
     dependencies:
-      mineflayer: 4.39.0
-      mineflayer-pathfinder: 2.4.5
+      mineflayer: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
+      mineflayer-pathfinder: 2.4.5(patch_hash=d294c03d8ff0ac936dbf63425497764a85cfe69a4611c765d523af4d5dc1d6ce)
       prismarine-nbt: 2.8.0
     transitivePeerDependencies:
       - encoding
       - supports-color
 
-  mineflayer-utils@0.1.4(prismarine-registry@1.12.0):
+  mineflayer-utils@0.1.4:
     dependencies:
       '@types/node': 14.18.63
-      mineflayer: 2.41.0(prismarine-registry@1.12.0)
+      mineflayer: 4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3)
       prismarine-entity: 1.2.0
       require-self: 0.2.3
       typescript: 3.9.10
     transitivePeerDependencies:
       - encoding
-      - prismarine-registry
       - supports-color
 
-  mineflayer@2.41.0(prismarine-registry@1.12.0):
-    dependencies:
-      minecraft-data: 2.221.0
-      minecraft-protocol: 1.68.0
-      prismarine-biome: 1.4.0(prismarine-registry@1.12.0)
-      prismarine-block: 1.23.0
-      prismarine-chat: 1.13.0
-      prismarine-chunk: 1.41.0
-      prismarine-entity: 1.2.0
-      prismarine-item: 1.18.0
-      prismarine-physics: 1.11.1
-      prismarine-recipe: 1.5.0(prismarine-registry@1.12.0)
-      prismarine-windows: 1.6.0
-      prismarine-world: 3.7.0
-      protodef: 1.19.0
-      typed-emitter: 1.4.0
-      vec3: 0.1.10
-    transitivePeerDependencies:
-      - encoding
-      - prismarine-registry
-      - supports-color
-
-  mineflayer@4.39.0:
+  mineflayer@4.39.0(patch_hash=cc7654206674625995c6004adb5caa3af8a5b65b2178cd2c34ca8dcbb144e3f3):
     dependencies:
       minecraft-data: 3.117.0
       minecraft-protocol: 1.68.0
@@ -2896,7 +2883,7 @@ snapshots:
       prismarine-entity: 2.6.0
       prismarine-item: 1.18.0
       prismarine-nbt: 2.8.0
-      prismarine-physics: 1.11.1
+      prismarine-physics: 1.11.1(patch_hash=0d30a0b0eebc0649e77cd68e03abd43cc96c7c76c5213e096d9545ee421d8d77)
       prismarine-recipe: 1.5.0(prismarine-registry@1.12.0)
       prismarine-registry: 1.12.0
       prismarine-windows: 2.10.0
@@ -3109,7 +3096,7 @@ snapshots:
     dependencies:
       protodef: 1.19.0
 
-  prismarine-physics@1.11.1:
+  prismarine-physics@1.11.1(patch_hash=0d30a0b0eebc0649e77cd68e03abd43cc96c7c76c5213e096d9545ee421d8d77):
     dependencies:
       minecraft-data: 3.117.0
       prismarine-nbt: 2.8.0
@@ -3134,10 +3121,6 @@ snapshots:
       prismarine-nbt: 2.8.0
     transitivePeerDependencies:
       - supports-color
-
-  prismarine-windows@1.6.0:
-    dependencies:
-      prismarine-item: 1.18.0
 
   prismarine-windows@2.10.0:
     dependencies:

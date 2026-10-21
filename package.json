@@ -56,6 +56,14 @@
       "onnxruntime-node",
       "protobufjs",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "mineflayer-utils>mineflayer": "4.39.0"
+    },
+    "patchedDependencies": {
+      "mineflayer@4.39.0": "patches/mineflayer@4.39.0.patch",
+      "mineflayer-pathfinder@2.4.5": "patches/mineflayer-pathfinder@2.4.5.patch",
+      "prismarine-physics@1.11.1": "patches/prismarine-physics@1.11.1.patch"
+    }
   }
 }

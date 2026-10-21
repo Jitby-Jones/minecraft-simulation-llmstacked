@@ -59,6 +59,9 @@ export const STARTUP_GAMERULES: readonly string[] = [
   // Public news, the same for humans and bots (§15.4, §16.3). 26.1 renamed gamerules to snake_case.
   'gamerule show_death_messages true',
   'gamerule show_advancement_messages true',
+  // Formerly server.properties keys (pvp, enable-command-block), gamerules since 26.1.
+  'gamerule pvp true',
+  'gamerule command_blocks_work false',
 ];
 
 export async function startManagedServer(opts: ManagedServerOptions): Promise<ManagedServer> {

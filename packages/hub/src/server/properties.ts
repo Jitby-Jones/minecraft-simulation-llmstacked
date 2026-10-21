@@ -29,7 +29,11 @@ export interface ServerPropsInput {
   rconPassword: string;
 }
 
-/** The properties agora owns. Everything else in an existing file is left alone. */
+/**
+ * The properties agora owns. Everything else in an existing file is left alone. 26.1 dropped the `pvp`,
+ * `spawn-monsters`, `enable-command-block` and `allow-nether` properties; the first three are gamerules now
+ * (STARTUP_GAMERULES in managed.ts).
+ */
 export function managedProperties(input: ServerPropsInput): Map<string, string> {
   const { world, mode } = input;
   const s = world.server;
@@ -43,7 +47,6 @@ export function managedProperties(input: ServerPropsInput): Map<string, string> 
     ['max-players', String(maxPlayers)],
     ['difficulty', 'hard'],
     ['hardcore', mode === 'live' ? 'true' : 'false'],
-    ['pvp', 'true'],
     ['gamemode', 'survival'],
     ['force-gamemode', 'true'],
     ['server-ip', s.host],
@@ -58,7 +61,6 @@ export function managedProperties(input: ServerPropsInput): Map<string, string> 
     ['view-distance', String(s.viewDistance)],
     ['simulation-distance', String(s.simulationDistance)],
     ['motd', s.motd],
-    ['enable-command-block', 'false'],
     // mineflayer's physics occasionally trips the fly check; vanilla survival clients cannot fly anyway
     ['allow-flight', 'true'],
     ['white-list', 'false'],

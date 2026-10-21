@@ -1,0 +1,156 @@
+// Item knowledge used by code (no LLM): gear tiers for perceived power (§17.4) and armor/weapon choice,
+// plus fuzzy item-name resolution so the CC can say "logs" or "Oak Logs".
+
+const MATERIAL_TIER: Readonly<Record<string, number>> = {
+  leather: 1,
+  wooden: 1,
+  golden: 1.5,
+  copper: 1.75,
+  stone: 2,
+  chainmail: 2.25,
+  iron: 3,
+  diamond: 4,
+  netherite: 5,
+};
+
+export type ArmorSlot = 'head' | 'torso' | 'legs' | 'feet';
+
+const ARMOR_SUFFIX: Readonly<Record<string, ArmorSlot>> = {
+  helmet: 'head',
+  chestplate: 'torso',
+  leggings: 'legs',
+  boots: 'feet',
+};
+
+export function armorSlotOf(itemName: string): ArmorSlot | null {
+  if (itemName === 'turtle_helmet') return 'head';
+  if (itemName === 'elytra') return 'torso';
+  const m = /_(helmet|chestplate|leggings|boots)$/.exec(itemName);
+  return m?.[1] ? (ARMOR_SUFFIX[m[1]] ?? null) : null;
+}
+
+export function materialTier(itemName: string): number {
+  const mat = itemName.split('_')[0] ?? '';
+  return MATERIAL_TIER[mat] ?? (itemName === 'turtle_helmet' ? 2 : 0);
+}
+
+export function armorTier(itemName: string): number {
+  if (!armorSlotOf(itemName) || itemName === 'elytra') return 0;
+  return materialTier(itemName);
+}
+
+/** Melee usefulness; swords and axes by material, plus a few specials. */
+export function weaponTier(itemName: string | null | undefined): number {
+  if (!itemName) return 0;
+  if (itemName === 'trident' || itemName === 'mace') return 4;
+  if (itemName === 'bow' || itemName === 'crossbow') return 2.5;
+  if (itemName.endsWith('_sword')) return materialTier(itemName) + 0.25;
+  if (itemName.endsWith('_axe')) return materialTier(itemName);
+  if (/_(pickaxe|shovel|hoe)$/.test(itemName)) return Math.max(0.5, materialTier(itemName) - 1);
+  return 0;
+}
+
+export function isWeapon(itemName: string): boolean {
+  return weaponTier(itemName) >= 1 && (itemName.endsWith('_sword') || itemName.endsWith('_axe') || itemName === 'trident' || itemName === 'mace');
+}
+
+/**
+ * Visible-gear score in 0..1 (§17.4): mean armor tier over 4 slots plus weapon tier, normalized by netherite.
+ */
+export function gearScore(armor: readonly string[], held: string | null | undefined): number {
+  const slots: Partial<Record<ArmorSlot, number>> = {};
+  for (const a of armor) {
+    const s = armorSlotOf(a);
+    if (s) slots[s] = Math.max(slots[s] ?? 0, armorTier(a));
+  }
+  const armorMean = ((slots.head ?? 0) + (slots.torso ?? 0) + (slots.legs ?? 0) + (slots.feet ?? 0)) / 4;
+  return Math.min(1, (armorMean * 0.65 + weaponTier(held) * 0.35) / 5);
+}
+
+const SYNONYMS: Readonly<Record<string, string>> = {
+  wood: 'log',
+  logs: 'log',
+  log: 'log',
+  plank: 'planks',
+  planks: 'planks',
+  wood_planks: 'planks',
+  cobble: 'cobblestone',
+  rock: 'cobblestone',
+  rocks: 'cobblestone',
+  stones: 'cobblestone',
+  stick: 'stick',
+  sticks: 'stick',
+  iron: 'raw_iron',
+  iron_ore: 'raw_iron',
+  gold: 'raw_gold',
+  copper: 'raw_copper',
+  diamonds: 'diamond',
+  coal_ore: 'coal',
+  food: 'food',
+  meat: 'food',
+  table: 'crafting_table',
+  workbench: 'crafting_table',
+  bed: 'bed',
+  torches: 'torch',
+  wool: 'wool',
+  seeds: 'wheat_seeds',
+  flower: 'flower',
+  flowers: 'flower',
+};
+
+/** Normalizes "Oak Logs", "minecraft:oak_log", "oak log" → "oak_log"; "wood"/"logs" → "log" (a category). */
+export function normalizeItemName(raw: string): string {
+  let n = raw.trim().toLowerCase().replace(/^minecraft:/, '').replace(/[\s-]+/g, '_');
+  const direct = SYNONYMS[n];
+  if (direct) return direct;
+  if (n.endsWith('es') && SYNONYMS[n.slice(0, -2)]) return SYNONYMS[n.slice(0, -2)] ?? n;
+  if (n.endsWith('s') && !n.endsWith('ss') && n !== 'glass' && !n.endsWith('_planks') && n !== 'planks') {
+    const singular = n.slice(0, -1);
+    n = SYNONYMS[singular] ?? singular;
+  }
+  return n;
+}
+
+/** Category names that match a family of items/blocks. */
+export const CATEGORIES: Readonly<Record<string, (name: string) => boolean>> = {
+  log: (n) => /_(log|stem)$/.test(n) && !n.startsWith('stripped_'),
+  planks: (n) => n.endsWith('_planks'),
+  wool: (n) => n.endsWith('_wool'),
+  bed: (n) => n.endsWith('_bed'),
+  flower: (n) =>
+    ['dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'oxeye_daisy', 'cornflower', 'lily_of_the_valley'].includes(n) ||
+    n.endsWith('_tulip'),
+  leaves: (n) => n.endsWith('_leaves'),
+  sapling: (n) => n.endsWith('_sapling'),
+};
+
+export interface ItemMatcher {
+  label: string;
+  matches(name: string): boolean;
+}
+
+/**
+ * Normalizes a block name: case, namespace, spaces and plurals only. Item synonyms ("iron_ore" → "raw_iron")
+ * must not apply here: a block is named for what it is, not for what it drops.
+ */
+export function normalizeBlockName(raw: string): string {
+  let n = raw.trim().toLowerCase().replace(/^minecraft:/, '').replace(/[\s-]+/g, '_');
+  if (n === 'logs' || n === 'wood') return 'log';
+  if (n.endsWith('s') && !n.endsWith('ss') && n !== 'glass' && !n.endsWith('_planks') && n !== 'planks' && !n.endsWith('_leaves')) n = n.slice(0, -1);
+  return n;
+}
+
+export function blockMatcher(raw: string): ItemMatcher {
+  const n = normalizeBlockName(raw);
+  const cat = CATEGORIES[n];
+  if (cat) return { label: n, matches: cat };
+  return { label: n, matches: (x) => x === n };
+}
+
+export function itemMatcher(raw: string, isFood: (name: string) => boolean = () => false): ItemMatcher {
+  const n = normalizeItemName(raw);
+  if (n === 'food') return { label: 'food', matches: isFood };
+  const cat = CATEGORIES[n];
+  if (cat) return { label: n, matches: cat };
+  return { label: n, matches: (x) => x === n };
+}

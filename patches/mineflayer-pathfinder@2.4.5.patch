@@ -1,0 +1,15 @@
+diff --git a/lib/movements.js b/lib/movements.js
+index a7e35053cde64e3cd32880af2aafa5f03e919ff8..a558220c5163716a05fa0c293485656e1921f7d3 100644
+--- a/lib/movements.js
++++ b/lib/movements.js
+@@ -427,6 +427,10 @@ class Movements {
+     cost2 += this.safeOrBreak(blockC2, toBreak2)
+     if (blockD2.height - block0.height > 1.2) cost2 += this.safeOrBreak(blockD2, toBreak2)
+ 
++    // A diagonal step needs both side columns free. Cutting past a solid block's corner with only one side
++    // open collides with that corner (0.6-wide hitbox), and re-planning picks the same step forever.
++    if (cost1 > 0 || cost2 > 0) return
++
+     if (cost1 < cost2) {
+       cost += cost1
+       toBreak.push(...toBreak1)
