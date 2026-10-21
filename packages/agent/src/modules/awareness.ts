@@ -63,9 +63,23 @@ export class ActionAwareness {
     return [...this.stuckUntil.entries()].filter(([, s]) => s.until > t).map(([k, s]) => `${k}: ${s.why}`);
   }
 
+  private readonly instant = new Map<string, number[]>();
+
   private onRecord(r: ActionRecord): void {
     const key = taskKey(r.skill, r.args);
     const t = this.now();
+    // Loop cap (§13 rule 6): the same task "succeeding" instantly over and over changes nothing.
+    if (r.ok && r.durationMs < 1500 && r.skill !== 'wait' && r.skill !== 'say' && r.skill !== 'look') {
+      const xs = [...(this.instant.get(key) ?? []), t].filter((x) => t - x < 120_000);
+      this.instant.set(key, xs);
+      if (xs.length >= 3) {
+        this.instant.delete(key);
+        this.stuckUntil.set(key, { until: t + (this.o.stuckForMs ?? 5 * 60_000), why: 'doing it again changes nothing' });
+        pushWorkmem(this.o.store, `${describe(r)} keeps finishing instantly; nothing changes. Do something else`, 0.7, 'self_observed', { now: t });
+        this.o.bus.emit({ type: 'stuck', skill: r.skill });
+        return;
+      }
+    }
     if (r.ok) {
       this.fails.delete(key);
       if (this.stuckUntil.delete(key) && this.stuckList().length === 0) {

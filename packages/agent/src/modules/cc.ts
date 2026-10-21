@@ -77,10 +77,9 @@ export function codeDecision(s: AgentStateStore['state'], ctx: DecideContext, bu
   // Work toward a goal with a machine-checkable target: obtain it (or the prerequisite it said to get first).
   const want = s.goals.current?.doneWhen ? /^inventoryHas:([a-z0-9_]+)\s*>=\s*(\d+)$/i.exec(s.goals.current.doneWhen) : null;
   if (want?.[1] && want[2]) {
-    const first = [...s.actionLog]
-      .reverse()
-      .find((a) => a.skill === 'obtain' && !a.ok)
-      ?.error?.match(/get ([a-z0-9_]+) first/)?.[1];
+    // Follow only the latest obtain: once the prerequisite is in hand, go back to the goal itself.
+    const last = [...s.actionLog].reverse().find((a) => a.skill === 'obtain');
+    const first = last && !last.ok ? last.error?.match(/get ([a-z0-9_]+) first/)?.[1] : undefined;
     const item = first && !isStuck('obtain', { item: first, qty: 1 }) ? first : want[1];
     const qty = item === want[1] ? Number(want[2]) : 1;
     if (!isStuck('obtain', { item, qty })) {
@@ -103,7 +102,7 @@ export interface CCOptions {
   /** People perceivable now (seen or heard). */
   canPerceive: (name: AgentName) => boolean;
   /** Retrieved memories for the packet (M4). */
-  memories?: (state: AgentStateStore['state']) => string[];
+  memories?: (k: number) => Promise<string[]>;
   heartbeatMs?: number;
   now?: () => number;
 }
@@ -158,10 +157,26 @@ export class CognitiveController {
     return goal;
   }
 
+  /** A quirk or emotion takes over briefly (source 'impulse'); the CC resumes the plan when it ends. */
+  impulse(out: DecisionOutput): boolean {
+    const s = this.o.store.state;
+    if (s.flags.inDanger) return false;
+    const env: ValidationEnv = { me: this.o.me, isStuck: (k, a) => this.o.awareness.isStuckOn(k, a), canPerceive: this.o.canPerceive };
+    if (validateDecision(out, env)) return false;
+    this.apply(out, 'impulse', {});
+    return true;
+  }
+
   trigger(reason: string, ctx: DecideContext = {}): void {
     if (this.o.store.state.flags.inDanger) {
       // The reflex owns the body; decide when it's over (§4.5).
       this.deferred = { reason, ctx };
+      return;
+    }
+    // Rate cap (§13 rule 6): non-urgent decisions at most every 2 s.
+    const wait = ctx.urgent ? 0 : this.lastDecisionAt + 2000 - this.now();
+    if (wait > 0) {
+      setTimeout(() => void this.flight.run('cc', () => this.decide(reason, ctx)), wait).unref();
       return;
     }
     void this.flight.run('cc', () => this.decide(reason, ctx));
@@ -190,7 +205,8 @@ export class CognitiveController {
     if (this.o.llm && !s.flags.codeOnly) {
       const tier = reason.startsWith('new goal') && L.planningBurst ? 'L3' : L.ccTier;
       const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}\n\n${DECISION_FORMAT}`;
-      const packet = buildPacket({ state: s, levers: L, reason, stuck: this.o.awareness.stuckList(), memories: this.o.memories?.(s), now: this.now() });
+      const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
+      const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, now: this.now() });
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         { role: 'user', content: packet },

@@ -35,6 +35,10 @@ export function buildPacket(i: PacketInput): string {
 
   const g = s.goals.current;
   out.push(`Current goal: ${g ? g.text : 'none set'}${g?.parent ? ` (part of: ${s.goals.history.find((h) => h.id === g.parent)?.text ?? g.parent})` : ''}`);
+  const opt = s.option;
+  if (opt?.status === 'running') {
+    out.push(`Doing now: ${opt.option}${opt.skill ? ` ${opt.skill} ${JSON.stringify(opt.args ?? {})}` : ''}${opt.targetAgent ? ` with ${opt.targetAgent}` : ''}${opt.progress ? ` (${opt.progress})` : ''}`);
+  }
   if (s.taskQueue.length > 0) {
     out.push(`Planned tasks: ${s.taskQueue.slice(0, L.tasks).map((t) => `${t.skill} ${JSON.stringify(t.args)}${t.note ? ` (${t.note})` : ''}`).join('; ')}`);
   }

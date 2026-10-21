@@ -152,6 +152,7 @@ export class SkillExecutor {
         ...(r.error ? { error: r.error } : r.mismatch ? { error: `expected ${r.expected}, saw ${r.observed}` } : {}),
       };
       store.update('actionLog', (log) => [...log, rec as ActionRecord].slice(-ACTION_LOG), `action ${r.skill}`);
+      logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');
       bus.emit({ type: 'actionRecorded', record: rec });
       if (opt.option === 'talk' && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
         step = { skill: 'wait', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)) } };

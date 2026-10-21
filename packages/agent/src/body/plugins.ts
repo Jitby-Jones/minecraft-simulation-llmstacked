@@ -46,6 +46,23 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = []): Moveme
   m.scafoldingBlocks = SCAFFOLD.map((n) => bot.registry.itemsByName[n]?.id).filter((v): v is number => v !== undefined);
   const rules: PathCostRule[] = pathCostRules(quirks);
   if (rules.length > 0) {
+    // A quirk steers away from places that differ from where the bot stands ("afraid of the dark" avoids dark
+    // areas while it's in the light). Where it already is in such a place, every path is equally bad; a uniform
+    // penalty would only make the search crawl (superflat worlds lie below y=0; outdoors is dark at night).
+    let here = { at: 0, active: rules.map(() => false) };
+    const selfActive = (): boolean[] => {
+      if (Date.now() - here.at < 1000) return here.active;
+      const feet = bot.blockAt(bot.entity.position);
+      const env = {
+        lightLevel: feet ? blockLight(feet, bot.time.timeOfDay) : 15,
+        timeOfDay: bot.time.timeOfDay,
+        health: bot.health,
+        food: bot.food,
+        y: Math.floor(bot.entity.position.y),
+      };
+      here = { at: Date.now(), active: rules.map((r) => r.condition(env)) };
+      return here.active;
+    };
     m.exclusionAreasStep.push((block: Block) => {
       const env = {
         lightLevel: blockLight(block, bot.time.timeOfDay),
@@ -54,8 +71,11 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = []): Moveme
         food: bot.food,
         y: block.position.y,
       };
+      const self = selfActive();
       let extra = 0;
-      for (const r of rules) if (r.condition(env)) extra += r.extraCost;
+      rules.forEach((r, i) => {
+        if (!self[i] && r.condition(env)) extra += r.extraCost;
+      });
       return extra;
     });
   }

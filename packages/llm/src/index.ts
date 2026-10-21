@@ -12,3 +12,4 @@ export * from './singleFlight';
 export * from './start';
 export * from './tiers';
 export * from './usage';
+export * from './embeddings';
