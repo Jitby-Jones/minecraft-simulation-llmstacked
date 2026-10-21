@@ -16,7 +16,7 @@ import {
   loadWorldConfig,
 } from '@agora/shared';
 import { bindingWarning, eulaAccepted, findJava, readModeState, verifyInstall } from '@agora/hub';
-import { checkSubscriptionLock } from './lib/doctor-llm';
+import { checkSubscriptionLock, checkTiers } from './lib/doctor-llm';
 
 type Status = 'ok' | 'warn' | 'fail';
 const results: { status: Status; label: string; detail: string }[] = [];
@@ -129,6 +129,8 @@ async function main(): Promise<void> {
     const lock = await checkSubscriptionLock(key, models);
     report(lock.status, 'Subscription lock', lock.detail);
   }
+  const tiers = await checkTiers(models, key ?? undefined);
+  report(tiers.status, 'Model tiers', tiers.detail);
 
   const icon: Record<Status, string> = { ok: ' OK ', warn: 'WARN', fail: 'FAIL' };
   for (const r of results) console.log(`[${icon[r.status]}] ${r.label.padEnd(18)} ${r.detail}`);

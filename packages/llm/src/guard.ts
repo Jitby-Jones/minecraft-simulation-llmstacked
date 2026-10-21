@@ -36,7 +36,8 @@ const ENDPOINTS: readonly EndpointRule[] = [
   { methods: ['GET'], path: '/api/subscription/v1/usage' },
   // Metadata only (no inference, no billing).
   { methods: ['GET'], path: '/api/v1/models', query: ['detailed'] },
-  { methods: ['GET', 'POST'], path: '/api/v1/check-balance' },
+  // Balance lookup (checked live: POST /api/check-balance with x-api-key; /api/v1/check-balance is a 404).
+  { methods: ['POST'], path: '/api/check-balance' },
   { methods: ['POST'], path: '/api/subscription/v1/embeddings', embeddingsOnly: true },
 ];
 

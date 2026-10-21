@@ -18,7 +18,8 @@ describe('endpoint allowlist (§22.5)', () => {
     expect(() => checkEndpoint('GET', `${SUBSCRIPTION_BASE_URL}/models?detailed=true`, false)).not.toThrow();
     expect(() => checkEndpoint('GET', `${SUBSCRIPTION_BASE_URL}/usage`, false)).not.toThrow();
     expect(() => checkEndpoint('GET', 'https://nano-gpt.com/api/v1/models?detailed=true', false)).not.toThrow();
-    expect(() => checkEndpoint('GET', 'https://nano-gpt.com/api/v1/check-balance', false)).not.toThrow();
+    expect(() => checkEndpoint('POST', 'https://nano-gpt.com/api/check-balance', false)).not.toThrow();
+    expect(() => checkEndpoint('GET', 'https://nano-gpt.com/api/v1/check-balance', false)).toThrow();
   });
 
   it('never allows inference outside the subscription path', () => {
