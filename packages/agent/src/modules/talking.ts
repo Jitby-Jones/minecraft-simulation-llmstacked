@@ -7,6 +7,7 @@
 import { type AgentName, type ConvId, type Decision, type Logger, type SpeechIntent, type Utterance, capWords } from '@agora/shared';
 import type { ChatMessage, LlmClient } from '@agora/llm';
 import { SingleFlight } from '@agora/llm';
+import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
 import { talkPolicy } from '../state/policies';
@@ -20,6 +21,8 @@ export const PROMISE_RE =
 export const GIVEAWAY_RE = /\b(as an ai|an ai\b|ai model|a bot\b|language model|chatbot|virtual assistant|openai|anthropic|llm\b|i am an? (ai|bot|program))\b/i;
 export const REQUEST_RE =
   /\b(can|could|would|will) you\b|\b(give|bring|lend|show|teach|help) me\b|\bwanna\b|\bwant to\b|\blet'?s\b|\btrade\b|\bfollow me\b|\bcome (here|with|over)\b|\bdo you have\b|\bi need (some|a|an|any)\b/i;
+
+const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 
 export function looksLikePromise(text: string): boolean {
   return PROMISE_RE.test(text);
@@ -37,6 +40,8 @@ export function cleanReply(raw: string, me: string, maxWords: number): string {
   t = t.replace(/^[/\\]+/, '');
   return capWords(t, maxWords);
 }
+
+const GREETINGS: readonly string[] = ['hey!', 'hi there', 'hello!', 'oh, hey', 'hey, how is it going?'];
 
 const CANNED: Readonly<Record<SpeechIntent['stance'], readonly string[]>> = {
   agree: ['sure', 'ok, can do', 'yeah, alright'],
@@ -91,6 +96,8 @@ export class Talking {
   }
 
   start(): void {
+    this.offs.push(this.o.bus.on('heard', () => this.heardLines++));
+    this.offs.push(this.o.bus.on('overheard', (e) => this.onOverheard(e.utterance)));
     this.offs.push(this.o.bus.on('addressed', (e) => this.onAddressed(e.utterance)));
     this.offs.push(this.o.bus.on('decision', (e) => this.onDecision(e.decision)));
     this.offs.push(
@@ -115,6 +122,66 @@ export class Talking {
   private speakerBusy(name: AgentName): boolean {
     const t = this.now();
     return this.o.store.state.perception.observedActions.some((a) => a.actor === name && t - a.ts < 3000 && (a.kind === 'dig' || a.kind === 'swing'));
+  }
+
+  private heardLines = 0;
+  /** heardLines at our last unaddressed interjection. */
+  private lastChime = -100;
+
+  /**
+   * §6.2 group floor control: a line not addressed to us. An unclear one gets a tiny L1 check when there is a
+   * model; one meant for us in particular is answered right away. Otherwise wait 1.5–4 s and chime in only if
+   * nobody else has answered, at most once per three turns, and lines aimed at someone else rarely.
+   */
+  private onOverheard(u: Utterance): void {
+    const s = this.o.store.state;
+    if (s.flags.inDanger || u.volume === 'whisper' || this.heardLines - this.lastChime < 3) return;
+    if (u.heardAs === 'other' && this.rng() > s.self.persona.big5.extraversion * 0.3) return;
+    if (u.heardAs !== 'other' && u.heardAs !== 'unsure') return;
+    const go = async () => {
+      if (u.heardAs === 'unsure' && this.o.llm && !s.flags.codeOnly && this.busyLevel() !== 'critical') {
+        const forMe = await this.classify(u);
+        if (forMe) {
+          this.lastChime = this.heardLines;
+          this.o.conversations.adopt(u);
+          return;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 1500 + this.rng() * 2500));
+      if (this.someoneAnswered(u) || this.heardLines - this.lastChime < 3) return;
+      this.lastChime = this.heardLines;
+      this.o.conversations.adopt(u);
+    };
+    void go().catch((err: unknown) => this.o.logger.info({ module: 'talking', err: String(err) }, 'interjection failed'));
+  }
+
+  /** Someone other than the speaker (and us) spoke after `u`: the floor is taken. */
+  private someoneAnswered(u: Utterance): boolean {
+    return this.o.store.state.perception.heardSpeech.some((x) => x.ts > u.ts && x.from !== u.from && x.from !== this.o.me);
+  }
+
+  /** Tiny L1 check on an unclear line: meant for me in particular? (General questions to everyone are not.) */
+  private async classify(u: Utterance): Promise<boolean> {
+    const llm = this.o.llm;
+    if (!llm) return false;
+    const s = this.o.store.state;
+    const around = this.o.conversations.active().flatMap((c) => c.participants).filter((p) => p !== this.o.me);
+    const r = await llm.call<{ addressedToMe: boolean }>({
+      tier: 'L1',
+      module: 'talking',
+      agent: this.o.me,
+      schema: AddressedSchema,
+      schemaName: 'addressed',
+      fallback: () => ({ addressedToMe: false }),
+      messages: [
+        {
+          role: 'system',
+          content: `You are ${s.self.persona.name}. Decide whether a line someone said nearby is meant for you in particular. A general question to everyone counts as false. JSON: {"addressedToMe": true|false}`,
+        },
+        { role: 'user', content: `${u.from} said: "${u.text}". People around: ${[...new Set(around)].join(', ') || 'unknown'}.` },
+      ],
+    });
+    return r.ok && r.value.addressedToMe;
   }
 
   private onAddressed(u: Utterance): void {
@@ -201,6 +268,11 @@ export class Talking {
       if (!conv || conv.status === 'ended') return;
       const text = await this.compose(convId, incoming, intent);
       if (!text) return;
+      // Chiming in (floor control): someone else may have answered while we were thinking.
+      if (incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me') && incoming.some((u) => this.someoneAnswered(u))) {
+        this.o.logger.info({ module: 'talking' }, 'someone else answered first; staying quiet');
+        return;
+      }
       await this.send(convId, text, intent.volume);
     });
   }
@@ -220,9 +292,9 @@ export class Talking {
     this.o.conversations.noteOwnUtterance(convId, text);
   }
 
-  private canned(intent: SpeechIntent): string {
+  private canned(intent: SpeechIntent, opening = false): string {
     const persona = this.o.store.state.self.persona;
-    const pool = intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
+    const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
     if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
       return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
     }
@@ -234,7 +306,7 @@ export class Talking {
     const s = this.o.store.state;
     const persona = s.self.persona;
     const llm = this.o.llm;
-    if (!llm) return this.canned(intent);
+    if (!llm) return this.canned(intent, incoming.length === 0 && (s.conversations[convId]?.transcript.length ?? 0) === 0);
     const conv = s.conversations[convId];
     const transcript = (conv?.transcript ?? []).slice(-8).map((u) => `${u.from === this.o.me ? 'You' : u.from}: ${u.text}`);
     const activity = s.option ? `${s.option.option}${s.option.skill ? ` (${s.option.skill})` : ''}${s.option.progress ? `, ${s.option.progress}` : ''}` : 'nothing in particular';

@@ -9,6 +9,7 @@
 import path from 'node:path';
 import {
   type Persona,
+  agentDbPath,
   createLogger,
   dataPaths,
   getNanoGptKey,
@@ -63,7 +64,7 @@ async function main(): Promise<void> {
     dims: versions.embeddingModel.dims,
     logger,
   });
-  const db = new MemoryDB(path.join(paths.agents, username, 'memory.sqlite'));
+  const db = new MemoryDB(agentDbPath(paths, username));
   const goal = arg('goal');
   const agent = new Agent({ body, persona, username, llm: rt?.client ?? null, logger, world, governor: rt?.governor, memory: { db, embedder }, goalGen: !goal });
   agent.start();

@@ -22,6 +22,7 @@ import {
   resolveTiers,
   statusFromUsage,
 } from '@agora/llm';
+import { MODULE_PRIORITY } from '@agora/shared';
 
 const usage = (weekly: number | null, extra: Partial<Usage> = {}): Usage => ({
   active: true,
@@ -116,8 +117,12 @@ describe('circuit breaker, rate limiter, single-flight', () => {
   it('serves waiters by module priority (Talking first) and slows down after a 429', async () => {
     const l = new LocalRateLimiter({ rps: 50, burst: 1 });
     const order: string[] = [];
-    await l.acquire(0);
-    const p = [l.acquire(5).then(() => order.push('reflection')), l.acquire(1).then(() => order.push('cc')), l.acquire(0).then(() => order.push('talking'))];
+    await l.acquire(MODULE_PRIORITY.talking);
+    const p = [
+      l.acquire(MODULE_PRIORITY.reflection).then(() => order.push('reflection')),
+      l.acquire(MODULE_PRIORITY.cc).then(() => order.push('cc')),
+      l.acquire(MODULE_PRIORITY.talking).then(() => order.push('talking')),
+    ];
     await Promise.all(p);
     expect(order).toEqual(['talking', 'cc', 'reflection']);
     l.backOff();

@@ -4,6 +4,7 @@
 import { type Logger, type Quirk, type Random, type Volume, SeededRandom, seedFromString } from '@agora/shared';
 import type { Bot } from 'mineflayer';
 import type { Movements } from 'mineflayer-pathfinder';
+import type { Vec3 } from 'vec3';
 import { type BodyOptions, connectBody, disconnectBody } from './bot';
 import { ChatOut, type ChatOutOptions } from './chatOut';
 import { createMovements, loadBodyPlugins } from './plugins';
@@ -48,6 +49,8 @@ export class Body {
   readonly chat: ChatOut;
   readonly reflexes: ReflexController;
   readonly rng: Random;
+  /** Where this body first appeared: exploring stays within reach of it. */
+  home: Vec3 | null = null;
   private quirks: readonly Quirk[];
   private cachedMovements: Movements | null = null;
 
@@ -67,6 +70,7 @@ export class Body {
     const bot = await connectBody(cfg);
     loadBodyPlugins(bot);
     const body = new Body(bot, cfg.logger, cfg, { ...DEFAULT_REFLEX_HOOKS, ...hooks });
+    body.home = bot.entity.position.clone();
     return body;
   }
 
@@ -118,6 +122,7 @@ export class Body {
       slipChance: opts.slipChance ?? 0,
       progress: opts.progress,
       planDepth: opts.planDepth,
+      home: this.home,
     });
   }
 

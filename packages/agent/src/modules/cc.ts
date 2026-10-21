@@ -57,7 +57,20 @@ const newId = (p: string, now: number) => `${p}${now.toString(36)}${(seq++).toSt
 const ORE_LIKE = /ore$|^raw_|^(coal|diamond|emerald|lapis_lazuli|redstone|quartz|ancient_debris)$/;
 
 /** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
-export function codeDecision(s: AgentStateStore['state'], ctx: DecideContext, busy: boolean, isStuck: ValidationEnv['isStuck']): DecisionOutput | null {
+export interface SocialChance {
+  /** People in range this agent may start a conversation with now (pair cooldowns respected). */
+  candidates: readonly AgentName[];
+  /** Uniform 0..1, compared with persona.social.initiateChance. */
+  roll: number;
+}
+
+export function codeDecision(
+  s: AgentStateStore['state'],
+  ctx: DecideContext,
+  busy: boolean,
+  isStuck: ValidationEnv['isStuck'],
+  social?: SocialChance,
+): DecisionOutput | null {
   if (ctx.from) {
     return {
       option: busy ? (s.option?.option ?? 'rest') : 'rest',
@@ -80,7 +93,8 @@ export function codeDecision(s: AgentStateStore['state'], ctx: DecideContext, bu
   const want = s.goals.current?.doneWhen ? /^inventoryHas:([a-z0-9_]+)\s*>=\s*(\d+)$/i.exec(s.goals.current.doneWhen) : null;
   if (want?.[1] && want[2]) {
     // Follow only the latest attempt: once the prerequisite is in hand (or the ore found), go back to the goal itself.
-    const last = [...s.actionLog].reverse().find((a) => a.skill === 'obtain' || a.skill === 'prospect');
+    // Interruptions (an impulse, a reflex) are not results; after looking around, try the goal again.
+    const last = [...s.actionLog].reverse().find((a) => ['obtain', 'prospect', 'explore'].includes(a.skill) && !a.error?.startsWith('aborted'));
     const err = last && !last.ok ? (last.error ?? '') : '';
     const unseen = last?.skill === 'obtain' ? /haven't seen any ([a-z0-9_]+)/.exec(err)?.[1] : undefined;
     if (unseen && ORE_LIKE.test(unseen) && !isStuck('prospect', { item: unseen })) {
@@ -96,6 +110,17 @@ export function codeDecision(s: AgentStateStore['state'], ctx: DecideContext, bu
       return { option: 'work', task: { skill: 'obtain', args: { item, qty } }, terminate: { maxSeconds: 600 }, rationale: `code default: get ${item} for the goal` };
     }
     return { option: 'explore', terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal, look around' };
+  }
+  // Nothing to work on: maybe say hello to someone nearby (§6.2 conversations start from the talk option).
+  const who = social?.candidates[0];
+  if (who && social.roll < s.self.persona.social.initiateChance) {
+    return {
+      option: 'talk',
+      target: { agent: who },
+      speechIntent: { stance: 'chat', gist: `say hello to ${who} and chat a little`, mayCommit: false },
+      terminate: { maxSeconds: 90 },
+      rationale: `code default: nothing to do, ${who} is here`,
+    };
   }
   return { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'code default: nothing to do' };
 }
@@ -115,6 +140,9 @@ export interface CCOptions {
   memories?: (k: number) => Promise<string[]>;
   /** Brings the bot's own snapshot up to date before deciding (perception otherwise lags up to 250 ms). */
   refreshSelf?: () => void;
+  /** People in range this agent may start talking to (for the code default's hello). */
+  socialCandidates?: () => AgentName[];
+  rng?: () => number;
   heartbeatMs?: number;
   now?: () => number;
 }
@@ -127,8 +155,11 @@ export class CognitiveController {
   private deferred: { reason: string; ctx: DecideContext } | null = null;
   private readonly now: () => number;
 
+  private readonly rng: () => number;
+
   constructor(private readonly o: CCOptions) {
     this.now = o.now ?? Date.now;
+    this.rng = o.rng ?? Math.random;
   }
 
   start(): void {
@@ -260,7 +291,8 @@ export class CognitiveController {
       }
     }
     if (!out) {
-      out = codeDecision(store.state, ctx, busy, isStuck);
+      const candidates = this.o.socialCandidates?.() ?? [];
+      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng() });
       source = 'default';
       if (out && validateDecision(out, env)) out = null;
     }

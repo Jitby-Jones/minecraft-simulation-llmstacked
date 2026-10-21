@@ -2,11 +2,11 @@
 // local bucket of 20/N rps. Waiters are served by module priority (Talking first). After a 429 the rate drops by
 // 20 % for 10 minutes (§22.6).
 
-import { sleep } from '@agora/shared';
+import { type LlmModule, sleep } from '@agora/shared';
 
 export interface TokenSource {
-  /** Resolves when a request may go out. Rejects if the signal fires first. */
-  acquire(priority: number, signal?: AbortSignal): Promise<void>;
+  /** Resolves when a request may go out; higher priority is served first (MODULE_PRIORITY). Rejects if the signal fires first. */
+  acquire(priority: number, signal?: AbortSignal, module?: LlmModule): Promise<void>;
   /** A 429 came back: lower the rate. */
   backOff?(): void;
 }
@@ -76,7 +76,7 @@ export class LocalRateLimiter implements TokenSource {
         signal.addEventListener('abort', w.onAbort, { once: true });
       }
       this.waiters.push(w);
-      this.waiters.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+      this.waiters.sort((a, b) => b.priority - a.priority || a.seq - b.seq);
       void this.pump();
     });
   }

@@ -88,6 +88,15 @@ export class SkillExecutor {
     this.o.store.on('change', onChange);
     this.offs.push(() => this.o.store.off('change', onChange));
     this.offs.push(this.o.bus.on('danger', () => this.abort('danger')));
+    // A talk option is over when its conversation is.
+    this.offs.push(
+      this.o.bus.on('conversationEnded', (e) => {
+        const opt = this.current?.opt;
+        const who = opt?.targetAgent;
+        if (opt?.option !== 'talk' || !who) return;
+        if (this.o.store.state.conversations[e.convId]?.participants.includes(who)) this.abort('conversation over');
+      }),
+    );
   }
 
   stop(): void {
@@ -168,7 +177,7 @@ export class SkillExecutor {
     clearInterval(watch);
     const reason = me.reason ?? (ok ? 'done' : (rec?.error ?? 'failed'));
     // A condition that came true or a timer counts as a normal end, not a failure.
-    const success = ok || reason.startsWith('until ') || (reason === 'time is up' && ['rest', 'follow', 'talk', 'explore'].includes(opt.option));
+    const success = ok || reason.startsWith('until ') || reason === 'conversation over' || (reason === 'time is up' && ['rest', 'follow', 'talk', 'explore'].includes(opt.option));
     if (this.current === me) this.current = null;
     store.update(
       'option',

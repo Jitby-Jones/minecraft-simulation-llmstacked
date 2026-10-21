@@ -73,6 +73,9 @@ export const follow = defineSkill({
   },
 });
 
+/** How far exploring may take a bot from where it first appeared. */
+const MAX_ROAM = 96;
+
 export const explore = defineSkill({
   name: 'explore',
   description: 'explore {distance?} — walk somewhere new',
@@ -83,7 +86,12 @@ export const explore = defineSkill({
   async run(ctx, args) {
     const { bot } = ctx;
     const start = bot.entity.position.clone();
-    const angle = ctx.rng.next() * Math.PI * 2;
+    let angle = ctx.rng.next() * Math.PI * 2;
+    // Roam, but not off the map: beyond MAX_ROAM from home, head back toward it (give or take 60°).
+    const home = ctx.home;
+    if (home && Math.hypot(start.x + Math.cos(angle) * args.distance - home.x, start.z + Math.sin(angle) * args.distance - home.z) > MAX_ROAM) {
+      angle = Math.atan2(home.z - start.z, home.x - start.x) + (ctx.rng.next() - 0.5) * (Math.PI / 1.5);
+    }
     const tx = Math.round(start.x + Math.cos(angle) * args.distance);
     const tz = Math.round(start.z + Math.sin(angle) * args.distance);
     bot.pathfinder.setMovements(ctx.movements());

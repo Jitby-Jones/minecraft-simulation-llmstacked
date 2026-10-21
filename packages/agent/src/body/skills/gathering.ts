@@ -7,7 +7,7 @@ import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, blockIdsNamed } from '../world';
-import { abortable, errMsg, goals, stopMotion, throwIfAborted } from './util';
+import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 interface CollectBlockApi {
@@ -43,6 +43,27 @@ export function toolNameFor(bot: Bot, block: Block): string {
     if (n) return n;
   }
   return names[0] ?? 'better tool';
+}
+
+async function breakAndCollect(ctx: SkillContext, b: Block, matcher: ItemMatcher): Promise<void> {
+  const { bot } = ctx;
+  await gotoNear(ctx, b.position, 1.5, 20_000);
+  const fresh = bot.blockAt(b.position);
+  if (fresh?.name !== b.name) return;
+  await abortable(ctx.signal, bot.dig(fresh, true), () => bot.stopDigging());
+  for (let i = 0; i < 10; i++) {
+    const drop = bot.nearestEntity((e) => {
+      if (e.name !== 'item' || e.position.distanceTo(b.position.offset(0.5, 0, 0.5)) > 2.5) return false;
+      const it = (e as unknown as { getDroppedItem(): { name: string } | null }).getDroppedItem();
+      return Boolean(it && matcher.matches(it.name));
+    });
+    if (drop) {
+      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 10_000), () => stopMotion(bot));
+      await waitMs(ctx, 300);
+      return;
+    }
+    await waitMs(ctx, 100);
+  }
 }
 
 async function collectUntil(
@@ -95,10 +116,16 @@ async function collectUntil(
     ctx.progress(`digging ${batch.length} ${batch[0]?.name ?? label}`);
     bot.pathfinder.setMovements(ctx.movements());
     try {
-      await abortable(ctx.signal, collector(bot).collect(batch, { ignoreNoPath: true }), () => {
-        void collector(bot).cancelTask();
-        stopMotion(bot);
-      });
+      // Flowers, grass and crops have no collision box, which the collect plugin can't path to: walk over,
+      // break it, and pick the drop up.
+      if (batch.every((b) => b.boundingBox === 'empty')) {
+        for (const b of batch) await breakAndCollect(ctx, b, matcher);
+      } else {
+        await abortable(ctx.signal, collector(bot).collect(batch, { ignoreNoPath: true }), () => {
+          void collector(bot).cancelTask();
+          stopMotion(bot);
+        });
+      }
       failures = 0;
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;

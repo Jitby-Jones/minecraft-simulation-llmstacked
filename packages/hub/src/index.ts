@@ -7,3 +7,6 @@ export * from './server/rcon';
 export * from './server/process';
 export * from './server/apply';
 export * from './server/managed';
+export * from './hub/hub';
+export * from './hub/roster';
+export * from './hub/supervisor';

@@ -57,6 +57,8 @@ export interface SkillContext {
   say: (text: string, volume?: Volume) => Promise<void>;
   /** The slip rolled for this run, if any (§21.1). Skills apply it where it makes sense. */
   slip: SlipKind | null;
+  /** Where the body first appeared (explore stays within reach of it). */
+  home: Vec3 | null;
   /** Progress notes for the dashboard and termination checks. */
   progress: (note: string) => void;
   /** How many prerequisite levels `obtain` may plan through (§21.1 planning horizon). */

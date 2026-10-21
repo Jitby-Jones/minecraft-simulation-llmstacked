@@ -213,6 +213,17 @@ export class Conversations {
       );
     }
     if (addressed) this.o.bus.emit({ type: 'addressed', utterance: utter });
+    else this.o.bus.emit({ type: 'overheard', utterance: utter });
+  }
+
+  /** Chiming in on a line that wasn't addressed to us (§6.2 floor control): it becomes a conversation turn. */
+  adopt(u: Utterance): Utterance {
+    const conv = this.withPartner(u.from) ?? this.open(u.from, false);
+    const utter: Utterance = { ...u, convId: conv.convId, addressedToMe: true };
+    const fresh = this.get(conv.convId) ?? conv;
+    this.write({ ...fresh, transcript: [...fresh.transcript, utter].slice(-TRANSCRIPT), turns: fresh.turns + 1, lastActivity: this.now() }, `chimed in on ${u.from}`);
+    this.o.bus.emit({ type: 'addressed', utterance: utter });
+    return utter;
   }
 
   /** 1 Hz: partner out of range (> 10 s), silent (nudge at 20 s, end at 40 s). */

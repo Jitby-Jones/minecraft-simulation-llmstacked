@@ -178,7 +178,7 @@ export class LlmClient {
     const spec = this.deps.specs[tier];
 
     try {
-      await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal);
+      await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
     } catch {
       return fallback('aborted');
     }

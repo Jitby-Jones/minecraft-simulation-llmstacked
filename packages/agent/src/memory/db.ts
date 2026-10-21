@@ -1,5 +1,6 @@
-// One SQLite file per bot (§4.7): memories(id, tier, text, embedding BLOB, ts, importance, source, about_agent)
-// plus skills(...) for M10. WAL mode, so the dashboard can read while the bot writes.
+// One SQLite file per bot (§4.7): memories(id, tier, text, embedding BLOB, ts, importance, source, about_agent),
+// kv (the state snapshot for resume, §23.4) and skills(...) for M10. WAL mode, so the dashboard can read while the
+// bot writes.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,6 +59,11 @@ export class MemoryDB {
         is_false INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS memories_tier_ts ON memories(tier, ts);
+      CREATE TABLE IF NOT EXISTS kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        ts INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS skills (
         name TEXT PRIMARY KEY,
         description TEXT NOT NULL,
@@ -111,6 +117,21 @@ export class MemoryDB {
       confidence: r.confidence,
       isFalse: r.is_false === 1,
     }));
+  }
+
+  /** Small JSON values (the state snapshot, §23.4). */
+  setKV(key: string, value: unknown, ts = Date.now()): void {
+    this.db.prepare('INSERT OR REPLACE INTO kv (key, value, ts) VALUES (?, ?, ?)').run(key, JSON.stringify(value), ts);
+  }
+
+  getKV(key: string): { value: unknown; ts: number } | null {
+    const row = this.db.prepare('SELECT value, ts FROM kv WHERE key = ?').get(key) as { value: string; ts: number } | undefined;
+    return row ? { value: JSON.parse(row.value) as unknown, ts: row.ts } : null;
+  }
+
+  /** Flushes the WAL into the main file (before archiving or exporting it). */
+  checkpoint(): void {
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
   }
 
   count(tier: MemoryTier): number {

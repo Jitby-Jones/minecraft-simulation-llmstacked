@@ -1,0 +1,198 @@
+// M5 (§3, §8, §16, §23.4): the Hub over a real WebSocket and the supervisor with in-process stand-in bots: rate
+// tokens, the global speech guard, the shared embedder, budgets, persona assignment, death and replacement, the
+// graveyard, graceful shutdown and resume from roster.json.
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { HubConfigSchema, PersonaSchema, SeededRandom, SexDifferencesSchema, WorldConfigSchema, agentDbPath, dataPaths, ensureDataDirs, nullLogger } from '@agora/shared';
+import { HashEmbedder, type QuotaStatus } from '@agora/llm';
+import { Hub, type Launcher, Supervisor, loadRoster } from '@agora/hub';
+import { HubClient } from '@agora/agent/hub/client';
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function until(cond: () => boolean, ms = 5000): Promise<void> {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > ms) throw new Error('condition not met in time');
+    await wait(10);
+  }
+}
+
+const cleanups: (() => Promise<void> | void)[] = [];
+afterEach(async () => {
+  for (const c of cleanups.splice(0).reverse()) await c();
+});
+
+async function startHub(quota: QuotaStatus | null = null, speechPerSec = 5): Promise<Hub> {
+  const hub = new Hub({
+    config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 }, speech: { globalPerSec: speechPerSec } }),
+    logger: nullLogger(),
+    embedder: new HashEmbedder(384),
+    quota: () => quota,
+    runtimeHoursPerWeek: 30,
+  });
+  await hub.listen(0);
+  cleanups.push(() => hub.close());
+  return hub;
+}
+
+function client(hub: Hub, slot: string): HubClient {
+  const c = new HubClient({ url: `ws://127.0.0.1:${hub.port}`, slot, logger: nullLogger(), requestTimeoutMs: 3000 });
+  c.connect();
+  cleanups.push(() => c.close());
+  return c;
+}
+
+const persona = (name: string, sex: 'male' | 'female') => PersonaSchema.parse({ id: name.toLowerCase(), name, sex, traits: ['kind'], inventory: [{ item: 'bread', qty: 2 }] });
+
+describe('Hub protocol (§8)', () => {
+  it('assigns, grants rate tokens, guards speech globally, embeds, and sends budgets', async () => {
+    const hub = await startHub(null, 3);
+    hub.on('hello', (s) => s.send({ t: 'assign', persona: persona('Ada', 'female'), username: 'Ada', resume: false, giveStarterKit: false }));
+    const c = client(hub, 'a0');
+    const a = await c.assigned();
+    expect(a.username).toBe('Ada');
+    await c.tokenSource().acquire(100, undefined, 'talking');
+    expect(hub.counters.llmGranted).toBe(1);
+    const grants = await Promise.all([1, 2, 3, 4, 5].map(() => c.speechToken()));
+    expect(grants.filter(Boolean).length).toBe(3);
+    const [v] = await c.embedder(384, 'hash').embed(['iron by the river']);
+    expect(v?.length).toBe(384);
+    const budgets: boolean[] = [];
+    c.on('budget', (b) => budgets.push(b.codeOnly));
+    c.send({ t: 'ready', username: 'Ada' });
+    await until(() => budgets.length > 0);
+    expect(budgets[0]).toBe(true); // no key: code-only
+  });
+
+  it('shares the hourly quota between living agents (§5, §22.4)', async () => {
+    const quota: QuotaStatus = { level: 0, codeOnly: false, reason: 'ok', resetAt: Date.now() + 100 * 3_600_000, weeklyPercent: 0.2, dailyPercent: null, remaining: 6_000_000, unknown: false, polledAt: Date.now() };
+    const hub = await startHub(quota);
+    let n = 0;
+    hub.on('hello', (s) => s.send({ t: 'assign', persona: persona(`P${n}`, 'male'), username: `Pat${n++}`, resume: false, giveStarterKit: false }));
+    const a = client(hub, 'a0');
+    const b = client(hub, 'a1');
+    await Promise.all([a.assigned(), b.assigned()]);
+    const got: number[] = [];
+    b.on('budget', (m) => got.push(m.remainingTokensThisHour));
+    a.send({ t: 'ready', username: 'Pat0' });
+    await wait(50);
+    b.send({ t: 'ready', username: 'Pat1' });
+    await until(() => got.length > 0);
+    // 6M left over 100 h at a 30/168 duty cycle, split two ways.
+    expect(got[0]).toBeCloseTo(6_000_000 / (2 * 100 * (30 / 168)), -2);
+    // Spending this agent's share pushes only it down the ladder.
+    b.send({ t: 'cost', module: 'cc', tier: 'L2', model: 'm', inputTokens: 1_000_000, outputTokens: 10, ms: 100, ok: true });
+    await wait(50);
+    const levels: number[] = [];
+    b.on('budget', (m) => levels.push(m.degrade));
+    hub.broadcastBudget('test');
+    await until(() => levels.length > 0);
+    expect(levels[0]).toBe(3);
+  });
+});
+
+describe('supervisor (§16.2, §16.3, §23.4)', () => {
+  /** In-process stand-in bots: connect, say ready, die on request, exit on shutdown. */
+  function fakeBots(hubUrl: () => string) {
+    const live = new Map<string, { client: HubClient; exit: (code: number) => void; username?: string; resume?: boolean }>();
+    const launcher: Launcher = (slot) => {
+      let onExit: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
+      const c = new HubClient({ url: hubUrl(), slot, logger: nullLogger() });
+      const exit = (code: number) => {
+        live.delete(slot);
+        c.close();
+        setTimeout(() => onExit?.(code, null), 10);
+      };
+      live.set(slot, { client: c, exit });
+      c.connect();
+      void c.assigned().then((a) => {
+        const me = live.get(slot);
+        if (me) {
+          me.username = a.username;
+          me.resume = a.resume;
+        }
+        c.send({ t: 'ready', username: a.username });
+      });
+      c.on('shutdown', () => {
+        const me = live.get(slot);
+        if (me?.username) c.send({ t: 'bye', username: me.username, reason: 'shutdown' });
+        setTimeout(() => exit(0), 20);
+      });
+      return { slot, pid: 1, kill: () => exit(137), onExit: (cb) => (onExit = cb) };
+    };
+    return { launcher, live };
+  }
+
+  it('fills the population from the pool then generated personas, replaces the dead, archives them, and resumes', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agora-sup-'));
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const paths = ensureDataDirs(dataPaths(dir));
+    const world = WorldConfigSchema.parse({ population: { initial: 3, minAlive: 3, maxAlive: 5, spawnStaggerSec: 0, respawnDelaySec: 0.1 } });
+    const hub = await startHub();
+    const kits: string[] = [];
+    const bots = fakeBots(() => `ws://127.0.0.1:${hub.port}`);
+    const mk = () =>
+      new Supervisor({
+        hub,
+        paths,
+        world,
+        sexDiffs: SexDifferencesSchema.parse({}),
+        pool: [persona('Ada', 'female'), persona('Bram', 'male')],
+        launcher: bots.launcher,
+        logger: nullLogger(),
+        rng: new SeededRandom(5),
+        rcon: (cmd) => {
+          kits.push(cmd);
+          return Promise.resolve('');
+        },
+      });
+    const sup = mk();
+    await sup.start();
+    await until(() => bots.live.size === 3 && [...bots.live.values()].every((b) => b.username));
+    const names = sup.living.map((a) => a.username);
+    expect(names.slice(0, 2)).toEqual(['Ada', 'Bram']);
+    expect(sup.living[2]?.persona.source).toBe('generated');
+    await until(() => kits.length === 3);
+    expect(kits.every((k) => /^give \w+ minecraft:bread 2$/.test(k))).toBe(true);
+
+    // Bram dies: his memory goes to the graveyard and a newcomer with a new name takes the place.
+    const bram = [...bots.live.entries()].find(([, b]) => b.username === 'Bram');
+    expect(bram).toBeTruthy();
+    const [bramSlot, bramBot] = bram as [string, { client: HubClient; exit: (c: number) => void }];
+    fs.writeFileSync(agentDbPath(paths, 'Bram'), 'memories');
+    bramBot.client.send({ t: 'died', username: 'Bram', cause: 'was slain by Zombie', pos: null, aliveSec: 60, inventory: [] });
+    await wait(50);
+    bramBot.exit(0);
+    await until(() => sup.living.length === 3 && !sup.living.some((a) => a.username === 'Bram'));
+    expect(fs.readdirSync(paths.graveyard).some((f) => f.startsWith('Bram-'))).toBe(true);
+    expect(fs.existsSync(agentDbPath(paths, 'Bram'))).toBe(false);
+    await until(() => bots.live.size === 3);
+    expect([...bots.live.keys()]).not.toContain(bramSlot);
+    const roster = loadRoster(paths.roster);
+    expect(roster.usedNames).toContain('Bram');
+    expect(roster.agents.find((a) => a.username === 'Bram')?.status).toBe('dead');
+
+    // A crash is not a death: the same agent comes back.
+    const ada = [...bots.live.entries()].find(([, b]) => b.username === 'Ada');
+    ada?.[1].exit(1);
+    await until(() => [...bots.live.values()].some((b) => b.username === 'Ada'), 8000);
+
+    // Graceful shutdown writes the roster; a new supervisor resumes the same living agents.
+    await sup.shutdown('test', 3000);
+    expect(bots.live.size).toBe(0);
+    const before = loadRoster(paths.roster);
+    const living = before.agents.filter((a) => a.status === 'alive').map((a) => a.username);
+    fs.writeFileSync(agentDbPath(paths, 'Ada'), 'memories');
+    const sup2 = mk();
+    await sup2.start();
+    await until(() => bots.live.size === 3 && [...bots.live.values()].every((b) => b.username));
+    const resumes = Object.fromEntries([...bots.live.values()].map((b) => [b.username ?? '', b.resume ?? false]));
+    expect(Object.keys(resumes).sort()).toEqual([...living].sort());
+    // Ada has a memory file to come back to; the others (no DB written here) start their memory afresh.
+    expect(resumes.Ada).toBe(true);
+    await sup2.shutdown('test', 3000);
+  }, 30_000);
+});

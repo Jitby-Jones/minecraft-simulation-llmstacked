@@ -71,6 +71,7 @@ export class Perception {
   private readonly digSeen = new Map<string, number>();
   private readonly recentSpeakers = new Map<AgentName, number>();
   private lastSelfKey = '';
+  private lastOwnLineAt = 0;
   private lastEntitiesKey = '';
   private lastBlocksKey = '';
   private readonly socialSeenAt = new Map<AgentName, number>();
@@ -309,7 +310,10 @@ export class Perception {
       return;
     }
     if (parsed.kind === 'speech') {
-      if (parsed.speaker === this.me) return; // our own echo
+      if (parsed.speaker === this.me) {
+        this.lastOwnLineAt = now; // our own echo: only its time matters (a reply right after it is for us)
+        return;
+      }
       this.recentSpeakers.set(parsed.speaker, now);
       const ent = Object.values(this.o.bot.entities).find((x) => x.type === 'player' && x.username === parsed.speaker);
       const visible = ent ? canSee(this.o.bot, ent, 64) : false;
@@ -318,9 +322,10 @@ export class Perception {
         me: this.me,
         speaker: parsed.speaker,
         inRange: this.peopleInRange(),
-        inConversationWith: Object.values(this.o.store.state.conversations).some(
-          (c) => c.status === 'active' && c.participants.includes(parsed.speaker) && c.participants.length === 2,
-        ),
+        // In a conversation with them, or they answer right after we spoke to everyone.
+        inConversationWith:
+          Object.values(this.o.store.state.conversations).some((c) => c.status === 'active' && c.participants.includes(parsed.speaker) && c.participants.length === 2) ||
+          now - this.lastOwnLineAt < 12_000,
       });
       const u: Utterance = {
         id: nextId('u'),
@@ -333,6 +338,7 @@ export class Perception {
         volume: parsed.volume,
         outOfSight: !visible,
         addressedToMe: addressee === 'me',
+        heardAs: addressee,
       };
       this.o.bus.emit({ type: 'heard', utterance: u });
       return;

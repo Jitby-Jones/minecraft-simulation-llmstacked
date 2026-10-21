@@ -130,6 +130,7 @@ export interface RunSkillDeps {
   slipChance: number;
   progress?: (note: string) => void;
   planDepth?: number;
+  home?: Vec3 | null;
   /** How long to wait for trailing server updates before judging the postcondition (default 2000 ms). */
   settleMs?: number;
 }
@@ -172,6 +173,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     slip,
     progress: deps.progress ?? (() => undefined),
     planDepth: deps.planDepth ?? 6,
+    home: deps.home ?? null,
   };
   let ok = false;
   let observed: string;

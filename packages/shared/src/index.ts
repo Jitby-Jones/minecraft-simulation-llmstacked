@@ -11,3 +11,4 @@ export * from './schemas';
 export * from './types';
 export * from './config';
 export * from './proximityChat';
+export * from './personaGen';

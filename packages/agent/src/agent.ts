@@ -94,6 +94,7 @@ export class Agent {
         this.perception.peopleInRange().includes(name) || this.store.state.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === name),
       ...(memories ? { memories } : {}),
       refreshSelf: () => this.perception.refreshSelf(),
+      socialCandidates: () => this.perception.peopleInRange().filter((n) => this.conversations.mayInitiate(n)),
       now,
     });
     this.goalGen =

@@ -48,6 +48,8 @@ export interface Utterance {
   /** "heard <name> from out of sight" (§6.1). */
   outOfSight: boolean;
   addressedToMe: boolean;
+  /** How addressee detection read it (§6.2): for me, for someone else, or unclear (a group question). */
+  heardAs?: 'me' | 'other' | 'unsure';
 }
 
 export type ObservedActionKind =
@@ -445,6 +447,8 @@ export type AgentEvent =
   | { type: 'dangerCleared' }
   | { type: 'heard'; utterance: Utterance }
   | { type: 'addressed'; utterance: Utterance }
+  /** A line in earshot not addressed to us (§6.2 group floor control decides whether to chime in). */
+  | { type: 'overheard'; utterance: Utterance }
   | { type: 'needsDecision'; reason: string; convId?: ConvId; from?: AgentName }
   | { type: 'optionTerminated'; reason: string; ok: boolean }
   | { type: 'decision'; decision: Decision }

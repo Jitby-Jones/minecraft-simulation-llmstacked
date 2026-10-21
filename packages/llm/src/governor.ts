@@ -3,37 +3,14 @@
 // billing, whatever the usage endpoint says (recommendedMode paygo means stop, not pay).
 
 import { EventEmitter } from 'node:events';
-import type { Logger } from '@agora/shared';
+import { type LlmModule, type Logger, MODULE_PRIORITY } from '@agora/shared';
 import type { TierName } from './tiers';
 import type { Usage } from './usage';
 
-export type ModuleName =
-  | 'talking'
-  | 'cc'
-  | 'social'
-  | 'selfMonitor'
-  | 'awareness'
-  | 'memory'
-  | 'goal'
-  | 'socialGoal'
-  | 'reflection'
-  | 'skillWriter'
-  | 'bench';
-
-/** §5: Talking > CC > Social > Self-Monitor > Goal > Reflection. Lower is served first. */
-export const MODULE_PRIORITY: Readonly<Record<ModuleName, number>> = {
-  talking: 0,
-  cc: 1,
-  social: 2,
-  selfMonitor: 3,
-  awareness: 3,
-  memory: 3,
-  goal: 4,
-  socialGoal: 4,
-  reflection: 5,
-  skillWriter: 5,
-  bench: 6,
-};
+/** The modules that call the LLM (the Hub protocol's names). */
+export type ModuleName = LlmModule;
+/** §5: Talking > CC > Social > Self-Monitor > Goal > Reflection; higher is served first. */
+export { MODULE_PRIORITY };
 
 /** 0 normal · 1 (70–85 %) · 2 (85–95 %) · 3 code-only. */
 export type DegradeLevel = 0 | 1 | 2 | 3;
@@ -232,6 +209,14 @@ export class QuotaGovernor extends EventEmitter<{ change: [QuotaStatus] }> {
       return after;
     })();
     return this.polling;
+  }
+
+  /** Takes the status the Hub computed for this agent (one usage poll for everyone, §22.4); bots don't poll then. */
+  setExternal(level: DegradeLevel, codeOnly: boolean, reason: string, resetAt: number | null): void {
+    const before = this.status;
+    this.current = { ...this.current, level: codeOnly ? 3 : level, codeOnly, reason, resetAt, unknown: false, polledAt: this.now() };
+    const after = this.status;
+    if (after.level !== before.level || after.codeOnly !== before.codeOnly) this.emit('change', after);
   }
 
   /** Daily key cap or a revoked key: no LLM until `untilMs` (or until a poll after it says otherwise). */

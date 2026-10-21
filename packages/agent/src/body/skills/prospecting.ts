@@ -34,6 +34,31 @@ const BRIDGE_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'net
 
 class Blocked extends Error {}
 
+/** Rock that ore forms in; tunneling through dirt finds nothing. */
+const HOST_ROCK = new Set(['stone', 'deepslate', 'tuff', 'andesite', 'diorite', 'granite', 'calcite', 'netherrack', 'blackstone', 'basalt']);
+
+/**
+ * The direction with the most host rock ahead at tunnel depth (the ground itself is common knowledge, §13 rule 4;
+ * ore is not). Null when there is none anywhere, so the caller picks at random.
+ */
+function rockiestDirection(bot: Bot, targetY: number, roll: number): string | null {
+  const start = bot.entity.position.floored();
+  const scores = Object.entries(DIRS).map(([name, d]) => {
+    let n = 0;
+    for (let k = 1; k <= 12; k++) {
+      for (const dy of [0, 1]) {
+        const b = bot.blockAt(new Vec3(start.x + d.x * k, targetY + dy, start.z + d.z * k));
+        if (b && HOST_ROCK.has(b.name)) n++;
+      }
+    }
+    return { name, n };
+  });
+  const best = Math.max(...scores.map((x) => x.n));
+  if (best === 0) return null;
+  const top = scores.filter((x) => x.n === best);
+  return top[Math.floor(roll * top.length)]?.name ?? null;
+}
+
 function oreIds(bot: Bot, item: string): number[] {
   return blockIdsDropping(bot, itemMatcher(item)).filter((id) => /_ore$|^ancient_debris$/.test(bot.registry.blocks[id]?.name ?? ''));
 }
@@ -46,15 +71,17 @@ function liquidAround(bot: Bot, p: Vec3): string | null {
   return null;
 }
 
-/** Clears one block (and whatever gravel or sand falls into it). */
-async function clear(ctx: SkillContext, p: Vec3): Promise<void> {
+/** Clears one block (and whatever gravel or sand falls into it). Returns what was there first (null: nothing). */
+async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
   const { bot } = ctx;
+  let first: string | null = null;
   for (let i = 0; i < 6; i++) {
     throwIfAborted(ctx.signal);
     const b = bot.blockAt(p);
     if (!b) throw new Blocked('the ground ahead is not loaded');
     if (b.name === 'water' || b.name === 'lava') throw new Blocked(`${b.name} ahead`);
-    if (isAirLike(b)) return;
+    if (isAirLike(b)) return first;
+    first ??= b.name;
     if (b.name === 'bedrock' || b.hardness === null || b.hardness < 0) throw new Blocked(`${b.name} ahead`);
     const liquid = liquidAround(bot, p);
     if (liquid) throw new Blocked(`${liquid} ahead`);
@@ -115,9 +142,10 @@ export const prospect = defineSkill({
     // ground is thick enough.
     const targetY = Math.max(minY + 2, Math.min(depth, startY - 3));
     const names = Object.keys(DIRS);
-    let dirName = args.direction ?? names[Math.floor(ctx.rng.next() * names.length)] ?? 'east';
+    let dirName = args.direction ?? rockiestDirection(bot, targetY, ctx.rng.next()) ?? names[Math.floor(ctx.rng.next() * names.length)] ?? 'east';
     let dug = 0;
     let turns = 0;
+    let outOfRock = 0;
     let lastBlock = '';
     try {
       while (dug < args.maxBlocks) {
@@ -126,11 +154,11 @@ export const prospect = defineSkill({
         const feet = bot.entity.position.floored();
         const down = feet.y > targetY;
         const next = down ? feet.plus(d).offset(0, -1, 0) : feet.plus(d);
+        let dugHere: (string | null)[] = [];
         try {
           // A staircase step needs the head room at our current height too.
           if (down) await clear(ctx, feet.plus(d).offset(0, 1, 0));
-          await clear(ctx, next.offset(0, 1, 0));
-          await clear(ctx, next);
+          dugHere = [await clear(ctx, next.offset(0, 1, 0)), await clear(ctx, next)];
           await bridge(ctx, next.offset(0, -1, 0));
         } catch (err) {
           if (!(err instanceof Blocked) || turns >= 2) throw err;
@@ -143,6 +171,16 @@ export const prospect = defineSkill({
         if (found) return { ok: true, observed: `found ${found.name} at ${found.position.toString()} after digging ${dug} blocks` };
         await stepTo(ctx, next);
         dug++;
+        // Out of the rock for a while (digging dirt or sand): head back toward rock if there is any around.
+        outOfRock = dugHere.some((n) => n !== null && HOST_ROCK.has(n)) ? 0 : outOfRock + 1;
+        if (!down && outOfRock >= 6 && turns < 2) {
+          const back = rockiestDirection(bot, next.y, ctx.rng.next());
+          if (back && back !== dirName) {
+            dirName = back;
+            turns++;
+            outOfRock = 0;
+          }
+        }
         ctx.progress(`tunneling ${dirName}, ${dug} blocks`);
         const after = seen();
         if (after) return { ok: true, observed: `found ${after.name} at ${after.position.toString()} after digging ${dug} blocks` };

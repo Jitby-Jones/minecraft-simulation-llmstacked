@@ -69,6 +69,8 @@ export interface StartLlmOptions {
   now?: () => number;
   /** Periodic allowlist refresh and usage polling (off in tests). */
   background?: boolean;
+  /** Poll usage here (default). Off for bots under the Hub, which polls once for everyone and sends budgets. */
+  pollUsage?: boolean;
 }
 
 export interface LlmRuntime {
@@ -135,7 +137,7 @@ export async function startLlm(o: StartLlmOptions): Promise<LlmRuntime> {
   });
   if (o.background ?? true) {
     router.start();
-    governor.start();
+    if (o.pollUsage ?? true) governor.start();
   }
   return {
     client,

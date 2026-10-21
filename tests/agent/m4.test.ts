@@ -347,6 +347,11 @@ describe('no unperceived information (§13 rule 4)', () => {
     expect(codeDecision(withLog([unseen, failed]), {}, false, never)?.option).toBe('explore');
     const found = rec('prospect', { item: 'raw_iron' }, true);
     expect(codeDecision(withLog([unseen, found]), {}, false, never)?.task).toEqual({ skill: 'obtain', args: { item: 'iron_pickaxe', qty: 1 } });
+    // An interruption (an impulse took over) is not a result: dig again. After looking around, try the goal again.
+    const interrupted = rec('prospect', { item: 'raw_iron' }, false, 'aborted: replaced by a new decision');
+    expect(codeDecision(withLog([unseen, interrupted]), {}, false, never)?.task).toEqual({ skill: 'prospect', args: { item: 'raw_iron' } });
+    const looked = rec('explore', { distance: 32 }, true);
+    expect(codeDecision(withLog([unseen, failed, looked]), {}, false, never)?.task).toEqual({ skill: 'obtain', args: { item: 'iron_pickaxe', qty: 1 } });
     // Stuck on prospecting: explore instead.
     const stuckProspect = (skill: string) => skill === 'prospect';
     expect(codeDecision(withLog([unseen]), {}, false, stuckProspect)?.option).toBe('explore');
