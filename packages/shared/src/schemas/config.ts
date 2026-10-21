@@ -1,0 +1,275 @@
+// Config file schemas with the design's defaults. Nested objects use .prefault({}) so inner defaults apply.
+
+import { z } from 'zod';
+import { Unit } from './common';
+
+// ---------------------------------------------------------------------------------------------------------------
+// config/models.yaml (§5, §22.3, §22.7)
+
+export const CapabilitySchema = z.enum(['structured_output', 'tool_calling', 'reasoning']);
+export type Capability = z.infer<typeof CapabilitySchema>;
+
+export const TierConfigSchema = z.object({
+  primary: z.string().min(1).default('auto'),
+  fallbacks: z.array(z.string().min(1)).default(['auto']),
+  timeoutMs: z.number().int().positive(),
+  maxTokens: z.number().int().positive(),
+  need: z.array(CapabilitySchema).default([]),
+});
+export type TierConfig = z.infer<typeof TierConfigSchema>;
+
+export const ModelsConfigSchema = z
+  .object({
+    tiers: z
+      .object({
+        L1: TierConfigSchema.prefault({ timeoutMs: 2500, maxTokens: 200, need: ['structured_output'] }),
+        L2: TierConfigSchema.prefault({ timeoutMs: 6000, maxTokens: 500, need: ['structured_output', 'tool_calling'] }),
+        L3: TierConfigSchema.prefault({ timeoutMs: 45000, maxTokens: 2000, need: ['structured_output'] }),
+      })
+      .prefault({}),
+    embeddings: z
+      .object({
+        provider: z.enum(['local', 'nanogpt']).default('local'),
+        model: z.string().optional(),
+      })
+      .prefault({}),
+    llm: z
+      .object({
+        baseUrl: z.enum(['subscription', 'paid']).default('subscription'),
+        allowPaidKey: z.boolean().default(false),
+        expectedRuntimeHoursPerWeek: z.number().positive().max(168).default(30),
+        allowlistRefreshHours: z.number().positive().default(6),
+        usagePollSec: z.number().int().min(30).default(300),
+      })
+      .prefault({}),
+  })
+  .refine((c) => c.llm.baseUrl === 'subscription' || c.llm.allowPaidKey, {
+    message: "llm.baseUrl 'paid' requires llm.allowPaidKey: true (§22.2)",
+    path: ['llm', 'baseUrl'],
+  });
+export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
+
+// ---------------------------------------------------------------------------------------------------------------
+// config/world.yaml (§16.2, §16.3, §17.10, §19.7, §20, §21.5, §6.8, §15)
+
+export const WorldConfigSchema = z
+  .object({
+    mode: z.enum(['test', 'live']).default('test'),
+    population: z
+      .object({
+        initial: z.number().int().min(0).default(6),
+        minAlive: z.number().int().min(0).default(4),
+        maxAlive: z.number().int().min(0).default(12),
+        spawnStaggerSec: z.number().min(0).default(20),
+        respawnDelaySec: z.number().min(0).default(60),
+        spawnRadius: z.number().min(0).default(24),
+        /** Starting kit from the persona; live mode defaults to none (§16.3). */
+        starterKit: z.enum(['persona', 'none', 'auto']).default('auto'),
+      })
+      .prefault({}),
+    personas: z.union([z.literal('auto'), z.array(z.string().min(1))]).default('auto'),
+    namePolicy: z.literal('generated').default('generated'),
+    community: z.object({ goal: z.string().default('build a thriving village') }).prefault({}),
+    romance: z
+      .object({
+        enabled: z.boolean().default(true),
+        orientationDist: z
+          .object({ hetero: Unit.default(0.85), homo: Unit.default(0.07), bi: Unit.default(0.08) })
+          .prefault({}),
+        partnerMinDays: z.number().min(0).default(2),
+      })
+      .prefault({}),
+    reproduction: z
+      .object({
+        enabled: z.boolean().default(true),
+        gestationSec: z.number().min(0).default(600),
+        coupleCooldownSec: z.number().min(0).default(7200),
+        youthSec: z.number().min(0).default(1800),
+        minFoodItems: z.number().int().min(0).default(20),
+      })
+      .prefault({}),
+    conflict: z
+      .object({
+        enabled: z.boolean().default(true),
+        maxRung: z.number().int().min(0).max(4).default(4),
+        pairCooldownSec: z.number().min(0).default(300),
+        maxConcurrentFights: z.number().int().min(0).default(2),
+        newcomerGraceSec: z.number().min(0).default(600),
+        extinctionBrake: z
+          .object({
+            deathsPerHourMax: z.number().min(0).default(4),
+            cautionShift: z.number().min(0).max(1).default(0.2),
+            durationSec: z.number().min(0).default(3600),
+          })
+          .prefault({}),
+        griefing: z.boolean().default(false),
+        lethalVsAll: z.boolean().default(true),
+      })
+      .prefault({}),
+    abilities: z
+      .object({
+        intelligence: z
+          .object({ mean: Unit.default(0.5), sd: z.number().min(0).default(0.17), heritability: Unit.default(0.5) })
+          .prefault({}),
+        combat: z
+          .object({
+            mean: Unit.default(0.4),
+            sd: z.number().min(0).default(0.2),
+            heritability: Unit.default(0.3),
+            growthCap: Unit.default(0.25),
+          })
+          .prefault({}),
+        intelligenceRoutesCCTier: z.boolean().default(true),
+        knowledgeGating: z.boolean().default(true),
+      })
+      .prefault({}),
+    sexDifferences: z.object({ scale: z.number().min(0).max(3).default(1) }).prefault({}),
+    server: z
+      .object({
+        host: z.string().default('127.0.0.1'),
+        port: z.number().int().min(1).max(65535).default(25565),
+        rconPort: z.number().int().min(1).max(65535).default(25575),
+        levelName: z.string().regex(/^[A-Za-z0-9_\-.]+$/).default('world'),
+        heapMb: z.number().int().min(512).default(3072),
+        viewDistance: z.number().int().min(2).max(32).default(8),
+        simulationDistance: z.number().int().min(2).max(32).default(6),
+        motd: z.string().default('A quiet valley'),
+        seed: z.string().default(''),
+        extraPlayerSlots: z.number().int().min(0).default(4),
+        javaPath: z.string().optional(),
+      })
+      .prefault({}),
+    chat: z
+      .object({
+        normalRange: z.number().positive().default(15),
+        whisperRange: z.number().positive().default(5),
+        shoutRange: z.number().positive().default(48),
+        fadeStart: Unit.default(0.6),
+        cooldownSec: z.number().min(0).default(1),
+        allowPrivateMessages: z.boolean().default(false),
+      })
+      .prefault({}),
+    owner: z
+      .object({
+        /** Owner's username: op + spy on the server. Agents never learn this (§16.1). */
+        username: z.string().regex(/^[A-Za-z0-9_]{3,16}$/).optional(),
+      })
+      .prefault({}),
+    skillWriter: z
+      .object({
+        enabled: z.boolean().default(false),
+        /** Only allowed on a private server (§1.4, §9). */
+        privateServerAck: z.boolean().default(false),
+      })
+      .prefault({}),
+  })
+  .superRefine((c, ctx) => {
+    if (c.population.minAlive > c.population.maxAlive) {
+      ctx.addIssue({ code: 'custom', message: 'population.minAlive must be <= maxAlive', path: ['population'] });
+    }
+    if (c.population.initial > c.population.maxAlive) {
+      ctx.addIssue({ code: 'custom', message: 'population.initial must be <= maxAlive', path: ['population'] });
+    }
+    if (c.chat.whisperRange > c.chat.normalRange || c.chat.normalRange > c.chat.shoutRange) {
+      ctx.addIssue({ code: 'custom', message: 'chat ranges must satisfy whisper <= normal <= shout', path: ['chat'] });
+    }
+    const o = c.romance.orientationDist;
+    if (o.hetero + o.homo + o.bi <= 0) {
+      ctx.addIssue({ code: 'custom', message: 'romance.orientationDist must have a positive weight', path: ['romance'] });
+    }
+  });
+export type WorldConfig = z.infer<typeof WorldConfigSchema>;
+
+// ---------------------------------------------------------------------------------------------------------------
+// config/hub.yaml (§3, §5, §6.2, §23.3)
+
+export const HubConfigSchema = z.object({
+  hub: z
+    .object({ host: z.string().default('127.0.0.1'), port: z.number().int().min(1).max(65535).default(8765) })
+    .prefault({}),
+  dashboard: z
+    .object({
+      enabled: z.boolean().default(true),
+      host: z.string().default('127.0.0.1'),
+      port: z.number().int().min(1).max(65535).default(8080),
+    })
+    .prefault({}),
+  rateLimit: z
+    .object({
+      /** NanoGPT allows 25 rps per account; keep headroom (§5). */
+      rps: z.number().positive().max(25).default(20),
+      burst: z.number().positive().default(20),
+      queueTimeoutMs: z.number().int().positive().default(15000),
+    })
+    .prefault({}),
+  speech: z.object({ globalPerSec: z.number().positive().default(5) }).prefault({}),
+  logs: z
+    .object({
+      level: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+      rotateMb: z.number().positive().default(20),
+      keep: z.number().int().min(1).default(5),
+    })
+    .prefault({}),
+});
+export type HubConfig = z.infer<typeof HubConfigSchema>;
+
+// ---------------------------------------------------------------------------------------------------------------
+// config/versions.yaml (§15.1, §23.1)
+
+export const VersionsConfigSchema = z.object({
+  minecraft: z.object({ version: z.string(), protocol: z.number().int() }),
+  paper: z.object({
+    version: z.string(),
+    build: z.number().int().positive(),
+    channel: z.string().default('STABLE'),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  proximityChat: z.object({
+    projectId: z.string(),
+    versionId: z.string(),
+    filename: z.string(),
+    sha512: z.string().regex(/^[0-9a-f]{128}$/),
+  }),
+  /** Our own plugin that disables private chat commands for non-ops (§15.3); built from server-plugin/. */
+  guardPlugin: z.object({
+    filename: z.string().regex(/^[A-Za-z0-9_.-]+\.jar$/),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  java: z.object({ minMajor: z.number().int().min(8) }),
+  node: z.object({ min: z.string().regex(/^\d+\.\d+\.\d+$/) }),
+  embeddingModel: z.object({
+    id: z.string(),
+    /** Hugging Face commit; files are fetched from /resolve/<revision>/ and hash-checked. */
+    revision: z.string().regex(/^[0-9a-f]{40}$/),
+    dims: z.number().int().positive(),
+    files: z
+      .array(z.object({ path: z.string().min(1), sha256: z.string().regex(/^[0-9a-f]{64}$/) }))
+      .min(1),
+  }),
+});
+export type VersionsConfig = z.infer<typeof VersionsConfigSchema>;
+
+// ---------------------------------------------------------------------------------------------------------------
+// config/sex-differences.yaml (§20)
+
+export const SEX_DIFF_TRAITS = [
+  'neuroticism',
+  'agreeableness',
+  'extraversion',
+  'openness',
+  'conscientiousness',
+  'aggression',
+  'dominance',
+  'caution',
+  'mercy',
+  'impulsivity',
+  'vanity',
+] as const;
+export type SexDiffTrait = (typeof SEX_DIFF_TRAITS)[number];
+
+export const SexDifferencesSchema = z.object({
+  sigma: z.number().positive().max(0.5).default(0.18),
+  /** Cohen's d, positive = higher in women. Traits not listed are not shifted. */
+  d: z.partialRecord(z.enum(SEX_DIFF_TRAITS), z.number().min(-2).max(2)).default({}),
+});
+export type SexDifferences = z.infer<typeof SexDifferencesSchema>;

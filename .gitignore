@@ -1,0 +1,10 @@
+node_modules/
+data/
+/dist/
+packages/*/dist/
+server-plugin/*/build/
+coverage/
+.env
+*.log
+.DS_Store
+export-*.tar.gz

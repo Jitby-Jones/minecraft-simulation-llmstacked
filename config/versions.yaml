@@ -1,0 +1,32 @@
+# Pinned versions and hashes (DESIGN.md §15.1, §23.1). Looked up live on 2026-10-21.
+# mineflayer 4.39.0 lists 26.1 as its newest tested version; 26.1, 26.1.1 and 26.1.2 are all protocol 775.
+minecraft:
+  version: 26.1.2
+  protocol: 775
+paper:                      # https://fill.papermc.io/v3/projects/paper/versions/26.1.2/builds/74
+  version: 26.1.2
+  build: 74
+  channel: STABLE
+  sha256: "1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7"
+proximityChat:              # https://modrinth.com/plugin/proximitychat! (project BO6beynQ)
+  projectId: BO6beynQ
+  versionId: 4M1o4lLW
+  filename: ProximityChat-1.0.RELEASE.jar
+  sha512: "c7f6488a64b0f55b38f113be553c7250d7f2f8c746c31efbf52a38ddee7e145df5c649fa094a082bb74aae58e2acdcb3e52cd4d2616a736ae3019b74e1ac609a"
+guardPlugin:                # server-plugin/agora-guard: disables /msg /tell /w /me /teammsg for non-ops (§15.3)
+  filename: agora-guard-1.0.0.jar
+  sha256: "810cc3edb4d22e2f208b13c3bf9779bd9c98c0a8c33653e57ac1b414ad9e0760"
+java:
+  minMajor: 25              # Paper 26.1.2 requires Java 25 (Fill API java.version.minimum)
+node:
+  min: 22.12.0
+embeddingModel:             # local embeddings (§4.7, §22.5), served once by the Hub
+  id: Xenova/all-MiniLM-L6-v2
+  revision: 751bff37182d3f1213fa05d7196b954e230abad9
+  dims: 384
+  files:
+    - { path: config.json, sha256: "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7" }
+    - { path: tokenizer.json, sha256: "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0" }
+    - { path: tokenizer_config.json, sha256: "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3" }
+    - { path: special_tokens_map.json, sha256: "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3" }
+    - { path: onnx/model_quantized.onnx, sha256: "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1" }

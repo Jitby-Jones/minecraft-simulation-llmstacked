@@ -1,0 +1,61 @@
+{
+  "name": "agora",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Layered, social, autonomous Minecraft agents (PIANO-style) on Paper 26.1.x with mineflayer and NanoGPT subscription models.",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "setup": "tsx scripts/setup.ts",
+    "start": "tsx scripts/start.ts",
+    "server": "tsx scripts/server.ts",
+    "doctor": "tsx scripts/doctor.ts",
+    "server-mode": "tsx scripts/server-mode.ts",
+    "chat-discovery": "tsx scripts/chat-discovery.ts",
+    "build:guard-plugin": "tsx scripts/build-guard-plugin.ts",
+    "ctl": "tsx scripts/ctl.ts",
+    "logs": "tsx scripts/logs.ts",
+    "export": "tsx scripts/export.ts",
+    "import": "tsx scripts/import.ts",
+    "bench-models": "tsx scripts/bench-models.ts",
+    "deploy:systemd": "tsx scripts/deploy-systemd.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "check:forbidden": "tsx scripts/check-forbidden.ts",
+    "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run check:forbidden && pnpm run test"
+  },
+  "dependencies": {
+    "@agora/agent": "workspace:*",
+    "@agora/hub": "workspace:*",
+    "@agora/llm": "workspace:*",
+    "@agora/shared": "workspace:*",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "eslint": "10.13.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "isolated-vm"
+    ],
+    "ignoredBuiltDependencies": [
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp"
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+# World, population and behavior config (DESIGN.md §16, §17.10, §19.7, §20, §21.5).
+mode: test                 # test (hard, simulated permadeath) | live (hardcore, new world required)
+
+population:                # §19.7 — replaces agents.count. For a fixed N: initial = minAlive = maxAlive = N
+  initial: 6               # spawned at world start, 50/50 male/female
+  minAlive: 4              # supervisor spawns replacements (balanced sex) when below this
+  maxAlive: 12             # births blocked at/above this
+  spawnStaggerSec: 20      # join one at a time
+  respawnDelaySec: 60
+  spawnRadius: 24
+  starterKit: auto         # persona | none | auto (persona in test, none in live)
+
+personas: auto             # draw from personas/ pool, then generate new ones when exhausted
+namePolicy: generated      # player-like unique names; never reuse a dead name
+
+community:
+  goal: build a thriving village
+
+romance:
+  enabled: true
+  orientationDist: { hetero: 0.85, homo: 0.07, bi: 0.08 }
+  partnerMinDays: 2
+
+reproduction:
+  enabled: true
+  gestationSec: 600
+  coupleCooldownSec: 7200
+  youthSec: 1800
+  minFoodItems: 20
+
+conflict:
+  enabled: true
+  maxRung: 4                  # 3 = brawls only (no lethal), 2 = words & demands only
+  pairCooldownSec: 300
+  maxConcurrentFights: 2
+  newcomerGraceSec: 600
+  extinctionBrake:
+    deathsPerHourMax: 4       # above this, every agent's caution baseline +0.2 for 1 h
+    cautionShift: 0.2
+    durationSec: 3600
+  griefing: false
+  lethalVsAll: true
+
+abilities:
+  intelligence: { mean: 0.5, sd: 0.17, heritability: 0.5 }
+  combat:       { mean: 0.4, sd: 0.20, heritability: 0.3, growthCap: 0.25 }
+  intelligenceRoutesCCTier: true
+  knowledgeGating: true
+
+sexDifferences:
+  scale: 1.0                  # multiplies every d in config/sex-differences.yaml; 0 disables
+
+server:
+  host: 127.0.0.1             # §23.3: localhost only by default (offline mode!)
+  port: 25565
+  rconPort: 25575
+  levelName: world
+  heapMb: 3072
+  viewDistance: 8
+  simulationDistance: 6
+  motd: A quiet valley
+  seed: ""
+  extraPlayerSlots: 4
+
+chat:                         # ProximityChat! ranges (§15.2)
+  normalRange: 15
+  whisperRange: 5
+  shoutRange: 48
+  fadeStart: 0.6
+  cooldownSec: 1
+  allowPrivateMessages: false
+
+owner:
+  # username: YourName        # gets op + spy. Agents never learn who this is.
+
+skillWriter:
+  enabled: false              # L3 skill writer (§1.4, M10). Private servers only.
+  privateServerAck: false
