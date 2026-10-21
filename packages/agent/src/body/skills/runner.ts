@@ -43,6 +43,8 @@ export function describeExpectation(e: Expectation): string {
       return `+${e.atLeast} ${e.item}`;
     case 'inventoryLoss':
       return `-${e.atLeast} ${e.item}`;
+    case 'inventoryHas':
+      return `holding ${e.atLeast} ${e.item}`;
     case 'near':
       return `within ${e.within} of ${Math.round(e.pos.x)},${Math.round(e.pos.y)},${Math.round(e.pos.z)}`;
     case 'nearAgent':
@@ -73,6 +75,10 @@ export function checkExpectation(bot: Bot, e: Expectation, before: BodySnapshot,
       const m = itemMatcher(e.item, isFoodName(bot));
       const d = countIn(before.inventory, m) - countIn(after.inventory, m);
       return { ok: d >= e.atLeast, observed: `-${d} ${e.item}` };
+    }
+    case 'inventoryHas': {
+      const n = countIn(after.inventory, itemMatcher(e.item, isFoodName(bot)));
+      return { ok: n >= e.atLeast, observed: `holding ${n} ${e.item}` };
     }
     case 'near': {
       const d = after.pos.distanceTo(e.pos);
@@ -121,6 +127,7 @@ export interface RunSkillDeps {
   /** Probability of an execution slip for this run (§21.1: ~8 % at low intelligence, ~1 % at high). */
   slipChance: number;
   progress?: (note: string) => void;
+  planDepth?: number;
   /** How long to wait for trailing server updates before judging the postcondition (default 2000 ms). */
   settleMs?: number;
 }
@@ -162,6 +169,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     say: deps.say,
     slip,
     progress: deps.progress ?? (() => undefined),
+    planDepth: deps.planDepth ?? 6,
   };
   let ok = false;
   let observed: string;

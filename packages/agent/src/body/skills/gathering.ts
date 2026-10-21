@@ -32,7 +32,7 @@ export function lacksHarvestTool(bot: Bot, block: Block): boolean {
 const COMMON_TOOL_MATERIALS = ['wooden', 'stone', 'iron', 'diamond', 'netherite'];
 
 /** The cheapest common tool that harvests the block, e.g. stone_pickaxe for iron_ore. */
-function toolNameFor(bot: Bot, block: Block): string {
+export function toolNameFor(bot: Bot, block: Block): string {
   const tools = (block as unknown as { harvestTools?: Record<string, boolean> }).harvestTools ?? {};
   const names = Object.keys(tools)
     .map((id) => bot.registry.items[Number(id)]?.name)

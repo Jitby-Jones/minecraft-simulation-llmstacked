@@ -12,6 +12,8 @@ import type { InventorySnapshot } from '../inventory';
 export type Expectation =
   | { kind: 'inventoryGain'; item: string; atLeast: number }
   | { kind: 'inventoryLoss'; item: string; atLeast: number }
+  /** Holding at least this many afterwards, however many we had before (obtain). */
+  | { kind: 'inventoryHas'; item: string; atLeast: number }
   | { kind: 'near'; pos: Vec3; within: number }
   | { kind: 'nearAgent'; agent: string; within: number }
   | { kind: 'blockAt'; pos: Vec3; block: string }
@@ -57,6 +59,8 @@ export interface SkillContext {
   slip: SlipKind | null;
   /** Progress notes for the dashboard and termination checks. */
   progress: (note: string) => void;
+  /** How many prerequisite levels `obtain` may plan through (§21.1 planning horizon). */
+  planDepth: number;
 }
 
 export interface SkillDef<A> {

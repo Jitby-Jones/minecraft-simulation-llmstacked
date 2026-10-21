@@ -5,6 +5,7 @@ import { craft, smelt } from './crafting';
 import { deposit, withdraw } from './containers';
 import { gather, mine, pickup } from './gathering';
 import { place, shelter } from './building';
+import { obtain } from './planner';
 import { explore, flee, follow, goTo, look, wait } from './movement';
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
@@ -22,6 +23,7 @@ export const SKILLS: readonly AnySkill[] = [
   pickup,
   craft,
   smelt,
+  obtain,
   place,
   shelter,
   deposit,
@@ -44,7 +46,9 @@ const ALIASES: Readonly<Record<string, string>> = {
   come: 'goTo',
   collect: 'gather',
   chop: 'gather',
-  get: 'gather',
+  get: 'obtain',
+  acquire: 'obtain',
+  fetch: 'obtain',
   dig: 'mine',
   stay: 'wait',
   rest: 'wait',

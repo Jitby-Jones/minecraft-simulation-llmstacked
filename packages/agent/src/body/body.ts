@@ -27,6 +27,8 @@ export interface RunOptions {
   progress?: (note: string) => void;
   /** Extra (generated) skills to resolve names against. */
   extraSkills?: readonly AnySkill[];
+  /** `obtain` planning depth (§21.1). */
+  planDepth?: number;
 }
 
 export const DEFAULT_REFLEX_HOOKS: ReflexHooks = {
@@ -78,6 +80,11 @@ export class Body {
     return this.cachedMovements;
   }
 
+  /** A skill by name (built-in or one of `extra`), or null. */
+  skill(name: string, extra: readonly AnySkill[] = []): AnySkill | null {
+    return getSkill(name) ?? extra.find((s) => s.name === name) ?? null;
+  }
+
   async say(text: string, volume: Volume = 'normal', listeners: readonly string[] = []): Promise<void> {
     await this.chat.say(text, volume, listeners);
   }
@@ -110,6 +117,7 @@ export class Body {
       say: (text, volume) => this.say(text, volume),
       slipChance: opts.slipChance ?? 0,
       progress: opts.progress,
+      planDepth: opts.planDepth,
     });
   }
 
