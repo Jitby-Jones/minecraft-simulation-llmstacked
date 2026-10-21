@@ -61,7 +61,9 @@ export function buildPacket(i: PacketInput): string {
         .map((p) => {
           const prof = s.social[p.name];
           const want = prof?.perceivedGoals[0];
-          return `${p.name} (${Math.round(p.distance)} m, ${prof ? `you feel ${Math.round(prof.sentiment)}/10` : 'new face'}${want ? `, seems to want ${want}` : ''}${p.heldItem ? `, holding ${p.heldItem}` : ''})`;
+          const trust = prof && prof.trust < 0.35 ? ', you don\u2019t trust them' : prof && prof.trust > 0.75 ? ', you trust them' : '';
+          const record = prof && prof.promisesKept + prof.promisesBroken > 0 ? `, kept ${prof.promisesKept}/${prof.promisesKept + prof.promisesBroken} promises` : '';
+          return `${p.name} (${Math.round(p.distance)} m, ${prof ? `you feel ${Math.round(prof.sentiment)}/10` : 'new face'}${trust}${record}${want ? `, seems to want ${want}` : ''}${p.heldItem ? `, holding ${p.heldItem}` : ''})`;
         })
         .join('; ')}`,
     );

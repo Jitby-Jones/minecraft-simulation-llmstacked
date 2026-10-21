@@ -94,8 +94,8 @@ export class Body {
     return getSkill(name) ?? extra.find((s) => s.name === name) ?? null;
   }
 
-  async say(text: string, volume: Volume = 'normal', listeners: readonly string[] = []): Promise<void> {
-    await this.chat.say(text, volume, listeners);
+  async say(text: string, volume: Volume = 'normal', listeners: readonly string[] = [], stillWanted?: () => boolean): Promise<boolean> {
+    return (await this.chat.say(text, volume, listeners, stillWanted)).sent;
   }
 
   async run(skillName: string, args: unknown, opts: RunOptions = {}): Promise<SkillRunRecord> {
@@ -123,7 +123,9 @@ export class Body {
       signal: opts.signal ?? new AbortController().signal,
       movements: () => this.movements(),
       knowsRecipe: opts.knowsRecipe ?? (() => true),
-      say: (text, volume) => this.say(text, volume),
+      say: async (text, volume) => {
+        await this.say(text, volume);
+      },
       slipChance: opts.slipChance ?? 0,
       progress: opts.progress,
       planDepth: opts.planDepth,

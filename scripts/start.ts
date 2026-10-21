@@ -33,7 +33,13 @@ function arg(name: string): string | undefined {
 async function main(): Promise<void> {
   loadEnv();
   const paths = ensureDataDirs();
-  const world = loadWorldConfig();
+  const configured = loadWorldConfig();
+  // `--population N` means a fixed count (§19.7): initial = minAlive = N.
+  const fixed = arg('population') === undefined ? null : Math.max(0, Number(arg('population')));
+  const world =
+    fixed === null || !Number.isFinite(fixed)
+      ? configured
+      : { ...configured, population: { ...configured.population, initial: fixed, minAlive: fixed, maxAlive: Math.max(configured.population.maxAlive, fixed) } };
   const hubCfg = loadHubConfig();
   const versions = loadVersionsConfig();
   const models = loadModelsConfig();
@@ -57,7 +63,7 @@ async function main(): Promise<void> {
     const status = governor.ingest(usage);
     governor.start();
     // §16.2: the budget scales with the population; say what each agent gets.
-    const agents = Number(arg('population') ?? world.population.initial);
+    const agents = world.population.initial;
     const share = governor.perAgentHourly(Math.max(1, agents));
     logger.info(
       { module: 'agora', agents, quotaLevel: status.level, weeklyPercentUsed: status.weeklyPercent, perAgentHourlyInputTokens: share === null ? 'unknown' : Math.round(share) },
@@ -87,7 +93,6 @@ async function main(): Promise<void> {
   const telemetry = fs.createWriteStream(path.join(paths.logs, 'telemetry.jsonl'), { flags: 'a' });
   hub.on('telemetry', (s, m) => telemetry.write(`${JSON.stringify({ agent: s.username, ...m })}\n`));
 
-  const population = arg('population');
   const supervisor = new Supervisor({
     hub,
     paths,
@@ -98,7 +103,6 @@ async function main(): Promise<void> {
     logger,
     rng: new SeededRandom(seedFromString(`${Date.now()}`)),
     ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
-    ...(population !== undefined ? { initial: Number(population) } : {}),
   });
 
   let stopping = false;
@@ -118,7 +122,7 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void stop('SIGTERM'));
   server?.paper.on('exit', () => void stop('the Minecraft server exited'));
 
-  logger.info({ module: 'agora', hub: `ws://${hubCfg.hub.host}:${hub.port}`, population: population ?? world.population.initial, mode: world.mode }, 'running');
+  logger.info({ module: 'agora', hub: `ws://${hubCfg.hub.host}:${hub.port}`, population: world.population.initial, mode: world.mode }, 'running');
   await supervisor.start();
 }
 

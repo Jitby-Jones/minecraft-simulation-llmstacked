@@ -266,14 +266,15 @@ export class Talking {
     await this.flight.run(convId, async () => {
       const conv = this.o.conversations.get(convId);
       if (!conv || conv.status === 'ended') return;
+      // Chiming in (floor control): someone else may have answered while we were thinking or typing.
+      const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
+      const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) : undefined;
       const text = await this.compose(convId, incoming, intent);
-      if (!text) return;
-      // Chiming in (floor control): someone else may have answered while we were thinking.
-      if (incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me') && incoming.some((u) => this.someoneAnswered(u))) {
+      const sent = !text || (stillWanted && !stillWanted()) ? false : await this.send(convId, text, intent.volume, stillWanted);
+      if (!sent && chimingIn) {
         this.o.logger.info({ module: 'talking' }, 'someone else answered first; staying quiet');
-        return;
+        this.o.conversations.discardIfUnspoken(convId);
       }
-      await this.send(convId, text, intent.volume);
     });
   }
 
@@ -281,19 +282,23 @@ export class Talking {
     return text.length > 0 && !GIVEAWAY_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
   }
 
-  private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal'): Promise<void> {
+  private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean): Promise<boolean> {
     const conv = this.o.conversations.get(convId);
     try {
-      await this.o.body.say(text, volume ?? 'normal', conv?.participants.filter((p) => p !== this.o.me) ?? []);
+      const sent = await this.o.body.say(text, volume ?? 'normal', conv?.participants.filter((p) => p !== this.o.me) ?? [], stillWanted);
+      if (!sent) return false;
     } catch (err) {
       this.o.logger.info({ module: 'talking', err: String(err) }, 'did not say a line');
-      return;
+      return false;
     }
     this.o.conversations.noteOwnUtterance(convId, text);
+    return true;
   }
 
   private canned(intent: SpeechIntent, opening = false): string {
     const persona = this.o.store.state.self.persona;
+    // A promise the CC allowed is said plainly, so the other side knows what was agreed (§6.4).
+    if (intent.stance === 'agree' && intent.mayCommit && /^I'll /.test(intent.gist) && intent.gist.length <= 80) return `sure! ${intent.gist}`;
     const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
     if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
       return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
@@ -316,9 +321,19 @@ export class Talking {
       .slice(-3)
       .map((w) => w.text)
       .filter((t) => !remembered.includes(t));
+    // How we feel about them colors the reply (§6.3), and open promises are fair to bring up (§6.4).
+    const partners = (conv?.participants ?? []).filter((p) => p !== this.o.me);
+    const about = partners.map((name) => {
+      const p = s.social[name];
+      if (!p) return `${name} is new to you.`;
+      const owes = s.commitments.filter((c) => c.status === 'accepted' && ((c.debtor === name && c.creditor === this.o.me) || (c.debtor === this.o.me && c.creditor === name)));
+      const promises = owes.map((c) => (c.debtor === name ? `${name} owes you ${c.what.text}` : `you owe ${name} ${c.what.text}`));
+      return `You feel ${Math.round(p.sentiment)}/10 about ${name}${p.trust < 0.35 ? ' and don\u2019t trust them much' : ''}.${p.summary ? ` ${p.summary}` : ''}${promises.length > 0 ? ` ${promises.join('; ')}.` : ''}`;
+    });
     const user = [
       `Right now you are: ${activity}.`,
       s.selfSummary ? `About you: ${s.selfSummary}` : '',
+      ...about,
       onMind.length > 0 ? `On your mind: ${onMind.join('; ')}` : '',
       remembered.length > 0 ? `You remember:\n${remembered.map((m) => `- ${m}`).join('\n')}` : '',
       `What you want to get across: ${intent.stance} — ${intent.gist}`,
@@ -337,8 +352,11 @@ export class Talking {
           { role: 'system', content: system(attempt === 0 ? '' : STRICT_NO_PROMISE_RULE) },
           { role: 'user', content: user },
         ];
-        // §5: stream, and send the first sentence as soon as it is complete (if it passes the guards).
-        const st: { buf: string; first: string | null; sent: Promise<void> | null } = { buf: '', first: null, sent: null };
+        // §5: stream, and send the first sentence as soon as it is complete (if it passes the guards). When chiming
+        // in, it still yields to anyone who answered first (§6.2 floor control).
+        const st: { buf: string; first: string | null; sent: Promise<boolean> | null } = { buf: '', first: null, sent: null };
+        const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
+        const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) : undefined;
         const r = await llm.call<string>({
           tier: 'L1',
           module: 'talking',
@@ -355,13 +373,13 @@ export class Talking {
             if (!m?.[1]) return;
             const sentence = cleanReply(m[1], persona.name, persona.speech.maxWords);
             st.first = this.passes(sentence, intent) ? sentence : '';
-            if (st.first) st.sent = this.send(convId, sentence, intent.volume);
+            if (st.first) st.sent = this.send(convId, sentence, intent.volume, stillWanted);
           },
         });
         if (!r.ok && (r.reason === 'stale' || r.reason === 'aborted')) return '';
         const text = cleanReply(r.value, persona.name, persona.speech.maxWords);
         if (st.sent && st.first) {
-          await st.sent;
+          if (!(await st.sent)) return '';
           const at = text.indexOf(st.first);
           const budget = Math.max(1, persona.speech.maxWords - st.first.split(' ').length);
           const rest = cleanReply(text.slice(at >= 0 ? at + st.first.length : st.first.length), persona.name, budget);

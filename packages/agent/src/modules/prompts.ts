@@ -17,6 +17,9 @@ export function personaCore(p: Persona, traitAnnotations: readonly string[] = []
   return lines.join('\n');
 }
 
+/** §16.3: said plainly to the modules that plan (the CC and Goal Gen). */
+export const DEATH_RULE = 'Death is permanent. If you die, you are gone forever.';
+
 export const DECISION_FORMAT = `Reply with one JSON object:
 {"option": "work|talk|move|follow|explore|rest|flee|help",
  "target": {"agent": "name", "pos": {"x":0,"y":0,"z":0}, "item": "name"},   (only what the option needs)

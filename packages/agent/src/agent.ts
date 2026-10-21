@@ -19,6 +19,10 @@ import { type MindLevers, leversFor } from './modules/levers';
 import { SelfMonitor } from './modules/selfMonitor';
 import { Talking } from './modules/talking';
 import { Perception } from './perception/perception';
+import { SocialAwareness } from './social/awareness';
+import { ClaimChecker } from './social/claims';
+import { CommitmentTracker } from './social/commitments';
+import { DeathWatch } from './social/deaths';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
@@ -52,6 +56,10 @@ export class Agent {
   readonly memory: Memory | null;
   readonly goalGen: GoalGen | null;
   readonly quirks: QuirkRunner;
+  readonly social: SocialAwareness;
+  readonly commitments: CommitmentTracker;
+  readonly deaths: DeathWatch;
+  readonly claims: ClaimChecker;
   private dangerSource = '';
   private readonly offs: (() => void)[] = [];
 
@@ -95,12 +103,28 @@ export class Agent {
       ...(memories ? { memories } : {}),
       refreshSelf: () => this.perception.refreshSelf(),
       socialCandidates: () => this.perception.peopleInRange().filter((n) => this.conversations.mayInitiate(n)),
+      claimToCheck: () => {
+        const c = this.claims.open()[0];
+        const me = this.store.state.self.pos;
+        return c && Math.hypot(c.pos.x - me.x, c.pos.z - me.z) <= 64 ? { pos: c.pos, by: c.by, item: c.item } : undefined;
+      },
       now,
     });
     this.goalGen =
       o.goalGen === false
         ? null
         : new GoalGen({ store: this.store, bus: this.bus, logger, llm, me: username, setGoal: (t, d) => this.cc.setGoal(t, d), ...(memories ? { memories } : {}), now });
+    this.social = new SocialAwareness({ store: this.store, bus: this.bus, logger, llm, me: username, now });
+    this.commitments = new CommitmentTracker({ store: this.store, bus: this.bus, logger, llm, me: username, social: this.social, now });
+    this.deaths = new DeathWatch({ store: this.store, bus: this.bus, logger, me: username, sawDeath: (name, ms) => this.perception.saw(name, 'death', ms), now });
+    this.claims = new ClaimChecker({ store: this.store, bus: this.bus, logger, bot: body.bot, social: this.social, ...(mem ? { markFalse: (t: string) => void mem.markFalseMatching(t) } : {}), now });
+    // Notable deeds move sentiment by code (§6.3 rule 2).
+    this.offs.push(
+      this.bus.on('observedAction', (e) => {
+        const a = e.action;
+        if (a.kind === 'gave' && a.target === username) this.social.deed(a.actor, 'gaveMeItems', `${a.actor} gave me ${a.qty ?? 1} ${a.item ?? 'things'}`);
+      }),
+    );
     this.quirks = new QuirkRunner({
       store: this.store,
       bus: this.bus,
@@ -134,7 +158,8 @@ export class Agent {
       },
       onAttacked: (by, damage) => {
         this.bus.emit({ type: 'attacked', by, damage });
-        if (by && this.store.state.social[by]) pushWorkmem(this.store, `${by} hit me`, 0.85, 'self_observed', { aboutAgent: by, now: now() });
+        // Players are people: being hit by one counts against them (§6.3); mobs are just danger.
+        if (by && body.bot.players[by]) this.social.deed(by, 'attackedMe', `${by} hit me`);
       },
     });
     if (o.governor) {
@@ -165,11 +190,19 @@ export class Agent {
     this.cc.start();
     this.goalGen?.start();
     this.quirks.start();
+    this.social.start();
+    this.commitments.start();
+    this.deaths.start();
+    this.claims.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.claims.stop();
+    this.deaths.stop();
+    this.commitments.stop();
+    this.social.stop();
     this.quirks.stop();
     this.goalGen?.stop();
     this.cc.stop();

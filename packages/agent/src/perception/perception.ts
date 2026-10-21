@@ -71,7 +71,8 @@ export class Perception {
   private readonly digSeen = new Map<string, number>();
   private readonly recentSpeakers = new Map<AgentName, number>();
   private lastSelfKey = '';
-  private lastOwnLineAt = 0;
+  /** Item entity → who it appeared next to (the likely thrower). */
+  private readonly droppedBy = new Map<number, { by: AgentName; at: number }>();
   private lastEntitiesKey = '';
   private lastBlocksKey = '';
   private readonly socialSeenAt = new Map<AgentName, number>();
@@ -106,9 +107,28 @@ export class Perception {
       if (e.type === 'player' && held) this.observe(e, 'equip', { item: held });
     });
     on('entitySleep', (e: Entity) => this.observe(e, 'sleep'));
+    // §6.6: a gift is items someone tossed that we then picked up. Item entities don't say who dropped them, so the
+    // thrower is the player the item appeared next to (within 2 blocks of their hands, while we could see them).
+    on('entitySpawn', (e: Entity) => {
+      if (e.name !== 'item') return;
+      for (const [id, d] of this.droppedBy) if (this.now() - d.at > 60_000) this.droppedBy.delete(id);
+      const thrower = Object.values(bot.entities).find(
+        (p) => p.type === 'player' && p !== bot.entity && p.username && p.position.offset(0, 1.2, 0).distanceTo(e.position) <= 2 && canSee(bot, p, ENTITY_RADIUS + 1),
+      );
+      if (thrower?.username) this.droppedBy.set(e.id, { by: thrower.username, at: this.now() });
+    });
     on('playerCollect', (collector: Entity, collected: Entity) => {
-      if (collector === bot.entity) return;
       const it = (collected as unknown as { getDroppedItem?: () => { name: string; count: number } | null }).getDroppedItem?.();
+      const drop = this.droppedBy.get(collected.id);
+      this.droppedBy.delete(collected.id);
+      if (collector === bot.entity) {
+        if (drop && it && this.now() - drop.at < 30_000) {
+          const action: ObservedAction = { id: nextId('o'), actor: drop.by, kind: 'gave', target: this.me, item: it.name, qty: it.count, ts: this.now() };
+          this.o.store.update('perception', (p) => ({ ...p, observedActions: [...p.observedActions, action].slice(-RING_ACTIONS) }), 'observed:gave');
+          this.o.bus.emit({ type: 'observedAction', action });
+        }
+        return;
+      }
       this.observe(collector, 'collect', it ? { item: it.name, qty: it.count } : {});
     });
     on('blockBreakProgressObserved', (block: { position: Vec3; name: string }, _stage: number, e?: Entity) => {
@@ -135,6 +155,12 @@ export class Perception {
   }
 
   /** People this bot perceives within speech range (seen, or heard recently). */
+  /** Whether we saw `name` do `kind` (e.g. die) within the last `withinMs`. */
+  saw(name: AgentName, kind: ObservedAction['kind'], withinMs: number): boolean {
+    const t = this.now();
+    return this.o.store.state.perception.observedActions.some((a) => a.actor === name && a.kind === kind && t - a.ts <= withinMs);
+  }
+
   peopleInRange(): AgentName[] {
     const range = this.o.speechRange ?? 15;
     const now = this.now();
@@ -310,10 +336,7 @@ export class Perception {
       return;
     }
     if (parsed.kind === 'speech') {
-      if (parsed.speaker === this.me) {
-        this.lastOwnLineAt = now; // our own echo: only its time matters (a reply right after it is for us)
-        return;
-      }
+      if (parsed.speaker === this.me) return; // our own echo
       this.recentSpeakers.set(parsed.speaker, now);
       const ent = Object.values(this.o.bot.entities).find((x) => x.type === 'player' && x.username === parsed.speaker);
       const visible = ent ? canSee(this.o.bot, ent, 64) : false;
@@ -322,10 +345,9 @@ export class Perception {
         me: this.me,
         speaker: parsed.speaker,
         inRange: this.peopleInRange(),
-        // In a conversation with them, or they answer right after we spoke to everyone.
-        inConversationWith:
-          Object.values(this.o.store.state.conversations).some((c) => c.status === 'active' && c.participants.includes(parsed.speaker) && c.participants.length === 2) ||
-          now - this.lastOwnLineAt < 12_000,
+        inConversationWith: Object.values(this.o.store.state.conversations).some(
+          (c) => c.status === 'active' && c.participants.includes(parsed.speaker) && c.participants.length === 2,
+        ),
       });
       const u: Utterance = {
         id: nextId('u'),

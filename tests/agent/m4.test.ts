@@ -146,7 +146,7 @@ describe('memory: Summarize-and-Forget (§4.7)', () => {
   it('recalls by relevance × recency × importance, never returns memories found false, and skips what is on mind', async () => {
     const t = { now: 1_000_000 };
     const s = store();
-    const { db, memory } = memoryFor(s, { now: () => t.now });
+    const { memory } = memoryFor(s, { now: () => t.now });
     await memory.ingest([
       { id: 'a', text: 'Mira keeps iron in the chest by the well', ts: t.now, salience: 0.8, source: 'self_observed' },
       { id: 'b', text: 'the sunset over the plains was pretty', ts: t.now, salience: 0.3, source: 'self_observed' },
@@ -154,8 +154,8 @@ describe('memory: Summarize-and-Forget (§4.7)', () => {
     ]);
     const top = await memory.recall('iron chest', 3);
     expect(top[0]?.text).toContain('Mira keeps iron');
-    const empty = db.list().find((r) => r.text.includes('chest is empty'));
-    db.markFalse(empty?.id ?? '');
+    // A claim that turned out false (§6.5) is marked by its text.
+    expect(memory.markFalseMatching('the iron chest is empty')).toBe(1);
     expect((await memory.recall('iron chest', 3)).some((m) => m.text.includes('empty'))).toBe(false);
     // Old memories fade but never vanish entirely (recency floor).
     t.now += 48 * 3_600_000;
@@ -366,7 +366,7 @@ describe('Talking with memory (§4.7, §6.5)', () => {
     const s = store();
     const bus = new AgentBus();
     const said: string[] = [];
-    const body = { say: (t: string) => Promise.resolve(void said.push(t)), skill: () => null, run: () => Promise.reject(new Error('unused')) } as unknown as Body;
+    const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => null, run: () => Promise.reject(new Error('unused')) } as unknown as Body;
     const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0 });
     const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
     const queries: string[] = [];

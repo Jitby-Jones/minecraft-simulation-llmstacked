@@ -85,6 +85,8 @@ export class ReflexController {
   private busy = false;
   private lastThreatAt = 0;
   private lastHealth: number;
+  /** Where we last stood on solid ground away from lava (the way out of a lava pool). */
+  private lastSafe: Vec3 | null = null;
   private lastArmorCheck = 0;
   private fleePlannedAt = 0;
   private readonly recentAttackers = new Map<number, RecentAttack>();
@@ -206,6 +208,15 @@ export class ReflexController {
   private inLava(): boolean {
     const p = this.bot.entity.position;
     for (const dy of [0, 0.5, 1]) if (this.bot.blockAt(p.offset(0, dy, 0))?.name === 'lava') return true;
+    return false;
+  }
+
+  /** Lava next to (or under) where we stand. */
+  private lavaNear(): boolean {
+    const p = this.bot.entity.position.floored();
+    for (const n of [p.offset(1, 0, 0), p.offset(-1, 0, 0), p.offset(0, 0, 1), p.offset(0, 0, -1), p.offset(0, -1, 0)]) {
+      if (this.bot.blockAt(n)?.name === 'lava') return true;
+    }
     return false;
   }
 
@@ -422,10 +433,27 @@ export class ReflexController {
     const bot = this.bot;
     if (this.busy || !bot.entity || bot.health <= 0) return;
     // 1. Hazards.
-    if (this.inLava() || (this.onFire() && !(bot.entity as unknown as { isInWater?: boolean }).isInWater)) {
+    const lava = this.inLava();
+    if (!lava && bot.entity.onGround && !this.lavaNear()) this.lastSafe = bot.entity.position.clone();
+    if (lava) {
+      // Straight back to where we last stood safely: the pathfinder won't plan a way through lava.
       this.mode = 'escape';
-      const lava = this.inLava();
-      this.announce('hazard', lava ? 'lava' : 'fire');
+      this.announce('hazard', 'lava');
+      const back = this.lastSafe && this.lastSafe.distanceTo(bot.entity.position) <= 8 ? this.lastSafe : this.safeSpot();
+      try {
+        bot.pathfinder.setGoal(null);
+      } catch {
+        // not pathing
+      }
+      if (back) void bot.lookAt(back.offset(0.5, 1.4, 0.5), true).catch(() => undefined);
+      bot.setControlState('forward', true);
+      bot.setControlState('jump', true);
+      bot.setControlState('sprint', true);
+      return;
+    }
+    if (this.onFire() && !(bot.entity as unknown as { isInWater?: boolean }).isInWater) {
+      this.mode = 'escape';
+      this.announce('hazard', 'fire');
       const spot = this.safeSpot();
       if (spot) bot.pathfinder.setGoal(new goals.GoalNear(spot.x, spot.y, spot.z, 0));
       else {

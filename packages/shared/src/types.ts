@@ -449,6 +449,8 @@ export type AgentEvent =
   | { type: 'addressed'; utterance: Utterance }
   /** A line in earshot not addressed to us (§6.2 group floor control decides whether to chime in). */
   | { type: 'overheard'; utterance: Utterance }
+  /** Social Awareness read an insult in a conversation (an appraisal event, §18.2). */
+  | { type: 'insulted'; by: AgentName }
   | { type: 'needsDecision'; reason: string; convId?: ConvId; from?: AgentName }
   | { type: 'optionTerminated'; reason: string; ok: boolean }
   | { type: 'decision'; decision: Decision }
@@ -456,7 +458,8 @@ export type AgentEvent =
   | { type: 'conversationEnded'; convId: ConvId; reason: string }
   | { type: 'observedAction'; action: ObservedAction }
   | { type: 'systemEvent'; event: SystemEvent }
-  | { type: 'peerDied'; name: AgentName; cause: string; where?: Vec3; witnessed: boolean }
+  /** A death notice about someone else (§16.3); grief −1 (relief) … 1 by how we felt about them. */
+  | { type: 'peerDied'; name: AgentName; cause: string; where?: Vec3; witnessed: boolean; grief?: number; killer?: AgentName }
   | { type: 'commitmentResolved'; commitmentId: string; status: CommitmentStatus }
   | { type: 'newGoal'; goal: Goal }
   | { type: 'goalDone'; goal: Goal }

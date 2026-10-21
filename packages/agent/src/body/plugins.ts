@@ -44,6 +44,18 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = []): Moveme
   m.dontMineUnderFallingBlock = true;
   m.allow1by1towers = true;
   m.scafoldingBlocks = SCAFFOLD.map((n) => bot.registry.itemsByName[n]?.id).filter((v): v is number => v !== undefined);
+  // Keep a step away from lava: a slip or a failed jump next to it is deadly (the pathfinder only refuses
+  // stepping into it).
+  const lavaId = bot.registry.blocksByName.lava?.id;
+  if (lavaId !== undefined) {
+    m.exclusionAreasStep.push((block: Block) => {
+      const p = block.position;
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]] as const) {
+        if (bot.blockAt(p.offset(dx, dy, dz))?.type === lavaId) return 40;
+      }
+      return 0;
+    });
+  }
   const rules: PathCostRule[] = pathCostRules(quirks);
   if (rules.length > 0) {
     // A quirk steers away from places that differ from where the bot stands ("afraid of the dark" avoids dark

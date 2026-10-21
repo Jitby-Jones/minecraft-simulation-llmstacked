@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import { countItem } from '../inventory';
 import { CATEGORIES, itemMatcher, normalizeItemName } from '../items';
-import { findKnownBlocks } from '../sightings';
+import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping } from '../world';
 import { craft, resolveCraftTarget, smelt } from './crafting';
 import { gather, isFoodName } from './gathering';
@@ -40,6 +40,11 @@ const FUEL = ['coal', 'charcoal', 'coal_block'];
 const INF = Number.POSITIVE_INFINITY;
 /** Gathering something with none in view probably means a trek. */
 const NOT_NEARBY_COST = 20;
+/**
+ * Gathering something that is never common ground (planks, ore) from blocks we haven't seen means searching for it:
+ * any other way to make it wins (planks from logs), but ore still plans as "find it" (§13 rule 4).
+ */
+const UNSEEN_RARE_COST = 200;
 
 interface Recipe {
   result: { id: number; count: number };
@@ -280,7 +285,9 @@ async function route(p: PlanCtx, item: string, stack: readonly string[]): Promis
 
   if (scan.drops(item).length > 0) {
     const tool = toolNeeded(bot, scan, item);
-    let cost = 1 + (scan.sample(item) ? 0 : NOT_NEARBY_COST);
+    const seen = scan.sample(item);
+    const ground = scan.drops(item).some((id) => isInferable(bot.registry.blocks[id]?.name ?? ''));
+    let cost = 1 + (seen ? 0 : ground ? NOT_NEARBY_COST : UNSEEN_RARE_COST);
     const kids: { name: string; r: Planned }[] = [];
     if (tool) {
       const rt = await route(p, tool, next);

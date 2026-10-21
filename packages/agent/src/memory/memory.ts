@@ -215,6 +215,15 @@ export class Memory {
     return r.value.text;
   }
 
+  /** A claim turned out false (§6.5): memories quoting it never come back as true. */
+  markFalseMatching(text: string): number {
+    const needle = text.trim().toLowerCase();
+    if (needle.length < 8) return 0;
+    const rows = this.o.db.list().filter((r) => r.text.toLowerCase().includes(needle));
+    for (const r of rows) this.o.db.markFalse(r.id);
+    return rows.length;
+  }
+
   /** Top-k memories for a query: cosine × recency × importance, scaled by confidence; false ones never come back. */
   async recall(query: string, k = 4): Promise<Recalled[]> {
     if (!query.trim()) return [];

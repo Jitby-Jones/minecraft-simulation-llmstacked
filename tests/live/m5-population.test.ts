@@ -286,9 +286,10 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
         await sleep(12_000);
         const replies = heard.filter((x) => x.at > t0 && x.who !== 'Dara');
         console.log(`[m5 group] "${q}" → ${replies.map((r) => `${r.who} +${((r.at - t0) / 1000).toFixed(1)}s: ${r.text}`).join(' | ') || 'no answer'}`);
-        // §11 C: at most two replies within 5 s (floor control: unaddressed listeners wait and yield).
+        // §11 C: at most two replies within 5 s (floor control: unaddressed listeners wait and yield), and the
+        // group doesn't run away afterwards (each listener chimes in at most once per three lines).
         expect(replies.filter((r) => r.at - t0 <= 5000).length).toBeLessThanOrEqual(2);
-        expect(replies.length).toBeLessThanOrEqual(2);
+        expect(replies.length).toBeLessThanOrEqual(4);
         answers += replies.length;
         await sleep(5000);
       }

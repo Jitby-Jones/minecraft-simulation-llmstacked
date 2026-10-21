@@ -17,7 +17,7 @@ import { buildPacket } from './bottleneck';
 import { evalCondition } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
-import { DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
+import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -56,14 +56,29 @@ const newId = (p: string, now: number) => `${p}${now.toString(36)}${(seq++).toSt
 
 const ORE_LIKE = /ore$|^raw_|^(coal|diamond|emerald|lapis_lazuli|redstone|quartz|ancient_debris)$/;
 
-/** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
 export interface SocialChance {
   /** People in range this agent may start a conversation with now (pair cooldowns respected). */
   candidates: readonly AgentName[];
   /** Uniform 0..1, compared with persona.social.initiateChance. */
   roll: number;
+  /** A place someone claimed holds something, not yet checked (§6.5). */
+  claim?: { pos: { x: number; y: number; z: number }; by: AgentName; item: string };
 }
 
+/** "can you give me 8 logs?", "bring me some bread", "I need some wood" → what and how many (default 1). */
+export function parseItemRequest(text: string): { item: string; qty: number } | null {
+  const m =
+    /\b(?:give|bring|lend|spare|get|pass)\s+me\s+(?:some\s+|a\s+few\s+|a\s+couple\s+of\s+|a\s+|an\s+)?(\d{1,3})?\s*([a-z][a-z_]{1,23})/i.exec(text) ??
+    /\bi\s+need\s+(?:some|a|an|any)\s+(\d{1,3})?\s*([a-z][a-z_]{1,23})/i.exec(text);
+  if (!m?.[2]) return null;
+  const word = m[2].toLowerCase();
+  if (['hand', 'minute', 'moment', 'second', 'break', 'favor', 'favour', 'chance', 'ride'].includes(word)) return null;
+  return { item: word.replace(/(ie)?s$/, (x) => (x === 'ies' ? 'y' : '')), qty: m[1] ? Number(m[1]) : 1 };
+}
+
+const GENEROUS = /generous|kind|helpful|giving|warm/i;
+
+/** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
 export function codeDecision(
   s: AgentStateStore['state'],
   ctx: DecideContext,
@@ -72,6 +87,28 @@ export function codeDecision(
   social?: SocialChance,
 ): DecisionOutput | null {
   if (ctx.from) {
+    // §6.3 policy: share with people you like (sentiment ≥ 6) what you have, or can get if you're the generous kind.
+    const persona = s.self.persona;
+    const asked = s.perception.heardSpeech.filter((u) => u.from === ctx.from && u.addressedToMe).at(-1);
+    const want = asked ? parseItemRequest(asked.text) : null;
+    const liking = s.social[ctx.from]?.sentiment ?? persona.social.baselineSentiment;
+    const generous = persona.big5.agreeableness >= 0.6 || persona.traits.some((t) => GENEROUS.test(t));
+    const owing = s.commitments.filter((c) => c.debtor === s.self.username && c.status === 'accepted').length;
+    if (want && !s.flags.inDanger && owing < 2 && liking >= 6) {
+      const have = s.self.inventory.filter((x) => x.item === want.item || x.item.endsWith(`_${want.item}`)).reduce((a, x) => a + x.qty, 0);
+      if (have >= want.qty || generous) {
+        const what = `${want.qty} ${want.item}${want.qty > 1 && !want.item.endsWith('s') ? 's' : ''}`;
+        return {
+          option: 'work',
+          target: { agent: ctx.from },
+          task: have >= want.qty ? { skill: 'give', args: { agent: ctx.from, item: want.item, qty: want.qty } } : { skill: 'obtain', args: { item: want.item, qty: want.qty } },
+          speechIntent: { stance: 'agree', gist: `I'll bring you ${what}`, mayCommit: true },
+          commitmentsToCreate: [{ debtor: s.self.username, creditor: ctx.from, what: { kind: 'give', item: want.item, qty: want.qty, text: what }, dueInSec: 900 }],
+          terminate: { maxSeconds: 600 },
+          rationale: `code default: happy to help ${ctx.from}`,
+        };
+      }
+    }
     return {
       option: busy ? (s.option?.option ?? 'rest') : 'rest',
       target: { agent: ctx.from },
@@ -111,7 +148,17 @@ export function codeDecision(
     }
     return { option: 'explore', terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal, look around' };
   }
-  // Nothing to work on: maybe say hello to someone nearby (§6.2 conversations start from the talk option).
+  // Nothing to work on: go and see whether what someone told us is true (§6.5).
+  const claim = social?.claim;
+  if (claim && !isStuck('goTo', { x: claim.pos.x, y: claim.pos.y, z: claim.pos.z, range: 3 })) {
+    return {
+      option: 'work',
+      task: { skill: 'goTo', args: { x: claim.pos.x, y: claim.pos.y, z: claim.pos.z, range: 3 } },
+      terminate: { maxSeconds: 120 },
+      rationale: `code default: ${claim.by} said there is ${claim.item} there; see for myself`,
+    };
+  }
+  // Or say hello to someone nearby (§6.2 conversations start from the talk option).
   const who = social?.candidates[0];
   if (who && social.roll < s.self.persona.social.initiateChance) {
     return {
@@ -142,6 +189,8 @@ export interface CCOptions {
   refreshSelf?: () => void;
   /** People in range this agent may start talking to (for the code default's hello). */
   socialCandidates?: () => AgentName[];
+  /** The nearest unchecked claim worth a look (§6.5). */
+  claimToCheck?: () => SocialChance['claim'] | undefined;
   rng?: () => number;
   heartbeatMs?: number;
   now?: () => number;
@@ -248,7 +297,7 @@ export class CognitiveController {
     const L = this.o.levers();
     if (this.o.llm && !s.flags.codeOnly) {
       const tier = reason.startsWith('new goal') && L.planningBurst ? 'L3' : L.ccTier;
-      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}\n\n${DECISION_FORMAT}`;
+      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}\n\n${DECISION_FORMAT}`;
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
       const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, now: this.now() });
       const messages: ChatMessage[] = [
@@ -292,7 +341,8 @@ export class CognitiveController {
     }
     if (!out) {
       const candidates = this.o.socialCandidates?.() ?? [];
-      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng() });
+      const claim = this.o.claimToCheck?.();
+      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng(), ...(claim ? { claim } : {}) });
       source = 'default';
       if (out && validateDecision(out, env)) out = null;
     }

@@ -11,7 +11,7 @@ import type { AgentBus } from '../bus';
 import { SLOW_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { evalCondition } from './conditions';
-import { personaCore } from './prompts';
+import { DEATH_RULE, personaCore } from './prompts';
 
 export const GoalOutputSchema = z.object({
   /** Keep the current goal instead of switching. */
@@ -125,7 +125,7 @@ export class GoalGen {
           messages: [
             {
               role: 'system',
-              content: `${personaCore(s.self.persona, s.traitAnnotations)}\n\nChoose your next concrete goal: something you can finish in the next 5–20 minutes that moves you toward your life goals or helps people you care about. If the goal is about having items, set doneWhen to inventoryHas:<item>>=<n>. If your current goal is still right, answer {"keep": true}. JSON: {"keep": false, "goal": {"text": "...", "doneWhen": "...", "why": "..."}}`,
+              content: `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nChoose your next concrete goal: something you can finish in the next 5–20 minutes that moves you toward your life goals or helps people you care about. If the goal is about having items, set doneWhen to inventoryHas:<item>>=<n>. If your current goal is still right, answer {"keep": true}. JSON: {"keep": false, "goal": {"text": "...", "doneWhen": "...", "why": "..."}}`,
             },
             {
               role: 'user',

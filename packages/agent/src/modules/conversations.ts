@@ -196,7 +196,7 @@ export class Conversations {
     }
     // A line right after we ended a conversation with them is its tail, not a new one (pair cooldown, §6.2), unless
     // they call us by name. Otherwise two people alone would reopen it forever ("the only one in range").
-    const tail = !conv && u.addressedToMe && this.coolingDown(u.from) && !mentionsName(u.text, this.o.me);
+    const tail = !conv && this.coolingDown(u.from) && !mentionsName(u.text, this.o.me);
     if (!conv && u.addressedToMe && !tail) conv = this.open(u.from, false);
     const inConv = Boolean(conv);
     const addressed = !tail && (u.addressedToMe || (inConv && conv?.participants.length === 2));
@@ -222,6 +222,21 @@ export class Conversations {
     }
     if (addressed) this.o.bus.emit({ type: 'addressed', utterance: utter });
     else if (!tail) this.o.bus.emit({ type: 'overheard', utterance: utter });
+  }
+
+  /** We chimed in but someone else answered first: the conversation never happened (no cooldown, no ending). */
+  discardIfUnspoken(convId: ConvId): void {
+    const conv = this.get(convId);
+    if (!conv || conv.myTurns > 0 || conv.initiatedByMe) return;
+    this.o.store.update(
+      'conversations',
+      (all) => {
+        const next = { ...all };
+        delete next[convId];
+        return next;
+      },
+      'yielded the floor',
+    );
   }
 
   /** Chiming in on a line that wasn't addressed to us (§6.2 floor control): it becomes a conversation turn. */

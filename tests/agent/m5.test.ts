@@ -30,7 +30,12 @@ function speaker(rng: () => number) {
   const s = store();
   const bus = new AgentBus();
   const said: string[] = [];
-  const body = { say: (t: string) => Promise.resolve(void said.push(t)), skill: () => ({ talkOverable: true }), run: () => Promise.reject(new Error('unused')) } as unknown as Body;
+  const body = {
+    // Like ChatOut: the line is dropped if it is no longer wanted right before it would go out.
+    say: (t: string, _v?: string, _l?: string[], stillWanted?: () => boolean) => Promise.resolve(stillWanted && !stillWanted() ? false : said.push(t) > 0),
+    skill: () => ({ talkOverable: true }),
+    run: () => Promise.reject(new Error('unused')),
+  } as unknown as Body;
   const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Cass', inRange: () => ['Ada', 'Bram'], rng });
   const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
   const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: 'Cass', rng });
@@ -57,6 +62,18 @@ describe('group floor control (§6.2)', () => {
     for (let i = 0; i < 60 && c.said.length === 0; i++) await wait(50);
     expect(c.said).toHaveLength(1);
     expect(Object.values(c.s.state.conversations).some((x) => x.participants.includes('Ada'))).toBe(true);
+    c.stop();
+  }, 10_000);
+
+  it('yields the floor even after deciding to chime in, and forgets that conversation', async () => {
+    const c = speaker(() => 0); // chimes in at 1.5 s, speaks about 0.3 s later
+    c.hear(line('Ada', 'anyone got some wood?', 'unsure'));
+    for (let i = 0; i < 100 && Object.keys(c.s.state.conversations).length === 0; i++) await wait(20);
+    expect(Object.keys(c.s.state.conversations)).toHaveLength(1);
+    c.hear(line('Bram', 'I have a few logs', 'other'));
+    await wait(1500);
+    expect(c.said).toEqual([]);
+    expect(Object.keys(c.s.state.conversations)).toHaveLength(0);
     c.stop();
   }, 10_000);
 

@@ -19,7 +19,7 @@ export interface ChatOutOptions {
 
 export interface SayResult {
   sent: boolean;
-  reason?: 'empty' | 'command' | 'guard' | 'global' | 'pair' | 'disconnected';
+  reason?: 'empty' | 'command' | 'guard' | 'global' | 'pair' | 'disconnected' | 'superseded';
   parts: number;
 }
 
@@ -42,9 +42,12 @@ export class ChatOut {
     return this.opts.now?.() ?? Date.now();
   }
 
-  /** Serializes all speech so the rate guard holds across modules. */
-  say(text: string, volume: Volume = 'normal', listeners: readonly string[] = []): Promise<SayResult> {
-    const run = async (): Promise<SayResult> => this.sendNow(text, volume, listeners);
+  /**
+   * Serializes all speech so the rate guard holds across modules. `stillWanted` is asked right before the line goes
+   * out, after the typing delay (group floor control: someone else may have answered meanwhile).
+   */
+  say(text: string, volume: Volume = 'normal', listeners: readonly string[] = [], stillWanted?: () => boolean): Promise<SayResult> {
+    const run = async (): Promise<SayResult> => this.sendNow(text, volume, listeners, stillWanted);
     const p = this.queue.then(run, run);
     this.queue = p.catch(() => undefined);
     return p;
@@ -61,7 +64,7 @@ export class ChatOut {
     return true;
   }
 
-  private async sendNow(text: string, volume: Volume, listeners: readonly string[]): Promise<SayResult> {
+  private async sendNow(text: string, volume: Volume, listeners: readonly string[], stillWanted?: () => boolean): Promise<SayResult> {
     const clean = text.replace(/[\r\n]+/g, ' ').trim();
     if (!clean) return { sent: false, reason: 'empty', parts: 0 };
     // Never type commands: a leading slash would run a server command.
@@ -84,6 +87,7 @@ export class ChatOut {
         this.opts.logger?.warn({ module: 'chat' }, 'global speech guard hit; staying silent');
         return { sent: sentParts > 0, reason: 'global', parts: sentParts };
       }
+      if (stillWanted && !stillWanted()) return { sent: sentParts > 0, reason: 'superseded', parts: sentParts };
       // The bot may have disconnected while we waited.
       const client = this.bot._client as { ended?: boolean } | undefined;
       if (!client || client.ended) return { sent: sentParts > 0, reason: 'disconnected', parts: sentParts };

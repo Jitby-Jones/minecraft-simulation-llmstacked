@@ -171,7 +171,7 @@ describe('Talking guards (§6.2, §6.4, §13 rule 3, §16.1)', () => {
     const s = store();
     const bus = new AgentBus();
     const said: string[] = [];
-    const body = { say: (t: string) => Promise.resolve(void said.push(t)), skill: () => null, run: () => Promise.reject(new Error('unused')) } as unknown as Body;
+    const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => null, run: () => Promise.reject(new Error('unused')) } as unknown as Body;
     const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0 });
     const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
     const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: rt.client, conversations, executor, me: 'Pip', rng: () => 0 });
