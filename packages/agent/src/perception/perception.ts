@@ -154,6 +154,15 @@ export class Perception {
     for (const [k, t] of this.digSeen) if (t < this.now() - 30_000) this.digSeen.delete(k);
   }
 
+  /** Re-reads the bot's own state now (a decision right after an action must see what it produced). */
+  refreshSelf(): void {
+    try {
+      this.updateSelf();
+    } catch (err) {
+      this.o.logger.debug({ module: 'perception', err: String(err) }, 'self refresh failed');
+    }
+  }
+
   private updateSelf(): void {
     const bot = this.o.bot;
     const inv = inventoryStacks(bot);

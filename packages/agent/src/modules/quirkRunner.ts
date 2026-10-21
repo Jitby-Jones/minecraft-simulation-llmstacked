@@ -1,12 +1,13 @@
 // Code quirks (§7): consistent, visible and free (no tokens). pathCost and reflexBias live in the body; this runs the
 // behavioral ones: idleEmote (a line every so often when someone can hear), distraction (seeing a sheep, a chance to
-// wander over), autoCollect (can't walk past a poppy). Distractions and pick-ups are impulses: they briefly take
-// over, and the CC resumes the plan when they end. tradeBias applies in trades (M6).
+// wander over), autoCollect (can't walk past a poppy: the item lying on the ground, or a block that is the item, in
+// sight). Distractions and pick-ups are impulses: they briefly take over, and the CC resumes the plan when they end.
+// tradeBias applies in trades (M6).
 
 import type { Logger, Quirk } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
-import { blockIdsDropping, findNearestBlocks } from '../body/world';
+import { blockIdsNamed, canSee, findNearestBlocks } from '../body/world';
 import { itemMatcher } from '../body/items';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -103,13 +104,17 @@ export class QuirkRunner {
           if (!this.interruptible()) return;
           for (const item of q.items) {
             if (now - (this.collectedAt.get(item) ?? 0) < 60_000) continue;
+            const m = itemMatcher(item);
+            const dropped = s.perception.nearbyEntities.some((e) => e.kind === 'item' && e.visible && e.distance <= 8 && m.matches(e.name));
             const bot = this.o.body.bot;
-            const near = findNearestBlocks(bot, blockIdsDropping(bot, itemMatcher(item)), 8, 1)[0];
-            if (!near) continue;
+            const block = dropped
+              ? undefined
+              : findNearestBlocks(bot, blockIdsNamed(bot, item), 8, 4).find((b) => canSee(bot, b.position.offset(0.5, 0.5, 0.5), 9));
+            if (!dropped && !block) continue;
             this.collectedAt.set(item, now);
             this.o.cc.impulse({
               option: 'work',
-              task: { skill: 'gather', args: { item, qty: 1, maxDistance: 10 } },
+              task: dropped ? { skill: 'pickup', args: { item, radius: 10 } } : { skill: 'gather', args: { item, qty: 1, maxDistance: 10 } },
               terminate: { maxSeconds: 25 },
               rationale: `couldn't resist the ${item}`,
             });

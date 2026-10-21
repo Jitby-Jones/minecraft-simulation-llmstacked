@@ -3,8 +3,12 @@
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
 import type { AgentName, Logger, Persona, WorldConfig } from '@agora/shared';
-import type { LlmClient, QuotaGovernor } from '@agora/llm';
+import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
+import type { MemoryDB } from './memory/db';
+import { Memory } from './memory/memory';
+import { GoalGen } from './modules/goalGen';
+import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
 import { cannedBusyLine } from './body/reflexes';
 import { ActionAwareness } from './modules/awareness';
@@ -28,6 +32,10 @@ export interface AgentOptions {
   world?: WorldConfig;
   /** Quota mode for flags.degrade / codeOnly (the Hub's budget messages take over in M5). */
   governor?: QuotaGovernor;
+  /** Long-term memory (M4): the bot's SQLite file and the shared embedder. Without it the agent only has workmem. */
+  memory?: { db: MemoryDB; embedder: Embedder };
+  /** Goal Generation picks goals (M4). Off when a test or the runner drives goals by hand. */
+  goalGen?: boolean;
   now?: () => number;
 }
 
@@ -41,6 +49,9 @@ export class Agent {
   readonly talking: Talking;
   readonly selfMonitor: SelfMonitor;
   readonly cc: CognitiveController;
+  readonly memory: Memory | null;
+  readonly goalGen: GoalGen | null;
+  readonly quirks: QuirkRunner;
   private dangerSource = '';
   private readonly offs: (() => void)[] = [];
 
@@ -56,6 +67,8 @@ export class Agent {
     this.awareness = new ActionAwareness({ store: this.store, bus: this.bus, logger, now });
     this.talking = new Talking({ store: this.store, bus: this.bus, body, logger, llm, conversations: this.conversations, executor: this.executor, me: username, now });
     this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
+    this.memory = o.memory ? new Memory({ store: this.store, bus: this.bus, logger, db: o.memory.db, embedder: o.memory.embedder, llm, me: username, now }) : null;
+    const memories = this.memory ? (k: number) => (this.memory as Memory).forPacket(k) : undefined;
     this.cc = new CognitiveController({
       store: this.store,
       bus: this.bus,
@@ -67,6 +80,23 @@ export class Agent {
       executor: this.executor,
       canPerceive: (name) =>
         this.perception.peopleInRange().includes(name) || this.store.state.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === name),
+      ...(memories ? { memories } : {}),
+      refreshSelf: () => this.perception.refreshSelf(),
+      now,
+    });
+    this.goalGen =
+      o.goalGen === false
+        ? null
+        : new GoalGen({ store: this.store, bus: this.bus, logger, llm, me: username, setGoal: (t, d) => this.cc.setGoal(t, d), ...(memories ? { memories } : {}), now });
+    this.quirks = new QuirkRunner({
+      store: this.store,
+      bus: this.bus,
+      body,
+      cc: this.cc,
+      executor: this.executor,
+      logger,
+      quirks: persona.quirks,
+      peopleInRange: () => this.perception.peopleInRange(),
       now,
     });
     body.setQuirks(persona.quirks);
@@ -118,12 +148,20 @@ export class Agent {
     this.executor.start();
     this.talking.start();
     this.selfMonitor.start();
+    this.memory?.start();
     this.cc.start();
-    this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only' }, 'agent started');
+    this.goalGen?.start();
+    this.quirks.start();
+    this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
-  stop(): void {
+  /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
+  async stop(): Promise<void> {
+    this.quirks.stop();
+    this.goalGen?.stop();
     this.cc.stop();
+    this.memory?.stop();
+    await this.memory?.flush();
     this.selfMonitor.stop();
     this.talking.stop();
     this.executor.stop();

@@ -206,7 +206,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     skill: skill.name,
     args: argsObj,
     expected: describeExpectation(expectation),
-    observed: `${observed}; ${check.observed}`,
+    observed: observed === check.observed ? observed : `${observed}; ${check.observed}`,
     ok: ok && check.ok,
     mismatch,
     aborted,

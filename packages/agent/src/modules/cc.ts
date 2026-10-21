@@ -103,6 +103,8 @@ export interface CCOptions {
   canPerceive: (name: AgentName) => boolean;
   /** Retrieved memories for the packet (M4). */
   memories?: (k: number) => Promise<string[]>;
+  /** Brings the bot's own snapshot up to date before deciding (perception otherwise lags up to 250 ms). */
+  refreshSelf?: () => void;
   heartbeatMs?: number;
   now?: () => number;
 }
@@ -191,6 +193,7 @@ export class CognitiveController {
   }
 
   private async decide(reason: string, ctx: DecideContext): Promise<void> {
+    this.o.refreshSelf?.();
     this.checkGoal();
     const { store, logger } = this.o;
     const s = store.state;

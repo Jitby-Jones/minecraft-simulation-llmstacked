@@ -97,7 +97,7 @@ describe.skipIf(!liveJavaPath())('M3 live: a single agent', () => {
     const body = await Body.connect({ host: server.host, port: server.port, username: 'Mira', version: versions.minecraft.version, logger });
     await server.cmd(`tp Mira 0 ${Y} 0`);
     await sleep(1500);
-    const agent = new Agent({ body, persona: persona('mira'), username: 'Mira', llm: null, logger, world });
+    const agent = new Agent({ body, persona: persona('mira'), username: 'Mira', llm: null, logger, world, goalGen: false });
     const decisions: string[] = [];
     agent.bus.on('decision', (e) => decisions.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option} ${JSON.stringify(e.decision.task?.args ?? {})}`));
     agent.start();
@@ -107,7 +107,7 @@ describe.skipIf(!liveJavaPath())('M3 live: a single agent', () => {
     } finally {
       console.log(`[m3 code-only] ${decisions.join(' | ')}`);
       console.log(`[m3 code-only] actions: ${agent.store.state.actionLog.map((a) => `${a.skill}:${a.ok ? 'ok' : `FAIL(${a.error})`}`).join(', ')}`);
-      agent.stop();
+      await agent.stop();
       await body.disconnect();
     }
     expect(countItem(body.bot, 'stone_pickaxe')).toBeGreaterThanOrEqual(1);
@@ -136,7 +136,7 @@ describe.skipIf(!liveJavaPath())('M3 live: a single agent', () => {
       const p = parseProximityLine(m);
       if (p.kind === 'speech' && p.speaker === 'Tobin') tobinSaid.push(p.text);
     });
-    const agent = new Agent({ body, persona: persona('tobin'), username: 'Tobin', llm: rt.client, logger, world });
+    const agent = new Agent({ body, persona: persona('tobin'), username: 'Tobin', llm: rt.client, logger, world, goalGen: false });
     const actions: { skill: string; ok: boolean; error?: string }[] = [];
     agent.bus.on('actionRecorded', (e) => actions.push({ skill: e.record.skill, ok: e.record.ok, error: e.record.error }));
     const decisions: { source: string; skill?: string; item?: unknown; stance?: string; mayCommit?: boolean; rationale: string }[] = [];
@@ -164,7 +164,7 @@ describe.skipIf(!liveJavaPath())('M3 live: a single agent', () => {
       console.log(`[m3 model] decisions: ${decisions.map((d) => `${d.source}:${d.skill ?? ''}(${JSON.stringify(d.item ?? '')})${d.stance ? ` ${d.stance}/${String(d.mayCommit)}` : ''}`).join(' | ')}`);
       console.log(`[m3 model] Tobin said: ${tobinSaid.join(' | ')}`);
       console.log(`[m3 model] actions: ${agent.store.state.actionLog.map((a) => `${a.skill}(${JSON.stringify(a.args.item ?? '')}):${a.ok ? 'ok' : `FAIL(${a.error})`}`).join(', ')}`);
-      agent.stop();
+      await agent.stop();
       await body.disconnect();
       await bram.disconnect();
       rt.stop();

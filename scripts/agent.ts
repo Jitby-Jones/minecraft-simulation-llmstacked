@@ -3,6 +3,7 @@
 // defaults (§22.4). The Hub (M5) runs a whole population; this is for one bot.
 //
 //   pnpm agent --persona pip [--goal "get stone tools" --done "inventoryHas:stone_pickaxe>=1"] [--code-only]
+//   (with --goal, Goal Generation stays off and the bot works on that goal; otherwise it picks its own)
 //              [--username Pip] [--host 127.0.0.1] [--port 25565]
 
 import path from 'node:path';
@@ -19,8 +20,8 @@ import {
   loadWorldConfig,
   repoRoot,
 } from '@agora/shared';
-import { type LlmRuntime, loadBenchFile, startLlm } from '@agora/llm';
-import { Agent, Body } from '@agora/agent';
+import { type LlmRuntime, createEmbedder, loadBenchFile, startLlm } from '@agora/llm';
+import { Agent, Body, MemoryDB } from '@agora/agent';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -55,9 +56,17 @@ async function main(): Promise<void> {
     version: versions.minecraft.version,
     logger,
   });
-  const agent = new Agent({ body, persona, username, llm: rt?.client ?? null, logger, world, governor: rt?.governor });
-  agent.start();
+  const paths = dataPaths();
+  const embedder = await createEmbedder({
+    modelDir: path.join(paths.cache, 'models'),
+    modelId: versions.embeddingModel.id,
+    dims: versions.embeddingModel.dims,
+    logger,
+  });
+  const db = new MemoryDB(path.join(paths.agents, username, 'memory.sqlite'));
   const goal = arg('goal');
+  const agent = new Agent({ body, persona, username, llm: rt?.client ?? null, logger, world, governor: rt?.governor, memory: { db, embedder }, goalGen: !goal });
+  agent.start();
   if (goal) agent.setGoal(goal, arg('done'));
 
   let stopping = false;
@@ -65,7 +74,8 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     logger.info({ module: 'agent', why }, 'stopping');
-    agent.stop();
+    await agent.stop();
+    db.close();
     await body.disconnect('bye');
     rt?.stop();
     process.exit(0);
