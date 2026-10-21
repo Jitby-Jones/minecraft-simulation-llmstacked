@@ -84,7 +84,15 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       env: { DATA_DIR: dataDir, AGORA_MC_PORT: String(PORT), NANOGPT_API_KEY: '' },
     });
     const pool = loadPersonaPool().filter((p) => ['pip', 'bram'].includes(p.id ?? ''));
-    const mk = () => new Supervisor({ hub: h, paths, world: world(2), sexDiffs: SexDifferencesSchema.parse({}), pool, launcher, logger, rng: new SeededRandom(2), rcon: (c) => server.cmd(c) });
+    // §23.5: measure what a bot process costs.
+    const pids: number[] = [];
+    const counted: Launcher = (slot) => {
+      const proc = launcher(slot);
+      if (proc.pid) pids.push(proc.pid);
+      return proc;
+    };
+    const rssMb = (pid: number) => Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'))?.[1] ?? 0) / 1024;
+    const mk = () => new Supervisor({ hub: h, paths, world: world(2), sexDiffs: SexDifferencesSchema.parse({}), pool, launcher: counted, logger, rng: new SeededRandom(2), rcon: (c) => server.cmd(c) });
     const ready = new Set<string>();
     h.on('ready', (_s, name) => ready.add(name));
     try {
@@ -96,6 +104,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       expect(list).toMatch(/Pip/);
       expect(list).toMatch(/Bram/);
       await sleep(20_000);
+      if (process.platform === 'linux') console.log(`[m5 procs] bot RSS: ${pids.map((p) => `${rssMb(p).toFixed(0)} MB`).join(', ')}`);
       await sup.shutdown('test shutdown', 60_000);
       for (const name of ['Pip', 'Bram']) {
         const db = new MemoryDB(agentDbPath(paths, name));
@@ -172,8 +181,8 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
       if (schema === 'addressed') return { text: JSON.stringify({ addressedToMe: false }) };
       if (schema === 'decision') {
-        const other = /People near you: (\w+)/.exec(user)?.[1];
-        if (other && !talked.has(me) && !/Doing now: talk/.test(user)) {
+        const other = me === 'Juno' ? 'Rook' : 'Juno';
+        if (new RegExp(`People near you:.*\\b${other} \\(`).test(user) && !talked.has(me) && !/Doing now: talk/.test(user)) {
           talked.add(me);
           return { text: JSON.stringify({ option: 'talk', target: { agent: other }, speechIntent: { stance: 'chat', gist: 'say hi', mayCommit: false }, terminate: { maxSeconds: 120 }, rationale: `${other} is here` }) };
         }
@@ -218,7 +227,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       expect(heard.filter((x) => x.startsWith('Rook:')).length).toBeGreaterThanOrEqual(2);
       expect(h.counters.llmGranted).toBeGreaterThan(4);
       expect(h.counters.speechGranted).toBeGreaterThanOrEqual(4);
-      // No loops: two more minutes of quiet, the pair cooldown holds and nobody keeps talking.
+      // No loops: a minute later the pair cooldown holds and nobody keeps talking.
       const before = heard.length;
       await sleep(60_000);
       expect(heard.length - before).toBeLessThanOrEqual(2);
@@ -229,7 +238,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     }
   }, 420_000);
 
-  it('scenario C: a question to everyone gets one answer first, not one from each listener', async () => {
+  it('scenario C (group chat): with three listeners in range, a question gets at most two replies within 5 s', async () => {
     const dataDir = path.join(server.dir, '..', 'data-group');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
@@ -249,9 +258,9 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     const sup = new Supervisor({
       hub: h,
       paths,
-      world: world(2),
+      world: world(3),
       sexDiffs: SexDifferencesSchema.parse({}),
-      pool: [quiet('Opal', 'female'), quiet('Moss', 'male')],
+      pool: [quiet('Opal', 'female'), quiet('Moss', 'male'), quiet('Kit', 'female')],
       launcher: inProcess(h, dataDir, fake, bots),
       logger,
       rng: new SeededRandom(4),
@@ -264,9 +273,10 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     });
     try {
       await sup.start();
-      await waitFor(() => bots.size === 2, 90_000, 'two agents', 500);
+      await waitFor(() => bots.size === 3, 120_000, 'three agents', 500);
       await server.cmd(`tp Opal 100 ${Y} 0`);
       await server.cmd(`tp Moss 104 ${Y} 0`);
+      await server.cmd(`tp Kit 102 ${Y} -3`);
       await server.cmd(`tp Dara 102 ${Y} 3`);
       await sleep(4000);
       let answers = 0;
@@ -275,12 +285,17 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
         await asker.say(q);
         await sleep(12_000);
         const replies = heard.filter((x) => x.at > t0 && x.who !== 'Dara');
-        console.log(`[m5 group] "${q}" → ${replies.map((r) => `${r.who}: ${r.text}`).join(' | ') || 'no answer'}`);
-        expect(replies.length).toBeLessThanOrEqual(1);
+        console.log(`[m5 group] "${q}" → ${replies.map((r) => `${r.who} +${((r.at - t0) / 1000).toFixed(1)}s: ${r.text}`).join(' | ') || 'no answer'}`);
+        // §11 C: at most two replies within 5 s (floor control: unaddressed listeners wait and yield).
+        expect(replies.filter((r) => r.at - t0 <= 5000).length).toBeLessThanOrEqual(2);
+        expect(replies.length).toBeLessThanOrEqual(2);
         answers += replies.length;
         await sleep(5000);
       }
       expect(answers).toBeGreaterThanOrEqual(1);
+      // The conversations end by themselves (Dara never answers back): within the turn caps or by silence.
+      const convs = () => [...bots.values()].flatMap((b) => Object.values(b.agent.store.state.conversations));
+      await waitFor(() => convs().length > 0 && convs().every((c) => c.status === 'ended'), 90_000, 'the group conversations to end', 1000);
     } finally {
       await sup.shutdown('test done', 30_000);
       await asker.disconnect();

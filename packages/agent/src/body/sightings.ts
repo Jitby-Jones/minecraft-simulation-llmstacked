@@ -6,7 +6,7 @@
 import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
-import { canSee, findNearestBlocks } from './world';
+import { canSeeBlock, findNearestBlocks } from './world';
 
 const INFERABLE_NAMES = new Set([
   'stone', 'granite', 'diorite', 'andesite', 'deepslate', 'tuff', 'calcite', 'dripstone_block', 'dirt', 'grass_block',
@@ -71,7 +71,7 @@ export class Sightings {
   /** Whether this bot perceives `b` now (touching or in line of sight) or has seen it there before. */
   knows(b: Block, maxDistance: number): boolean {
     if (this.seen.get(key(b.position))?.name === b.name) return true;
-    if (touching(this.bot, b.position) || canSee(this.bot, b.position.offset(0.5, 0.5, 0.5), maxDistance + 1)) {
+    if (touching(this.bot, b.position) || canSeeBlock(this.bot, b.position, maxDistance + 1)) {
       this.record(b);
       return true;
     }

@@ -54,8 +54,15 @@ async function main(): Promise<void> {
       runtimeHoursPerWeek: models.llm.expectedRuntimeHoursPerWeek,
       logger,
     });
-    governor.ingest(usage);
+    const status = governor.ingest(usage);
     governor.start();
+    // §16.2: the budget scales with the population; say what each agent gets.
+    const agents = Number(arg('population') ?? world.population.initial);
+    const share = governor.perAgentHourly(Math.max(1, agents));
+    logger.info(
+      { module: 'agora', agents, quotaLevel: status.level, weeklyPercentUsed: status.weeklyPercent, perAgentHourlyInputTokens: share === null ? 'unknown' : Math.round(share) },
+      'subscription budget per agent',
+    );
   } else {
     logger.warn({ module: 'agora' }, 'NANOGPT_API_KEY is empty: every agent runs code-only (§22.4)');
   }

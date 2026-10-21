@@ -9,7 +9,7 @@ import type { Entity } from 'prismarine-entity';
 import type { AgentBus } from '../bus';
 import { inventoryDigest, inventoryStacks } from '../body/inventory';
 import { Sightings } from '../body/sightings';
-import { canSee, isHostile, isNight } from '../body/world';
+import { canSee, canSeeBlock, isHostile, isNight } from '../body/world';
 import { detectAddressee } from '../modules/conversations';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
@@ -275,7 +275,7 @@ export class Perception {
     const scan = (ids: number[], count: number, remember: boolean) => {
       for (const p of bot.findBlocks({ matching: ids, maxDistance: 16, count })) {
         const b = bot.blockAt(p);
-        if (!b || !canSee(bot, p.offset(0.5, 0.5, 0.5), 17)) continue;
+        if (!b || !canSeeBlock(bot, p, 17)) continue;
         if (remember) sightings.record(b);
         if ((per.get(b.name) ?? 0) >= 3 || notes.length >= 24) continue;
         per.set(b.name, (per.get(b.name) ?? 0) + 1);

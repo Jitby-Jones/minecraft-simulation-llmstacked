@@ -51,6 +51,36 @@ export function canSee(bot: Bot, target: Entity | Vec3, maxDistance = 64): boole
   return hit.position.offset(0.5, 0.5, 0.5).distanceTo(from) >= dist - 0.6;
 }
 
+type Raycast = (from: Vec3, dir: Vec3, range: number) => { position: Vec3 } | null;
+
+/** Points just inside each face of a block (a block counts as seen when any of its faces is in view). */
+const FACE_POINTS: readonly [number, number, number][] = [
+  [0.5, 0.98, 0.5],
+  [0.5, 0.5, 0.5],
+  [0.02, 0.5, 0.5],
+  [0.98, 0.5, 0.5],
+  [0.5, 0.5, 0.02],
+  [0.5, 0.5, 0.98],
+  [0.5, 0.02, 0.5],
+];
+
+/** Line of sight to any face of the block at `pos`: ore in the ground shows its top, ore in a wall its side. */
+export function canSeeBlock(bot: Bot, pos: Vec3, maxDistance = 64): boolean {
+  const from = bot.entity.position.offset(0, (bot.entity as unknown as { eyeHeight?: number }).eyeHeight ?? 1.62, 0);
+  const raycast = (bot.world as unknown as { raycast: Raycast }).raycast.bind(bot.world);
+  const target = pos.floored();
+  for (const [fx, fy, fz] of FACE_POINTS) {
+    const to = target.offset(fx, fy, fz);
+    const delta = to.minus(from);
+    const dist = delta.norm();
+    if (dist > maxDistance) continue;
+    if (dist < 0.01) return true;
+    const hit = raycast(from, delta.normalize(), dist + 0.1);
+    if (hit?.position.equals(target)) return true;
+  }
+  return false;
+}
+
 export function playerEntity(bot: Bot, username: string): Entity | null {
   const p = bot.players[username];
   return p?.entity ?? null;

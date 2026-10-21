@@ -81,6 +81,25 @@ describe('group floor control (§6.2)', () => {
   }, 20_000);
 });
 
+describe('conversation tails (§6.2 pair cooldown)', () => {
+  it('does not reopen a conversation on the partner\u2019s trailing line unless they call us by name', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const conv = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Cass', inRange: () => ['Bram'], rng: () => 0 });
+    conv.start();
+    const addressed: string[] = [];
+    bus.on('addressed', (e) => addressed.push(e.utterance.text));
+    const c = conv.open('Bram', true);
+    conv.end(c.convId, 'repetition');
+    bus.emit({ type: 'heard', utterance: line('Bram', 'well, see you then', 'me') });
+    expect(addressed).toEqual([]);
+    expect(conv.withPartner('Bram')).toBeUndefined();
+    bus.emit({ type: 'heard', utterance: line('Bram', 'Cass, one more thing', 'me') });
+    expect(addressed).toEqual(['Cass, one more thing']);
+    conv.stop();
+  });
+});
+
 describe('code-only social defaults (§6.2, §22.4)', () => {
   it('says hello to someone nearby when there is nothing to do, by the persona’s initiate chance', () => {
     const s = createInitialState({ persona, username: 'Cass', now: 0 });

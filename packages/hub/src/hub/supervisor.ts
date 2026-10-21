@@ -85,11 +85,23 @@ export class Supervisor {
     this.now = o.now ?? Date.now;
     this.roster = loadRoster(o.paths.roster);
     this.target = o.initial ?? o.world.population.initial;
-    o.hub.on('hello', (s) => this.onHello(s));
-    o.hub.on('ready', (s, name) => void this.onReady(s, name));
-    o.hub.on('died', (s, m) => this.onDied(s, m.username, m.cause));
-    o.hub.on('bye', (_s, m) => this.o.logger.info({ module: 'supervisor', agent: m.username, reason: m.reason }, 'bot said bye'));
+    const onHello = (s: HubSession) => this.onHello(s);
+    const onReady = (s: HubSession, name: string) => void this.onReady(s, name);
+    const onDied = (s: HubSession, m: { username: string; cause: string }) => this.onDied(s, m.username, m.cause);
+    const onBye = (_s: HubSession, m: { username: string; reason: string }) => this.o.logger.info({ module: 'supervisor', agent: m.username, reason: m.reason }, 'bot said bye');
+    o.hub.on('hello', onHello);
+    o.hub.on('ready', onReady);
+    o.hub.on('died', onDied);
+    o.hub.on('bye', onBye);
+    this.detach = () => {
+      o.hub.off('hello', onHello);
+      o.hub.off('ready', onReady);
+      o.hub.off('died', onDied);
+      o.hub.off('bye', onBye);
+    };
   }
+
+  private readonly detach: () => void;
 
   get living(): RosterEntry[] {
     return livingAgents(this.roster);
@@ -280,5 +292,6 @@ export class Supervisor {
       run.proc.kill('SIGKILL');
     }
     this.save();
+    this.detach();
   }
 }

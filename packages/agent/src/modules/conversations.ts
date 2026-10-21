@@ -106,6 +106,11 @@ export class Conversations {
     return this.active().find((c) => c.participants.includes(name));
   }
 
+  /** We ended a conversation with them recently. */
+  coolingDown(partner: AgentName): boolean {
+    return (this.cooldownUntil.get(partner) ?? 0) > this.now();
+  }
+
   /** Each side may initiate once per pair cooldown (§6.2). */
   mayInitiate(partner: AgentName): boolean {
     return (this.cooldownUntil.get(partner) ?? 0) <= this.now() && !this.withPartner(partner);
@@ -189,9 +194,12 @@ export class Conversations {
       this.end(conv.convId, 'went quiet');
       conv = undefined;
     }
-    if (!conv && u.addressedToMe) conv = this.open(u.from, false);
+    // A line right after we ended a conversation with them is its tail, not a new one (pair cooldown, §6.2), unless
+    // they call us by name. Otherwise two people alone would reopen it forever ("the only one in range").
+    const tail = !conv && u.addressedToMe && this.coolingDown(u.from) && !mentionsName(u.text, this.o.me);
+    if (!conv && u.addressedToMe && !tail) conv = this.open(u.from, false);
     const inConv = Boolean(conv);
-    const addressed = u.addressedToMe || (inConv && conv?.participants.length === 2);
+    const addressed = !tail && (u.addressedToMe || (inConv && conv?.participants.length === 2));
     const utter: Utterance = { ...u, convId: conv?.convId ?? '', addressedToMe: addressed };
     this.o.store.update(
       'perception',
@@ -213,7 +221,7 @@ export class Conversations {
       );
     }
     if (addressed) this.o.bus.emit({ type: 'addressed', utterance: utter });
-    else this.o.bus.emit({ type: 'overheard', utterance: utter });
+    else if (!tail) this.o.bus.emit({ type: 'overheard', utterance: utter });
   }
 
   /** Chiming in on a line that wasn't addressed to us (§6.2 floor control): it becomes a conversation turn. */

@@ -71,6 +71,11 @@ export class Body {
     loadBodyPlugins(bot);
     const body = new Body(bot, cfg.logger, cfg, { ...DEFAULT_REFLEX_HOOKS, ...hooks });
     body.home = bot.entity.position.clone();
+    // Placed somewhere far away (a respawn, an operator's teleport): that is where this body lives now.
+    bot.on('forcedMove', () => {
+      const p = bot.entity.position;
+      if (!body.home || p.distanceTo(body.home) > 64) body.home = p.clone();
+    });
     return body;
   }
 

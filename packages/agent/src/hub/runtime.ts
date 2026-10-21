@@ -53,7 +53,16 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   const boot = o.logger ?? createLogger({ name: `bot-${o.slot}`, logDir: path.join(o.paths.logs, 'bots'), console: false });
   const hub = new HubClient({ url: o.hubUrl, slot: o.slot, logger: boot, expectedBots: o.expectedBots });
   hub.connect();
-  const a = await hub.assigned();
+  // A shutdown can come before we know who we are (the supervisor stopping while we start): just leave.
+  const early: { reason: string | null } = { reason: null };
+  hub.on('shutdown', (m) => (early.reason ??= m.reason));
+  const first = await Promise.race([hub.assigned(), new Promise<null>((r) => hub.on('shutdown', () => r(null)))]);
+  if (!first) {
+    hub.close();
+    o.exit?.(0);
+    throw new Error(`shut down before being assigned: ${early.reason ?? 'unknown'}`);
+  }
+  const a = first;
   const logger = o.logger ?? createLogger({ name: `agent-${a.username}`, logDir: path.join(o.paths.logs, 'agents'), console: false });
   logger.info({ module: 'agent', slot: o.slot, resume: a.resume }, 'assigned');
 
@@ -119,6 +128,7 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   };
 
   hub.on('shutdown', (m) => void finish(`shutdown: ${m.reason}`, { snapshot: true }));
+  if (early.reason) void finish(`shutdown: ${early.reason}`, { snapshot: true });
   hub.on('retire', (m) => void finish(`retired: ${m.reason}`, { snapshot: true, goodbye: true }));
   hub.on('snapshot', (m) => {
     saveSnapshot(db, agent.store.state);
