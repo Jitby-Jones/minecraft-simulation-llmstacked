@@ -3,7 +3,18 @@
 // to a rejection (scenarios W and X). Live courtship, rejection and jealousy are in tests/live/m9a-romance.test.ts.
 
 import { describe, expect, it } from 'vitest';
-import { type Persona, type PersonaInput, PersonaSchema, SeededRandom, WorldConfigSchema, generatePersona, loadSexDifferences } from '@agora/shared';
+import { type DecisionOutput, type Persona, type PersonaInput, PersonaSchema, SeededRandom, type SocialProfile, WorldConfigSchema, generatePersona, loadSexDifferences, nullLogger } from '@agora/shared';
+import { AgentBus } from '@agora/agent/bus';
+import { ACCEPTANCE, type CourtStep, DECLINE_LINES, FLIRT_BACK, PROPOSAL, type RomanceView, RomanceWatch } from '@agora/agent/social/romanceWatch';
+import type { Body } from '@agora/agent/body/body';
+import { codeDecision, validateDecision } from '@agora/agent/modules/cc';
+import { Conversations } from '@agora/agent/modules/conversations';
+import { SkillExecutor } from '@agora/agent/modules/executor';
+import { leversFor } from '@agora/agent/modules/levers';
+import { Talking, needsDecision } from '@agora/agent/modules/talking';
+import { createInitialState } from '@agora/agent/state/initial';
+import { newSocialProfile } from '@agora/agent/state/social';
+import { AgentStateStore } from '@agora/agent/state/store';
 import {
   type AdvanceContext,
   type AdvanceReaction,
@@ -156,5 +167,243 @@ describe('W: how a rejection is taken, over a population (§19.10 B)', () => {
     expect(rejectionWeights(p, { ...base, attemptsLeft: 0 }).persist).toBe(0);
     expect(rejectionWeights(p, base).jealousy).toBe(0);
     expect(rejectionWeights(p, { ...base, rival: true }).jealousy).toBeGreaterThan(0);
+  });
+});
+
+// ---- The romance watch: one agent's side of it ----
+
+const ned = PersonaSchema.parse({ name: 'Ned', sex: 'male', orientation: 'hetero', traits: ['kind'], big5: { agreeableness: 0.5 }, mind: { vanity: 0.2 } });
+
+function rig(persona: Persona = ned, people: string[] = ['Ivy', 'Bea']) {
+  const t = { now: 10_000_000 };
+  const s = new AgentStateStore(createInitialState({ persona, username: persona.name, now: t.now }));
+  s.update('social', (all) => ({ ...all, ...Object.fromEntries(people.map((n) => [n, { ...newSocialProfile(n, persona, t.now), sentiment: 7 }])) }));
+  const bus = new AgentBus();
+  const felt: string[] = [];
+  const grieved: string[] = [];
+  const said: string[] = [];
+  const impulses: string[] = [];
+  const w = new RomanceWatch({
+    store: s,
+    bus,
+    logger: nullLogger(),
+    me: persona.name,
+    feel: (ev, who) => void felt.push(`${ev.kind}${who ? `:${who}` : ''}`),
+    grieve: (n, kind) => void grieved.push(`${kind}:${n}`),
+    say: (to, text) => void said.push(`${to}: ${text}`),
+    impulse: (out) => (impulses.push(out.rationale), true),
+    rng: () => 0.5,
+    now: () => t.now,
+    tickMs: 60_000_000,
+  });
+  w.start();
+  const tick = () => (w as unknown as { tick(): void }).tick();
+  const see = (...who: [string, number][]) => s.update('perception', (p) => ({ ...p, nearbyEntities: who.map(([name, d], i) => ({ id: i + 1, kind: 'player' as const, name, pos: { x: d, y: 0, z: 0 }, distance: d, visible: true, heldItem: null, armor: [], lastSeen: t.now, hurtRecently: false })) }));
+  const hear = (from: string, text: string, toMe = true) =>
+    bus.emit({ type: 'heard', utterance: { id: `u${Math.random()}`, convId: 'c1', from, to: [persona.name], text, ts: t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: toMe } });
+  const decide = (d: Partial<DecisionOutput> & { romance: NonNullable<DecisionOutput['romance']> }) =>
+    bus.emit({ type: 'decision', decision: { option: 'court', terminate: { maxSeconds: 30 }, rationale: 'test', ...d, id: `d${t.now}`, createdAt: t.now, stateVersion: 1, source: 'default' } });
+  return { s, bus, w, t, tick, see, hear, decide, felt, grieved, said, impulses };
+}
+
+describe('the romance watch (§19.1, §19.2)', () => {
+  it('learns the sex one says one is, and the pronoun used for the one a line is about, once', () => {
+    const r = rig();
+    r.hear('Ivy', "hey! I'm a gal who loves exploring.");
+    expect(r.s.state.social.Ivy?.perceivedSex).toBe('female');
+    r.hear('Ivy', "Bea? he's out mining");
+    expect(r.s.state.social.Bea?.perceivedSex).toBe('male');
+    r.hear('Ivy', 'Bea, she said so');
+    expect(r.s.state.social.Bea?.perceivedSex).toBe('male');
+  });
+
+  it('is drawn to someone over time spent together, and a crush comes of it', () => {
+    const r = rig();
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', sentiment: 9, admiration: 0.6 } }));
+    r.see(['Ivy', 3]);
+    for (let i = 0; i < 120 && r.s.state.social.Ivy?.relationship !== 'crush'; i++) {
+      r.t.now += 10_000;
+      r.tick();
+    }
+    expect(r.s.state.social.Ivy?.relationship).toBe('crush');
+    expect(r.felt).toContain('nearCrush:Ivy');
+    // Not someone of the sex we're not drawn to.
+    r.s.update('social', (all) => ({ ...all, Bea: { ...(all.Bea as SocialProfile), perceivedSex: 'male', sentiment: 9, admiration: 0.6 } }));
+    r.see(['Bea', 3]);
+    for (let i = 0; i < 60; i++) {
+      r.t.now += 10_000;
+      r.tick();
+    }
+    expect(r.s.state.social.Bea?.romanticInterest).toBe(0);
+    expect(r.w.mayCourt('Bea')).toMatch(/not someone you are drawn to/);
+  });
+
+  it('courts one it is drawn to: a compliment, a small gift, and the question once they have returned it twice', () => {
+    const r = rig();
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', sentiment: 8, romanticInterest: 0.8, relationship: 'crush' } }));
+    r.see(['Ivy', 5]);
+    const first = r.w.courtship();
+    expect(first?.kind).toBe('flirt');
+    r.decide({ target: { agent: 'Ivy' }, speechIntent: { stance: 'flirt', gist: 'you look lovely today.', mayCommit: false }, romance: { with: 'Ivy', phase: 'flirt' } });
+    expect(r.s.state.social.Ivy?.relationship).toBe('courting');
+    // Paced: no second compliment at once.
+    expect(r.w.courtship()).toBeNull();
+    r.hear('Ivy', "Ned, hehe, you're sweet too.");
+    expect(r.felt).toContain('welcomeAdvance:Ivy');
+    // A flower to give: a small gift.
+    r.s.update('self', (x) => ({ ...x, inventory: [{ item: 'poppy', qty: 1 }] }));
+    r.t.now += 4 * 60_000;
+    expect(r.w.courtship()).toMatchObject({ kind: 'gift', item: 'poppy' });
+    r.decide({ target: { agent: 'Ivy' }, task: { skill: 'give', args: { to: 'Ivy', item: 'poppy', qty: 1 } }, speechIntent: { stance: 'flirt', gist: 'this is for you.', mayCommit: false }, romance: { with: 'Ivy', phase: 'flirt' } });
+    r.hear('Ivy', 'Ned, you always make me smile.');
+    // Returned twice: the question.
+    r.t.now += 4 * 60_000;
+    expect(r.w.courtship()).toMatchObject({ kind: 'propose' });
+    r.decide({ target: { agent: 'Ivy' }, speechIntent: { stance: 'propose', gist: 'will you be my partner?', mayCommit: false }, romance: { with: 'Ivy', phase: 'propose' } });
+    r.hear('Ivy', "Ned, yes! I'd love to be your partner.");
+    expect(r.s.state.family.partner).toBe('Ivy');
+    expect(r.s.state.social.Ivy).toMatchObject({ relationship: 'partner', kin: 'partner' });
+    expect(r.w.mindLines()).toContain('Ivy is your partner.');
+    // Partners court no one else.
+    expect(r.w.mayCourt('Bea')).toMatch(/Ivy is your partner/);
+  });
+
+  it('takes a no as rolled, and leaves them be once they have said no too often this week (the soft cap)', () => {
+    const vain = PersonaSchema.parse({ ...ned, big5: { agreeableness: 1 }, temperament: { vengefulness: 0.9 } });
+    const r = rig(vain);
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', romanticInterest: 0.9, relationship: 'courting' } }));
+    r.see(['Ivy', 4]);
+    const cap = persistenceCap(1);
+    for (let i = 0; i <= cap; i++) {
+      r.decide({ target: { agent: 'Ivy' }, speechIntent: { stance: 'propose', gist: 'will you be my partner?', mayCommit: false }, romance: { with: 'Ivy', phase: 'propose' } });
+      r.hear('Ivy', "Ned, that's sweet of you, but I don't feel that way.");
+      r.t.now += 60_000;
+    }
+    expect(r.s.state.family.advances.Ivy?.rejections).toBe(cap + 1);
+    expect(r.felt.filter((f) => f === 'turnedDown:Ivy').length).toBe(cap + 1);
+    expect(r.said.length).toBeGreaterThan(0);
+    expect(r.w.mayCourt('Ivy')).toMatch(/said no too often/);
+    r.t.now += 4 * 60_000;
+    expect(r.w.courtship()).toBeNull();
+  });
+
+  it('is jealous of one seen courting its partner, breaks up when told, and grieves a partner killed', () => {
+    const r = rig(ned, ['Ivy', 'Bea', 'Max']);
+    r.s.update('family', (f) => ({ ...f, partner: 'Ivy' }));
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), relationship: 'partner', kin: 'partner', sentiment: 9 } }));
+    // Max courts Ivy in our hearing; then they're together near us.
+    r.bus.emit({ type: 'heard', utterance: { id: 'u1', convId: 'c2', from: 'Max', to: ['Ivy'], text: 'Ivy, you look lovely today.', ts: r.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    r.see(['Ivy', 3], ['Max', 4]);
+    r.tick();
+    expect(r.felt).toContain('jealous:Max');
+    expect(r.grieved).toContain('romantic_rival:Max');
+    expect(r.w.mindLines()).toContain('You suspect Max is after Ivy.');
+    // Ivy ends it.
+    r.hear('Ivy', "Ned, I think we're done.");
+    expect(r.s.state.family.partner).toBeUndefined();
+    expect(r.s.state.social.Ivy?.relationship).toBe('ex');
+    // A new partner, killed: grief, and a grievance that lasts against the killer.
+    r.s.update('family', (f) => ({ ...f, partner: 'Bea' }));
+    r.bus.emit({ type: 'peerDied', name: 'Bea', cause: 'killed by Max', witnessed: true, killer: 'Max' });
+    expect(r.felt).toContain('grief');
+    expect(r.grieved).toContain('killed_partner:Max');
+    expect(r.s.state.family.partner).toBeUndefined();
+  });
+
+  it('turning an advance down: disgust is a grievance and costs them our liking; discomfort keeps us away', () => {
+    const r = rig();
+    r.decide({ option: 'rest', target: { agent: 'Bea' }, romance: { with: 'Bea', phase: 'decline', reaction: 'disgusted' } });
+    expect(r.grieved).toContain('unwanted_advance:Bea');
+    expect(r.s.state.social.Bea?.sentiment).toBeCloseTo(5.5);
+    expect(r.felt).toContain('unwantedAdvance:Bea');
+  });
+});
+
+describe('romance in the code default (§19.2, §19.10)', () => {
+  const view = (o: Partial<RomanceView> = {}): RomanceView => ({
+    partner: () => null,
+    relationshipWith: () => 'none',
+    courtship: () => null,
+    reactionTo: () => 'reciprocate',
+    wouldAccept: () => true,
+    mayCourt: () => null,
+    ...o,
+  });
+  const withLine = (text: string) => {
+    const r = rig();
+    r.s.update('perception', (p) => ({ ...p, heardSpeech: [{ id: 'u', convId: 'c1', from: 'Ivy', to: ['Ned'], text, ts: 1, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true }] }));
+    return r.s.state;
+  };
+  const answer = (text: string, romance: RomanceView) => codeDecision(withLine(text), { from: 'Ivy', convId: 'c1' }, false, () => false, { candidates: [], roll: 1, romance });
+
+  it('says yes to a proposal it welcomes, and returns a compliment', () => {
+    expect(answer('Ned, will you be my partner?', view())).toMatchObject({ speechIntent: { stance: 'agree', gist: ACCEPTANCE, mayCommit: true }, romance: { with: 'Ivy', phase: 'accept' } });
+    expect(answer('Ned, you look lovely today.', view())).toMatchObject({ speechIntent: { stance: 'flirt', gist: FLIRT_BACK }, romance: { with: 'Ivy', phase: 'flirt' } });
+    // Drawn to her, but not ready to be partners: a kind no.
+    expect(answer('Ned, will you be my partner?', view({ wouldAccept: () => false }))).toMatchObject({ romance: { phase: 'decline', reaction: 'politeDecline' }, speechIntent: { gist: DECLINE_LINES.politeDecline } });
+  });
+
+  it('turns one down as the roll has it, and an ignored one gets no answer', () => {
+    expect(answer('Ned, will you be my partner?', view({ reactionTo: () => 'disgusted' }))).toMatchObject({ speechIntent: { stance: 'decline', gist: DECLINE_LINES.disgusted }, romance: { phase: 'decline', reaction: 'disgusted' } });
+    expect(answer('Ned, you look lovely today.', view({ reactionTo: () => 'hostile' }))?.speechIntent).toMatchObject({ stance: 'hostile', gist: DECLINE_LINES.hostile });
+    expect(answer('Ned, you look lovely today.', view({ reactionTo: () => 'ignore' }))?.speechIntent?.stance).toBe('none');
+  });
+
+  it('courts when it is time, and the gate keeps a model from courting whom it may not', () => {
+    const s = rig().s.state;
+    const court = (step: CourtStep) => codeDecision(s, {}, false, () => false, { candidates: [], roll: 1, romance: view({ courtship: () => step }) });
+    expect(court({ with: 'Ivy', kind: 'flirt', line: 'you look lovely today.' })).toMatchObject({ option: 'court', target: { agent: 'Ivy' }, speechIntent: { stance: 'flirt', gist: 'you look lovely today.' }, romance: { phase: 'flirt' } });
+    expect(court({ with: 'Ivy', kind: 'gift', item: 'poppy' })).toMatchObject({ option: 'court', task: { skill: 'give', args: { to: 'Ivy', item: 'poppy', qty: 1 } } });
+    expect(court({ with: 'Ivy', kind: 'propose' })).toMatchObject({ option: 'court', speechIntent: { stance: 'propose', gist: PROPOSAL }, romance: { phase: 'propose' } });
+    const env = { me: 'Ned', isStuck: () => false, canPerceive: () => true, mayCourt: (n: string) => (n === 'Bea' ? 'Bea is family' : null) };
+    expect(validateDecision({ option: 'court', target: { agent: 'Bea' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea: Bea is family/);
+    expect(validateDecision({ option: 'talk', target: { agent: 'Bea' }, romance: { with: 'Bea', phase: 'propose' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea/);
+    expect(validateDecision({ option: 'court', target: { agent: 'Ivy' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toBeNull();
+    expect(validateDecision({ option: 'court', terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/needs target.agent/);
+  });
+
+  it('takes a compliment or a proposal for something that wants an answer', () => {
+    expect(needsDecision('Ned, you look lovely today.')).toBe(true);
+    expect(needsDecision('will you be my partner?')).toBe(true);
+    expect(needsDecision('nice weather today')).toBe(false);
+  });
+});
+
+describe('saying it, PG (§19.1, §19.6)', () => {
+  function talker(persona: Persona) {
+    const s = new AgentStateStore(createInitialState({ persona, username: persona.name, now: 0 }));
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [{ id: 1, kind: 'player', name: 'Ivy', pos: { x: 3, y: 0, z: 0 }, distance: 3, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false }] }));
+    const bus = new AgentBus();
+    const said: string[] = [];
+    const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: persona.name, inRange: () => ['Ivy'], rng: () => 0 });
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: persona.name, rng: () => 0 });
+    conversations.start();
+    talking.start();
+    const decide = (id: string, option: 'talk' | 'court', stance: 'chat' | 'flirt' | 'propose', gist: string) => {
+      const d = { id, createdAt: 0, stateVersion: 1, source: 'default' as const, option, target: { agent: 'Ivy' }, speechIntent: { stance, gist, mayCommit: false }, terminate: { maxSeconds: 30 }, rationale: 'test' };
+      s.set('decision', d, 'test');
+      bus.emit({ type: 'decision', decision: d });
+    };
+    return { said, decide };
+  }
+  const wait = async (said: string[], n: number) => {
+    for (let i = 0; i < 60 && said.length < n; i++) await new Promise((r) => setTimeout(r, 50));
+  };
+
+  it('says who it is in a first hello, and courting lines as worded, to whom they are for', async () => {
+    const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }));
+    t.decide('d1', 'talk', 'chat', 'say hello');
+    await wait(t.said, 1);
+    expect(t.said[0]).toMatch(/I'm a guy who loves exploring\.$/);
+    expect(statedSex(t.said[0] ?? '')).toBe('male');
+    t.decide('d2', 'court', 'flirt', 'you look lovely today.');
+    await wait(t.said, 2);
+    expect(t.said[1]).toBe('Ivy, you look lovely today.');
+    t.decide('d3', 'court', 'propose', PROPOSAL);
+    await wait(t.said, 3);
+    expect(t.said[2]).toBe('Ivy, will you be my partner?');
+    for (const line of t.said) expect(NOT_PG_RE.test(line)).toBe(false);
   });
 });
