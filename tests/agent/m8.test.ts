@@ -421,3 +421,60 @@ describe('what the new skills expect to see (§4.6)', () => {
     expect(itemMatcher('meat', raw).matches('porkchop')).toBe(true);
   });
 });
+
+describe('cooking what was hunted (the obtain planner)', () => {
+  it('meat in hand needs no route: raw meat comes from no block, and is cooked all the same', async () => {
+    const { planObtain } = await import('@agora/agent/body/skills/planner');
+    const items = [
+      { name: 'mutton', count: 4 },
+      { name: 'furnace', count: 1 },
+      { name: 'oak_log', count: 2 },
+    ];
+    const bot = {
+      registry: { itemsByName: { cooked_mutton: { id: 1 }, mutton: { id: 2 }, furnace: { id: 3 }, oak_log: { id: 4 } }, items: {}, blocksArray: [], blocksByName: {}, foodsByName: { mutton: {}, cooked_mutton: {} } },
+      inventory: { items: () => items, slots: [] },
+      recipesAll: () => [],
+    } as never;
+    expect((await planObtain(bot, 'cooked_mutton')).kind).toBe('smelt');
+    // No meat, and no block drops any: nothing to cook.
+    items[0] = { name: 'stick', count: 1 };
+    expect((await planObtain(bot, 'cooked_mutton')).kind).toBe('none');
+  });
+});
+
+describe('staying alive in the village (§16.3: carry food)', () => {
+  it('hungry with nothing to eat: food from the village chest, else an animal in sight, else a look around', async () => {
+    const { hungerMove } = await import('@agora/agent/modules/villageMove');
+    const v = { isStuck: never };
+    let s = atHome(base());
+    s = { ...s, self: { ...s.self, food: 10 } };
+    expect(hungerMove(s, v)?.option).toBe('explore');
+    expect(hungerMove(withInv(s, { bread: 1 }), v)).toBeNull();
+    expect(hungerMove({ ...s, self: { ...s.self, food: 16 } }, v)).toBeNull();
+    const cow = { id: 1, kind: 'passive' as const, name: 'cow', pos: { x: 5, y: -60, z: 0 }, distance: 5, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
+    s = { ...s, perception: { ...s.perception, nearbyEntities: [cow] } };
+    expect(hungerMove(s, v)?.task).toEqual({ skill: 'hunt', args: { qty: 2 } });
+    s = { ...s, village: { ...s.village, chest: { pos: { x: 2, y: -60, z: 1 }, contents: { oak_log: 30, cooked_beef: 6 }, seenAt: 0 } } };
+    expect(hungerMove(s, v)?.task).toEqual({ skill: 'withdraw', args: { item: 'cooked_beef', qty: 4, x: 2, y: -60, z: 1 } });
+  });
+
+  it('starving comes before the night and before the task at hand; badly hurt and well fed, it rests', () => {
+    let s = atHome(base());
+    s = { ...s, self: { ...s.self, food: 5, isDay: false } };
+    expect(codeDecision(s, {}, false, never)?.option).toBe('explore');
+    // Busy with something else: still food first.
+    expect(codeDecision(s, {}, true, never)?.option).toBe('explore');
+    expect(codeDecision({ ...s, self: { ...s.self, food: 9 } }, {}, true, never)).toBeNull();
+    const hurt = { ...s, self: { ...s.self, food: 20, health: 6, isDay: true } };
+    expect(codeDecision(hurt, {}, false, never)).toMatchObject({ option: 'rest', rationale: 'code default: hurt, resting until I heal' });
+  });
+
+  it('in a village, mines go outside it', () => {
+    let s = withInv(atHome(base()), { stone_pickaxe: 1 });
+    s = { ...s, goals: { ...s.goals, current: { id: 'g', text: 'make an iron pickaxe', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'inventoryHas:iron_pickaxe>=1' } } };
+    s = { ...s, actionLog: [{ ...act('obtain', { item: 'iron_pickaxe', qty: 1 }, false, 1), error: "haven't seen any raw_iron around here" }] };
+    expect(codeDecision(s, {}, false, never)?.task).toEqual({ skill: 'prospect', args: { item: 'raw_iron' } });
+    const village = { ...s, village: { ...s.village, chest: { pos: { x: 2, y: -60, z: 1 }, contents: null, seenAt: 0 } } };
+    expect(codeDecision(village, {}, false, never)?.task).toEqual({ skill: 'prospect', args: { item: 'raw_iron', outside: 24 } });
+  });
+});

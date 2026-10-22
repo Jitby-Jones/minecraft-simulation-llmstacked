@@ -11,6 +11,7 @@ import { GoalGen } from './modules/goalGen';
 import { SocialGoalGen } from './modules/socialGoalGen';
 import { RoleWatch } from './social/roles';
 import { villageView } from './social/village';
+import { EDIBLE } from './modules/villageMove';
 import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
 import { cannedBusyLine } from './body/reflexes';
@@ -28,7 +29,7 @@ import { CommitmentTracker } from './social/commitments';
 import { DeathWatch } from './social/deaths';
 import { DeedWatch } from './social/deeds';
 import { TradeTracker } from './social/trades';
-import { gearScore } from './body/items';
+import { CATEGORIES, gearScore, normalizeItemName } from './body/items';
 import { BiasWatch } from './mind/biasWatch';
 import { ConflictEvaluator } from './conflict/evaluator';
 import { SURRENDER_RE } from './body/skills/duel';
@@ -163,6 +164,10 @@ export class Agent {
       ...(memories ? { memories } : {}),
       refreshSelf: () => this.perception.refreshSelf(),
       socialCandidates: () => this.perception.peopleInRange().filter((n) => this.conversations.mayInitiate(n)),
+      isItem: (word) => {
+        const n = normalizeItemName(word);
+        return n in CATEGORIES || n === 'food' || Boolean(body.bot.registry.itemsByName[n]);
+      },
       liking: (name) => this.mind.liking(name),
       conflict: {
         rungOf: (n) => this.conflict.rungOf(n),
@@ -304,6 +309,17 @@ export class Agent {
         if (a.kind === 'attack' && a.target) this.deeds.sawAttack(a.actor, a.target);
       }),
     );
+    // Starving with nothing to eat (§16.3): food comes before whatever the agent is doing, so wake the CC at once.
+    let starvingAt = -Infinity;
+    const onSelf = (c: { facet: string }) => {
+      if (c.facet !== 'self') return;
+      const me = this.store.state.self;
+      if (me.food > 6 || now() - starvingAt < 60_000 || me.inventory.some((i) => EDIBLE.test(i.item))) return;
+      starvingAt = now();
+      this.cc.trigger('starving, with nothing to eat', { urgent: true });
+    };
+    this.store.on('change', onSelf);
+    this.offs.push(() => this.store.off('change', onSelf));
     // §6.8: what we saw inside a chest we opened (the village chest's contents), and what signs say.
     this.offs.push(
       this.bus.on('actionRecorded', (e) => {
@@ -352,6 +368,7 @@ export class Agent {
         this.dangerSource = person ?? info.source;
         this.dangerIsPerson = person !== null;
         this.store.update('flags', (f) => ({ ...f, inDanger: true, busyLevel: 'critical', busySpeech: person ? 'not now!' : cannedBusyLine(info.source) }), `danger: ${info.kind} ${this.dangerSource}`);
+        logger.info({ module: 'reflex', kind: info.kind, source: info.source, ...(info.attacker ? { attacker: info.attacker } : {}), health: body.bot.health }, 'danger');
         this.bus.emit({ type: 'danger', source: info.source, level: info.level });
       },
       onDangerCleared: (summary) => {

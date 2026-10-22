@@ -87,6 +87,26 @@ export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx)
   }
 }
 
+/** What can be eaten, raw or cooked. */
+export const EDIBLE = /^(bread|apple|golden_apple|cooked_\w+|beef|porkchop|mutton|chicken|rabbit|cod|salmon|carrot|golden_carrot|baked_potato|potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie|pumpkin_pie|mushroom_stew|rabbit_stew|beetroot_soup|dried_kelp)$/;
+
+/**
+ * Hungry (food ≤ 12) with nothing to eat (§16.3: always carry food): food from the village chest if it had some when
+ * we last looked, else an animal in sight, else a look around for one.
+ */
+export function hungerMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | null {
+  if (s.self.food > 12 || s.self.inventory.some((i) => EDIBLE.test(i.item))) return null;
+  const chest = s.village.chest;
+  const stocked = chest?.contents ? Object.entries(chest.contents).filter(([k, n]) => EDIBLE.test(k) && n > 0).sort((a, b) => b[1] - a[1])[0] : undefined;
+  if (chest && stocked) {
+    const args = { item: stocked[0], qty: Math.min(4, stocked[1]), x: chest.pos.x, y: chest.pos.y, z: chest.pos.z };
+    if (!v.isStuck('withdraw', args)) return work('withdraw', args, 120, `hungry: ${stocked[0]} from the village chest`);
+  }
+  const prey = s.perception.nearbyEntities.find((e) => e.kind === 'passive' && ANIMAL.test(e.name) && e.visible && e.distance <= 24);
+  if (prey && !v.isStuck('hunt', { qty: 2 })) return work('hunt', { qty: 2 }, 120, `hungry: hunting a ${prey.name}`);
+  return v.isStuck('explore', { distance: 32 }) ? null : { option: 'explore', terminate: { maxSeconds: 90 }, rationale: 'code default: hungry, looking for food' };
+}
+
 /**
  * A death this agent knows of that no sign it has read mentions yet (§16.3: newcomers learn history from signs):
  * the death message, and where if it saw the body fall.

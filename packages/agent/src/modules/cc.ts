@@ -35,7 +35,7 @@ import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 import { villageWorkOf } from '../social/village';
-import { deathNoticeMove, villageMove } from './villageMove';
+import { deathNoticeMove, hungerMove, villageMove } from './villageMove';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -99,6 +99,8 @@ export interface SocialChance {
   liking?: (name: AgentName) => number;
   /** The conflict core (§17.5): rungs, fear, the gate, and whom we warned lately. */
   conflict?: ConflictView;
+  /** Whether a word names a thing one can have ("give me a sec" asks for no item). */
+  isItem?: (word: string) => boolean;
 }
 
 export interface ConflictView {
@@ -115,11 +117,13 @@ export function parseItemRequest(text: string): { item: string; qty: number } | 
     /\bi\s+need\s+(?:some|a|an|any)\s+(\d{1,3})?\s*([a-z][a-z_]{1,23})/i.exec(text);
   if (!m?.[2]) return null;
   const word = m[2].toLowerCase();
-  if (['hand', 'minute', 'moment', 'second', 'break', 'favor', 'favour', 'chance', 'ride'].includes(word)) return null;
+  if (NOT_ITEMS.has(word)) return null;
   return { item: word.replace(/(ie)?s$/, (x) => (x === 'ies' ? 'y' : '')), qty: m[1] ? Number(m[1]) : 1 };
 }
 
 const GENEROUS = /generous|kind|helpful|giving|warm/i;
+/** Words that follow "give me" without being things: "give me a sec", "give me a hand". */
+const NOT_ITEMS = new Set(['hand', 'minute', 'min', 'moment', 'second', 'sec', 'bit', 'break', 'favor', 'favour', 'chance', 'ride', 'go', 'try', 'shot', 'look', 'clue', 'hint', 'idea', 'reason', 'call', 'lift', 'tour', 'hug', 'kiss', 'answer', 'word', 'promise', 'heads', 'rest', 'space', 'time', 'peace']);
 export { amountOf } from '../social/trades';
 
 /** Both halves of a deal as promises: we give `ours`, they give `theirs` (§6.6). */
@@ -141,13 +145,13 @@ const WARN_EVERY_MS = 3 * 60_000;
 type Ask = { kind: 'trade'; offer: Offer } | { kind: 'help'; item: string; qty: number } | { kind: 'item'; item: string; qty: number };
 
 /** What a line asks of us, if anything: a trade offer, a hand with gathering, or some items. */
-export function readAsk(text: string): Ask | null {
+export function readAsk(text: string, isItem: (word: string) => boolean = () => true): Ask | null {
   const offer = parseTradeOffer(text);
-  if (offer) return { kind: 'trade', offer };
+  if (offer && [...offer.give, ...offer.want].every((x) => isItem(x.item))) return { kind: 'trade', offer };
   const help = parseHelpRequest(text);
-  if (help) return { kind: 'help', ...help };
+  if (help && isItem(help.item)) return { kind: 'help', ...help };
   const want = parseItemRequest(text);
-  return want ? { kind: 'item', ...want } : null;
+  return want && isItem(want.item) ? { kind: 'item', ...want } : null;
 }
 
 /**
@@ -162,12 +166,13 @@ function answerRequest(
   busy: boolean,
   isStuck: ValidationEnv['isStuck'],
   judge?: (name: AgentName) => number,
+  isItem?: (word: string) => boolean,
 ): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
   const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
   const theirs = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId)).slice(-4);
-  const ask = theirs.map((u) => readAsk(u.text)).filter((a) => a !== null).at(-1) ?? null;
+  const ask = theirs.map((u) => readAsk(u.text, isItem)).filter((a) => a !== null).at(-1) ?? null;
   const liking = judge?.(from) ?? s.social[from]?.sentiment ?? persona.social.baselineSentiment;
   const owing = s.commitments.filter((c) => c.debtor === me && c.status === 'accepted').length;
   const have = (item: string) => {
@@ -307,8 +312,16 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking);
-  if (busy) return ctx.atOdds && social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem);
+  if (busy) {
+    // Starving with nothing to eat: food before whatever we are doing.
+    const food = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
+    if (food) return food;
+    return ctx.atOdds && social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
+  }
+  // Starving with nothing to eat comes before anything, even the night (§16.3: carry food).
+  const starving = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
+  if (starving) return starving;
   // Survive the night (M1 shelter); a guard on duty stays out while fit for it.
   const village = villageWorkOf(s.goals.current?.doneWhen);
   const onGuard = village === 'guard' && s.self.health >= 12 && s.drives.caution < 0.8;
@@ -318,6 +331,12 @@ export function codeDecision(
   // §17.5: someone we're at odds with nearby comes first: the brawl the gate allows, a warning, or keeping away.
   const odds = social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
   if (odds) return odds;
+  // Hungry with nothing to eat: food first. Badly hurt and well fed: rest until the health comes back.
+  const hungry = hungerMove(s, { isStuck });
+  if (hungry) return hungry;
+  if (s.self.health <= 8 && s.self.food >= 18 && !isStuck('wait', { seconds: 30 })) {
+    return { option: 'rest', terminate: { maxSeconds: 30 }, rationale: 'code default: hurt, resting until I heal' };
+  }
   const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
   if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };
@@ -338,8 +357,10 @@ export function codeDecision(
     const last = [...s.actionLog].reverse().find((a) => ['obtain', 'prospect', 'explore'].includes(a.skill) && !a.error?.startsWith('aborted'));
     const err = last && !last.ok ? (last.error ?? '') : '';
     const unseen = last?.skill === 'obtain' ? /haven't seen any ([a-z0-9_]+)/.exec(err)?.[1] : undefined;
-    if (unseen && ORE_LIKE.test(unseen) && !isStuck('prospect', { item: unseen })) {
-      return { option: 'work', task: { skill: 'prospect', args: { item: unseen } }, terminate: { maxSeconds: 420 }, rationale: `code default: dig for ${unseen}` };
+    // In a village (a chest or huts seen near home), mines go outside it.
+    const dig = { item: unseen, ...(s.village.chest || s.village.huts.length > 0 ? { outside: 24 } : {}) };
+    if (unseen && ORE_LIKE.test(unseen) && !isStuck('prospect', dig)) {
+      return { option: 'work', task: { skill: 'prospect', args: dig }, terminate: { maxSeconds: 420 }, rationale: `code default: dig for ${unseen}` };
     }
     if ((unseen || (last?.skill === 'prospect' && err)) && !isStuck('explore', { ...EXPLORE_ARGS })) {
       return { option: 'explore', terminate: { maxSeconds: 90 }, rationale: 'code default: look somewhere else' };
@@ -396,6 +417,8 @@ export interface CCOptions {
   refreshSelf?: () => void;
   /** People in range this agent may start talking to (for the code default's hello). */
   socialCandidates?: () => AgentName[];
+  /** Whether a word names an item or a kind of item (the body's registry). */
+  isItem?: (word: string) => boolean;
   /** The nearest unchecked claim worth a look (§6.5). */
   claimToCheck?: () => SocialChance['claim'] | undefined;
   /** Gut/facts mix about someone (§18.5) and the packet's lines on feelings and people (§18.2). */
@@ -695,7 +718,14 @@ export class CognitiveController {
           return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);
         },
       };
-      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng(), ...(claim ? { claim } : {}), ...(this.o.liking ? { liking: this.o.liking } : {}), ...(conflict ? { conflict } : {}) });
+      out = codeDecision(store.state, ctx, busy, isStuck, {
+        candidates,
+        roll: this.rng(),
+        ...(claim ? { claim } : {}),
+        ...(this.o.liking ? { liking: this.o.liking } : {}),
+        ...(conflict ? { conflict } : {}),
+        ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
+      });
       source = 'default';
       if (out && validateDecision(out, env)) out = null;
     }

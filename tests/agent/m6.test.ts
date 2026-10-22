@@ -7,7 +7,7 @@ import { type Commitment, type ConversationState, ModelsConfigSchema, PersonaSch
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import { type Bot, Vec3 } from '@agora/agent/body/bot';
 import { AgentBus } from '@agora/agent/bus';
-import { amountOf, codeDecision, parseItemRequest } from '@agora/agent/modules/cc';
+import { amountOf, codeDecision, parseItemRequest, readAsk } from '@agora/agent/modules/cc';
 import { SocialAwareness, codePromises, codeSocialUpdate } from '@agora/agent/social/awareness';
 import { parseClaim } from '@agora/agent/social/claims';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
@@ -224,6 +224,11 @@ describe('the code default answers a favor (§6.3 share policy, scenario A witho
     expect(parseItemRequest('could you bring me some bread please')).toEqual({ item: 'bread', qty: 1 });
     expect(parseItemRequest('I need some berries')).toEqual({ item: 'berry', qty: 1 });
     expect(parseItemRequest('give me a hand here')).toBeNull();
+    expect(parseItemRequest('give me a sec, I am thinking')).toBeNull();
+    // A word that names no item is no request for one (the body's registry decides).
+    const isItem = (w: string) => ['log', 'bread', 'sock'].includes(w);
+    expect(readAsk('Pip, can you give me 8 logs?', isItem)).toEqual({ kind: 'item', item: 'log', qty: 8 });
+    expect(readAsk('could you bring me some gloop?', isItem)).toBeNull();
     expect(parseItemRequest('nice weather today')).toBeNull();
   });
 

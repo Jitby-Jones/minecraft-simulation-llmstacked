@@ -9,7 +9,7 @@ import { Vec3 } from 'vec3';
 import { itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { blockIdsDropping, isAirLike, isSolid } from '../world';
-import { abortable, errMsg, goals, stopMotion, throwIfAborted, waitMs } from './util';
+import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 /** Feet height where each ore is common in today's overworld generation. */
@@ -115,11 +115,13 @@ async function bridge(ctx: SkillContext, p: Vec3): Promise<void> {
 
 export const prospect = defineSkill({
   name: 'prospect',
-  description: 'prospect {item, maxBlocks?, direction?} — dig down and tunnel to look for an ore you have not seen yet (needs a pickaxe)',
+  description: 'prospect {item, maxBlocks?, direction?, outside?} — dig down and tunnel to look for an ore you have not seen yet (needs a pickaxe); outside: start at least this many blocks from home',
   argsSchema: z.object({
     item: z.string().min(1),
     maxBlocks: z.coerce.number().min(4).max(96).default(48),
     direction: z.enum(['north', 'south', 'east', 'west']).optional(),
+    /** Start the mine at least this far from home (a tunnel under a village lets mobs in among the people there). */
+    outside: z.coerce.number().min(0).max(64).optional(),
   }),
   talkOverable: true,
   slipKinds: [],
@@ -133,6 +135,16 @@ export const prospect = defineSkill({
     if (already) return { ok: true, observed: `already know of ${already.name} at ${already.position.toString()}` };
     if (!bot.inventory.items().some((i) => i.name.endsWith('_pickaxe'))) {
       return { ok: false, observed: 'no pickaxe', error: 'need a pickaxe to dig for ore' };
+    }
+    if (args.outside && ctx.home && bot.entity.position.distanceTo(ctx.home) < args.outside) {
+      const away = bot.entity.position.minus(ctx.home);
+      const len = Math.hypot(away.x, away.z);
+      const a = len > 1 ? Math.atan2(away.z, away.x) : ctx.rng.next() * Math.PI * 2;
+      const to = new Vec3(ctx.home.x + Math.cos(a) * (args.outside + 4), ctx.home.y, ctx.home.z + Math.sin(a) * (args.outside + 4));
+      ctx.progress('walking out of the village to dig');
+      await gotoNear(ctx, to, 3, 60_000).catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+      });
     }
     const oreName = bot.registry.blocks[ids[0] ?? -1]?.name ?? args.item;
     const depth = ORE_DEPTH.find(([re]) => re.test(oreName))?.[1] ?? 14;

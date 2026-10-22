@@ -238,7 +238,8 @@ async function route(p: PlanCtx, item: string, stack: readonly string[]): Promis
 
   const input = SMELTS[item];
   if (input) {
-    const kids = [{ name: input, r: await route(p, input, next) }];
+    // What we carry needs no route: raw meat comes from no block, and is cooked all the same.
+    const kids = count(bot, input) > 0 ? [] : [{ name: input, r: await route(p, input, next) }];
     if (!hasStation(bot, scan, 'furnace')) kids.push({ name: 'furnace', r: await route(p, 'furnace', next) });
     if (!hasFuel(bot)) kids.push({ name: 'log', r: await route(p, 'log', next) });
     const d = deepen(kids);
@@ -338,8 +339,14 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
       return;
     }
     case 'smelt': {
-      const need = qty - count(bot, item);
-      await acquire(ctx, scan, r.input, need, depth + 1, next);
+      let need = qty - count(bot, item);
+      // Get more to cook if there's a way; otherwise cook what we carry.
+      try {
+        await acquire(ctx, scan, r.input, need, depth + 1, next);
+      } catch (err) {
+        if (err instanceof SkillAbortedError || count(bot, r.input) === 0) throw err;
+        need = count(bot, r.input);
+      }
       if (!hasStation(bot, scan, 'furnace')) await acquire(ctx, scan, 'furnace', 1, depth + 1, next);
       if (!hasFuel(bot)) await acquire(ctx, scan, 'log', 1, depth + 1, next);
       const raw = bot.inventory.items().find((i) => itemMatcher(r.input, isFoodName(bot)).matches(i.name))?.name ?? r.input;

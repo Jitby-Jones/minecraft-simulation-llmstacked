@@ -278,10 +278,11 @@ export class ReflexController {
     for (const e of Object.values(this.bot.entities)) {
       if (e === this.bot.entity || !isHostile(e)) continue;
       const d = e.position.distanceTo(me);
-      // Creepers matter a bit farther away; anything within 3 blocks is a threat even behind a wall corner.
+      // Creepers matter a bit farther away; anything within 3 blocks is a threat even behind a wall corner, but not
+      // one under the floor or over the ceiling (a mob in a tunnel below can't reach us).
       const r = e.name === 'creeper' ? radius + 2 : radius;
       const seen = d <= r && canSee(this.bot, e, r + 1);
-      if (seen || (d <= 3 && !sealed)) out.set(e.id, e);
+      if (seen || (d <= 3 && !sealed && Math.abs(e.position.y - me.y) < 2)) out.set(e.id, e);
     }
     for (const [id, a] of this.recentAttackers) {
       const cur = this.bot.entities[id];

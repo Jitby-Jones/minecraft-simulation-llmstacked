@@ -25,6 +25,7 @@ import {
   repoRoot,
   sleep,
 } from '@agora/shared';
+import { type Embedder, createEmbedder } from '@agora/llm';
 import { Hub, Supervisor, nodeLauncher } from '@agora/hub';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
@@ -45,10 +46,13 @@ const persona = (id: string) => {
 describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice board', () => {
   let server: LiveServer;
   let logger: Logger;
+  let embedder: Embedder;
 
   beforeAll(async () => {
     server = await startLiveServer({ name: 'm8', port: PORT, rconPort: 25591 });
     logger = createLogger({ name: 'm8-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false });
+    // The bots' memories embed through the Hub, as in production.
+    embedder = await createEmbedder({ modelDir: path.join(dataPaths().cache, 'models'), modelId: versions.embeddingModel.id, dims: versions.embeddingModel.dims, logger });
     for (const c of ['gamerule advance_weather false', 'weather clear', 'gamerule spawn_radius 0']) await server.cmd(c);
   });
 
@@ -125,11 +129,11 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     const dataDir = path.join(server.dir, '..', 'data-village');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
-    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null, quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder, quota: () => null, runtimeHoursPerWeek: 30 });
     await hub.listen(0);
     hub.start();
     // What each agent reports to the dashboard (M7): its role, its part in the village, what it did.
-    type Seen = { role: string | null; village: string[]; goal: string | null; at: number };
+    type Seen = { role: string | null; village: string[]; goal: string | null; isDay: boolean; at: number };
     const latest = new Map<string, Seen>();
     const timeline = new Map<string, (string | null)[]>();
     const work: { agent: string; skill: string; ok: boolean; observed: string }[] = [];
@@ -139,7 +143,7 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
       if (!name || m.t !== 'telemetry') return;
       captured.write(`${JSON.stringify({ agent: name, at: Date.now(), ...m })}\n`);
       const d = m.data;
-      if (m.kind === 'state') latest.set(name, { role: (d.role as string | null) ?? null, village: (d.village as string[] | undefined) ?? [], goal: (d.goal as string | null) ?? null, at: Date.now() });
+      if (m.kind === 'state') latest.set(name, { role: (d.role as string | null) ?? null, village: (d.village as string[] | undefined) ?? [], goal: (d.goal as string | null) ?? null, isDay: d.isDay !== false, at: Date.now() });
       if (m.kind === 'skill' && ['deposit', 'build', 'patrol', 'attack', 'hunt', 'sign', 'give'].includes(String(d.skill))) work.push({ agent: name, skill: String(d.skill), ok: Boolean(d.ok), observed: String(d.observed) });
     });
     const w = WorldConfigSchema.parse({
@@ -157,6 +161,8 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     const sup = new Supervisor({ hub, paths, world: w, sexDiffs: SexDifferencesSchema.parse({}), pool: five, launcher, logger, rng: new SeededRandom(8), rcon: (c) => server.cmd(c) });
     const t0 = Date.now();
     const living = () => new Set(hub.list().map((s) => s.username).filter((n): n is string => Boolean(n)));
+    const joinedAt = new Map<string, number>();
+    hub.on('ready', (_s, name) => joinedAt.set(name, Date.now()));
     try {
       await sup.start();
       await waitFor(() => living().size === 5, 180_000, 'five agents in the village', 1000);
@@ -172,22 +178,27 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
         }
         if (minute % 5 === 0) {
           const now = [...living()].map((n) => `${n}: ${latest.get(n)?.role ?? '-'} (${latest.get(n)?.goal ?? 'no goal'})`);
-          console.log(`[m8 V] ${minute} min, time ${await server.cmd('time query daytime')}: ${now.join('; ')}`);
+          const day = [...latest.values()].some((x) => x.isDay);
+          console.log(`[m8 V] ${minute} min (${day ? 'day' : 'night'}): ${now.join('; ')}`);
         }
       }
       const names = [...living()];
       const roles = names.map((n) => latest.get(n)?.role ?? null);
-      const entropy = roleEntropy(roles);
+      // Those who have lived in the village a while (a newcomer hasn't settled on anything yet).
+      const settled = names.filter((n) => Date.now() - (joinedAt.get(n) ?? 0) >= 10 * 60_000);
+      const settledRoles = settled.map((n) => latest.get(n)?.role ?? null);
+      const entropy = roleEntropy(settledRoles);
       const ok = work.filter((x) => x.ok);
       const tally = (skill: string) => ok.filter((x) => x.skill === skill).length;
-      console.log(`[m8 V] after ${MINUTES} min: ${names.map((n, i) => `${n} ${roles[i] ?? '-'}`).join(', ')}; role entropy ${entropy} bits`);
+      console.log(`[m8 V] after ${MINUTES} min: ${names.map((n, i) => `${n} ${roles[i] ?? '-'}${settled.includes(n) ? '' : ' (new)'}`).join(', ')}; role entropy among the settled ${entropy} bits`);
       for (const [n, tl] of timeline) console.log(`[m8 V] ${n}: ${tl.map((x) => x ?? '-').join(' ')}`);
       console.log(`[m8 V] work done: ${['deposit', 'build', 'patrol', 'attack', 'hunt', 'sign', 'give'].map((k) => `${k} ${tally(k)}`).join(', ')}`);
       console.log(`[m8 V] deposits: ${ok.filter((x) => x.skill === 'deposit').slice(-6).map((x) => `${x.agent}: ${x.observed}`).join(' | ')}`);
       console.log(`[m8 V] deaths: ${sup.rosterSnapshot.agents.filter((a) => a.status === 'dead').map((a) => `${a.username} (${a.cause ?? '?'})`).join(', ') || 'none'}`);
-      // Roles diverge: most have one, and they are not all the same.
-      expect(roles.filter(Boolean).length).toBeGreaterThanOrEqual(4);
-      expect(new Set(roles.filter(Boolean)).size).toBeGreaterThanOrEqual(3);
+      // Roles diverge: those who have lived here a while each have one, and they are not all the same.
+      expect(settled.length).toBeGreaterThanOrEqual(3);
+      expect(settledRoles.filter(Boolean).length).toBeGreaterThanOrEqual(Math.ceil(settled.length * 0.8));
+      expect(new Set(settledRoles.filter(Boolean)).size).toBeGreaterThanOrEqual(3);
       expect(entropy).toBeGreaterThanOrEqual(1.3);
       // The village shows the work: goods handed in, and at least one other kind of village work done.
       expect(tally('deposit')).toBeGreaterThanOrEqual(2);
