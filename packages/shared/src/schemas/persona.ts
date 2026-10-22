@@ -268,7 +268,7 @@ export function maxTurnsFor(p: Persona): number {
 
 /** Facts a born agent starts with (§19.4) — the same a human child would have. */
 export const BirthFactsSchema = z.object({
-  parents: z.array(z.object({ username: z.string(), name: z.string() })).length(2),
+  parents: z.array(z.object({ username: z.string(), name: z.string(), sex: z.union([SexSchema, z.literal('unknown')]) })).length(2),
   siblings: z.array(z.string()).default([]),
   home: Vec3Schema.optional(),
   familyName: z.string().optional(),

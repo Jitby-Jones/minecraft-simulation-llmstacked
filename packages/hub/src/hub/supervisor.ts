@@ -1,14 +1,17 @@
-// The supervisor (§3, §16.2, §16.3, §16.5, §19.7, §23.4): one OS process per bot, so a crash or a loop takes down
-// only that bot. It keeps the population between minAlive and maxAlive, assigns each slot its persona and username
-// for this life (pool first, then generated, balanced by sex), dresses each new agent in its skin before it first
-// logs in, hands out the starter kit, restarts crashed bots as the same agent, replaces the dead after
-// respawnDelaySec under a new name (never reused), archives their memory to the graveyard, and shuts everyone down
-// gracefully, writing roster.json for the next start.
+// The supervisor (§3, §16.2, §16.3, §16.5, §19.3, §19.7, §23.4): one OS process per bot, so a crash or a loop takes
+// down only that bot. It keeps the population between minAlive and maxAlive, assigns each slot its persona and
+// username for this life (pool first, then generated, balanced by sex), dresses each new agent in its skin before it
+// first logs in, hands out the starter kit, restarts crashed bots as the same agent, replaces the dead after
+// respawnDelaySec under a new name (never reused), archives their memory to the graveyard, brings children into the
+// world after a couple's bed ritual (at their beds, with their inherited traits), and shuts everyone down gracefully,
+// writing roster.json for the next start.
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  type BirthFacts,
+  type BotToHub,
   type DataPaths,
   type Logger,
   type Persona,
@@ -19,11 +22,14 @@ import {
   agentDbPath,
   generatePersona,
   generateUsername,
+  inheritPersona,
   isValidUsername,
+  perceivedPersona,
 } from '@agora/shared';
 import type { AgentSkin } from '../skins/service';
+import { type ConceptionReport, matchReport, sameCouple, whyNoBirth } from './births';
 import type { Hub, HubSession } from './hub';
-import { type Roster, type RosterEntry, livingAgents, loadRoster, saveRoster } from './roster';
+import { type PendingBirth, type Roster, type RosterEntry, livingAgents, loadRoster, saveRoster } from './roster';
 
 /** Where agents' skins come from (§16.5): the SkinService, or a stand-in. */
 export interface SkinSource {
@@ -95,6 +101,8 @@ export class Supervisor {
   private readonly deaths: number[] = [];
   private brakeUntil = 0;
   private readonly running = new Map<string, Running>();
+  /** Conception reports waiting for the partner's (§19.3), by reporter. */
+  private readonly reports = new Map<string, ConceptionReport>();
   private stopping = false;
   private readonly timers = new Set<NodeJS.Timeout>();
   private readonly now: () => number;
@@ -108,15 +116,18 @@ export class Supervisor {
     const onReady = (s: HubSession, name: string) => void this.onReady(s, name);
     const onDied = (s: HubSession, m: { username: string; cause: string }) => this.onDied(s, m.username, m.cause);
     const onBye = (_s: HubSession, m: { username: string; reason: string }) => this.o.logger.info({ module: 'supervisor', agent: m.username, reason: m.reason }, 'bot said bye');
+    const onConception = (s: HubSession, m: Extract<BotToHub, { t: 'conception' }>) => this.onConception(s, m);
     o.hub.on('hello', onHello);
     o.hub.on('ready', onReady);
     o.hub.on('died', onDied);
     o.hub.on('bye', onBye);
+    o.hub.on('conception', onConception);
     this.detach = () => {
       o.hub.off('hello', onHello);
       o.hub.off('ready', onReady);
       o.hub.off('died', onDied);
       o.hub.off('bye', onBye);
+      o.hub.off('conception', onConception);
     };
   }
 
@@ -142,6 +153,8 @@ export class Supervisor {
     // One without a skin yet (it couldn't be had when it was created) gets one before it logs in again.
     for (const a of resumed) void this.dress(a).then(() => this.launch(a.slot));
     if (resumed.length > 0) this.o.logger.info({ module: 'supervisor', agents: resumed.map((a) => a.username) }, 'resuming agents');
+    // Children on the way when we last stopped come when they're due (at once, if that's past).
+    for (const pb of this.roster.pendingBirths) this.scheduleBirth(pb);
     const want = Math.max(this.target, this.o.world.population.minAlive) - resumed.length;
     const stagger = this.o.world.population.spawnStaggerSec * 1000;
     for (let i = 0; i < want; i++) {
@@ -202,7 +215,7 @@ export class Supervisor {
     const persona = this.nextPersona();
     const used = this.usedNames();
     const username = isValidUsername(persona.name) && !used.has(persona.name) ? persona.name : generateUsername(persona.name, used, this.o.rng);
-    const entry: RosterEntry = { username, persona, slot: `a${this.roster.nextSlot}`, bornAt: this.now(), status: 'alive', kitGiven: false };
+    const entry: RosterEntry = { username, persona, slot: `a${this.roster.nextSlot}`, bornAt: this.now(), status: 'alive', kitGiven: false, placed: false };
     this.roster.nextSlot++;
     this.roster.agents.push(entry);
     this.roster.usedNames.push(username);
@@ -297,7 +310,16 @@ export class Supervisor {
     const resume = fs.existsSync(this.memoryFile(entry.username));
     const kit = this.o.world.population.starterKit;
     const giveKit = !entry.kitGiven && (kit === 'persona' || (kit === 'auto' && this.o.world.mode === 'test'));
-    s.send({ t: 'assign', persona: entry.persona, username: entry.username, resume, giveStarterKit: giveKit });
+    s.send({
+      t: 'assign',
+      persona: entry.persona,
+      username: entry.username,
+      resume,
+      giveStarterKit: giveKit,
+      // §19.4: a child's starting knowledge, on its first start; and where it appears (its parents' beds).
+      ...(entry.birthFacts && !resume ? { birthFacts: entry.birthFacts } : {}),
+      ...(entry.spawnAt && !entry.placed ? { spawnAt: entry.spawnAt } : {}),
+    });
   }
 
   private async onReady(s: HubSession, username: string): Promise<void> {
@@ -311,6 +333,13 @@ export class Supervisor {
       }
     }
     entry.kitGiven = true;
+    // §19.3: a newborn appears at its parents' beds (where its parent lay for the bed ritual).
+    if (entry.spawnAt && !entry.placed && this.o.rcon) {
+      const p = entry.spawnAt;
+      const out = await this.o.rcon(`tp ${username} ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`).catch((err: unknown) => `failed: ${String(err)}`);
+      this.o.logger.info({ module: 'supervisor', agent: username, at: p, out }, 'newborn put at its parents’ beds');
+    }
+    entry.placed = true;
     this.save();
     // Born during the extinction brake: as careful as everyone else for the rest of it.
     const b = this.o.world.conflict.extinctionBrake;
@@ -327,6 +356,100 @@ export class Supervisor {
     this.publishSkins();
     this.o.logger.info({ module: 'supervisor', agent: username, cause }, 'agent died');
     this.brake();
+  }
+
+  /**
+   * §19.3: one partner's report of the bed ritual. A child comes once both partners have reported the same night (just
+   * the one, when the partner is a person playing: we have no bot for them, so what ours saw stands), and the rules
+   * allow it (births.ts): then after gestationSec, at the reporter's bed.
+   */
+  private onConception(s: HubSession, m: Extract<BotToHub, { t: 'conception' }>): void {
+    const me = this.roster.agents.find((a) => a.slot === s.slot && a.username === m.username && a.status === 'alive');
+    if (!me || m.partner === m.username) return;
+    const r: ConceptionReport = { username: m.username, partner: m.partner, partnerModel: m.partnerModel, partnerSex: m.partnerSex, bedPos: m.bedPos, at: this.now() };
+    const ours = this.roster.agents.some((a) => a.username === m.partner && a.status === 'alive');
+    let other: ConceptionReport | null = null;
+    if (ours) {
+      other = matchReport(this.reports, r);
+      if (!other) {
+        this.reports.set(r.username, r);
+        this.o.logger.info({ module: 'supervisor', agent: m.username, partner: m.partner }, 'bed ritual reported; waiting for the partner’s report');
+        return;
+      }
+      this.reports.delete(other.username);
+    }
+    const parents: [string, string] = [m.username, m.partner];
+    const why = whyNoBirth({ world: this.o.world, parents, agents: this.roster.agents, pending: this.roster.pendingBirths, now: this.now() });
+    if (why) {
+      this.o.logger.info({ module: 'supervisor', parents, why }, 'no child this time');
+      return;
+    }
+    const seen: PendingBirth['seen'] = { [m.partner]: { model: m.partnerModel, sex: m.partnerSex } };
+    if (other) seen[m.username] = { model: other.partnerModel, sex: other.partnerSex };
+    const pb: PendingBirth = { parents, bedPos: m.bedPos, dueAt: this.now() + this.o.world.reproduction.gestationSec * 1000, seen };
+    this.roster.pendingBirths.push(pb);
+    this.save();
+    this.o.logger.info({ module: 'supervisor', parents, dueAt: pb.dueAt }, 'a child is on the way');
+    this.scheduleBirth(pb);
+  }
+
+  private scheduleBirth(pb: PendingBirth): void {
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      void this.birth(pb);
+    }, Math.max(0, pb.dueAt - this.now()));
+    this.timers.add(t);
+  }
+
+  /** §19.3, §19.4: the child, with traits from both parents, its starting knowledge, at its parents' beds. */
+  private async birth(pb: PendingBirth): Promise<void> {
+    if (this.stopping) return;
+    this.roster.pendingBirths = this.roster.pendingBirths.filter((x) => x !== pb);
+    const [ua, ub] = pb.parents;
+    if (this.living.length >= this.o.world.population.maxAlive) {
+      this.save();
+      this.o.logger.info({ module: 'supervisor', parents: pb.parents }, 'no room for the child: the population is at maxAlive');
+      return;
+    }
+    // The dead parent's persona is still on the roster; one we have none for is as the other parent saw them.
+    const known = (u: string) => this.roster.agents.find((a) => a.username === u)?.persona;
+    const ka = known(ua);
+    const kb = known(ub);
+    const base = ka ?? kb;
+    if (!base) return;
+    const as = (u: string, p: Persona | undefined) => p ?? perceivedPersona(base, { username: u, sex: pb.seen[u]?.sex ?? 'unknown', model: pb.seen[u]?.model ?? {} });
+    const a = as(ua, ka);
+    const b = as(ub, kb);
+    const persona = inheritPersona({ rng: this.o.rng, world: this.o.world, a, b, takenNames: this.usedNames() });
+    const username = persona.name;
+    const siblings = this.living.filter((x) => x.parents && sameCouple(x.parents, pb.parents)).map((x) => x.username);
+    const parentFact = (u: string, p: Persona, known: boolean) => ({ username: u, name: p.name, sex: known ? p.sex : (pb.seen[u]?.sex ?? 'unknown') });
+    const facts: BirthFacts = {
+      parents: [parentFact(ua, a, ka !== undefined), parentFact(ub, b, kb !== undefined)],
+      siblings,
+      home: pb.bedPos,
+      ...(persona.familyName ? { familyName: persona.familyName } : {}),
+    };
+    const entry: RosterEntry = {
+      username,
+      persona,
+      slot: `a${this.roster.nextSlot}`,
+      bornAt: this.now(),
+      status: 'alive',
+      // A newborn brings nothing into the world (§19.4: no starter kit).
+      kitGiven: true,
+      parents: [ua, ub],
+      birthFacts: facts,
+      spawnAt: pb.bedPos,
+      placed: false,
+    };
+    this.roster.nextSlot++;
+    this.roster.agents.push(entry);
+    this.roster.usedNames.push(username);
+    this.save();
+    this.o.logger.info({ module: 'supervisor', agent: username, parents: pb.parents, sex: persona.sex, generation: persona.generation }, 'a child is born');
+    await this.dress(entry);
+    this.launch(entry.slot);
   }
 
   /**

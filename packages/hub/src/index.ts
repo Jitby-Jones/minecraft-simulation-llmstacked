@@ -9,6 +9,7 @@ export * from './server/apply';
 export * from './server/managed';
 export * from './hub/hub';
 export * from './hub/roster';
+export * from './hub/births';
 export * from './hub/supervisor';
 export * from './skins/namemc';
 export * from './skins/mineskin';

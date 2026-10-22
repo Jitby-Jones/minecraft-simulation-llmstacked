@@ -6,9 +6,9 @@
 
 import type { Orientation, Sex } from './schemas/common';
 import type { SexDifferences, WorldConfig } from './schemas/config';
-import { type Persona, PersonaSchema, type Quirk } from './schemas/persona';
-import { generateUsername, givenNamePool } from './names';
-import { type Random, chance, normal01, pick, shuffle } from './random';
+import { NUMERIC_TRAIT_KEYS, type Persona, PersonaSchema, type Quirk, getTrait, setTrait } from './schemas/persona';
+import { generateChildUsername, generateUsername, givenNamePool } from './names';
+import { type Random, chance, normal, normal01, pick, shuffle } from './random';
 
 export interface GeneratePersonaOptions {
   rng: Random;
@@ -136,5 +136,105 @@ export function generatePersona(o: GeneratePersonaOptions): Persona {
     abilities: { intelligence, combat },
     insecurities: [],
     source: 'generated',
+  });
+}
+
+export interface InheritOptions {
+  rng: Random;
+  world: WorldConfig;
+  /** The parent whose family name passes on (or whose name becomes it). */
+  a: Persona;
+  /** The other parent: their persona, or as `a` sees them (a human's real traits are known to no one). */
+  b: Persona;
+  /** Every username ever used, alive or dead (never reused, §16.3). */
+  takenNames: ReadonlySet<string>;
+}
+
+/** Each numeric trait: one parent's, the other's or their mean, plus a little noise, now and then a lot (§19.4). */
+function inheritTrait(rng: Random, x: number, y: number): number {
+  const base = pick(rng, [x, y, (x + y) / 2]);
+  const v = normal(rng, base, chance(rng, 0.1) ? 0.25 : 0.08);
+  return Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+}
+
+/**
+ * §19.4: a child's persona from its parents'. Numbers are inherited trait by trait; intelligence and combat by
+ * world.abilities' heritability (the parents' mean for that share, the population for the rest). Values and quirks:
+ * each parent's kept with probability 0.5, plus one new quirk. The words (traits, description, speech style, life
+ * goals) come from the child's own numbers, as for anyone. Sex 50/50, orientation from the configured distribution,
+ * a new given name with the family's initial ("Lily_N"). No memories: those it learns, as anyone does.
+ */
+export function inheritPersona(o: InheritOptions): Persona {
+  const { rng, world, a, b } = o;
+  const sex: Sex = chance(rng, 0.5) ? 'female' : 'male';
+  const familyName = a.familyName ?? b.familyName ?? a.name.replace(/_[A-Z]$/, '');
+  const child = PersonaSchema.parse({ name: 'child', sex, traits: ['young'] });
+  const n: Record<string, number> = {};
+  for (const k of NUMERIC_TRAIT_KEYS) {
+    const v = inheritTrait(rng, getTrait(a, k), getTrait(b, k));
+    setTrait(child, k, v);
+    n[k] = v;
+  }
+  const ab = world.abilities;
+  // h of it from the parents' mean, the rest a fresh draw from the population.
+  const heritable = (h: number, x: number, y: number, mean: number, sd: number) => Math.round(normal01(rng, h * ((x + y) / 2) + (1 - h) * mean, (1 - h) * sd) * 100) / 100;
+  const intelligence = heritable(ab.intelligence.heritability, a.abilities.intelligence, b.abilities.intelligence, ab.intelligence.mean, ab.intelligence.sd);
+  const combat = heritable(ab.combat.heritability, a.abilities.combat, b.abilities.combat, ab.combat.mean, ab.combat.sd);
+  const v = (k: string) => n[k] ?? 0.5;
+  const kept = <T>(xs: readonly T[], key: (x: T) => string): T[] => {
+    const out: T[] = [];
+    for (const x of xs) if (chance(rng, 0.5) && !out.some((y) => key(y) === key(x))) out.push(x);
+    return out;
+  };
+  const values = kept([...a.values, ...b.values], (x) => x);
+  if (values.length === 0) values.push(...VALUE_RULES.map(([name, f]) => [name, f(n)] as const).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([name]) => name));
+  const quirks = [...kept([...a.quirks, ...b.quirks], (q) => JSON.stringify(q)), pick(rng, QUIRK_IDEAS)(rng)];
+  const traits = traitWords(n);
+  const given = shuffle(rng, givenNamePool()).find((g) => ![...o.takenNames].some((x) => x.toLowerCase() === g.toLowerCase())) ?? pick(rng, givenNamePool());
+  const name = generateChildUsername(given, familyName, o.takenNames, rng);
+  const talkative = v('extraversion');
+  return PersonaSchema.parse({
+    ...child,
+    id: `born-${name.toLowerCase()}`,
+    name,
+    sex,
+    orientation: orientationFor(rng, world.romance.orientationDist),
+    familyName,
+    traits,
+    description: `${name} is ${traits.slice(0, 2).join(' and ')}, and cares most about ${values.slice(0, 2).join(' and ')}.`,
+    speech: { style: `${talkative >= 0.6 ? 'chatty' : talkative <= 0.4 ? 'brief' : 'easy'} and ${v('agreeableness') >= 0.55 ? 'warm' : v('agreeableness') <= 0.4 ? 'blunt' : 'plain'}`, maxWords: Math.round(12 + 18 * talkative), catchphrases: [] },
+    values,
+    lifeGoals: values.slice(0, 2).map((val) => pick(rng, LIFE_GOALS[val] ?? ['make a good life here'])),
+    inventory: [],
+    social: { ...child.social, initiateChance: Math.round((0.1 + 0.5 * talkative) * 100) / 100, baselineSentiment: Math.round((3 + 4 * v('agreeableness')) * 10) / 10 },
+    quirks,
+    abilities: { intelligence, combat },
+    insecurities: [],
+    source: 'born',
+    generation: Math.max(a.generation, b.generation) + 1,
+  });
+}
+
+/**
+ * §19.3 a parent the system has no persona for (a person playing): what the other parent, one of ours, believes of
+ * them stands in for their traits, on that parent's own persona wherever it has no view. Their real traits are never
+ * known, and nothing of theirs (values, quirks) is guessed.
+ */
+export function perceivedPersona(base: Persona, o: { username: string; sex: Sex | 'unknown'; model: Readonly<Record<string, number>> }): Persona {
+  const p = structuredClone(base);
+  for (const k of NUMERIC_TRAIT_KEYS) {
+    const v = o.model[k];
+    if (typeof v === 'number' && Number.isFinite(v)) setTrait(p, k, Math.min(1, Math.max(0, v)));
+  }
+  const ability = (v: number | undefined, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : fallback);
+  return PersonaSchema.parse({
+    ...p,
+    id: `perceived-${o.username.toLowerCase()}`,
+    name: o.username,
+    sex: o.sex === 'unknown' ? base.sex : o.sex,
+    familyName: undefined,
+    values: [],
+    quirks: [],
+    abilities: { intelligence: ability(o.model.intelligence, base.abilities.intelligence), combat: ability(o.model.combat, base.abilities.combat) },
   });
 }

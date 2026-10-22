@@ -98,6 +98,15 @@ export const RomanceStepSchema = z.object({
 });
 export type RomanceStep = z.infer<typeof RomanceStepSchema>;
 
+/** §19.3: asking our partner to start a family, or answering them; §19.5: warning our child about someone. */
+export const FamilyStepSchema = z.object({
+  with: z.string().min(1),
+  phase: z.enum(['propose', 'accept', 'decline', 'warn']),
+  /** Whom a warning is about. */
+  about: z.string().min(1).optional(),
+});
+export type FamilyStepDecision = z.infer<typeof FamilyStepSchema>;
+
 export const FightProposalSchema = z.object({
   target: z.string().min(1),
   intent: z.enum(['brawl', 'lethal']),
@@ -134,6 +143,7 @@ export const DecisionOutputSchema = z.object({
   trade: TradeStepSchema.optional(),
   fight: FightProposalSchema.optional(),
   romance: RomanceStepSchema.optional(),
+  family: FamilyStepSchema.optional(),
   terminate: TerminateSchema,
   /** ≤ 1 sentence, for logs/UI only. */
   rationale: z.string().max(400),

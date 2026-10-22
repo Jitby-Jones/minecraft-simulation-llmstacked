@@ -23,9 +23,10 @@ import { looksLikePromise } from '../modules/talking';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
+import { parentsWhileYoung } from '../state/youth';
 import { confirmationScaled, conformityOf, conformityPull, heardConsensus, inoculation, pulledSentiment, rationalityOf, susceptibilityToward } from '../mind/biases';
 import { DEED_DELTAS, type Deed, GRIEVANCE_WEIGHT, TRUST_DELTAS, driftSentiment, withEvidence, withGrievance, withSentiment, withTrust } from './math';
-import { type ToldDeed, readDeeds, readOpinions } from './opinions';
+import { type ToldDeed, namedIn, readDeeds, readOpinions } from './opinions';
 import { parseDemand, parseFightPromise } from '../conflict/coercion';
 import { itemMatcher } from '../body/items';
 
@@ -173,7 +174,8 @@ export class SocialAwareness {
         const u = e.utterance;
         if (u.from === this.o.me) return;
         const s = this.o.store.state;
-        const known = [...new Set([...Object.keys(s.social), ...s.perception.nearbyEntities.filter((x) => x.kind === 'player').map((x) => x.name)])];
+        // Those we know of, those around, and anyone a warning names (a stranger's name first heard).
+        const known = [...new Set([...Object.keys(s.social), ...s.perception.nearbyEntities.filter((x) => x.kind === 'player').map((x) => x.name), ...namedIn(u.text)])].filter((n) => n !== this.o.me);
         const ops = readOpinions(u.text, u.from, known, this.now());
         if (ops.length > 0) this.heard(ops);
         for (const d of readDeeds(u.text, u.from, known)) this.toldOf(d);
@@ -234,17 +236,23 @@ export class SocialAwareness {
     return { ...p, sentiment: Math.min(10, Math.max(0, p.sentiment + (p.evidence - p.sentiment) * r * 0.15)) };
   }
 
-  /** Heard opinions (§18.4.1): recorded, and our view of each target pulled toward what people say. */
+  /**
+   * Heard opinions (§18.4.1): recorded, and our view of each target pulled toward what people say. While we are
+   * young (§19.5), our parents' word counts double, and conformity toward them is ×1.5.
+   */
   private heard(ops: readonly HeardOpinion[]): void {
     this.o.store.update('heardOpinions', (all) => [...all, ...ops].slice(-60), 'heard opinions');
     const s = this.o.store.state;
     const pull = conformityPull(conformityOf(s), this.o.mind?.fearLevel() ?? 0, this.override());
+    const parents = parentsWhileYoung(s, this.now());
     for (const target of new Set(ops.map((o) => o.target))) {
       if (target === this.o.me) continue;
       const p = this.profile(target);
-      const consensus = heardConsensus(s.heardOpinions, target, (spk) => (s.social[spk]?.trust ?? 0.5) + (s.social[spk]?.admiration ?? 0) + (this.o.mind?.authorityOf?.(spk) ?? 0), this.now());
+      const weight = (spk: AgentName) => ((s.social[spk]?.trust ?? 0.5) + (s.social[spk]?.admiration ?? 0) + (this.o.mind?.authorityOf?.(spk) ?? 0)) * (parents.includes(spk) ? 2 : 1);
+      const consensus = heardConsensus(s.heardOpinions, target, weight, this.now());
       if (consensus === null) continue;
-      const next = pulledSentiment(p.sentiment, consensus, pull * inoculation(s, 'conformity', target));
+      const fromParents = ops.some((o) => o.target === target && parents.includes(o.speaker));
+      const next = pulledSentiment(p.sentiment, consensus, pull * (fromParents ? 1.5 : 1) * inoculation(s, 'conformity', target));
       if (Math.abs(next - p.sentiment) >= 0.05) this.write({ ...p, sentiment: next }, `what people say about ${target}`);
     }
   }

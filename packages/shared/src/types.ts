@@ -26,6 +26,8 @@ export interface SeenEntity {
   lastSeen: number;
   /** Took damage in the last few seconds (visible hurt animation). */
   hurtRecently: boolean;
+  /** A player lying in a bed, asleep (§19.3 the bed ritual). */
+  sleeping?: boolean;
 }
 
 export interface BlockNote {
@@ -357,6 +359,10 @@ export interface FamilyState {
   home?: { beds: Vec3[]; chest?: Vec3 };
   familyName?: string;
   lastConceptionTs?: number;
+  /** We and our partner agreed to start a family (§19.3): the bed ritual is next. */
+  planning?: { with: AgentName; at: number };
+  /** A born agent: the parents it has greeted in person (§19.3 "hi mom, hi dad!"). */
+  greeted?: AgentName[];
   /** Romance soft-persistence cap bookkeeping (§19.10): target → attempts this in-game week. */
   advances: Record<AgentName, { count: number; weekStart: number; rejections: number }>;
 }

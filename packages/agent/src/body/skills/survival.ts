@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import type { Item } from 'prismarine-item';
+import { Vec3 } from 'vec3';
 import { armorSlotOf, armorTier, itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { abortable, errMsg, gotoNear, waitMs } from './util';
@@ -92,16 +93,29 @@ export async function equipBestArmor(bot: Bot): Promise<string[]> {
 
 export const sleep = defineSkill({
   name: 'sleep',
-  description: 'sleep {} — sleep in a nearby bed at night',
-  argsSchema: z.object({}),
+  description: 'sleep {near?: {x,y,z}} — sleep in a free bed nearby (near that spot, e.g. one of our own beds) at night',
+  argsSchema: z.object({ near: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional() }),
   talkOverable: false,
   slipKinds: [],
   expect: () => ({ kind: 'awakeAfterNight' }),
-  async run(ctx) {
+  async run(ctx, args) {
     const { bot } = ctx;
     const bedIds = bot.registry.blocksArray.filter((b) => b.name.endsWith('_bed')).map((b) => b.id);
-    const bed = findKnownBlocks(bot, bedIds, 24, 1)[0];
-    if (!bed) return { ok: false, observed: 'no bed', error: 'no bed nearby' };
+    // A bed someone already lies in won't take a second sleeper (§19.3: each partner in one of the two beds).
+    const near = args.near;
+    // Our own beds, from farther off: home first.
+    if (near && Math.hypot(bot.entity.position.x - near.x, bot.entity.position.z - near.z) > 16) {
+      try {
+        await gotoNear(ctx, new Vec3(near.x, near.y, near.z), 3);
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        return { ok: false, observed: 'could not get home', error: errMsg(err) };
+      }
+    }
+    const bed = findKnownBlocks(bot, bedIds, 24, 16).find(
+      (b) => !(bot.blockAt(b.position) ?? b).getProperties().occupied && (!near || Math.hypot(b.position.x - near.x, b.position.y - near.y, b.position.z - near.z) <= 4),
+    );
+    if (!bed) return { ok: false, observed: 'no bed', error: near ? 'no free bed there' : 'no free bed nearby' };
     try {
       if (bed.position.distanceTo(bot.entity.position) > 2.5) await gotoNear(ctx, bed.position, 1);
       await bot.sleep(bot.blockAt(bed.position) ?? bed);

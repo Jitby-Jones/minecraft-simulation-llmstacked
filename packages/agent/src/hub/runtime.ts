@@ -107,6 +107,10 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     governor: rt?.governor,
     memory: { db, embedder },
     fightSlot: { acquire: () => hub.fightSlot(), release: () => hub.fightDone() },
+    // §19.4: born in-world, on its first start (a restart resumes from the snapshot instead).
+    ...(a.birthFacts && !a.resume ? { birth: { facts: a.birthFacts, youthUntil: Date.now() + o.world.reproduction.youthSec * 1000 } } : {}),
+    // §19.3: the bed ritual is reported to the Hub, which alone decides whether a child comes of it.
+    onConception: (c) => hub.send({ t: 'conception', username: a.username, partner: c.partner, partnerModel: c.partnerModel, partnerSex: c.partnerSex, bedPos: c.bedPos, ts: Date.now() }),
   });
   if (a.resume) {
     const offline = restoreSnapshot(db, agent.store);

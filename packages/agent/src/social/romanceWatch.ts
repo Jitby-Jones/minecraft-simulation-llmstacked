@@ -10,6 +10,7 @@ import type { AppraisalEvent } from '../mind/emotions';
 import type { AgentStateStore } from '../state/store';
 import { newSocialProfile } from '../state/social';
 import { pushWorkmem } from '../state/workmem';
+import { isYoung } from '../state/youth';
 import { type AdvanceContext, type AdvanceReaction, type RejectionReaction, advanceWeights, attraction, orientationFit, persistenceCap, pronounSex, rejectionWeights, rollReaction, statedSex } from './romance';
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -223,8 +224,7 @@ export class RomanceWatch implements RomanceView {
   }
 
   private young(): boolean {
-    const life = this.o.store.state.life;
-    return life.born && this.now() < life.youthUntil;
+    return isYoung(this.o.store.state, this.now());
   }
 
   private profile(name: AgentName): SocialProfile {

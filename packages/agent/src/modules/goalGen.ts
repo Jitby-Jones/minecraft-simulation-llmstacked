@@ -70,6 +70,8 @@ export interface GoalGenOptions {
   me: string;
   setGoal: (text: string, doneWhen?: string) => void;
   memories?: (k: number) => Promise<string[]>;
+  /** Lines about the agent's own life worth weighing (§19.5: a young child to teach and protect). */
+  hints?: () => readonly string[];
   rng?: () => number;
   now?: () => number;
 }
@@ -178,6 +180,7 @@ export class GoalGen {
                 s.goals.community ? `Everyone here hopes to ${s.goals.community}.` : '',
                 village.length > 0 ? `Your part in the village: ${village.join('; ')}. A goal for the village can use its doneWhen.` : '',
                 ...idols,
+                ...(this.o.hints?.() ?? []),
                 memories.length > 0 ? `You remember:\n${memories.map((m) => `- ${m}`).join('\n')}` : '',
               ]
                 .filter(Boolean)

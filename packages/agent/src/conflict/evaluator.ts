@@ -37,6 +37,8 @@ export interface ConflictOptions {
    * "circumstances"; above 1 for someone disliked or an outsider, "they're bad").
    */
   grievanceScale?: (name: AgentName) => number;
+  /** §19.5: in our youth, words only (maxRung 1). */
+  young?: () => boolean;
   rng?: () => number;
   now?: () => number;
 }
@@ -146,7 +148,11 @@ export class ConflictEvaluator {
         const ev = e.event;
         if (ev.kind !== 'death' || !ev.killer || !ev.subject || ev.killer === this.o.me || !this.isPerson(ev.killer)) return;
         this.update(ev.killer, (p) => ({ ...p, killsSeen: p.killsSeen + 1 }), 'a kill announced');
-        if ((this.o.store.state.social[ev.subject]?.sentiment ?? 5) >= 7) this.grieve(ev.killer, 'killed_friend', true, `${ev.killer} killed ${ev.subject}`);
+        // §19.5: a parent or partner killed is a wrong for a lifetime of revenge; a friend, the heaviest otherwise.
+        const s = this.o.store.state;
+        const kin = s.family.partner === ev.subject ? 'partner' : s.social[ev.subject]?.kin;
+        if (kin === 'parent' || kin === 'partner') this.grieve(ev.killer, kin === 'parent' ? 'killed_parent' : 'killed_partner', true, `${ev.killer} killed my ${kin === 'parent' ? 'parent' : 'partner'} ${ev.subject}`);
+        else if ((s.social[ev.subject]?.sentiment ?? 5) >= 7) this.grieve(ev.killer, 'killed_friend', true, `${ev.killer} killed ${ev.subject}`);
       }),
     );
     // A friend attacked in front of us calls for help against the attacker.
@@ -397,7 +403,7 @@ export class ConflictEvaluator {
   private limits(mob: boolean) {
     const t = this.o.store.state.self.persona.temperament;
     return {
-      maxRung: this.o.config.maxRung,
+      maxRung: this.o.young?.() ? Math.min(1, this.o.config.maxRung) : this.o.config.maxRung,
       lethalAllowed: this.o.mode !== 'live' || t.vengefulness >= 0.6 || t.dominance >= 0.6,
       ...(mob ? { thresholdShift: mobModifiers(3).rungThreshold } : {}),
     };

@@ -2,7 +2,7 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import { type AgentName, type Logger, type Persona, type WorldConfig, WorldConfigSchema, parseProximityLine } from '@agora/shared';
+import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Vec3, type WorldConfig, WorldConfigSchema, parseProximityLine } from '@agora/shared';
 import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
@@ -45,6 +45,8 @@ import { Mind } from './mind/mind';
 import { feelingText } from './modules/talking';
 import { Impressions } from './social/impressions';
 import { RomanceWatch } from './social/romanceWatch';
+import { FamilyWatch } from './social/familyWatch';
+import { applyBirthFacts } from './state/birth';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
@@ -68,6 +70,10 @@ export interface AgentOptions {
   rng?: () => number;
   /** A world-wide fight slot (§17.10, the Hub's fight tokens); without it every fight the gate allows may start. */
   fightSlot?: { acquire(): Promise<boolean>; release(): void };
+  /** Born in-world (§19.4): what it starts out knowing, and when its youth ends. */
+  birth?: { facts: BirthFacts; youthUntil: number };
+  /** §19.3: the bed ritual done beside our partner: the Hub is told (conception), with what we believe of them. */
+  onConception?: (c: { partner: AgentName; bedPos: Vec3; partnerModel: Record<string, number>; partnerSex: Sex | 'unknown' }) => void;
   now?: () => number;
 }
 
@@ -102,6 +108,7 @@ export class Agent {
   readonly conflict: ConflictEvaluator;
   readonly power: PowerWatch;
   readonly romance: RomanceWatch;
+  readonly family: FamilyWatch;
   private dangerSource = '';
   /** The danger was a person (by name, or "someone"): no article. */
   private dangerIsPerson = false;
@@ -115,7 +122,8 @@ export class Agent {
   constructor(private readonly o: AgentOptions) {
     const { body, persona, username, llm, logger } = o;
     const now = o.now ?? Date.now;
-    this.store = new AgentStateStore(createInitialState({ persona, username, now: now() }));
+    this.store = new AgentStateStore(createInitialState({ persona, username, now: now(), ...(o.birth ? { born: true, youthUntil: o.birth.youthUntil } : {}) }));
+    if (o.birth) applyBirthFacts(this.store, o.birth.facts, persona, now());
     const levers = (): MindLevers => leversFor(persona.abilities.intelligence, o.world?.abilities.intelligenceRoutesCCTier ?? true);
     const speechRange = o.world?.chat.normalRange ?? 15;
     this.perception = new Perception({ bot: body.bot, store: this.store, bus: this.bus, logger, speechRange, home: () => body.home, now });
@@ -216,6 +224,11 @@ export class Agent {
         wouldAccept: (n) => this.romance.wouldAccept(n),
         mayCourt: (n) => this.romance.mayCourt(n),
       },
+      family: {
+        step: () => this.family.step(),
+        whyNotFamily: (n) => this.family.whyNotFamily(n),
+        young: () => this.family.young(),
+      },
       isPerson: (n) => Boolean(body.bot.players[n]) || Boolean(this.store.state.social[n]),
       mindLines: () => {
         const s = this.store.state;
@@ -235,6 +248,7 @@ export class Agent {
         }
         lines.push(...this.powerLines(people));
         lines.push(...this.romance.mindLines());
+        lines.push(...this.family.mindLines());
         return lines;
       },
       claimToCheck: () => {
@@ -247,7 +261,20 @@ export class Agent {
     this.goalGen =
       o.goalGen === false
         ? null
-        : new GoalGen({ store: this.store, bus: this.bus, logger, llm, me: username, setGoal: (t, d) => this.cc.setGoal(t, d), ...(memories ? { memories } : {}), now });
+        : new GoalGen({
+            store: this.store,
+            bus: this.bus,
+            logger,
+            llm,
+            me: username,
+            setGoal: (t, d) => this.cc.setGoal(t, d),
+            ...(memories ? { memories } : {}),
+            hints: () => {
+              const h = this.family.hint();
+              return h ? [h] : [];
+            },
+            now,
+          });
     const rng = o.rng ? { rng: o.rng } : {};
     const world = o.world ?? WorldConfigSchema.parse({});
     this.roles = new RoleWatch({ store: this.store, bus: this.bus, me: username, now });
@@ -334,6 +361,7 @@ export class Agent {
       inMob: (t) => this.crowd.isMob(t),
       fightCapReached: this.fightCapReached,
       grievanceScale: (n) => this.grievanceScale(n),
+      young: () => this.family.young(),
       bornAt: now(),
       ...rng,
       now,
@@ -354,6 +382,25 @@ export class Agent {
       override: () => this.mind.override(),
       combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
       ...rng,
+      now,
+    });
+    this.family = new FamilyWatch({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      enabled: world.reproduction.enabled,
+      config: {
+        partnerMinDays: world.romance.partnerMinDays,
+        coupleCooldownSec: world.reproduction.coupleCooldownSec,
+        minFoodItems: world.reproduction.minFoodItems,
+        youthSec: world.reproduction.youthSec,
+      },
+      liking: (n) => this.mind.liking(n),
+      resentmentOf: (n) => this.conflict.resentmentOf(n),
+      conceived: (partner, bedPos) => o.onConception?.({ partner, bedPos, partnerModel: this.partnerModel(partner), partnerSex: this.store.state.social[partner]?.perceivedSex ?? 'unknown' }),
+      feel: (ev, who) => this.feelings.appraise(ev, who),
+      say: (text, to, volume) => void body.say(text, volume, to).catch(() => undefined),
       now,
     });
     this.power = new PowerWatch({
@@ -463,16 +510,19 @@ export class Agent {
       caution: () => this.store.state.drives.caution,
       combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
       // Friends, and the leader we follow unless a group sets upon them and we walk away (§17.7, §17.8).
-      // §19.2: a partner, always (the strong defend reflex); anyone else as §4.5 has it.
+      // §19.2, §19.5: family (a partner, parents, children, siblings), always: the strong defend reflex; anyone else
+      // as §4.5 has it. The young don't fight at all.
       shouldDefend: (name, attacker) =>
-        this.romance.partner() === name ||
-        defendsAlly({
-          leader: this.power.standsBy(name),
-          liking: this.store.state.social[name] ? this.mind.liking(name) : 0,
-          fearOfAttacker: attacker ? (this.store.state.social[attacker]?.fearOf ?? 0) : 0,
-        }),
-      // Self-defense is always allowed; deliberate fights are code-gated in the conflict core (M6b).
-      mayFightBack: () => true,
+        !this.family.young() &&
+        (this.kin(name) ||
+          defendsAlly({
+            leader: this.power.standsBy(name),
+            liking: this.store.state.social[name] ? this.mind.liking(name) : 0,
+            fearOfAttacker: attacker ? (this.store.state.social[attacker]?.fearOf ?? 0) : 0,
+          })),
+      // Self-defense is allowed, except in youth (§19.5: no fighting, only fleeing); deliberate fights are code-gated
+      // in the conflict core (M6b).
+      mayFightBack: () => !this.family.young(),
       deliberateFight: () => ['attack', 'duel'].includes(this.store.state.option?.skill ?? ''),
       // In a duel the duel yields first; the reflexes flee only below that (§17.6).
       fightFloor: () => {
@@ -550,6 +600,14 @@ export class Agent {
   }
 
   /** §19.5: a partner, or family: in-group, with the strongest in-group bias. */
+  /** What we believe of someone's traits (§19.3: a partner's perceived model, sent with a conception). */
+  private partnerModel(name: AgentName): Record<string, number> {
+    const p = this.store.state.social[name];
+    if (!p) return {};
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+    return Object.fromEntries(Object.entries({ ...p.estTraits, combat: p.estCombat, intelligence: p.estIntelligence }).map(([k, v]) => [k, clamp01(v)]));
+  }
+
   private kin(name: AgentName): boolean {
     const s = this.store.state;
     return s.family.partner === name || Boolean(s.social[name]?.kin);
@@ -631,11 +689,13 @@ export class Agent {
     this.conflict.start();
     this.power.start();
     this.romance.start();
+    this.family.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.family.stop();
     this.romance.stop();
     this.power.stop();
     this.conflict.stop();

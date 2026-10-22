@@ -19,6 +19,7 @@ import { topEmotion } from '../mind/emotions';
 import { OPINION_ASK_RE } from '../social/opinions';
 import { NOT_PG_RE } from '../social/romance';
 import { ACCEPTANCE, BREAKUP_LINE, COMPLIMENTS, DECLINE_LINES, FLIRT_BACK, GIFT_LINE, PROPOSAL, REJECTION_LINES, isAdvance } from '../social/romanceWatch';
+import { FAMILY_HAPPY, FAMILY_NOT_YET, FAMILY_PROPOSAL, FAMILY_YES, isFamilyAsk } from '../social/familyWatch';
 import { parseTradeOffer } from '../social/trades';
 import { NO_PROMISE_RULE, PG_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
 
@@ -34,8 +35,13 @@ const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit', 'court']);
 /** A fight's threat stands this long: a decision going on with the fight doesn't say another. */
 const FIGHT_ANNOUNCED_MS = 15_000;
-/** §19.2: courting and the answers to it, said as worded so a listener's code reading takes them the same way. */
-const ROMANCE_LINES: ReadonlySet<string> = new Set([...COMPLIMENTS, PROPOSAL, ACCEPTANCE, FLIRT_BACK, GIFT_LINE, BREAKUP_LINE, ...Object.values(DECLINE_LINES), ...Object.values(REJECTION_LINES)].filter(Boolean));
+/**
+ * §19.2, §19.3: courting, starting a family, and the answers to them, said as worded so a listener's code reading
+ * takes them the same way.
+ */
+const ROMANCE_LINES: ReadonlySet<string> = new Set(
+  [...COMPLIMENTS, PROPOSAL, ACCEPTANCE, FLIRT_BACK, GIFT_LINE, BREAKUP_LINE, ...Object.values(DECLINE_LINES), ...Object.values(REJECTION_LINES), FAMILY_PROPOSAL, FAMILY_YES, FAMILY_NOT_YET, FAMILY_HAPPY].filter(Boolean),
+);
 
 /** §19.1: what one loves, as a first hello puts it ("I'm a guy who loves exploring"), from what one values. */
 const LOVES: Readonly<Record<string, string>> = {
@@ -54,7 +60,7 @@ export function looksLikePromise(text: string): boolean {
 }
 
 export function needsDecision(text: string): boolean {
-  return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null || isAdvance(text);
+  return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null || isAdvance(text) || isFamilyAsk(text);
 }
 
 /** One clean chat line from a model reply: no "Name:" prefix, no quotes, no commands, capped. */
@@ -349,10 +355,11 @@ export class Talking {
     const prior = this.fightOpened;
     if (d.option === 'fight' && prior?.person === person && running?.status === 'running' && running.decisionId === prior.optionId && this.now() - prior.at < FIGHT_ANNOUNCED_MS) return;
     if (d.option === 'fight') this.fightOpened = { person, optionId: running?.decisionId, at: this.now() };
-    void this.openWhenInRange(person, intent, d.id, d.option);
+    // Courting (§19.2) and a family's business (§19.3, §19.5) are said on purpose, not small talk.
+    void this.openWhenInRange(person, intent, d.id, d.option, d.option === 'court' || d.family !== undefined);
   }
 
-  private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string, option: string): Promise<void> {
+  private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string, option: string, onPurpose: boolean): Promise<void> {
     // The line opens what was decided, while it's on: no threat once the fight is over (or given up). A decision to
     // go on with what we're doing (the same option with them) keeps it on, as does the option already running,
     // started by an earlier one.
@@ -363,15 +370,13 @@ export class Talking {
       const same = d?.id === decisionId || (d?.option === option && d.target?.agent === person);
       return same && (!s.option || s.option.decisionId !== optionId || s.option.status === 'running');
     };
-    // Courting (§19.2) is said on purpose, not small talk.
-    const courting = option === 'court';
     for (let i = 0; i < 40; i++) {
       if (!on()) return;
       const near = this.o.store.state.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === person && e.distance <= 8);
       if (near) {
-        // A warning or a threat doesn't wait out the pause between friendly chats; nor does courting (§19.2): said
-        // on purpose, not small talk.
-        const sharp = courting || intent.stance === 'hostile' || intent.stance === 'threaten';
+        // A warning or a threat doesn't wait out the pause between friendly chats; nor does courting (§19.2) or a
+        // family's business (§19.3, §19.5): said on purpose, not small talk.
+        const sharp = onPurpose || intent.stance === 'hostile' || intent.stance === 'threaten';
         if (!sharp && !this.o.conversations.mayInitiate(person) && !this.o.conversations.withPartner(person)) return;
         const conv = this.o.conversations.open(person, true);
         await this.say(conv.convId, [], intent, person, on);

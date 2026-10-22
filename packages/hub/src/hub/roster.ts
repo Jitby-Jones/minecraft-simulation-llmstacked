@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { PersonaSchema } from '@agora/shared';
+import { BirthFactsSchema, PersonaSchema, Vec3Schema } from '@agora/shared';
 import { AgentSkinSchema } from '../skins/service';
 
 export const RosterEntrySchema = z.object({
@@ -19,8 +19,24 @@ export const RosterEntrySchema = z.object({
   kitGiven: z.boolean().default(false),
   /** The skin the agent wears (§16.5), given when it was created. */
   skin: AgentSkinSchema.optional(),
+  /** Born in-world (§19.3, §19.4): its parents' usernames, what it starts out knowing, and where it first appears. */
+  parents: z.tuple([z.string(), z.string()]).optional(),
+  birthFacts: BirthFactsSchema.optional(),
+  spawnAt: Vec3Schema.optional(),
+  /** Put at spawnAt already (only on the first start of a life). */
+  placed: z.boolean().default(false),
 });
 export type RosterEntry = z.infer<typeof RosterEntrySchema>;
+
+/** A child on the way (§19.3): its parents, where it will appear, when, and how each parent was seen by the other. */
+export const PendingBirthSchema = z.object({
+  parents: z.tuple([z.string(), z.string()]),
+  bedPos: Vec3Schema,
+  dueAt: z.number(),
+  /** Parent → what the other parent believes of them, and their sex as seen (for a parent we have no persona for). */
+  seen: z.record(z.string(), z.object({ model: z.record(z.string(), z.number()), sex: z.enum(['male', 'female', 'unknown']) })),
+});
+export type PendingBirth = z.infer<typeof PendingBirthSchema>;
 
 export const RosterSchema = z.object({
   version: z.literal(1),
@@ -28,11 +44,12 @@ export const RosterSchema = z.object({
   agents: z.array(RosterEntrySchema),
   usedNames: z.array(z.string()),
   nextSlot: z.number().int().min(0),
+  pendingBirths: z.array(PendingBirthSchema).default([]),
 });
 export type Roster = z.infer<typeof RosterSchema>;
 
 export function emptyRoster(): Roster {
-  return { version: 1, savedAt: 0, agents: [], usedNames: [], nextSlot: 0 };
+  return { version: 1, savedAt: 0, agents: [], usedNames: [], nextSlot: 0, pendingBirths: [] };
 }
 
 export function loadRoster(file: string): Roster {

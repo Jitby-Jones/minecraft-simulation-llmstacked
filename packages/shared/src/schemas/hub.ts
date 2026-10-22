@@ -106,6 +106,8 @@ export const BotToHubSchema = z.discriminatedUnion('t', [
     username: z.string(),
     partner: z.string(),
     partnerModel: PerceivedTraitsSchema,
+    /** How the reporter sees its partner (for a parent the system knows nothing about). */
+    partnerSex: z.enum(['male', 'female', 'unknown']).default('unknown'),
     bedPos: Vec3Schema,
     ts: z.number(),
   }),

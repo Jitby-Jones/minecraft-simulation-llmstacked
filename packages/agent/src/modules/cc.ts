@@ -40,6 +40,7 @@ import { villageWorkOf } from '../social/village';
 import { deathNoticeMove, hungerMove, hurtMove, villageMove } from './villageMove';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from './powerMove';
 import { ACCEPTANCE, DECLINE_LINES, FLIRT_BACK, GIFT_LINE, PROPOSAL, PROPOSE_RE, type RomanceView, isAdvance } from '../social/romanceWatch';
+import { FAMILY_HAPPY, FAMILY_NOT_YET, FAMILY_PROPOSAL, FAMILY_YES, type FamilyStep, type FamilyView, isFamilyAsk, isFamilyYes } from '../social/familyWatch';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -62,6 +63,8 @@ export interface ValidationEnv {
   mayFight?: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => string | null;
   /** §19.2, §19.6: null when courting them may happen (not family, not the young, within the soft cap), else why not. */
   mayCourt?: (name: AgentName) => string | null;
+  /** §19.3: null when we may ask them to start a family (our partner, and all else in place), else why not. */
+  mayStartFamily?: (name: AgentName) => string | null;
 }
 
 /** Code checks on a schema-valid decision. Returns the reason it can't be used, or null. */
@@ -88,6 +91,11 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
   if (wooed && env.mayCourt) {
     const why = env.mayCourt(wooed);
     if (why) return `you can't court ${wooed}: ${why}`;
+  }
+  // §19.3: asking, or saying yes, only when all is in place from our side (each side checks its own).
+  if ((d.family?.phase === 'propose' || d.family?.phase === 'accept') && env.mayStartFamily) {
+    const why = env.mayStartFamily(d.family.with);
+    if (why) return `you can't ${d.family.phase === 'propose' ? 'ask' : 'agree with'} ${d.family.with} to start a family: ${why}`;
   }
   if (d.option === 'move' && !d.target?.pos && !d.target?.agent) return 'option move needs target.pos or target.agent';
   const who = d.target?.agent;
@@ -121,6 +129,8 @@ export interface SocialChance {
   answered?: ReadonlySet<string>;
   /** Romance (§19.2): whom we're drawn to and how far it has gone, how we take an advance. */
   romance?: RomanceView;
+  /** Families (§19.3–19.5): starting one, the bed ritual, children and parents. */
+  family?: FamilyView;
 }
 
 export interface ConflictView {
@@ -249,6 +259,7 @@ function answerRequest(
   power?: PowerView,
   answered?: ReadonlySet<string>,
   romance?: RomanceView,
+  family?: FamilyView,
 ): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
@@ -260,6 +271,17 @@ function answerRequest(
   // §19.2, §19.10 A: an advance (a compliment, a gift, "will you be my partner?"), taken as the roll has it.
   const advance = romance ? theirs.filter((u) => isAdvance(u.text)).at(-1) : undefined;
   if (romance && advance) return answerAdvance(from, PROPOSE_RE.test(advance.text), romance, keep);
+  // §19.3: our partner asking to start a family: yes, when all is in place from our side too; otherwise not yet.
+  if (family && theirs.some((u) => isFamilyAsk(u.text))) {
+    const why = family.whyNotFamily(from);
+    return why === null
+      ? { ...keep, target: { agent: from }, speechIntent: { stance: 'agree', gist: FAMILY_YES, mayCommit: false }, family: { with: from, phase: 'accept' }, terminate: { maxSeconds: 20 }, rationale: `code default: yes to a family with ${from}` }
+      : { ...keep, target: { agent: from }, speechIntent: { stance: 'decline', gist: FAMILY_NOT_YET, mayCommit: false }, family: { with: from, phase: 'decline' }, terminate: { maxSeconds: 20 }, rationale: `code default: not yet a family with ${from} (${why})` };
+  }
+  // Their yes to ours.
+  if (family && s.family.partner === from && theirs.some((u) => isFamilyYes(u.text))) {
+    return { ...keep, target: { agent: from }, speechIntent: { stance: 'chat', gist: FAMILY_HAPPY, mayCommit: false }, terminate: { maxSeconds: 20 }, rationale: `code default: ${from} wants a family too` };
+  }
   // §17.8: a call to rise against someone is weighed by resentment of them, trust in who asks, and fear.
   const known = Object.keys(s.social);
   const foe = theirs.map((u) => parseRally(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
@@ -397,6 +419,29 @@ function answerAdvance(from: AgentName, proposal: boolean, romance: RomanceView,
     terminate: { maxSeconds: 20 },
     rationale: `code default: ${from}'s advance taken: ${reaction}`,
   };
+}
+
+/** §19.3–19.5: the family's next step: the question, the bed ritual, keeping close, food for a child. */
+function familyMove(step: FamilyStep, isStuck: ValidationEnv['isStuck']): DecisionOutput | null {
+  switch (step.kind) {
+    case 'ask':
+      return { option: 'talk', target: { agent: step.to }, speechIntent: { stance: 'propose', gist: FAMILY_PROPOSAL, mayCommit: false }, family: { with: step.to, phase: 'propose' }, terminate: { maxSeconds: 40 }, rationale: `code default: asking ${step.to} to start a family` };
+    case 'sleep': {
+      const args = { near: { x: Math.round(step.near.x), y: Math.round(step.near.y), z: Math.round(step.near.z) } };
+      if (isStuck('sleep', args)) return null;
+      return { option: 'work', task: { skill: 'sleep', args }, terminate: { maxSeconds: 600 }, rationale: `code default: night, to bed beside ${step.with}` };
+    }
+    case 'keepClose':
+      if (isStuck('follow', { agent: step.to, distance: 3 })) return null;
+      return { option: 'follow', target: { agent: step.to }, terminate: { maxSeconds: 30 }, rationale: `code default: ${step.why}` };
+    case 'warn':
+      return { option: 'talk', target: { agent: step.to }, speechIntent: { stance: 'inform', gist: step.line, mayCommit: false }, family: { with: step.to, phase: 'warn', about: step.about }, terminate: { maxSeconds: 30 }, rationale: `code default: warning my child ${step.to} about ${step.about}` };
+    case 'feed': {
+      const args = { to: step.to, item: step.item, qty: step.qty };
+      if (isStuck('give', args)) return null;
+      return { option: 'work', task: { skill: 'give', args }, terminate: { maxSeconds: 60 }, rationale: `code default: food for my child ${step.to}` };
+    }
+  }
 }
 
 /** §19.2: the next step in courting someone (a compliment, a small gift, the question), when it's time for one. */
@@ -647,7 +692,7 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power, social?.answered, social?.romance);
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power, social?.answered, social?.romance, social?.family);
   const pv = social ? powerCtx(social, isStuck) : null;
   if (busy) {
     // Starving with nothing to eat: food before whatever we are doing.
@@ -665,6 +710,10 @@ export function codeDecision(
   // Starving with nothing to eat comes before anything, even the night (§16.3: carry food).
   const starving = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
   if (starving) return starving;
+  // §19.3: agreed to start a family: at night, to bed beside each other at home (the bed ritual), not dug in.
+  const fam = social?.family?.step() ?? null;
+  const ritual = fam?.kind === 'sleep' ? familyMove(fam, isStuck) : null;
+  if (ritual) return ritual;
   // Survive the night (M1 shelter), dug in from dusk on, before the monsters come out at dark; a guard on duty stays
   // out while fit for it.
   const village = villageWorkOf(s.goals.current?.doneWhen);
@@ -675,6 +724,9 @@ export function codeDecision(
   // Badly hurt: food, then lie low until healed; no work, no quarrels.
   const hurt = hurtMove(s, { isStuck });
   if (hurt) return hurt;
+  // §19.5: a young child keeps to its parents, and parents to their young child; the question, when it's time.
+  const kin = fam && fam.kind !== 'sleep' ? familyMove(fam, isStuck) : null;
+  if (kin) return kin;
   // §17.8: an uprising we swore to: meet up, find them, set upon them together.
   const uprising = pv ? uprisingMove(s, pv) : null;
   if (uprising) return uprising;
@@ -794,6 +846,8 @@ export interface CCOptions {
   power?: Omit<PowerView, 'saidLately'>;
   /** Romance (§19.2): whom we're drawn to, how far it has gone, how we take an advance; and the gate on courting. */
   romance?: RomanceView;
+  /** Families (§19.3–19.5): starting one with our partner, the bed ritual, children and parents. */
+  family?: FamilyView;
   /** A person (fights with them are gated) rather than a mob. */
   isPerson?: (name: AgentName) => boolean;
   rng?: () => number;
@@ -970,6 +1024,7 @@ export class CognitiveController {
       ...(this.o.isPerson ? { isPerson: this.o.isPerson } : {}),
       ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => c.mayFight(target, impulse ? 'impulse' : intent, { joining: joining === true }) } : {}),
       ...(this.o.romance ? { mayCourt: (name: AgentName) => this.o.romance?.mayCourt(name) ?? null } : {}),
+      ...(this.o.family ? { mayStartFamily: (name: AgentName) => this.o.family?.whyNotFamily(name) ?? null } : {}),
     };
   }
 
@@ -1131,6 +1186,7 @@ export class CognitiveController {
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
         answered: this.answered,
         ...(this.o.romance ? { romance: this.o.romance } : {}),
+        ...(this.o.family ? { family: this.o.family } : {}),
         ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
       });
       source = 'default';

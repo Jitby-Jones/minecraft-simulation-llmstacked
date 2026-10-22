@@ -29,6 +29,7 @@ export const DECISION_FORMAT = `Reply with one JSON object:
  "trade": {"with": "name", "phase": "offer|accept|counter|decline", "give": [{"item": "...", "qty": 1}], "want": [{"item": "...", "qty": 1}]},   (only when trading; give is yours, want is theirs)
  "fight": {"target": "name", "intent": "brawl"},   (only with option fight: a brawl until someone yields)
  "romance": {"with": "name", "phase": "flirt|return|propose|accept|decline|breakup"},   (only when courting someone, or answering their advance; return is a compliment of theirs returned)
+ "family": {"with": "name", "phase": "propose|accept|decline|warn", "about": "name"},   (with your partner: asking to start a family, or answering them; warn: telling your young child about someone to avoid)
  "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"},
  "rationale": "one sentence"}`;
 
@@ -39,6 +40,7 @@ export const DECISION_RULES = `Rules:
 - Trades are talked through: offer what you give for what you want; accepting (with mayCommit) binds both of you, and each hands their part over in person.
 - Fighting a person is serious: propose it only when you truly mean it. Code may refuse it; then you didn't fight.
 - Romance is PG: kind words, compliments, a small gift, time together. Court (option court) only someone you're drawn to; ask them to be your partner (phase propose) only once you're close. Each person decides for themselves: take no for an answer.
+- A family is started only with your partner, once you have a home (two beds side by side by a chest) and food put by: ask "want to start a family?" (family phase propose), or answer theirs. Each decides for themselves. Then you both sleep in your beds that night; a child may come later. Say nothing more about it.
 - GUT is your first reaction to someone; FACTS is what they have actually done. You may follow your gut, as people do, or reason past it. Stay in character.
 - Use only the skills listed. "until" may be: inventoryHas:<item>>=<n>, agentInRange:<name>, agentLeftRange:<name>, timeIs:day|night, healthAbove:<n>, foodAbove:<n>, near:<x>,<y>,<z>.`;
 

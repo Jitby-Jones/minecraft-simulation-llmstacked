@@ -32,6 +32,25 @@ export function readOpinions(text: string, speaker: AgentName, known: readonly A
   return [...out].map(([target, valence]) => ({ speaker, target, valence, ts: now }));
 }
 
+/** A warning about someone, or a judgment of them, naming them whether or not we know them ("watch out for Rex"). */
+const NAMED_RE =
+  /\b(?:watch out for|stay away from|beware of|keep away from|don'?t trust|never trust|can'?t stand)\s+@?([A-Za-z0-9_]{3,16})\b|\b([A-Z][A-Za-z0-9_]{2,15}) (?:is|was) (?:a |an )?(?:thief|liar|bully|cheat|traitor|murderer|killer|snake|rat|dangerous|mean|nasty)\b/g;
+/** Words a warning names that are no one in particular. */
+const NO_ONE = new Set(['him', 'her', 'them', 'that', 'this', 'there', 'people', 'strangers', 'anyone', 'anybody', 'everyone', 'everybody', 'someone', 'somebody', 'mobs', 'monsters', 'creepers', 'zombies', 'skeletons', 'spiders', 'the', 'night', 'lava', 'you', 'yourself']);
+
+/**
+ * People a line warns about or judges, by name, known to us or not: how a stranger's name first reaches someone
+ * (§19.5 a parent warning a child: "watch out for Rex. Rex is a bully.").
+ */
+export function namedIn(text: string): AgentName[] {
+  const out = new Set<AgentName>();
+  for (const m of text.matchAll(NAMED_RE)) {
+    const name = m[1] ?? m[2];
+    if (name && !NO_ONE.has(name.toLowerCase())) out.add(name);
+  }
+  return [...out];
+}
+
 /** Being asked what we think of someone: "what do you think of Rex?", "how do you feel about Rex", "thoughts on Rex?". */
 export const OPINION_ASK_RE = /\b(?:what do you (?:think|make) of|how do you feel about|what'?s your (?:view|take|opinion) (?:of|on)|(?:any )?thoughts on)\s+@?([A-Za-z0-9_]{2,16})\b/i;
 

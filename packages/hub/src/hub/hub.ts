@@ -24,6 +24,7 @@ export interface HubEvents {
   hello: [HubSession];
   ready: [HubSession, string];
   died: [HubSession, Extract<BotToHub, { t: 'died' }>];
+  conception: [HubSession, Extract<BotToHub, { t: 'conception' }>];
   bye: [HubSession, Extract<BotToHub, { t: 'bye' }>];
   snapshotDone: [HubSession, Extract<BotToHub, { t: 'snapshotDone' }>];
   telemetry: [HubSession, Extract<BotToHub, { t: 'telemetry' | 'log' | 'cost' }>];
@@ -237,7 +238,7 @@ export class Hub extends EventEmitter<HubEvents> {
         this.emit('telemetry', s, msg);
         return;
       case 'conception':
-        // Reproduction (M9b).
+        this.emit('conception', s, msg);
         return;
     }
   }

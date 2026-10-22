@@ -78,6 +78,8 @@ export class Perception {
   private ticks = 0;
   private readonly now: () => number;
   private readonly hurtAt = new Map<number, number>();
+  /** Players seen lying down in a bed and not yet up again (§19.3). */
+  private readonly sleepers = new Set<number>();
   private readonly digSeen = new Map<string, number>();
   private readonly recentSpeakers = new Map<AgentName, number>();
   private lastSelfKey = '';
@@ -115,6 +117,16 @@ export class Perception {
     };
     on('messagestr', (msg: string, position: string) => this.onMessage(msg, position));
     on('entitySwingArm', (e: Entity) => this.observe(e, 'swing'));
+    on('entitySleep', (e: Entity) => void (e.type === 'player' && e !== bot.entity && this.sleepers.add(e.id)));
+    on('entityWake', (e: Entity) => void this.sleepers.delete(e.id));
+    on('entityGone', (e: Entity) => void this.sleepers.delete(e.id));
+    // Up again, as the pose says (in case the wake-up animation went unseen).
+    const poseKey = (bot.registry.entitiesByName.player?.metadataKeys ?? []).indexOf('pose');
+    on('entityUpdate', (e: Entity) => {
+      if (poseKey < 0 || !this.sleepers.has(e.id)) return;
+      const pose = (e.metadata as unknown[])[poseKey];
+      if (pose !== undefined && pose !== 2) this.sleepers.delete(e.id);
+    });
     on('entityHurt', (e: Entity) => {
       this.hurtAt.set(e.id, this.now());
       // §17.6: the attacker is the nearest person who swung at them just now.
@@ -328,6 +340,7 @@ export class Perception {
         armor: eq.slice(2).filter((x): x is { name: string } => Boolean(x)).map((x) => x.name),
         lastSeen: now,
         hurtRecently: this.hurtAt.has(e.id),
+        ...(this.sleepers.has(e.id) ? { sleeping: true } : {}),
       });
       if (out.length >= MAX_ENTITIES) break;
     }
@@ -381,7 +394,8 @@ export class Perception {
         const b = bot.blockAt(p);
         if (!b || !canSeeBlock(bot, p, 17)) continue;
         if (remember) sightings.record(b);
-        if ((per.get(b.name) ?? 0) >= 3 || notes.length >= 24) continue;
+        // Beds come in pairs of blocks, and a home has two (§19.3): four of one kind must be seen.
+        if ((per.get(b.name) ?? 0) >= (b.name.endsWith('_bed') ? 8 : 3) || notes.length >= 24) continue;
         per.set(b.name, (per.get(b.name) ?? 0) + 1);
         notes.push({ name: b.name, pos: { x: p.x, y: p.y, z: p.z }, distance: Math.round(p.distanceTo(bot.entity.position)), seenAt: now });
       }
