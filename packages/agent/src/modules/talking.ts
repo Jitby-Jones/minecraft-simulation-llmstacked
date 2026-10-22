@@ -312,29 +312,39 @@ export class Talking {
   }
 
   private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string): Promise<void> {
+    // The line opens what was decided, while it's on: no threat once the fight is over (or given up). A decision to
+    // go on with what we're doing goes on with the option already running, started by an earlier one.
+    const optionId = this.o.store.state.option?.decisionId;
+    const on = () => {
+      const s = this.o.store.state;
+      return s.decision?.id === decisionId && (!s.option || s.option.decisionId !== optionId || s.option.status === 'running');
+    };
     for (let i = 0; i < 40; i++) {
-      if (this.o.store.state.decision?.id !== decisionId) return;
+      if (!on()) return;
       const near = this.o.store.state.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === person && e.distance <= 8);
       if (near) {
         // A warning or a threat doesn't wait out the pause between friendly chats.
         const sharp = intent.stance === 'hostile' || intent.stance === 'threaten';
         if (!sharp && !this.o.conversations.mayInitiate(person) && !this.o.conversations.withPartner(person)) return;
         const conv = this.o.conversations.open(person, true);
-        await this.say(conv.convId, [], intent, person);
+        await this.say(conv.convId, [], intent, person, on);
         return;
       }
       await new Promise((r) => setTimeout(r, 750));
     }
   }
 
-  /** Says the line for this intent in the conversation; `to` is whom it is meant for, named in a worded line. */
-  private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName): Promise<void> {
+  /**
+   * Says the line for this intent in the conversation; `to` is whom it is meant for, named in a worded line. `wanted`,
+   * if given, is asked again just before the line goes out.
+   */
+  private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName, wanted?: () => boolean): Promise<void> {
     await this.flight.run(convId, async () => {
       const conv = this.o.conversations.get(convId);
       if (!conv || conv.status === 'ended') return;
       // Chiming in (floor control): someone else may have answered while we were thinking or typing.
       const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
-      const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) : undefined;
+      const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) && (wanted?.() ?? true) : wanted;
       const text = await this.compose(convId, incoming, intent, to);
       const sent = !text || (stillWanted && !stillWanted()) ? false : await this.send(convId, text, intent.volume, stillWanted);
       if (!sent && chimingIn) {

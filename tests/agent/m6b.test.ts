@@ -406,6 +406,56 @@ describe('a yield is let stand (§17.6)', () => {
     talking.stop();
     conversations.stop();
   }, 10_000);
+
+  it('the threat that opens a fight goes unsaid once the fight is over, also when a later decision went on with it', async () => {
+    const s = new AgentStateStore(createInitialState({ persona: brute, username: 'Gorm', now: 0 }));
+    const bus = new AgentBus();
+    const said: string[] = [];
+    const body = {
+      say: (t: string, _v: unknown, _to: unknown, stillWanted?: () => boolean) => Promise.resolve(stillWanted && !stillWanted() ? false : said.push(t) > 0),
+      skill: () => ({ talkOverable: true }),
+      run: () => Promise.reject(new Error('unused')),
+    } as unknown as Body;
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Gorm', inRange: () => ['Rex'], rng: () => 0 });
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: 'Gorm', rng: () => 0, rungOf: () => 3 });
+    conversations.start();
+    talking.start();
+    const rex = (distance: number) =>
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [{ id: 7, kind: 'player', name: 'Rex', pos: { x: distance, y: 0, z: 0 }, distance, visible: true, heldItem: null, armor: [], lastSeen: Date.now(), hurtRecently: false }] }), 'see');
+    const fightRex = (id: string) => {
+      const d = {
+        id,
+        createdAt: Date.now(),
+        stateVersion: s.version,
+        source: 'default' as const,
+        option: 'fight' as const,
+        target: { agent: 'Rex' },
+        task: { skill: 'duel', args: { target: 'Rex' } },
+        speechIntent: { stance: 'threaten' as const, gist: "now! we've had enough of you, Rex", mayCommit: false },
+        terminate: { maxSeconds: 90 },
+        rationale: 'test',
+      };
+      s.set('decision', d, 'decided');
+      bus.emit({ type: 'decision', decision: d });
+    };
+    // The fight started by d1 is on; d2 goes on with it, its line waiting for Rex to come near. The fight ends first.
+    s.set('option', { decisionId: 'd1', option: 'fight', startedAt: Date.now(), maxSeconds: 90, targetAgent: 'Rex', skill: 'duel', args: { target: 'Rex' }, status: 'running' }, 'fighting');
+    rex(20);
+    fightRex('d2');
+    await new Promise((r) => setTimeout(r, 300));
+    s.update('option', (o) => (o ? { ...o, status: 'succeeded' } : o), 'gave up');
+    rex(3);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(said).toEqual([]);
+    // While a fight is on, the threat is said.
+    s.set('option', { decisionId: 'd3', option: 'fight', startedAt: Date.now(), maxSeconds: 90, targetAgent: 'Rex', skill: 'duel', args: { target: 'Rex' }, status: 'running' }, 'fighting');
+    fightRex('d3');
+    for (let i = 0; i < 40 && said.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    expect(said).toEqual(["now! we've had enough of you, Rex"]);
+    talking.stop();
+    conversations.stop();
+  }, 10_000);
 });
 
 describe('staying within reach in a fight', () => {

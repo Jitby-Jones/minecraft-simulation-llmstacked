@@ -102,7 +102,8 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
     const names = ['Rex', 'Tib', 'Pia', 'Ann', 'Bo', 'Cyd'] as const;
     const personas: Record<(typeof names)[number], Persona> = {
       Rex: tyrant('Rex'),
-      Tib: meek('Tib', 'male', 0.35),
+      // Loyal enough to give in (pride 1 − 0.5·loyalty is 0.75), not so loyal as to stand by Rex when he is set upon.
+      Tib: meek('Tib', 'male', 0.5),
       Pia: meek('Pia', 'female', 0.9),
       Ann: proud('Ann', 'female'),
       Bo: proud('Bo', 'male'),
@@ -177,6 +178,8 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       const paidTwice = () => (['Tib', 'Pia'] as const).filter((n) => agents[n].store.state.commitments.filter((c) => c.coerced && c.debtor === n && c.creditor === 'Rex' && c.status === 'fulfilled').length >= 2);
       await waitFor(() => paidTwice().length >= 1, 900_000, 'a timid one paying Rex twice', 1000);
       await waitFor(() => (['Tib', 'Pia'] as const).some((n) => agents[n].power.leader() === 'Rex'), 60_000, 'a follower of Rex', 1000);
+      // The other timid one, given the time to pay twice as well.
+      await waitFor(() => (['Tib', 'Pia'] as const).every((n) => agents[n].power.leader() === 'Rex'), 360_000, 'both timid ones following Rex', 1000).catch(() => undefined);
       const followers = (['Tib', 'Pia'] as const).filter((n) => agents[n].power.leader() === 'Rex');
       // Those who saw it know Rex leads (two followers), or at least that he collects tribute from one.
       const refused = (['Ann', 'Bo', 'Cyd'] as const).filter((n) => heard.lines.some((l) => l.who === n && /leave me alone|get lost|back off|no way|not giving|or we fight|keep your distance|don't push me/i.test(l.text)) || agents[n].store.state.social.Rex?.lastFight);
@@ -207,8 +210,16 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
         }
         return [...rose];
       };
+      // The followers come back as it starts: as the rebels close in on him, or strike.
+      const closingIn = () =>
+        (['Ann', 'Bo', 'Cyd'] as const).some((n) => {
+          const o = agents[n].store.state.option;
+          return o?.status === 'running' && o.targetAgent === 'Rex' && (o.option === 'follow' || o.option === 'fight');
+        }) || struck().length >= 1;
+      await waitFor(closingIn, 300_000, 'the rebels closing in on Rex', 250);
+      for (const n of followers) await server.cmd(`execute at Rex run tp ${n} ~ ~ ~`);
+      heard.timeline.push(`${heard.at()} -- ${followers.join(' and ')} back at Rex's side --`);
       await waitFor(() => struck().length >= 1, 300_000, 'the uprising', 500);
-      for (const n of followers) await server.cmd(`tp ${n} ${x + 3} ${Y} -3`);
       await waitFor(() => struck().length >= 2, 120_000, 'a second rebel at Rex', 500);
       await waitFor(() => (['Ann', 'Bo', 'Cyd'] as const).some((n) => agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= kAt)), 180_000, 'a fight with Rex over', 1000);
       await sleep(20_000);
