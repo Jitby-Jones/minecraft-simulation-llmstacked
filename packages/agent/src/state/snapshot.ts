@@ -11,6 +11,7 @@ import type { AgentStateStore } from './store';
 export const SNAPSHOT_FACETS = [
   'selfSummary',
   'goals',
+  'village',
   'taskQueue',
   'commitments',
   'social',

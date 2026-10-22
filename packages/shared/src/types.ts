@@ -115,6 +115,10 @@ export interface Goal {
   status: 'active' | 'done' | 'abandoned';
   /** Optional machine-checkable completion condition (same grammar as option `until`). */
   doneWhen?: string;
+  /** A social goal's kind of village work (§6.8): wood, stone, food, build, guard, tools, scout. */
+  work?: string;
+  /** Someone the goal is with or for. */
+  with?: AgentName;
 }
 
 export interface Task {
@@ -373,6 +377,30 @@ export interface GrowthState {
   mobParticipations: number;
 }
 
+/** A sign this agent has read (§6.8 notice board): where it stands and what its front says. */
+export interface SignSeen {
+  pos: Vec3;
+  text: string;
+  readAt: number;
+}
+
+/**
+ * What this agent knows of its village (§6.8), from its own eyes only (§13 rule 4): the village is where it arrived
+ * (home). The chest and the board are the ones nearest home that it has seen; what is in the chest is what it saw
+ * the last time it opened it.
+ */
+export interface VillageState {
+  chest: { pos: Vec3; contents: Record<string, number> | null; seenAt: number } | null;
+  /** Huts near home, by their doors. */
+  huts: Vec3[];
+  /** Where the signs near home stand: the first one seen there. */
+  board: Vec3 | null;
+  /** Signs read, newest last (ring). */
+  signs: SignSeen[];
+  /** When hostile mobs came near home lately (ring of timestamps). */
+  threats: number[];
+}
+
 export interface AgentFlags {
   inDanger: boolean;
   stuck: boolean;
@@ -422,7 +450,18 @@ export interface AgentState {
   workmem: WorkItem[];
   /** Narrative from the Self-Monitor. */
   selfSummary: string;
-  goals: { life: string[]; current: Goal | null; social: Goal[]; community?: string; history: Goal[] };
+  goals: {
+    life: string[];
+    current: Goal | null;
+    social: Goal[];
+    community?: string;
+    history: Goal[];
+    /** The role the last five social goals add up to (§6.8, Sid's inference, in code). */
+    role?: string | null;
+    /** The kinds of work of the latest social goals (newest last, up to five). */
+    socialKinds?: string[];
+  };
+  village: VillageState;
   decision: Decision | null;
   option: ActiveOption | null;
   taskQueue: Task[];
@@ -483,6 +522,8 @@ export type AgentEvent =
   | { type: 'attacked'; by: AgentName | null; damage: number }
   | { type: 'fightStarted'; target: AgentName }
   | { type: 'fightEnded'; target: AgentName; outcome: FightOutcome }
-  | { type: 'death'; cause: string };
+  | { type: 'death'; cause: string }
+  /** A sign read for the first time, or changed since (§6.8). `board`: it stands at the village's notice board. */
+  | { type: 'signRead'; sign: SignSeen; board: boolean };
 
 export type AgentEventType = AgentEvent['type'];
