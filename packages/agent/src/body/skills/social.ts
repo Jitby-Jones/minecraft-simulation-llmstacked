@@ -32,9 +32,11 @@ export const give = defineSkill({
         if (!target) return { ok: false, observed: `${args.to} left`, error: `${args.to} walked away` };
         const left = args.qty - (have - countItem(bot, m));
         const dropped = await tossAtFeet(ctx, target, m, left);
-        // Nobody can pick a thrown item up for 2 s; then whoever is closest gets it. Step back so it's them.
+        // Nobody can pick a thrown item up for 2 s; then whoever is closest gets it. Step back so it's them, watching
+        // from the moment the items leave our hands so that no pickup is missed.
+        const collecting = whoCollects(bot, dropped, m, left, 8000);
         await stepBack(ctx, target);
-        const got = await whoCollects(bot, dropped, m, left, 5000);
+        const got = await collecting;
         if ((got.get(target.id) ?? 0) >= left) return { ok: true, observed: `tossed ${args.qty} ${m.label} to ${args.to}` };
         // We picked them back up: try again from closer.
         if ((got.get(bot.entity.id) ?? 0) > 0) {
@@ -55,7 +57,9 @@ export const give = defineSkill({
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'could not hand it over', error: errMsg(err) };
     }
-    return { ok: false, observed, error: `${args.to} did not get the ${m.label}` };
+    // What left our hands: if they pick it up after all, the hand-over counts (social/commitments.ts).
+    const tossed = have - countItem(bot, m);
+    return { ok: false, observed, error: `${args.to} did not get the ${m.label}`, ...(tossed > 0 ? { data: { tossed } } : {}) };
   },
 });
 

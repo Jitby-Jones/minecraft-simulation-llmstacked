@@ -192,6 +192,30 @@ describe('commitment tracking (§6.4)', () => {
     expect(s.state.social.Bram?.trust).toBeCloseTo(0.3);
     ct.stop();
   }, 10_000);
+
+  it('a hand-over the receiver picks up only after our give gave up still keeps the promise (§6.6)', () => {
+    const now = { t: 1000 };
+    const mine = k({ id: 'k4', debtor: 'Pip', creditor: 'Wit', what: { kind: 'give', item: 'bread', qty: 2, text: '2 bread' } });
+    const { s, bus, ct } = tracker([mine], now);
+    const failed = { id: 'r', skill: 'give', args: { to: 'Wit', item: 'bread', qty: 2 }, expected: '-2 bread', observed: 'Wit did not pick them up', ok: false, ts: 1000, durationMs: 7000 };
+    bus.emit({ type: 'actionRecorded', record: { ...failed, data: { tossed: 2 } } });
+    expect(s.state.commitments[0]?.status).toBe('accepted');
+    // Someone else picking up bread, or Wit picking up something else, is not it.
+    bus.emit({ type: 'observedAction', action: { id: 'o1', actor: 'Ann', kind: 'collect', item: 'bread', qty: 2, ts: 2000 } });
+    bus.emit({ type: 'observedAction', action: { id: 'o2', actor: 'Wit', kind: 'collect', item: 'oak_log', qty: 2, ts: 2000 } });
+    expect(s.state.commitments[0]?.status).toBe('accepted');
+    now.t = 4000;
+    bus.emit({ type: 'observedAction', action: { id: 'o3', actor: 'Wit', kind: 'collect', item: 'bread', qty: 2, ts: 4000 } });
+    expect(s.state.commitments[0]).toMatchObject({ status: 'fulfilled', verifiedBy: 'inventory' });
+    ct.stop();
+    // Too late: a minute after the toss, a pickup is no longer ours to count.
+    const late = tracker([{ ...mine, id: 'k5' }], now);
+    late.bus.emit({ type: 'actionRecorded', record: { ...failed, data: { tossed: 2 } } });
+    now.t = 70_000;
+    late.bus.emit({ type: 'observedAction', action: { id: 'o4', actor: 'Wit', kind: 'collect', item: 'bread', qty: 2, ts: 70_000 } });
+    expect(late.s.state.commitments[0]?.status).toBe('accepted');
+    late.ct.stop();
+  });
 });
 
 describe('the code default answers a favor (§6.3 share policy, scenario A without a model)', () => {

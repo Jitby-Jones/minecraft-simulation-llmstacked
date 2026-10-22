@@ -27,6 +27,9 @@ export interface CommitmentTrackerOptions {
   now?: () => number;
 }
 
+/** How long items we tossed to someone stay theirs to pick up. */
+const TOSSED_MS = 60_000;
+
 function matches(item: string | undefined, got: string | undefined): boolean {
   if (!item || !got) return Boolean(!item && got);
   return itemMatcher(item).matches(got) || got.includes(item.replace(/s$/, ''));
@@ -35,6 +38,8 @@ function matches(item: string | undefined, got: string | undefined): boolean {
 export class CommitmentTracker {
   private timer: NodeJS.Timeout | null = null;
   private readonly offs: (() => void)[] = [];
+  /** Items we tossed to someone that they hadn't picked up when the give ended (theirs if they do soon, §6.6). */
+  private readonly tossed: { to: AgentName; item: string; qty: number; at: number }[] = [];
   private readonly helpSeen = new Map<string, number>();
   private readonly judging = new Set<string>();
   private readonly now: () => number;
@@ -48,6 +53,7 @@ export class CommitmentTracker {
       this.o.bus.on('observedAction', (e) => {
         const a = e.action;
         if (a.kind === 'gave' && a.target === this.o.me) this.received(a.actor, a.item, a.qty ?? 1);
+        if (a.kind === 'collect' && a.item) this.pickedUp(a.actor, a.item, a.qty ?? 1);
         if ((a.kind === 'dig' || a.kind === 'swing') && a.pos) this.workedNearby(a.actor, a.pos);
       }),
     );
@@ -55,6 +61,11 @@ export class CommitmentTracker {
       this.o.bus.on('actionRecorded', (e) => {
         const r = e.record;
         if (r.skill === 'give' && r.ok && typeof r.args.to === 'string') this.gave(r.args.to, typeof r.args.item === 'string' ? r.args.item : undefined, Number(r.args.qty ?? 1));
+        const left = Number(r.data?.tossed ?? 0);
+        if (r.skill === 'give' && !r.ok && left > 0 && typeof r.args.to === 'string' && typeof r.args.item === 'string') {
+          this.tossed.push({ to: r.args.to, item: r.args.item, qty: left, at: this.now() });
+          this.tossed.splice(0, Math.max(0, this.tossed.length - 8));
+        }
       }),
     );
     this.offs.push(
@@ -98,6 +109,16 @@ export class CommitmentTracker {
       else this.o.store.update('commitments', (all) => all.map((x) => (x.id === c.id ? { ...x, progress } : x)), 'partly delivered');
       return;
     }
+  }
+
+  /** §6.6: what we tossed to someone and they picked up a little later (seen) was handed over after all. */
+  private pickedUp(who: AgentName, item: string, qty: number): void {
+    const t = this.now();
+    const i = this.tossed.findIndex((x) => x.to === who && t - x.at <= TOSSED_MS && matches(x.item, item));
+    const x = this.tossed[i];
+    if (!x) return;
+    this.tossed.splice(i, 1);
+    this.gave(who, x.item, Math.min(x.qty, qty));
   }
 
   /** We handed items over: progress on our own `give` promises (and on help, whose gatherings are handed over). */
