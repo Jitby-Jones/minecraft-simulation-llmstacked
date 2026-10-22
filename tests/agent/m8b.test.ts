@@ -260,6 +260,33 @@ describe('a demand on its way (§17.7)', () => {
     expect(await run(60)).toMatchObject({ option: 'demand', target: { agent: 'Tib' } });
   });
 
+  it('is paid once: a later reason to decide does not answer the same demand again', async () => {
+    const s = world(meek, ['Rex']);
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 2)], heardSpeech: [{ id: 'u1', convId: 'c1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: 1, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true }] }));
+    s.update('self', (x) => ({ ...x, inventory: [{ item: 'bread', qty: 8 }] }));
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const conflict = { rungOf: () => 0, fearOf: () => 0.95, mayFight: () => 'no' };
+    const clock = { now: 10_000_000 };
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Tib', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, rng: () => 0.99, now: () => clock.now });
+    executor.start();
+    cc.start();
+    bus.emit({ type: 'needsDecision', reason: 'request', convId: 'c1', from: 'Rex' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(s.state.decision?.task).toMatchObject({ skill: 'give', args: { to: 'Rex', item: 'bread', qty: 3 } });
+    expect(s.state.commitments.filter((c) => c.coerced)).toHaveLength(1);
+    clock.now += 15_000;
+    bus.emit({ type: 'needsDecision', reason: 'request', convId: 'c1', from: 'Rex' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(s.state.decision?.rationale).toMatch(/nothing new from Rex/);
+    expect(s.state.decision?.speechIntent).toBeUndefined();
+    expect(s.state.commitments.filter((c) => c.coerced)).toHaveLength(1);
+    cc.stop();
+    executor.stop();
+  });
+
   it('is answered mid-fight without ending the fight, which the gate need not pass again', async () => {
     const s = world(meek, ['Rex']);
     s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 2)], heardSpeech: [{ id: 'u1', convId: 'c1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: 1, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true }] }));

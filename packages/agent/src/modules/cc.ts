@@ -105,6 +105,8 @@ export interface SocialChance {
   isItem?: (word: string) => boolean;
   /** Power structures (§17.7, §17.8): whom we follow, who resents whom, coalitions. */
   power?: PowerView;
+  /** Lines already answered (by utterance id): a later reason to decide doesn't answer them again. */
+  answered?: ReadonlySet<string>;
 }
 
 export interface ConflictView {
@@ -219,11 +221,15 @@ function answerRequest(
   isItem?: (word: string) => boolean,
   conflict?: ConflictView,
   power?: PowerView,
+  answered?: ReadonlySet<string>,
 ): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
   const keep = keepDoing(s, busy, isStuck);
-  const theirs = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId)).slice(-4);
+  // Only what they said that we haven't answered yet: a demand paid once isn't paid again on the next reason to decide.
+  const said = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId));
+  const theirs = said.filter((u) => !answered?.has(u.id)).slice(-4);
+  if (said.length > 0 && theirs.length === 0) return { ...keep, terminate: { maxSeconds: 20 }, rationale: `code default: nothing new from ${from} to answer` };
   // §17.8: a call to rise against someone is weighed by resentment of them, trust in who asks, and fear.
   const known = Object.keys(s.social);
   const foe = theirs.map((u) => parseRally(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
@@ -548,7 +554,7 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power);
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power, social?.answered);
   const pv = social ? powerCtx(social, isStuck) : null;
   if (busy) {
     // Starving with nothing to eat: food before whatever we are doing.
@@ -709,6 +715,8 @@ export class CognitiveController {
   private readonly warned = new Map<AgentName, { at: number; rung: number; decisionId: string; line: boolean }>();
   /** When we last grumbled to someone, or called on them to rise (`inform:Y`, `rally:Y`). */
   private readonly spoke = new Map<string, number>();
+  /** Lines put to us that a decision has answered (utterance ids, the latest few hundred). */
+  private readonly answered = new Set<string>();
 
   constructor(private readonly o: CCOptions) {
     this.now = o.now ?? Date.now;
@@ -1012,6 +1020,7 @@ export class CognitiveController {
         ...(this.o.liking ? { liking: this.o.liking } : {}),
         ...(conflict ? { conflict } : {}),
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
+        answered: this.answered,
         ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
       });
       source = 'default';
@@ -1029,6 +1038,11 @@ export class CognitiveController {
     }
     if (!out) return;
     this.apply(out, source, ctx);
+    // What they said to us is answered now.
+    if (ctx.from) {
+      for (const u of store.state.perception.heardSpeech) if (u.from === ctx.from && u.addressedToMe && (!ctx.convId || u.convId === ctx.convId)) this.answered.add(u.id);
+      for (const id of [...this.answered].slice(0, Math.max(0, this.answered.size - 300))) this.answered.delete(id);
+    }
   }
 
   private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext): void {
