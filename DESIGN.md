@@ -45,6 +45,7 @@
 | **M8b** power structures: demands and tribute, followers and leaders, grudges and gossip, coalitions and uprisings, the lethal rung, the extinction brake | **done** | `pnpm run check` (demands read and answered, coerced commitments and tribute; followers and leaders as each agent sees them, and side-taking; grudges and gossip; coalition power, openings, and the opening waking the CC; calls to rise, joining, and uprisings carried out together; the lethal rung and yields; the brake) + `pnpm test:live` exit test `m8b-power` on Paper 26.1.2, 3/3: **J** Rex, a domineering tyrant, demands bread and logs; the timid two give in and come to follow him, the proud refuse; **K** Rex goes out alone and hurt; those he wronged rise against him (Bo calls on Ann, she swears to it, and both strike him), and his two followers, back at his side as it gets under way, see him set upon and walk away; nobody dies; **L** with his two followers always at his side, the three who resent Vex fully grumble but never rise (their coalition 0.19 against his 0.86, no opening); **D** a fight to the death ignores Pell's yield, and Wit, watching, holds a doubled betrayal grievance against the killer |
 | **M8c** reflection as debiasing, hearsay, fear and conformity (the preference cascade), more biases | **done** (the audit by a real model pending a key) | `pnpm run check` (the audit's candidates; corrections taken by rationality and resisted by the stubborn; inoculation and growth; hearsay grievances; a feared leader keeping dissent quiet, and defiance that goes unpunished bringing it out; tribute and the bandwagon; the in-group, attribution and sunk-cost biases) + `pnpm test:live` exit test `m8c-minds` on Paper 26.1.2, 2/2: **O** a neighbor's rumor that Kai stole is taken in by both as a grudge from hearsay (resentment 0.12 and 0.14); after the bias audit, rational Ria lets it go (0.00, inoculated, and the rumor told again weighs half) while stubborn Ulf keeps it (0.14); **P** asked what they think of Rex, the four who go along say much the same while he is armed and feared (variance 0.017, one dissenter), and once he is plainly weaker three speak against him (variance 0.040) |
 | **M9a** romance: who can be drawn to whom, attraction and interest, crushes, courting, partners and breakups, advances and rejections (§19.10), jealousy, PG | **done** (compatibility read by a real model pending a key) | `pnpm run check` (orientation and the sex others take one to be; attraction and interest; the stages; the §19.10 tables, a partner's advance returned, and the soft cap; jealousy; the PG filter; the code gate; the CC packet and the code default's courting) + `pnpm test:live` exit test `m9a-romance` on Paper 26.1.2, 3/3: **R** two strangers, each deciding for themselves, go from a first hello ("hey, how is it going? I'm a guy who loves exploring.") through crushes and courting to partners in 13 minutes, everything said PG; **S** a proud, vain suitor is turned down kindly every 3 minutes; he keeps at it three times, and the fourth no, with no attempts left, he takes with resentment ("fine. your loss.": a grievance, and less liking); past the soft cap, code holds back every advance to her, and he makes none after; sadder each time (0.70); **V** a man courts Ivy in her partner's hearing and is turned down kindly; her partner feels envy and anger within 10 s, holds a `romantic_rival` grievance against him, and is still her partner |
+| **M9b** families: starting one, the bed ritual, births on the Hub, inheritance, the newborn, youth and parents | **done** | `pnpm run check` (inheritance over 300 children; the family watch, the code default's family steps and its gate; a parent's word in youth; birth facts; youth and kin in the conflict core; the Hub's pairing, gate, gestation across a restart, a person as a partner, a full population) + `pnpm test:live` exit test `m9b-family` on Paper 26.1.2, 2/2: **T** through the real Hub and supervisor: partners with a home and food, one asks and the other says yes, they lie down side by side at night, each reports it, and the Hub brings their daughter into the world at the beds; her first words name her parents, who know her for theirs; her traits lie within her parents' range (28 of 28), and she knows her family and no one else; **U** a father warns his young daughter about the man who attacked him; she has never met him, and turns against him (5.00 to 4.49, a grievance told by her father), and a gift from him later mends it somewhat |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -2136,3 +2137,90 @@ Findings from building the system, with reasons. Where this section conflicts wi
     - **Armor put on standing still went unseen** (found in S): perception stored a new view of the people about only when one moved, came into sight, changed what they held or was hurt. Max's first look at Zoe caught two pieces of her diamond, and he never saw the rest: his interest sank below courting after the third no, short of the soft cap. What they wear counts now. For the same reason, walking up to someone standing still left the distance to them where it was; a distance a block off is now written again, once a second at most.
     - **Interest short of attraction:** a tick's lean under 0.005 was never stored, so interest stopped up to an eighth short of attraction (0.6 against 0.72), and after each no it stayed where the no left it.
     - **A run-on hello:** "hi there I'm a gal who loves meeting people." (in R); a greeting without its own stop gets one.
+
+### M9b (2026-10-22)
+1. **Starting a family (§19.3)** (`social/familyWatch.ts`, `modules/cc.ts`):
+   - **Each partner checks the conditions from its own side (code):**
+     - its partner for at least `partnerMinDays` in-game days (since `relationshipSince`), and liking them 8 or more;
+     - a home: two beds side by side (four bed blocks within 2.5 of each other) within 16 blocks of a chest, as last seen, and remembered (`family.home`);
+     - food put by: what it holds plus what the home chest held when last looked in, at least `minFoodItems`;
+     - no child of theirs just now (the couple's cooldown since `lastConceptionTs`), not young itself, and reproduction enabled.
+   - **The question:** "want to start a family?" (option `talk`, stance `propose`, `family: {with, phase: 'propose'}`). It is asked when the partner is in sight and all is in place, at most every 10 minutes.
+     - **The answer** is the other's own CC's: "yes, let's start a family!" when all is in place on its side too, otherwise "not yet, I think."
+     - **Both then plan the family** (`family.planning`): the asker hearing a yes within 60 s, and the one who said it.
+     - **The gate:** a model's propose or accept that the code gate refuses is rejected in validation.
+     - **What counts as asking:** only a question (a line about starting a family with a "?" that isn't a yes). The yes is not taken for another question, and the asker answers it gladly ("that makes me so happy!").
+   - **The bed ritual:** with a family planned, at night (ticks 12542–23459) both go to their beds, before anything else but starving; it comes before digging in for the night.
+     - **Getting there:** `sleep {near}` goes home first when far, then lies in the nearest free bed there.
+     - **Seeing the partner asleep:** perception marks a player lying in a bed (`SeenEntity.sleeping`, from the sleeping pose; up again on the wake-up animation, or when the pose says so).
+     - **The report:** each partner, lying in its bed and seeing its partner asleep within 3 blocks, reports `conception` to the Hub once. The report carries what it believes of its partner (perceived traits and sex). The plan is then done.
+2. **Births, on the Hub (§19.3, §19.7)** (`hub/births.ts` for the rules, `hub/supervisor.ts`):
+   - **Pairing:** both partners' reports of the same night (within 15 minutes, each naming the other).
+     - **A partner with no bot:** for a person playing, our agent's report alone stands (it saw them asleep beside it). The bots never learn which partners have a bot.
+   - **The gate:**
+     - reproduction is enabled;
+     - the living plus the children on the way are fewer than `maxAlive`;
+     - no child of this couple is on the way;
+     - the couple's cooldown has passed since their last child;
+     - neither parent is in their youth (a born agent less than `youthSec` old).
+   - **Gestation:** the child is due `gestationSec` later. Children on the way are kept in roster.json (`pendingBirths`), so after a restart they come when due (at once, if that's past).
+   - **The birth:** if there is still room under `maxAlive`, the child is made:
+     - **Its persona** comes from both parents' (§19.4). A dead parent's persona is still on the roster. For a parent with none, the other parent's perceived model of them, laid over that parent's own persona, stands in (`perceivedPersona`).
+     - **Slot and skin:** it gets a new slot and a skin by its sex.
+     - **Its first assignment** carries its birth facts and where it appears: the reporting parent's spot in bed. The supervisor teleports it there when it is ready.
+     - **No starter kit:** a newborn brings nothing.
+   - **Nothing is told:** the Hub never tells a bot about a birth. The child's greeting is how its parents, and anyone in earshot, learn of it.
+3. **Inheritance (§19.4)** (`personaGen.ts` `inheritPersona`):
+   - **Numeric traits:** choose(a, b, mean) + N(0, 0.08), one time in ten N(0, 0.25) instead, clamped to [0, 1].
+   - **Abilities:** by their heritability h, a draw around h × the parents' mean + (1 − h) × the population mean, with (1 − h) × the population sd.
+   - **Values and quirks:** each parent's kept with probability 0.5, plus one new quirk. Its life goals come from its values.
+   - **Sex and orientation:** sex 50/50; orientation from the configured distribution.
+   - **Name:** `<Given>_<FamilyInitial>`, unique and never reused. The family name is passed on in `familyName`.
+   - **Also:** generation is one more than the elder parent's, the source is `born`, and it carries nothing.
+4. **The newborn (§19.4)** (`state/birth.ts`, `hub/runtime.ts`):
+   - **Born knowing its family:** on its first start (not on a resume), the agent starts as born (`life.born`, `youthUntil` = now + `youthSec`). It knows:
+     - its parents (kin `parent`, sentiment and evidence 9, admiration 0.8, trust 0.9, and their sex);
+     - its siblings (kin `sibling`, sentiment 7);
+     - its home and its family name.
+     - It knows no one else and has no memories: its memory database is new, and nothing is copied from anyone.
+   - **First words:** 8 s after it starts, it shouts to both parents by name: "Ned, Ivy: hi dad, hi mom!". It greets each parent in person the first time it sees them within 12 blocks.
+     - **Being recognized:** a parent hearing a greeting that names it knows the speaker for its child (kin `child`, sentiment 9, trust 0.9), and is glad of it.
+5. **Youth and parents (§19.5):**
+   - **The young:** for `youthSec`, a born agent:
+     - keeps to a parent: it follows one in sight more than 6 blocks off, before everything but danger, food, night and being hurt;
+     - stays at words (`maxRung` 1: the gate refuses any fight, even an impulse);
+     - never fights back (its reflexes flee), never steps in for others;
+     - is not courted and does not court (M9a);
+     - is under the newcomer grace period, like anyone new.
+   - **Taking its parents' word:** while young, a parent's opinion counts double in the heard-opinion consensus, and the pull toward what they say is ×1.5 (conformity toward parents). Both lift when youth ends.
+   - **A stranger's name** first reaches someone through a warning or a judgment ("watch out for Gorm", "Gorm is a bully", `namedIn`). A profile is made for them from what was said, and told wrongs become hearsay grievances.
+   - **Parents of a young child:**
+     - keep it close: they go to it beyond 10 blocks;
+     - give it food once: 3 of their most plentiful food, when they hold 4 or more;
+     - warn it about the one they resent most (resentment 0.5 or more, not family), once each person: "watch out for Gorm. Gorm attacked me." (their worst grievance's note when that is short and names them, else "Gorm is a bully").
+   - **Goal Gen is told:**
+     - a parent with a young child: teach and protect it;
+     - a young one: keep close to its parents and learn from them;
+     - a couple planning a family without a home: what a home needs.
+   - **Kin:** family (partner, parents, children, siblings) are always defended by the reflex, though not by the young. Family is the in-group, as before.
+   - **A lifetime of revenge:** a parent or a partner killed is a lasting `killed_parent` or `killed_partner` grievance against the killer.
+6. **Deviations:**
+   - **Speech style** is a blend from the child's own numbers, not written by L3. Life goals are drawn from its values, not by L3.
+   - **A parent without a persona:** their sex is how the other parent sees them (the conception report's `partnerSex`). If unknown, it stays unknown, and the greeting says "hi parent".
+   - **Where the child appears:** on its parents' bed (where a parent lay for the ritual). This assumes room above the bed, as a bed needs to be slept in anyway.
+   - **The greeting** is shouted once, then said in person to each parent the first time it sees them. The design's "public chat notice" is kept local (proximity chat), so it is perceived like anything else.
+   - **Persistence:** children on the way are kept in roster.json.
+7. **Tests:**
+   - **Unit:**
+     - `tests/agent/m9b.test.ts`, 22: inheritance (scenario T's ranges, over 300 children), the family watch, the code default's family steps and gate, parents' word in youth (scenario U), what follows a family line said once in a conversation, birth facts, youth and kin in the conflict core;
+     - `tests/hub/births.test.ts`, 5: the rules, and the supervisor with stand-in bots (pairing, birth facts, placement, cooldown, youth, a person as a partner, a child on the way across a restart, a full population).
+   - **Live exit test** (`tests/live/m9b-family.test.ts`, on Paper 26.1.2), 2/2:
+     - **T** (through the real Hub, supervisor and bot runtime, with code-only agents): Ned and Ivy, partners for days and fond of each other, have a home (two beds by a chest) and food.
+       - **The question:** Ivy asks ("Ned, want to start a family?", 26 s) and Ned says yes (28 s). She is glad ("Ned, that makes me so happy!"), and what follows is small talk.
+       - **The night:** both lie down in the beds, and each reports the other asleep beside them (52 s). The Hub pairs the reports.
+       - **The birth:** after gestation, Rue_S is born at the beds. Her first words name her parents ("Ivy: hi mom!", "Ned: hi dad!", 74–76 s), and they know her for theirs.
+       - **The child:** 28 of her 28 numeric traits lie within her parents' range ± 0.25 (26 of 28 in an earlier run). She knows her parents (kin, sentiment 9) and no one else, and her memory is her own (nothing inherited).
+     - **U:** Ned warns his young daughter Lily about Gorm, whom she has never met ("Lily_S, watch out for Gorm. Gorm attacked me."). Her view of Gorm falls from 5.00 to 4.49, with an `attack` grievance told by Ned. Later Gorm gives her bread, and her view mends (6.45).
+8. **Bugs found on the way:**
+   - **A second "how about it?":** answering his partner's next line under the same intent, the one who asked said the propose stance's stock line, since the question itself had already been said in that conversation; she took it for another question. In an earlier run, the one who said yes kept saying "let me think about it" (the stock line of an agree without a promise). After a courting or family line has been said in a conversation, what follows under that intent is small talk.
+   - **Either may ask:** each partner checks the conditions from their own side, and whoever gets there first asks. Scenario T now waits for either of them to ask and the other to say yes.
