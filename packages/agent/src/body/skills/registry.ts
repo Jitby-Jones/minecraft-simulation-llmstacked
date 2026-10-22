@@ -11,6 +11,7 @@ import { prospect } from './prospecting';
 import { explore, flee, follow, goTo, look, wait } from './movement';
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
+import { build, hunt, patrol, sign } from './village';
 import type { AnySkill } from './types';
 
 export const SKILLS: readonly AnySkill[] = [
@@ -38,6 +39,10 @@ export const SKILLS: readonly AnySkill[] = [
   sleep,
   give,
   say,
+  hunt,
+  build,
+  sign,
+  patrol,
 ];
 
 const BY_NAME = new Map(SKILLS.map((s) => [s.name.toLowerCase(), s]));
@@ -76,6 +81,13 @@ const ALIASES: Readonly<Record<string, string>> = {
   prospecting: 'prospect',
   tunnel: 'prospect',
   search_ore: 'prospect',
+  post: 'sign',
+  write_sign: 'sign',
+  notice: 'sign',
+  construct: 'build',
+  build_hut: 'build',
+  guard: 'patrol',
+  hunt_animals: 'hunt',
 };
 
 export function getSkill(name: string): AnySkill | null {

@@ -173,3 +173,31 @@ export function describeVillage(v: VillageView): string {
   if (busy.length > 0) parts.push(`others are already at ${busy.map(([k, n]) => `${k} (${n})`).join(', ')}`);
   return parts.join('; ');
 }
+
+/** The items each kind of work delivers (to the village chest, or to someone). */
+const WORK_ITEMS: Partial<Readonly<Record<VillageKind, RegExp>>> = {
+  wood: /^(log|logs|planks|\w+_(log|wood|stem|planks))$/,
+  stone: /^(cobblestone|stone|cobbled_deepslate)$/,
+  food: /^(food|meat|bread|cooked_\w+|baked_potato|apple|carrot|golden_carrot|pumpkin_pie)$/,
+  tools: /_(pickaxe|axe|sword|shovel|hoe)$/,
+};
+const HOSTILE_MOB = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|enderman|slime|phantom|pillager|vindicator)$/;
+
+/**
+ * `villageWork:<kind>` (goal doneWhen): the work's finishing act happened since `since` — goods handed in or over,
+ * a hut built, a patrol round walked (or a hostile mob killed), a notice posted (or three trips out).
+ */
+export function villageWorkDone(s: AgentState, kind: VillageKind, since: number): boolean {
+  const after = s.actionLog.filter((a) => a.ts >= since && a.ok);
+  const items = WORK_ITEMS[kind];
+  if (items) return after.some((a) => (a.skill === 'deposit' || a.skill === 'give') && typeof a.args.item === 'string' && items.test(a.args.item.replace(/^minecraft:/, '')));
+  if (kind === 'build') return after.some((a) => a.skill === 'build');
+  if (kind === 'guard') return after.some((a) => a.skill === 'patrol' || (a.skill === 'attack' && typeof a.args.target === 'string' && HOSTILE_MOB.test(a.args.target)));
+  return after.some((a) => a.skill === 'sign') || after.filter((a) => a.skill === 'explore').length >= 3;
+}
+
+/** The kind of village work a goal's doneWhen is about, if it is one. */
+export function villageWorkOf(doneWhen: string | undefined): VillageKind | null {
+  const k = doneWhen ? /^villageWork:([a-z]+)$/.exec(doneWhen.trim())?.[1] : undefined;
+  return isVillageKind(k) ? k : null;
+}

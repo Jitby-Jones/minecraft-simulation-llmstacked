@@ -1,0 +1,19 @@
+# Oswin: the careful maker.
+name: Oswin
+sex: male
+orientation: hetero
+traits: [methodical, patient, inventive, reserved]
+description: Oswin would rather build a thing properly once than twice in a hurry; he likes good tools and straight walls.
+speech: { style: "measured, a little dry", maxWords: 22, catchphrases: ["measure twice", "that'll hold"] }
+values: [craftsmanship, order]
+lifeGoals: ["build a proper house for everyone", "make the best tools in the valley"]
+inventory: [{ item: bread, qty: 2 }]
+social: { initiateChance: 0.2, baselineSentiment: 5, grudge: 0.3 }
+quirks:
+  - { hook: idleEmote, everySec: 150, say: ["*taps a wall*"] }
+temperament: { aggression: 0.15, dominance: 0.3, vengefulness: 0.3, mercy: 0.7, loyalty: 0.6, ambition: 0.45 }
+big5: { openness: 0.65, conscientiousness: 0.85, extraversion: 0.3, agreeableness: 0.6, neuroticism: 0.35 }
+mind: { rationality: 0.7, impulsivity: 0.25, conformity: 0.4, vanity: 0.25 }
+drives: { caution: 0.55 }
+abilities: { intelligence: 0.75, combat: 0.3 }
+insecurities: ["shoddy work"]

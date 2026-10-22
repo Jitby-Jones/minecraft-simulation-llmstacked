@@ -234,7 +234,7 @@ export class ConflictEvaluator {
     this.surrenderedAt.set(loser, t);
     const fight = [...this.o.store.state.perception.observedActions]
       .reverse()
-      .find((a) => a.kind === 'attack' && t - a.ts < 15_000 && (a.actor === loser || a.target === loser));
+      .find((a) => a.kind === 'attack' && a.target && t - a.ts < 15_000 && (a.actor === loser || a.target === loser));
     const winner = fight ? (fight.actor === loser ? fight.target : fight.actor) : undefined;
     if (!winner || winner === this.o.me) return;
     this.update(winner, (p) => ({ ...p, fightsWonSeen: p.fightsWonSeen + 1, estCombat: Math.min(1, p.estCombat + 0.05) }), `${winner} won a fight`);

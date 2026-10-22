@@ -30,9 +30,21 @@ function held(s: AgentState, item: string): number {
   return s.self.inventory.filter((x) => x.item === item).reduce((a, x) => a + x.qty, 0);
 }
 
-/** The code-default goal ladder. Null when the agent should keep what it has. */
-export function codeGoal(s: AgentState): { text: string; doneWhen?: string } | null {
+/** How likely the village's work comes before one's own next step (§6.8): the agreeable and loyal more, the ambitious less. */
+export function villageFirst(s: AgentState): number {
+  const p = s.self.persona;
+  return Math.max(0.2, Math.min(0.95, 0.5 + 0.3 * p.big5.agreeableness + 0.2 * p.temperament.loyalty - 0.3 * p.temperament.ambition));
+}
+
+/**
+ * The code-default goal ladder. Null when the agent should keep what it has. Once it has the basic tools (wooden and
+ * stone pickaxes), its part in the village (the top social goal) comes first now and then (`villageFirst`).
+ */
+export function codeGoal(s: AgentState, roll = Math.random()): { text: string; doneWhen?: string } | null {
   if (s.goals.current) return null;
+  const social = s.goals.social.find((g) => g.status === 'active' && g.work);
+  const tooled = held(s, 'stone_pickaxe') + held(s, 'iron_pickaxe') > 0;
+  if (social?.work && tooled && roll < villageFirst(s)) return { text: social.text, doneWhen: `villageWork:${social.work}` };
   const done = new Set(s.goals.history.filter((g) => g.status === 'done').map((g) => g.doneWhen));
   const steps: { text: string; doneWhen: string; have: () => boolean }[] = [
     { text: 'make a wooden pickaxe', doneWhen: 'inventoryHas:wooden_pickaxe>=1', have: () => held(s, 'wooden_pickaxe') + held(s, 'stone_pickaxe') + held(s, 'iron_pickaxe') > 0 },
@@ -129,6 +141,7 @@ export class GoalGen {
           .slice(0, 6)
           .map((p) => `${p.name} (you feel ${Math.round(p.sentiment)}/10)`);
         const history = s.goals.history.slice(-5).map((g) => `${g.text} (${g.status})`);
+        const village = s.goals.social.filter((g) => g.status === 'active').map((g) => `${g.text}${g.work ? ` (doneWhen villageWork:${g.work})` : ''}`);
         // §18.3 idolization: the agent imitates someone it admires.
         const idols = Object.values(s.social)
           .filter((p) => p.admiration > 0.75)
@@ -157,6 +170,8 @@ export class GoalGen {
                 `Recent goals: ${history.join('; ') || 'none'}`,
                 `Carrying: ${inv}. It is ${s.self.isDay ? 'day' : 'night'}.`,
                 `People you know: ${people.join(', ') || 'nobody yet'}`,
+                s.goals.community ? `Everyone here hopes to ${s.goals.community}.` : '',
+                village.length > 0 ? `Your part in the village: ${village.join('; ')}. A goal for the village can use its doneWhen.` : '',
                 ...idols,
                 memories.length > 0 ? `You remember:\n${memories.map((m) => `- ${m}`).join('\n')}` : '',
               ]

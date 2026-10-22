@@ -3,8 +3,10 @@
 //
 //   inventoryHas:oak_log>=16   agentInRange:Bram   agentLeftRange:Bram   timeIs:day|night
 //   healthAbove:10   foodAbove:15   near:10,64,-5
+//   villageWork:wood (the work's finishing act since the current goal was set, §6.8: logs handed in, a hut built…)
 
 import type { AgentState } from '@agora/shared';
+import { isVillageKind, villageWorkDone } from '../social/village';
 
 const OPS: Readonly<Record<string, (a: number, b: number) => boolean>> = {
   '>=': (a, b) => a >= b,
@@ -37,6 +39,8 @@ export function evalCondition(cond: string, state: AgentState, speechRange = 15)
   if (m?.[1]) return m[1].toLowerCase() === 'day' ? state.self.isDay : !state.self.isDay;
   m = /^(healthAbove|foodAbove):(\d+(?:\.\d+)?)$/.exec(c);
   if (m?.[1] && m[2]) return (m[1] === 'healthAbove' ? state.self.health : state.self.food) > Number(m[2]);
+  m = /^villageWork:([a-z]+)$/.exec(c);
+  if (m?.[1]) return isVillageKind(m[1]) ? villageWorkDone(state, m[1], state.goals.current?.createdAt ?? 0) : null;
   m = /^near:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(c);
   if (m?.[1] && m[2] && m[3]) {
     const p = state.self.pos;

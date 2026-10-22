@@ -34,6 +34,8 @@ import { evalCondition } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
+import { villageWorkOf } from '../social/village';
+import { deathNoticeMove, villageMove } from './villageMove';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -307,8 +309,10 @@ export function codeDecision(
 ): DecisionOutput | null {
   if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking);
   if (busy) return ctx.atOdds && social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
-  // Survive the night (M1 shelter).
-  if (!s.self.isDay && !s.flags.inDanger && !isStuck('shelter', { untilMorning: true })) {
+  // Survive the night (M1 shelter); a guard on duty stays out while fit for it.
+  const village = villageWorkOf(s.goals.current?.doneWhen);
+  const onGuard = village === 'guard' && s.self.health >= 12 && s.drives.caution < 0.8;
+  if (!s.self.isDay && !s.flags.inDanger && !onGuard && !isStuck('shelter', { untilMorning: true })) {
     return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, dig in' };
   }
   // §17.5: someone we're at odds with nearby comes first: the brawl the gate allows, a warning, or keeping away.
@@ -317,6 +321,14 @@ export function codeDecision(
   const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
   if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };
+  }
+  // A death the board doesn't tell yet goes on it (§16.3), before our own work.
+  const notice = deathNoticeMove(s, { isStuck });
+  if (notice) return notice;
+  // Our part in the village (§6.8).
+  if (village) {
+    const move = villageMove(s, village, { isStuck });
+    if (move) return move;
   }
   // Work toward a goal with a machine-checkable target: obtain it (or the prerequisite it said to get first).
   const want = s.goals.current?.doneWhen ? /^inventoryHas:([a-z0-9_]+)\s*>=\s*(\d+)$/i.exec(s.goals.current.doneWhen) : null;

@@ -107,6 +107,8 @@ export function startTelemetry(o: TelemetryOptions): () => void {
       food: s.self.food,
       isDay: s.self.isDay,
       goal: s.goals.current?.text ?? null,
+      role: s.goals.role ?? null,
+      village: s.goals.social.filter((g) => g.status === 'active').map((g) => g.text),
       option: opt ? { option: opt.option, status: opt.status, startedAt: opt.startedAt, ...(opt.skill ? { skill: opt.skill, args: brief(opt.args) } : {}), ...(opt.progress ? { progress: opt.progress } : {}), ...(opt.targetAgent ? { target: opt.targetAgent } : {}) } : null,
       emotions: { anger: r2(e.anger), fear: r2(e.fear), joy: r2(e.joy), sadness: r2(e.sadness), shame: r2(e.shame), envy: r2(e.envy), affection: r2(e.affection), arousal: r2(e.arousal) },
       mood: r2(s.mood.valence),

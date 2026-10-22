@@ -390,6 +390,8 @@ export interface SignSeen {
  * the last time it opened it.
  */
 export interface VillageState {
+  /** Where this agent arrived: the village (null until it has a body). */
+  home: Vec3 | null;
   chest: { pos: Vec3; contents: Record<string, number> | null; seenAt: number } | null;
   /** Huts near home, by their doors. */
   huts: Vec3[];
@@ -399,6 +401,8 @@ export interface VillageState {
   signs: SignSeen[];
   /** When hostile mobs came near home lately (ring of timestamps). */
   threats: number[];
+  /** Ore this agent found away from home (newest last, ring): what a scout comes back to post. */
+  finds: { what: string; pos: Vec3; at: number }[];
 }
 
 export interface AgentFlags {

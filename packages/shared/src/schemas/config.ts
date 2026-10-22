@@ -69,7 +69,13 @@ export const WorldConfigSchema = z
       .prefault({}),
     personas: z.union([z.literal('auto'), z.array(z.string().min(1))]).default('auto'),
     namePolicy: z.literal('generated').default('generated'),
-    community: z.object({ goal: z.string().default('build a thriving village') }).prefault({}),
+    community: z
+      .object({
+        goal: z.string().default('build a thriving village'),
+        /** Social Goal Gen and village work (§6.8); off, agents only follow their own goals. */
+        socialGoals: z.boolean().default(true),
+      })
+      .prefault({}),
     romance: z
       .object({
         enabled: z.boolean().default(true),

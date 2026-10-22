@@ -15,6 +15,7 @@ import { detectAddressee } from '../modules/conversations';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
 import { parseSystemLine } from './system';
+import { VillageEyes } from './village';
 
 export interface PerceptionOptions {
   bot: Bot;
@@ -25,6 +26,8 @@ export interface PerceptionOptions {
   speechRange?: number;
   now?: () => number;
   tickMs?: number;
+  /** Where this body arrived (the village, §6.8): turns on what it sees of the village. */
+  home?: () => { x: number; y: number; z: number } | null;
 }
 
 const ENTITY_RADIUS = 32;
@@ -46,6 +49,8 @@ const nextId = (p: string) => `${p}${Date.now().toString(36)}${(seq++).toString(
 function v(p: { x: number; y: number; z: number }): Vec3 {
   return { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 };
 }
+
+const isAirName = (n: string) => n === 'air' || n === 'cave_air' || n === 'void_air';
 
 function kindOf(e: Entity): SeenEntity['kind'] | null {
   if (e.type === 'player') return 'player';
@@ -83,10 +88,15 @@ export class Perception {
   private lastBlocksKey = '';
   private readonly socialSeenAt = new Map<AgentName, number>();
   private readonly offs: (() => void)[] = [];
+  /** What it sees of the village (§6.8); null without a home. */
+  readonly village: VillageEyes | null;
+  /** Work seen (blows at mobs, blocks set down): one note per person, kind and thing every few seconds. */
+  private readonly workSeen = new Map<string, number>();
 
   constructor(private readonly o: PerceptionOptions) {
     this.now = o.now ?? Date.now;
     this.swings = new SwingTracker(o.bot, this.now);
+    this.village = o.home ? new VillageEyes({ bot: o.bot, store: o.store, bus: o.bus, home: o.home, now: this.now }) : null;
   }
 
   get me(): string {
@@ -110,6 +120,21 @@ export class Perception {
         if (att && att !== bot.entity && att.type === 'player' && att.username) this.observe(att, 'attack', { target: e.username });
       }
       if (e.type === 'player' && e !== bot.entity) this.observe(e, 'hurt');
+      // A blow at a mob or an animal: what people are seen doing for the village (§6.8 roles from deeds).
+      if (e.type !== 'player' && e.name !== 'item') {
+        const att = this.swings.attackerOf(e).attacker;
+        if (att && att !== bot.entity && att.type === 'player' && att.username && this.firstInAWhile(`${att.username}:attack:${e.id}`, 3000)) this.observe(att, 'attack', { item: e.name ?? 'mob' });
+      }
+    });
+    // Someone setting blocks down (building): a block appears in reach of a person who just swung.
+    on('blockUpdate', (old: { name: string } | null, now: { name: string; position: Vec3 } | null) => {
+      if (!now || isAirName(now.name) || (old && !isAirName(old.name))) return;
+      const t = this.now();
+      const p = now.position;
+      const by = Object.values(bot.entities).find(
+        (x) => x.type === 'player' && x !== bot.entity && x.username && t - this.swings.lastSwing(x.id) < 600 && Math.hypot(x.position.x - p.x - 0.5, x.position.y - p.y, x.position.z - p.z - 0.5) <= 5.5,
+      );
+      if (by?.username && this.firstInAWhile(`${by.username}:place`, 2000)) this.observe(by, 'place', { item: now.name, pos: { x: p.x, y: p.y, z: p.z } });
     });
     on('entityDead', (e: Entity) => {
       if (e.type === 'player') this.observe(e, 'death');
@@ -176,7 +201,15 @@ export class Perception {
     for (const off of this.offs.splice(0)) off();
   }
 
-  /** People this bot perceives within speech range (seen, or heard recently). */
+  /** True at most once per `ms` for a key (repeated work is noted, not every blow or block). */
+  private firstInAWhile(key: string, ms: number): boolean {
+    const t = this.now();
+    if (t - (this.workSeen.get(key) ?? -Infinity) < ms) return false;
+    this.workSeen.set(key, t);
+    if (this.workSeen.size > 200) for (const [k, at] of this.workSeen) if (t - at > 60_000) this.workSeen.delete(k);
+    return true;
+  }
+
   /** Pickup courtesy: an item someone else just dug out or dropped (not toward us) is theirs to collect. */
   mayPickUp(entityId: number): boolean {
     const d = this.theirs.get(entityId);
@@ -189,6 +222,7 @@ export class Perception {
     return this.o.store.state.perception.observedActions.some((a) => a.actor === name && a.kind === kind && t - a.ts <= withinMs);
   }
 
+  /** People this bot perceives within speech range (seen, or heard recently). */
   peopleInRange(): AgentName[] {
     const range = this.o.speechRange ?? 15;
     const now = this.now();
@@ -204,6 +238,7 @@ export class Perception {
     this.updateSelf();
     this.updateEntities();
     if (this.ticks % 8 === 1) this.updateBlocks();
+    if (this.ticks % 8 === 5) this.village?.scan();
     const cutoff = this.now() - 3000;
     for (const [id, t] of this.hurtAt) if (t < cutoff) this.hurtAt.delete(id);
     for (const [k, t] of this.digSeen) if (t < this.now() - 30_000) this.digSeen.delete(k);

@@ -31,6 +31,15 @@ async function reachContainer(ctx: SkillContext, pos: { x?: number; y?: number; 
   return bot.blockAt(block.position);
 }
 
+/** What the open container holds (item → count), as seen when we looked inside. */
+function contentsOf(container: { containerItems(): { name: string; count: number }[] }): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const it of container.containerItems()) out[it.name] = (out[it.name] ?? 0) + it.count;
+  return out;
+}
+
+const where = (b: Block) => ({ x: b.position.x, y: b.position.y, z: b.position.z });
+
 function keepItem(bot: Bot, name: string): boolean {
   return Boolean(bot.registry.foodsByName[name]) || isWeapon(name) || armorSlotOf(name) !== null || /_(pickaxe|axe|shovel)$/.test(name);
 }
@@ -49,6 +58,7 @@ export const deposit = defineSkill({
       if (!block) return { ok: false, observed: 'no chest', error: 'no chest nearby' };
       const container = await bot.openContainer(block);
       let moved = 0;
+      let seen: Record<string, number> = {};
       try {
         const m = args.item ? itemMatcher(args.item) : null;
         const items = bot.inventory.items().filter((i) => (m ? m.matches(i.name) : !keepItem(bot, i.name)));
@@ -62,10 +72,12 @@ export const deposit = defineSkill({
           moved += n;
           left -= n;
         }
+        seen = contentsOf(container);
       } finally {
         await container.close();
       }
-      return { ok: moved > 0, observed: `deposited ${moved} item(s)`, error: moved > 0 ? undefined : 'nothing deposited' };
+      // What was inside, as we saw it (the village chest's contents, §6.8).
+      return { ok: moved > 0, observed: `deposited ${moved} item(s)`, error: moved > 0 ? undefined : 'nothing deposited', data: { chest: where(block), contents: seen } };
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'deposit failed', error: errMsg(err) };
@@ -88,6 +100,7 @@ export const withdraw = defineSkill({
       const container = await bot.openContainer(block);
       const m = itemMatcher(args.item);
       const start = countItem(bot, m);
+      let seen: Record<string, number> = {};
       try {
         let left = args.qty;
         for (const it of container.containerItems().filter((i) => m.matches(i.name))) {
@@ -97,12 +110,14 @@ export const withdraw = defineSkill({
           await container.withdraw(it.type, null, n);
           left -= n;
         }
+        seen = contentsOf(container);
       } finally {
         await container.close();
       }
+      const data = { chest: where(block), contents: seen };
       const got = countItem(bot, m) - start;
-      if (got <= 0) return { ok: false, observed: 'took nothing', error: `no ${m.label} in the chest` };
-      return { ok: got >= args.qty, observed: `took ${got} ${m.label}`, error: got >= args.qty ? undefined : `only ${got} ${m.label} in the chest` };
+      if (got <= 0) return { ok: false, observed: 'took nothing', error: `no ${m.label} in the chest`, data };
+      return { ok: got >= args.qty, observed: `took ${got} ${m.label}`, error: got >= args.qty ? undefined : `only ${got} ${m.label} in the chest`, data };
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'withdraw failed', error: errMsg(err) };

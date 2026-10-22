@@ -8,6 +8,9 @@ import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
 import { Memory } from './memory/memory';
 import { GoalGen } from './modules/goalGen';
+import { SocialGoalGen } from './modules/socialGoalGen';
+import { RoleWatch } from './social/roles';
+import { villageView } from './social/village';
 import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
 import { cannedBusyLine } from './body/reflexes';
@@ -52,6 +55,8 @@ export interface AgentOptions {
   memory?: { db: MemoryDB; embedder: Embedder };
   /** Goal Generation picks goals (M4). Off when a test or the runner drives goals by hand. */
   goalGen?: boolean;
+  /** Social Goal Gen (§6.8): on with Goal Gen unless the world config turns it off. */
+  socialGoals?: boolean;
   /** Dice for impulses and first impressions (tests pin them). */
   rng?: () => number;
   /** A world-wide fight slot (§17.10, the Hub's fight tokens); without it every fight the gate allows may start. */
@@ -71,6 +76,8 @@ export class Agent {
   readonly cc: CognitiveController;
   readonly memory: Memory | null;
   readonly goalGen: GoalGen | null;
+  readonly socialGoals: SocialGoalGen | null;
+  readonly roles: RoleWatch;
   readonly quirks: QuirkRunner;
   readonly social: SocialAwareness;
   readonly commitments: CommitmentTracker;
@@ -99,7 +106,7 @@ export class Agent {
     this.store = new AgentStateStore(createInitialState({ persona, username, now: now() }));
     const levers = (): MindLevers => leversFor(persona.abilities.intelligence, o.world?.abilities.intelligenceRoutesCCTier ?? true);
     const speechRange = o.world?.chat.normalRange ?? 15;
-    this.perception = new Perception({ bot: body.bot, store: this.store, bus: this.bus, logger, speechRange, now });
+    this.perception = new Perception({ bot: body.bot, store: this.store, bus: this.bus, logger, speechRange, home: () => body.home, now });
     this.conversations = new Conversations({ store: this.store, bus: this.bus, logger, me: username, inRange: () => this.perception.peopleInRange(), now });
     const fightSlot = o.fightSlot;
     // A refused fight slot is remembered for a while: the gate then says so instead of the CC retrying every 2 s.
@@ -193,6 +200,22 @@ export class Agent {
         ? null
         : new GoalGen({ store: this.store, bus: this.bus, logger, llm, me: username, setGoal: (t, d) => this.cc.setGoal(t, d), ...(memories ? { memories } : {}), now });
     const rng = o.rng ? { rng: o.rng } : {};
+    const world = o.world ?? WorldConfigSchema.parse({});
+    this.roles = new RoleWatch({ store: this.store, bus: this.bus, me: username, now });
+    this.socialGoals =
+      (o.socialGoals ?? (o.goalGen !== false && world.community.socialGoals))
+        ? new SocialGoalGen({
+            store: this.store,
+            bus: this.bus,
+            logger,
+            llm,
+            me: username,
+            community: world.community.goal,
+            view: () => villageView(this.store.state, this.roles.others(), now()),
+            ...rng,
+            now,
+          })
+        : null;
     this.feelings = new Feelings({ store: this.store, bus: this.bus, logger, me: username, contagionScale: () => (this.crowd.inMob() ? 1.5 : 1), ...rng, now });
     const myGear = () => {
       const inv = body.bot.inventory;
@@ -246,7 +269,6 @@ export class Agent {
       say: (to, text) => this.talking.blurt(to, text),
       now,
     });
-    const world = o.world ?? WorldConfigSchema.parse({});
     this.conflict = new ConflictEvaluator({
       store: this.store,
       bus: this.bus,
@@ -282,6 +304,14 @@ export class Agent {
         if (a.kind === 'attack' && a.target) this.deeds.sawAttack(a.actor, a.target);
       }),
     );
+    // §6.8: what we saw inside a chest we opened (the village chest's contents), and what signs say.
+    this.offs.push(
+      this.bus.on('actionRecorded', (e) => {
+        const d = e.record.data as { chest?: { x: number; y: number; z: number }; contents?: Record<string, number> } | undefined;
+        if ((e.record.skill === 'deposit' || e.record.skill === 'withdraw') && d?.chest && d.contents) this.perception.village?.sawInside(d.chest, d.contents);
+      }),
+    );
+    this.offs.push(this.bus.on('signRead', (e) => this.readSign(e.sign.text, e.sign.pos, e.board)));
     this.quirks = new QuirkRunner({
       store: this.store,
       bus: this.bus,
@@ -367,6 +397,8 @@ export class Agent {
     this.memory?.start();
     this.cc.start();
     this.goalGen?.start();
+    this.roles.start();
+    this.socialGoals?.start();
     this.quirks.start();
     this.social.start();
     this.commitments.start();
@@ -398,6 +430,8 @@ export class Agent {
     this.commitments.stop();
     this.social.stop();
     this.quirks.stop();
+    this.socialGoals?.stop();
+    this.roles.stop();
     this.goalGen?.stop();
     this.cc.stop();
     this.memory?.stop();
@@ -426,6 +460,18 @@ export class Agent {
       this.yieldSaidAt = now();
       void this.talking.blurt(to, 'ok ok, I give up!');
     }, 1500).unref();
+  }
+
+  /**
+   * A sign read (§6.8, §16.3): what it says goes on our mind as something seen ourselves; news of a death on it
+   * makes us a little more careful, as hearing of one does, less than seeing it.
+   */
+  private readSign(text: string, pos: { x: number; z: number }, board: boolean): void {
+    const now = this.o.now ?? Date.now;
+    const death = /\b(died|dead|killed|slain|drowned|burned|fell|blew up|lava|RIP)\b/i.test(text);
+    pushWorkmem(this.store, `a sign ${board ? 'at the village board' : `at ${Math.round(pos.x)}, ${Math.round(pos.z)}`} says "${text}"`, death ? 0.7 : 0.5, 'self_observed', { now: now() });
+    if (death) this.store.update('drives', (d) => ({ ...d, caution: Math.min(1, Math.round((d.caution + 0.05) * 1000) / 1000) }), 'death news on a sign');
+    this.o.logger.info({ module: 'perception', text, board, death }, 'read a sign');
   }
 
   setGoal(text: string, doneWhen?: string): void {
