@@ -233,6 +233,7 @@ export class Conversations {
         `heard ${u.from}`,
       );
     }
+    this.o.logger.debug({ module: 'conversations', from: u.from, text: u.text, heardAs: u.heardAs, addressed, tail, convId: utter.convId }, 'heard');
     if (addressed) this.o.bus.emit({ type: 'addressed', utterance: utter });
     else if (!tail) this.o.bus.emit({ type: 'overheard', utterance: utter });
     // Their answer to our last line arrives after we ended it: it goes on the record (a promise made in it counts).

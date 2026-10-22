@@ -271,6 +271,7 @@ export class Talking {
     if (p.lines.every((l) => SURRENDER_RE.test(l.text))) return;
     const request = p.lines.some((l) => needsDecision(l.text));
     const from = p.lines[p.lines.length - 1]?.from;
+    this.o.logger.debug({ module: 'talking', convId, from, lines: p.lines.map((l) => l.text), request, level }, 'reply');
     let intent: SpeechIntent;
     if (request) {
       this.awaiting.set(convId, this.now());

@@ -5,8 +5,9 @@
 //      Ulf keeps it.
 //   P  fear and conformity: Quill asks each of five villagers what they think of Rex while Rex, in iron and armed,
 //      stands among them. Most of them dislike him, but what they say of him is mostly a safe word. Then Rex loses
-//      his gear (in plain sight: he is weaker than any of them now, with their stone swords) and Ann, the dissenter,
-//      turns down a demand of his without anything coming of it. Quill asks again: the low opinions come out.
+//      his gear (in plain sight: he is weaker than any of them now, with their stone swords and the iron they put
+//      on) and Ann, the dissenter, turns down a demand of his without anything coming of it. Quill asks again: the
+//      low opinions come out.
 
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -44,7 +45,7 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
 
   beforeAll(async () => {
     server = await startLiveServer({ name: 'm8c', port: PORT, rconPort: 25597, deepGround: true });
-    logger = createLogger({ name: 'm8c-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false });
+    logger = createLogger({ name: 'm8c-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false, level: process.env.AGORA_LIVE_DEBUG ? 'debug' : 'info' });
     for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty normal', 'gamerule spawn_radius 0']) await server.cmd(c);
   });
 
@@ -227,8 +228,9 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
       await waitFor(() => names.every((n) => (agents[n].store.state.social.Rex?.fearOf ?? 0) >= 0.4 || n === 'Ann'), 60_000, 'Rex feared', 500).catch(() => undefined);
       await sleep(5000);
       const feared = await interview('Rex armed');
-      // Rex loses his gear in plain sight: a man in his shirt, with nothing in his hands.
+      // Rex loses his gear in plain sight: a man in his shirt, with nothing in his hands; and they put on iron.
       await server.cmd('clear Rex');
+      for (const n of names) await server.cmd(`item replace entity ${n} armor.chest with minecraft:iron_chestplate`);
       // And Ann turns down a demand of his, and nothing comes of it (§18.4.1: defiance that works).
       const asked = Date.now();
       bodies.Rex.bot.chat('Ann, give me 3 bread, or else');
