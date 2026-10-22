@@ -97,6 +97,30 @@ describe('the dashboard model', () => {
     expect((m.overview() as { society: { roles: Record<string, number> } }).society.roles).toEqual({ woodcutter: 2 });
   });
 
+  it('shows power (§17.12): who follows whom, and the hour’s fights, kills, defections, uprisings and tribute', () => {
+    const { m, t } = model();
+    for (const [i, [name, leader]] of [['Rex', null], ['Bo', 'Rex'], ['Cy', 'Rex'], ['Di', 'Ann'], ['Ann', null]].entries()) {
+      m.online(name ?? '', `s${i}`);
+      m.telemetry(name ?? '', 'state', t.now, { leader });
+    }
+    m.telemetry('Bo', 'fight', t.now, { kind: 'follow', leader: 'Rex', before: null });
+    m.telemetry('Rex', 'fight', t.now, { kind: 'duel', with: 'Ann', outcome: 'won', lethal: false });
+    m.telemetry('Ann', 'fight', t.now, { kind: 'duel', with: 'Rex', outcome: 'yielded', lethal: false });
+    m.telemetry('Rex', 'fight', t.now, { kind: 'duel', with: 'Di', outcome: 'gone', lethal: true });
+    m.telemetry('Cy', 'fight', t.now, { kind: 'defect', from: 'Rex', attackers: ['Ann', 'Di'] });
+    m.telemetry('Di', 'commitment', t.now, { debtor: 'Di', creditor: 'Ann', text: 'fight Rex together with Ann', kind: 'fight', status: 'accepted' });
+    m.telemetry('Bo', 'commitment', t.now, { debtor: 'Bo', creditor: 'Rex', text: '3 bread', kind: 'give', status: 'fulfilled', coerced: true });
+    m.died('Di', 'Di was slain by Rex');
+    const o = m.overview() as { power: { leaders: { name: string; followers: string[] }[]; hour: Record<string, number> }; events: { what: string }[] };
+    expect(o.power.leaders).toEqual([
+      { name: 'Rex', followers: ['Bo', 'Cy'] },
+    ]);
+    expect(o.power.hour).toEqual({ brawls: 2, lethal: 1, yields: 1, kills: 1, defections: 1, uprisings: 1, coerced: 1 });
+    expect(o.events.map((e) => e.what)).toEqual(expect.arrayContaining(['follows', 'defected', 'fight', 'died']));
+    t.now += 61 * 60_000;
+    expect((m.overview() as { power: { hour: Record<string, number> } }).power.hour.brawls).toBe(0);
+  });
+
   it('counts tokens per hour by module, tier and agent, and projects when the weekly quota runs out', () => {
     const { m, t } = model();
     const cost = (agent: string, module: 'cc' | 'talking', tier: 'L1' | 'L2', input: number) => m.cost(agent, { t: 'cost', module, tier, model: 'm', inputTokens: input, outputTokens: 10, ms: 100, ok: true });

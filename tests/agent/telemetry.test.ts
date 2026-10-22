@@ -34,7 +34,7 @@ describe('telemetry (M7)', () => {
     const people = r.sent[1]?.data.people as { name: string; sentiment: number; rung: number; resentment: number }[];
     expect(people[0]).toMatchObject({ name: 'Rex', sentiment: 3, rung: 2 });
     expect(people[0]?.resentment).toBeGreaterThan(0);
-    expect(r.sent[0]?.data).toMatchObject({ rungs: { Rex: 2 }, goal: null, option: null });
+    expect(r.sent[0]?.data).toMatchObject({ rungs: { Rex: 2 }, goal: null, option: null, leader: null });
     r.stop();
   });
 
@@ -51,13 +51,20 @@ describe('telemetry (M7)', () => {
     r.store.update('self', (s) => ({ ...s, health: 19 }));
     expect(r.kinds()).toEqual(['decision', 'skill', 'fight', 'fight', 'option', 'utterance', 'commitment']);
     expect(r.sent[0]?.data).toMatchObject({ source: 'llm', option: 'talk', target: 'Rex', stance: 'threaten', rationale: 'Rex keeps taking my logs' });
-    expect(r.sent[2]?.data).toEqual({ kind: 'duel', with: 'Rex', outcome: 'won' });
+    expect(r.sent[2]?.data).toEqual({ kind: 'duel', with: 'Rex', outcome: 'won', lethal: false });
     expect(r.sent[3]?.data).toEqual({ kind: 'rung', with: 'Rex', from: 2, to: 3 });
     expect(r.sent[5]?.data).toEqual({ text: 'back off, or else.', volume: 'normal' });
-    expect(r.sent[6]?.data).toMatchObject({ debtor: 'Pip', creditor: 'Ann', text: '2 bread', status: 'accepted' });
+    expect(r.sent[6]?.data).toMatchObject({ debtor: 'Pip', creditor: 'Ann', text: '2 bread', kind: 'give', status: 'accepted' });
+    // §17.7, §17.8: following someone, and walking away from them.
+    r.bus.emit({ type: 'leaderChanged', leader: 'Rex', before: null });
+    r.bus.emit({ type: 'defected', from: 'Rex', attackers: ['Ann', 'Bo'] });
+    expect(r.sent.slice(7).map((x) => x.data)).toEqual([
+      { kind: 'follow', leader: 'Rex', before: null },
+      { kind: 'defect', from: 'Rex', attackers: ['Ann', 'Bo'] },
+    ]);
     r.stop();
     r.bus.emit({ type: 'rungChanged', name: 'Rex', from: 3, to: 2 });
     r.bot.emit('messagestr', 'Pip » bye');
-    expect(r.kinds()).toHaveLength(7);
+    expect(r.kinds()).toHaveLength(9);
   });
 });

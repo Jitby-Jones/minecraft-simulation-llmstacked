@@ -528,6 +528,10 @@ export type AgentEvent =
   | { type: 'fightEnded'; target: AgentName; outcome: FightOutcome }
   | { type: 'death'; cause: string }
   /** A sign read for the first time, or changed since (§6.8). `board`: it stands at the village's notice board. */
-  | { type: 'signRead'; sign: SignSeen; board: boolean };
+  | { type: 'signRead'; sign: SignSeen; board: boolean }
+  /** We began or stopped following someone (§17.7). */
+  | { type: 'leaderChanged'; leader: AgentName | null; before: AgentName | null }
+  /** We walked away from our leader as a group set upon them (§17.8 defection). */
+  | { type: 'defected'; from: AgentName; attackers: AgentName[] };
 
 export type AgentEventType = AgentEvent['type'];

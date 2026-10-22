@@ -1,20 +1,21 @@
 // The conflict evaluator (§17.4, §17.5; M6b): code, event-driven, no LLM. For each person at hand it keeps
 // perceived power and fear current from what can be seen (gear, kills announced in chat, fights seen won, visible
 // hurt), turns wrongs into grievances, and weighs motive against deterrence. The escalation rung toward each person
-// follows that pressure with hysteresis: 0 keep your distance, 1 hostile talk, 2 threats, 3 a brawl until someone
-// yields (4, lethal, is M8b and off in test worlds). A fight happens only through the code gate: the CC proposes
-// it and `mayFight` confirms it. Code never starts one itself, except the reflexes' self-defense and defense of a
-// friend.
+// follows that pressure with hysteresis: 0 keep your distance, 1 hostile talk, 2 threats and demands, 3 a brawl until
+// someone yields, 4 a fight to the death (M8b; `maxRung` 3 keeps it off). A fight happens only through the code
+// gate: the CC proposes it and `mayFight` confirms it. Code never starts one itself, except the reflexes'
+// self-defense and defense of a friend. Those sworn to take someone on together (§17.8) are each other's strength.
 
 import type { AgentName, GrievanceKind, Logger, SocialProfile, WorldConfig } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 import { newSocialProfile } from '../state/social';
 import { pushWorkmem } from '../state/workmem';
-import { resentment, withGrievance } from '../social/math';
+import { GRIEVANCE_WEIGHT, resentment, withGrievance } from '../social/math';
 import { mobModifiers } from '../mind/biases';
 import { CALL_OFF_RE, SURRENDER_RE } from '../body/skills/duel';
 import { type FightIntent, deterrence, fearOf, gateFight, motive, opportunity, powerOf, rungFor, witnessCost } from './pressure';
+import { COERCION_GRIEVANCE } from './coercion';
 
 export interface ConflictOptions {
   store: AgentStateStore;
@@ -55,6 +56,11 @@ const NEAR_BLOCKS = 12;
 const NEAR_EVERY_MS = 60_000;
 /** Blows this recent, when the danger passes, were a fight (one we fought back in, or ran from). */
 const FIGHT_WINDOW_MS = 30_000;
+/** A blow this long after someone gave up ignores the yield (the first moments are the winner's reaction time). */
+const YIELD_HEARD_MS = 2000;
+const YIELD_IGNORED_MS = 20_000;
+/** Those who swore to take someone on with us count when within this (§17.6 groupAttack). */
+const ALLIES_NEAR = 10;
 
 /** Box–Muller N(0, 1). */
 function gauss(rng: () => number): number {
@@ -109,9 +115,13 @@ export class ConflictEvaluator {
     );
     this.offs.push(
       b.on('commitmentResolved', (e) => {
-        if (e.status !== 'broken') return;
         const c = this.o.store.state.commitments.find((x) => x.id === e.commitmentId);
-        if (c && c.debtor !== this.o.me && c.creditor === this.o.me) this.grieve(c.debtor, 'broken_promise', true, `${c.debtor} broke a promise to me`);
+        if (!c) return;
+        if (e.status === 'broken' && c.debtor !== this.o.me && c.creditor === this.o.me) this.grieve(c.debtor, 'broken_promise', true, `${c.debtor} broke a promise to me`);
+        // §17.7: every coerced payment is a small grievance against the demander; tribute breeds resentment.
+        if (e.status === 'fulfilled' && c.coerced && c.debtor === this.o.me) this.grieve(c.creditor, 'coercion', true, `${c.creditor} made me pay ${c.what.text}`, COERCION_GRIEVANCE);
+        // A coerced promise broken by them: defiance, which provokes the demander.
+        if (e.status === 'broken' && c.coerced && c.creditor === this.o.me) this.provoke(c.debtor, 0.4);
       }),
     );
     // Kills are public (death messages), and killing a friend is the heaviest wrong there is.
@@ -128,6 +138,7 @@ export class ConflictEvaluator {
       b.on('observedAction', (e) => {
         const a = e.action;
         if (a.kind !== 'attack' || !a.target || a.actor === this.o.me) return;
+        this.yieldIgnored(a.actor, a.target);
         if (a.target === this.o.me) return;
         const friend = (this.o.store.state.social[a.target]?.sentiment ?? 5) >= 7;
         if (friend) {
@@ -241,6 +252,25 @@ export class ConflictEvaluator {
     this.update(loser, (p) => ({ ...p, estCombat: Math.max(0, p.estCombat - 0.05) }), `${loser} lost a fight`);
   }
 
+  private readonly betrayalNoted = new Set<string>();
+
+  /**
+   * §17.6: blows on someone who has given up ignore the yield, a wrong that everyone who saw it holds heavily against
+   * the attacker (betrayal, at twice its weight), the one beaten most of all.
+   */
+  private yieldIgnored(attacker: AgentName, victim: AgentName): void {
+    const t = this.now();
+    const gaveUp = victim === this.o.me ? this.yieldedAt : (this.surrenderedAt.get(victim) ?? -Infinity);
+    const since = t - gaveUp;
+    if (since < YIELD_HEARD_MS || since > YIELD_IGNORED_MS) return;
+    const key = `${attacker}>${victim}@${gaveUp}`;
+    if (this.betrayalNoted.has(key)) return;
+    this.betrayalNoted.add(key);
+    if (this.betrayalNoted.size > 200) this.betrayalNoted.delete(this.betrayalNoted.values().next().value ?? key);
+    this.grieve(attacker, 'betrayal', true, victim === this.o.me ? `${attacker} kept hitting me after I gave up` : `${attacker} kept hitting ${victim} after they gave up`, 2 * GRIEVANCE_WEIGHT.betrayal);
+    this.o.logger.info({ module: 'conflict', attacker, victim }, 'a yield ignored');
+  }
+
   /** We gave up a fight (our own yield, as heard back from the chat). */
   ownYield(): void {
     this.yieldedAt = this.now();
@@ -293,8 +323,12 @@ export class ConflictEvaluator {
     const mob = this.o.inMob?.(name) ?? false;
     const mods = mob ? mobModifiers(3) : null;
     const theirPower = powerOf({ gear: p.gearScore, killsSeen: p.killsSeen, fightsWonSeen: p.fightsWonSeen, followersSeen: p.followersSeen, healthFrac: them?.hurtRecently ? 0.6 : 1, combat: p.estCombat });
-    const friendsNear = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.name !== name && e.distance <= 10 && (s.social[e.name]?.sentiment ?? 5) >= 7).length;
-    const fear = fearOf(theirPower, this.myPower(), 0.1 * friendsNear, s.drives.caution) * (mods?.fear ?? 1);
+    // §17.8: those sworn to take them on with us, here now, are our side's strength (and the moment to act).
+    const sworn = this.swornAgainst(name);
+    const allies = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && sworn.includes(e.name) && e.distance <= ALLIES_NEAR).map((e) => e.name);
+    const allyPower = allies.reduce((a, n) => a + this.powerOfName(n), 0);
+    const friendsNear = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.name !== name && !allies.includes(e.name) && e.distance <= 10 && (s.social[e.name]?.sentiment ?? 5) >= 7).length;
+    const fear = fearOf(theirPower, this.myPower(), 0.1 * friendsNear + allyPower, s.drives.caution) * (mods?.fear ?? 1);
     const alone = them ? !s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name !== name && Math.hypot(e.pos.x - them.pos.x, e.pos.z - them.pos.z) <= 8) : false;
     const prov = this.provoked.get(name);
     const provocationNow = prov && t - prov.at < PROVOCATION_MS ? prov.how * (1 - (t - prov.at) / PROVOCATION_MS) : 0;
@@ -305,11 +339,11 @@ export class ConflictEvaluator {
       dominance: temp.dominance,
       opportunity: opportunity({ alone, hurt: Boolean(them?.hurtRecently), carryingWanted: false }),
       provocationNow,
-      allyCall: t - (this.allyCall.get(name) ?? -Infinity) < PROVOCATION_MS ? 0.3 : 0,
+      allyCall: allies.length > 0 || t - (this.allyCall.get(name) ?? -Infinity) < PROVOCATION_MS ? 0.3 : 0,
     });
-    // Onlookers' liking of them (what we believe it to be) makes going after them costly.
+    // Onlookers' liking of them (what we believe it to be) makes going after them costly; those with us are complicit.
     const onlookers = s.perception.nearbyEntities
-      .filter((e) => e.kind === 'player' && e.name !== name && e.visible && e.distance <= 16)
+      .filter((e) => e.kind === 'player' && e.name !== name && !allies.includes(e.name) && e.visible && e.distance <= 16)
       .map((e) => {
         const said = [...s.heardOpinions].reverse().find((o) => o.speaker === e.name && o.target === name);
         return said ? 5 + 5 * said.valence : 5;
@@ -326,11 +360,32 @@ export class ConflictEvaluator {
   private limits(mob: boolean) {
     const t = this.o.store.state.self.persona.temperament;
     return {
-      // Rung 4 (lethal) comes with M8b; until then a fight is a brawl that ends in a yield.
-      maxRung: Math.min(3, this.o.config.maxRung),
+      maxRung: this.o.config.maxRung,
       lethalAllowed: this.o.mode !== 'live' || t.vengefulness >= 0.6 || t.dominance >= 0.6,
       ...(mob ? { thresholdShift: mobModifiers(3).rungThreshold } : {}),
     };
+  }
+
+  /** How strong someone looks to us (0..1, §17.4), from what we've seen of them. */
+  powerOfName(name: AgentName): number {
+    const s = this.o.store.state;
+    return this.powerOfProfile(s.social[name] ?? newSocialProfile(name, s.self.persona, this.now()));
+  }
+
+  /** Those who swore to take `name` on with us (§17.8: an open commitment of kind fight, either way round). */
+  swornAgainst(name: AgentName): AgentName[] {
+    const me = this.o.me;
+    return this.o.store.state.commitments
+      .filter((c) => c.what.kind === 'fight' && c.what.target === name && c.status === 'accepted' && (c.debtor === me || c.creditor === me))
+      .map((c) => (c.debtor === me ? c.creditor : c.debtor))
+      .filter((n) => n !== name);
+  }
+
+  /** How much we resent someone now (0..1, §17.2). */
+  resentmentOf(name: AgentName): number {
+    const s = this.o.store.state;
+    const p = s.social[name];
+    return p ? resentment(p, s.self.persona, this.now()) : 0;
   }
 
   /** The rung toward someone now (0 when none). */

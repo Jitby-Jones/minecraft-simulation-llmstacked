@@ -67,6 +67,10 @@ interface Overview {
   cost: CostView;
   agents: AgentSummary[];
   society: { roles: Record<string, number>; entropy: number; keywords: [string, number][] };
+  power: {
+    leaders: { name: string; followers: string[] }[];
+    hour: { brawls: number; lethal: number; yields: number; kills: number; defections: number; uprisings: number; coerced: number };
+  };
   events: Row[];
   problems: Row[];
 }
@@ -531,7 +535,9 @@ function eventText(r: Row): string {
   const w = str(r.what);
   if (w === 'died') return `died: ${str(r.cause)}`;
   if (w === 'left') return `left (${str(r.reason)})`;
-  if (w === 'fight') return `fought ${str(r.with)}: ${str(r.outcome)}`;
+  if (w === 'fight') return `fought ${str(r.with)}${r.lethal === true ? ' to the death' : ''}: ${str(r.outcome)}`;
+  if (w === 'follows') return r.leader ? `follows ${str(r.leader)}` : `stopped following ${str(r.before)}`;
+  if (w === 'defected') return `walked away from ${str(r.from)} as ${Array.isArray(r.attackers) ? (r.attackers as string[]).join(' and ') : 'others'} set upon them`;
   if (w === 'escalation') return `rung ${str(r.from)} → ${str(r.to)} with ${str(r.with)}`;
   if (w === 'impulse') return `acted on impulse: ${str(r.rationale)}`;
   if (w === 'conversation') return `talked with ${Array.isArray(r.participants) ? (r.participants as string[]).join(', ') : ''} (${str(r.turns)} turns, ${str(r.reason)})`;
@@ -540,7 +546,7 @@ function eventText(r: Row): string {
   return w;
 }
 
-// ---- the village (§6.8): who does what for it, and what people talk about ----
+// ---- the village (§6.8): who does what for it, who follows whom (§17.7), and what people talk about ----
 function renderVillage(o: Overview): void {
   const byRole = new Map<string, string[]>();
   for (const a of o.agents) if (a.online && a.role) byRole.set(a.role, [...(byRole.get(a.role) ?? []), a.name]);
@@ -548,7 +554,31 @@ function renderVillage(o: Overview): void {
   const rolesList = el('ol', { cls: 'feed' }, roles.length > 0 ? roles.map(([r, names]) => el('li', {}, [el('span', { cls: 'who', text: r }), el('span', { text: names.join(', ') })])) : [el('li', { cls: 'empty', text: 'Nobody has a role yet.' })]);
   const words = o.society.keywords;
   const talk = el('ol', { cls: 'feed' }, words.length > 0 ? words.map(([w, n]) => el('li', {}, [el('span', { cls: 'num', text: `${n}×` }), el('span', { text: w })])) : [el('li', { cls: 'empty', text: 'Nothing said in the last hour.' })]);
-  $('village').replaceChildren(el('h3', { text: 'Roles' }), rolesList, el('h3', { text: 'What people talk about (last hour)' }), talk);
+  // §17.7, §17.8: who follows whom (two or more followers make a leader), and the hour's fights and upheavals.
+  const leaders = o.power.leaders;
+  const followList = el(
+    'ol',
+    { cls: 'feed' },
+    leaders.length > 0
+      ? leaders.map((l) => el('li', {}, [el('span', { cls: 'who', text: `${l.name}${l.followers.length >= 2 ? ' (leader)' : ''}` }), el('span', { text: `followed by ${l.followers.join(', ')}` })]))
+      : [el('li', { cls: 'empty', text: 'Nobody follows anybody.' })],
+  );
+  const h = o.power.hour;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const hour = el('p', {
+    cls: 'muted',
+    text: `${plural(h.brawls, 'brawl', 'brawls')}, ${plural(h.lethal, 'fight', 'fights')} to the death; ${plural(h.yields, 'yield', 'yields')}, ${plural(h.kills, 'kill', 'kills')}; ${plural(h.uprisings, 'uprising', 'uprisings')} agreed, ${plural(h.defections, 'defection', 'defections')}; ${plural(h.coerced, 'payment', 'payments')} under threat.`,
+  });
+  $('village').replaceChildren(
+    el('h3', { text: 'Roles' }),
+    rolesList,
+    el('h3', { text: 'Who follows whom' }),
+    followList,
+    el('h3', { text: 'Power (last hour)' }),
+    hour,
+    el('h3', { text: 'What people talk about (last hour)' }),
+    talk,
+  );
 }
 
 // ---- refresh loops: a failed fetch keeps the last render, dimmed ----

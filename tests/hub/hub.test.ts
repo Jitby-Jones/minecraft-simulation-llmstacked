@@ -123,7 +123,7 @@ describe('fight slots (§17.10 maxConcurrentFights)', () => {
 describe('supervisor (§16.2, §16.3, §23.4)', () => {
   /** In-process stand-in bots: connect, say ready, die on request, exit on shutdown. */
   function fakeBots(hubUrl: () => string) {
-    const live = new Map<string, { client: HubClient; exit: (code: number) => void; username?: string; resume?: boolean }>();
+    const live = new Map<string, { client: HubClient; exit: (code: number) => void; username?: string; resume?: boolean; shifts: number[] }>();
     const launcher: Launcher = (slot) => {
       let onExit: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
       const c = new HubClient({ url: hubUrl(), slot, logger: nullLogger() });
@@ -132,7 +132,9 @@ describe('supervisor (§16.2, §16.3, §23.4)', () => {
         c.close();
         setTimeout(() => onExit?.(code, null), 10);
       };
-      live.set(slot, { client: c, exit });
+      const shifts: number[] = [];
+      c.on('cautionShift', (m) => shifts.push(m.shift));
+      live.set(slot, { client: c, exit, shifts });
       c.connect();
       void c.assigned().then((a) => {
         const me = live.get(slot);
@@ -220,5 +222,42 @@ describe('supervisor (§16.2, §16.3, §23.4)', () => {
     // Ada has a memory file to come back to; the others (no DB written here) start their memory afresh.
     expect(resumes.Ada).toBe(true);
     await sup2.shutdown('test', 3000);
+  }, 30_000);
+
+  it('applies the extinction brake (§17.10): too many deaths in an hour make every agent more careful for a while', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agora-brake-'));
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const paths = ensureDataDirs(dataPaths(dir));
+    const world = WorldConfigSchema.parse({
+      population: { initial: 3, minAlive: 3, maxAlive: 5, spawnStaggerSec: 0, respawnDelaySec: 0.1 },
+      conflict: { extinctionBrake: { deathsPerHourMax: 1, cautionShift: 0.25, durationSec: 600 } },
+    });
+    const hub = await startHub();
+    const bots = fakeBots(() => `ws://127.0.0.1:${hub.port}`);
+    const sup = new Supervisor({ hub, paths, world, sexDiffs: SexDifferencesSchema.parse({}), pool: [], launcher: bots.launcher, logger: nullLogger(), rng: new SeededRandom(7) });
+    await sup.start();
+    await until(() => bots.live.size === 3 && [...bots.live.values()].every((b) => b.username));
+    const firstThree = [...bots.live.values()];
+    const die = async (bot: (typeof firstThree)[number] | undefined) => {
+      if (!bot?.username) throw new Error('no bot');
+      bot.client.send({ t: 'died', username: bot.username, cause: 'was slain by Zombie', pos: null, aliveSec: 60, inventory: [] });
+      await wait(50);
+      bot.exit(0);
+    };
+    // One death is within the limit: nobody is told anything.
+    await die(firstThree[0]);
+    await wait(100);
+    expect(firstThree.every((b) => b.shifts.length === 0)).toBe(true);
+    // A second in the hour trips the brake: every living agent gets the same shift for the next ten minutes.
+    await die(firstThree[1]);
+    const survivor = firstThree[2];
+    await until(() => (survivor?.shifts.length ?? 0) > 0);
+    expect(survivor?.shifts).toEqual([0.25]);
+    // A newcomer born during it is told too, when it is ready.
+    await until(() => [...bots.live.values()].filter((b) => !firstThree.includes(b) && b.username).length >= 1);
+    const newcomer = [...bots.live.values()].find((b) => !firstThree.includes(b) && b.username);
+    await until(() => (newcomer?.shifts.length ?? 0) > 0);
+    expect(newcomer?.shifts).toEqual([0.25]);
+    await sup.shutdown('test', 3000);
   }, 30_000);
 });

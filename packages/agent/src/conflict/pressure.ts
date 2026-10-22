@@ -134,13 +134,20 @@ export function yieldHealth(caution: number): number {
   return Math.round(4 + 6 * clamp(caution, 0, 1));
 }
 
-/** Winner's mercy toward a yielding foe (§17.6). */
-export function sparesYielder(mercy: number, resentment: number, rung: number, roll: number): boolean {
-  const p = clamp(mercy * (1 - 0.6 * resentment) * (rung >= 4 ? 0.4 : 1), 0, 1);
-  return roll < p;
+/** The chance a winner spares a yielding foe (§17.6): mercy, less what resentment takes, much less in a fight to the death. */
+export function spareChance(mercy: number, resentment: number, rung: number): number {
+  return clamp(mercy * (1 - 0.6 * resentment) * (rung >= 4 ? 0.4 : 1), 0, 1);
 }
 
-/** §17.7 compliance: comply when fear outweighs resentment plus pride (pride = 1 − loyalty·0.5). */
-export function complies(fearOfDemander: number, resentment: number, loyalty: number): boolean {
-  return fearOfDemander > resentment + (1 - loyalty * 0.5);
+/** Winner's mercy toward a yielding foe (§17.6). */
+export function sparesYielder(mercy: number, resentment: number, rung: number, roll: number): boolean {
+  return roll < spareChance(mercy, resentment, rung);
+}
+
+/**
+ * §17.7 compliance: comply when fear outweighs resentment plus pride (pride = 1 − loyalty·0.5). A demand from a leader
+ * or an idol clears a lower bar (§18.4 authority bias): `authority` comes off the threshold.
+ */
+export function complies(fearOfDemander: number, resentment: number, loyalty: number, authority = 0): boolean {
+  return fearOfDemander > resentment + (1 - loyalty * 0.5) - authority;
 }

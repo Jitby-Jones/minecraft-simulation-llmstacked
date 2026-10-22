@@ -1,24 +1,114 @@
-// M8b (§17.7, §17.8, §17.5 rung 4): power structures, without Minecraft. Demands and coerced commitments, compliance
-// out of fear, followers and leaders, shared grudges and coalitions, the lethal rung behind the gate. Live behavior
-// is in tests/live/m8b-power.test.ts (scenarios J, K and L).
+// M8b (§17.7, §17.8, §17.5 rung 4, §17.10): power structures, without Minecraft. Demands and coerced commitments,
+// compliance out of fear (lower for a leader: authority), followers and leaders as onlookers infer them, shared
+// grudges and gossip, coalitions and uprisings (proposed, joined, carried out together), defection, the lethal rung
+// behind the gate with mercy, ignoring a yield, and the extinction brake. Live behavior is in
+// tests/live/m8b-power.test.ts (scenarios J, K and L).
 
-import { describe, expect, it } from 'vitest';
-import { companionsOf, complies, follows, looksLikeLeader, parseDemand } from '@agora/agent/conflict/coercion';
+import { afterEach, describe, expect, it } from 'vitest';
+import { type AgentState, type Commitment, type SeenEntity, PersonaSchema, WorldConfigSchema, nullLogger } from '@agora/shared';
+import { AgentBus } from '@agora/agent/bus';
+import {
+  authorityShift,
+  companionsOf,
+  complies,
+  defects,
+  follows,
+  joinsRally,
+  looksLikeLeader,
+  mayRally,
+  parseDemand,
+  parseFightPromise,
+  parseRally,
+} from '@agora/agent/conflict/coercion';
+import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
+import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/power';
+import { spareChance } from '@agora/agent/conflict/pressure';
+import { type ConflictView, codeDecision } from '@agora/agent/modules/cc';
+import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
+import { codePromises } from '@agora/agent/social/awareness';
+import { CommitmentTracker } from '@agora/agent/social/commitments';
+import type { SocialAwareness } from '@agora/agent/social/awareness';
+import { createInitialState } from '@agora/agent/state/initial';
+import { newSocialProfile } from '@agora/agent/state/social';
+import { AgentStateStore } from '@agora/agent/state/store';
+
+const tyrant = PersonaSchema.parse({
+  name: 'Rex',
+  sex: 'male',
+  traits: ['domineering'],
+  temperament: { aggression: 0.8, dominance: 0.95, vengefulness: 0.7, mercy: 0.2, loyalty: 0.3, ambition: 0.9 },
+  drives: { caution: 0.1 },
+  abilities: { combat: 0.8, intelligence: 1 },
+});
+const rebel = PersonaSchema.parse({
+  name: 'Ann',
+  sex: 'female',
+  traits: ['proud'],
+  temperament: { aggression: 0.5, dominance: 0.4, vengefulness: 0.8, mercy: 0.5, loyalty: 0.6, ambition: 0.5 },
+  drives: { caution: 0.3 },
+  abilities: { combat: 0.5, intelligence: 1 },
+});
+const meek = PersonaSchema.parse({
+  name: 'Tib',
+  sex: 'male',
+  traits: ['timid'],
+  temperament: { aggression: 0.1, dominance: 0.1, vengefulness: 0.3, mercy: 0.8, loyalty: 0.4, ambition: 0.2 },
+  drives: { caution: 0.6 },
+  abilities: { combat: 0.2, intelligence: 1 },
+});
+
+const never = () => false;
+const ent = (name: string, x: number, extra: Partial<SeenEntity> = {}): SeenEntity => ({
+  id: x * 7 + name.length,
+  kind: 'player',
+  name,
+  pos: { x, y: 0, z: 0 },
+  distance: Math.abs(x),
+  visible: true,
+  heldItem: null,
+  armor: [],
+  lastSeen: 0,
+  hurtRecently: false,
+  ...extra,
+});
+const pact = (debtor: string, creditor: string, target: string, status: Commitment['status'] = 'accepted'): Commitment => ({
+  id: `k${debtor}${creditor}${target}`,
+  debtor,
+  creditor,
+  what: { kind: 'fight', target, text: `fight ${target} together` },
+  dueBy: 10_000_000 + 1_800_000,
+  status,
+  createdFromConv: 'c1',
+  createdAt: 10_000_000,
+});
+
+function world(persona = rebel, people: string[] = ['Rex', 'Bo', 'Cy']): AgentStateStore {
+  const s = new AgentStateStore(createInitialState({ persona, username: persona.name, now: 0 }));
+  s.update('self', (x) => ({ ...x, health: 20 }));
+  s.update('social', (all) => ({ ...all, ...Object.fromEntries(people.map((n) => [n, { ...newSocialProfile(n, persona, 10_000_000), lastSeen: 10_000_000 }])) }));
+  return s;
+}
 
 describe('demands and compliance (§17.7)', () => {
   it('a request with a threat on it is a demand; a polite one is not', () => {
     expect(parseDemand('give me 5 iron or else')).toEqual({ item: 'iron', qty: 5, recurring: false });
     expect(parseDemand("bring me bread every day or you'll regret it")).toEqual({ item: 'bread', qty: 1, recurring: true });
-    expect(parseDemand('hand over your logs if you know what’s good for you'.replace('’', "'"))).toEqual({ item: 'log', qty: 1, recurring: false });
+    expect(parseDemand("hand over your logs if you know what's good for you")).toEqual({ item: 'log', qty: 1, recurring: false });
     expect(parseDemand('give me 3 bread, please?')).toBeNull();
     expect(parseDemand('or else what?')).toBeNull();
   });
 
-  it('complies when fear outweighs resentment and pride; the loyal bend more easily', () => {
+  it('complies when fear outweighs resentment and pride; the loyal bend more easily, and a leader asks more easily', () => {
     expect(complies(0.9, 0.1, 0.5)).toBe(true); // 0.9 > 0.1 + 0.75
     expect(complies(0.7, 0.1, 0.5)).toBe(false);
     expect(complies(0.7, 0.1, 1)).toBe(true); // pride 0.5
     expect(complies(0.95, 0.4, 0.5)).toBe(false); // too resentful
+    // §18.4 authority: our leader's demand clears a lower bar; less so for the clear-headed (override).
+    const fromLeader = authorityShift({ leader: true, admiration: 0, susceptibility: 0.8, override: 0 });
+    expect(complies(0.7, 0.1, 0.5, fromLeader)).toBe(true);
+    expect(authorityShift({ leader: true, admiration: 0, susceptibility: 0.8, override: 1 })).toBe(0);
+    expect(authorityShift({ leader: false, admiration: 0.8, susceptibility: 1, override: 0 })).toBeCloseTo(0.18);
+    expect(authorityShift({ leader: false, admiration: 0.2, susceptibility: 1, override: 0 })).toBe(0);
   });
 
   it('follows after complying twice, or for protection; a leader has followers or tribute', () => {
@@ -28,5 +118,384 @@ describe('demands and compliance (§17.7)', () => {
     expect(looksLikeLeader(2, 0)).toBe(true);
     expect(looksLikeLeader(1, 1)).toBe(false);
     expect(companionsOf([{ with: ['Rex'] }, { with: ['Rex', 'Ann'] }, { with: ['Rex'] }, { with: ['Ann'] }])).toEqual(['Rex']);
+  });
+
+  it('the code default answers a demand by fear: gives in (a coerced promise) or refuses', () => {
+    const s = world(meek).state;
+    const heard = (text: string): AgentState => ({
+      ...s,
+      self: { ...s.self, inventory: [{ item: 'bread', qty: 5 }] },
+      perception: { ...s.perception, heardSpeech: [{ id: 'u1', convId: 'c1', from: 'Rex', to: ['Tib'], text, ts: 1, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true }] },
+    });
+    const view = (fear: number, authority = 0): ConflictView => ({ rungOf: () => 0, fearOf: () => fear, mayBrawl: never, resentmentOf: () => 0.1, authorityOf: () => authority, warnedLately: never });
+    const give = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.95) });
+    expect(give?.task).toEqual({ skill: 'give', args: { to: 'Rex', item: 'bread', qty: 3 } });
+    expect(give?.commitmentsToCreate?.[0]).toMatchObject({ debtor: 'Tib', creditor: 'Rex', coerced: true });
+    expect(give?.speechIntent?.gist).toBe('fine. I\'ll give you 3 bread');
+    const no = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.6) });
+    expect(no?.speechIntent?.stance).toBe('hostile');
+    expect(no?.commitmentsToCreate).toBeUndefined();
+    // The same fear, but Rex is the one we follow: authority tips it.
+    const led = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.75, 0.24) });
+    expect(led?.task?.skill).toBe('give');
+  });
+});
+
+describe('followers and leaders, as onlookers see them (§17.7)', () => {
+  const stops: (() => void)[] = [];
+  afterEach(() => {
+    for (const f of stops.splice(0)) f();
+  });
+
+  function watch(persona = rebel, mode: 'test' | 'live' = 'test') {
+    const s = world(persona, ['Rex', 'Bo', 'Cy', 'Di']);
+    const bus = new AgentBus();
+    const t = { now: 10_000_000 };
+    const powers: Record<string, number> = { Rex: 0.7, Bo: 0.2, Cy: 0.2, Di: 0.25, Ann: 0.3, Tib: 0.15 };
+    const fears: Record<string, number> = { Rex: 0.8 };
+    const pw = new PowerWatch({ store: s, bus, logger: nullLogger(), me: persona.name, mode, powerOf: (n) => powers[n] ?? 0.3, myPower: () => powers[persona.name] ?? 0.3, fearOf: (n) => fears[n] ?? 0, now: () => t.now });
+    const tick = () => (pw as unknown as { tick(): void }).tick();
+    pw.start();
+    stops.push(() => pw.stop());
+    return { s, bus, t, pw, tick, powers, fears };
+  }
+
+  it('two weaker people seen going about with Rex make Rex a leader in our eyes; it fades when they part', () => {
+    const w = watch();
+    const crowd = [ent('Rex', 20), ent('Bo', 22), ent('Cy', 18), ent('Di', -30)];
+    w.s.update('perception', (p) => ({ ...p, nearbyEntities: crowd }));
+    for (let i = 0; i < 3; i++) {
+      w.tick();
+      w.t.now += 10_000;
+    }
+    expect(w.pw.companions('Bo')).toContain('Rex');
+    expect(w.s.state.social.Rex?.followersSeen).toBe(2);
+    expect(w.s.state.social.Rex?.perceivedRole).toBe('leader');
+    // Di is alone; nobody follows Bo (Bo is the weaker one).
+    expect(w.s.state.social.Bo?.followersSeen).toBe(0);
+    w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 20), ent('Bo', -40), ent('Cy', 60)] }));
+    for (let i = 0; i < 4; i++) {
+      w.tick();
+      w.t.now += 10_000;
+    }
+    expect(w.s.state.social.Rex?.followersSeen).toBe(0);
+    expect(w.s.state.social.Rex?.perceivedRole).toBeUndefined();
+  });
+
+  it('after paying Rex twice under threat we follow Rex; seeing Rex set upon by a strong group, a half-hearted follower walks away', () => {
+    const w = watch(meek);
+    const paid = (i: number): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${i}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status: 'fulfilled', resolvedAt: w.t.now - i * 60_000 });
+    w.s.update('commitments', () => [paid(1), paid(2)]);
+    w.tick();
+    expect(w.pw.leader()).toBe('Rex');
+    expect(w.s.state.social.Rex?.allegiance).toBe('leader');
+    // One attacker: we defend our leader (the reflex asks standsBy).
+    w.bus.emit({ type: 'observedAction', action: { id: 'a1', actor: 'Bo', kind: 'attack', target: 'Rex', ts: w.t.now } });
+    expect(w.pw.standsBy('Rex')).toBe(true);
+    expect(w.pw.standsBy('Bo')).toBe(false);
+    // A group sets upon Rex: Tib (loyalty 0.4, little fondness) fears them more than Rex: walks away, for the hour.
+    w.powers.Bo = 0.5;
+    w.powers.Cy = 0.5;
+    w.fears.Rex = 0.3;
+    w.bus.emit({ type: 'observedAction', action: { id: 'a2', actor: 'Cy', kind: 'attack', target: 'Rex', ts: w.t.now } });
+    const left: unknown[] = [];
+    w.bus.on('defected', (e) => left.push(e));
+    expect(w.pw.standsBy('Rex')).toBe(false);
+    expect(w.pw.leader()).toBeNull();
+    expect(w.s.state.social.Rex?.allegiance).toBeUndefined();
+    expect(left).toEqual([{ type: 'defected', from: 'Rex', attackers: ['Bo', 'Cy'] }]);
+    w.tick();
+    expect(w.pw.leader()).toBeNull();
+  });
+
+  it('a loyal follower who likes the leader stands by them against the same group', () => {
+    expect(defects({ loyalty: 0.9, sentiment: 8, fearOfLeader: 0.5, fearOfCoalition: 0.8 })).toBe(false);
+    expect(defects({ loyalty: 0.4, sentiment: 3, fearOfLeader: 0.3, fearOfCoalition: 0.8 })).toBe(true);
+  });
+
+  it('protection: someone afraid of another, fond of a strong person, follows them', () => {
+    const w = watch(meek);
+    w.s.update('social', (all) => ({ ...all, Di: { ...(all.Di ?? newSocialProfile('Di', meek, 0)), sentiment: 7 } }));
+    w.powers.Di = 0.7;
+    w.fears.Rex = 0.7;
+    w.tick();
+    expect(w.pw.leader()).toBe('Di');
+  });
+});
+
+describe('grudges, gossip and coalitions (§17.8)', () => {
+  function setup(persona = rebel, mode: 'test' | 'live' = 'test') {
+    const s = world(persona, ['Rex', 'Bo', 'Cy', 'Di']);
+    const bus = new AgentBus();
+    const t = { now: 10_000_000 };
+    const powers: Record<string, number> = { Rex: 0.6, Bo: 0.25, Cy: 0.25, Di: 0.25, Ann: 0.3 };
+    const pw = new PowerWatch({ store: s, bus, logger: nullLogger(), me: persona.name, mode, powerOf: (n) => powers[n] ?? 0.3, myPower: () => 0.3, fearOf: () => 0, now: () => t.now });
+    pw.start();
+    return { s, bus, t, pw, powers };
+  }
+
+  it('knows who resents whom: what they said, the wrongs seen done to them, the demands overheard', () => {
+    const w = setup();
+    w.s.update('heardOpinions', () => [{ speaker: 'Bo', target: 'Rex', valence: -0.7, ts: w.t.now }]);
+    w.bus.emit({ type: 'observedAction', action: { id: 'a1', actor: 'Rex', kind: 'attack', target: 'Cy', ts: w.t.now } });
+    w.bus.emit({ type: 'heard', utterance: { id: 'u1', convId: 'c1', from: 'Rex', to: ['Di'], text: 'give me 5 logs or else', ts: w.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    expect(w.pw.knownResenters('Rex').sort()).toEqual(['Bo', 'Cy', 'Di']);
+    // An hour later it's old news.
+    w.t.now += 61 * 60_000;
+    expect(w.pw.knownResenters('Rex')).toEqual([]);
+    w.pw.stop();
+  });
+
+  it('weighs the coalition: the trusted who resent Rex, against Rex and followers (× 1.3 in live); alone or hurt is an opening', () => {
+    const w = setup();
+    w.s.update('heardOpinions', () => [
+      { speaker: 'Bo', target: 'Rex', valence: -0.7, ts: w.t.now },
+      { speaker: 'Cy', target: 'Rex', valence: -0.7, ts: w.t.now },
+    ]);
+    w.s.update('social', (all) => ({ ...all, Bo: { ...(all.Bo ?? newSocialProfile('Bo', rebel, 0)), trust: 0.7 }, Cy: { ...(all.Cy ?? newSocialProfile('Cy', rebel, 0)), trust: 0.2 }, Rex: { ...(all.Rex ?? newSocialProfile('Rex', rebel, 0)), followersSeen: 2 } }));
+    const c = w.pw.coalition('Rex');
+    expect(c.members).toEqual(['Bo']); // Cy isn't trusted enough
+    expect(c.power).toBeCloseTo(0.55);
+    expect(c.against).toBeCloseTo(0.6 + 2 * FOLLOWER_WEIGHT);
+    expect(c.opening).toBe(false); // not in sight
+    w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Bo', 3)] }));
+    expect(w.pw.coalition('Rex').opening).toBe(true); // in sight, nobody but us near Rex
+    w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Di', 16)] }));
+    expect(w.pw.coalition('Rex').opening).toBe(false);
+    w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14, { hurtRecently: true }), ent('Di', 16)] }));
+    expect(w.pw.coalition('Rex').opening).toBe(true);
+    const live = setup(rebel, 'live');
+    live.s.update('social', (all) => ({ ...all, Rex: { ...(all.Rex ?? newSocialProfile('Rex', rebel, 0)), followersSeen: 2 } }));
+    expect(live.pw.coalition('Rex').against).toBeCloseTo((0.6 + 2 * FOLLOWER_WEIGHT) * LIVE_MARGIN);
+    w.pw.stop();
+    live.pw.stop();
+  });
+
+  it('proposes an uprising only when ambitious, vengeful or loyal enough, with someone to ask, and the odds or the moment right', () => {
+    const base = { resentment: 0.6, ambition: 0.2, vengefulness: 0.8, loyalty: 0.3, members: 1, power: 0.5, against: 0.9, opening: true };
+    expect(mayRally(base)).toBe(true);
+    expect(mayRally({ ...base, opening: false })).toBe(false);
+    expect(mayRally({ ...base, opening: false, power: 1 })).toBe(true);
+    expect(mayRally({ ...base, vengefulness: 0.4 })).toBe(false);
+    expect(mayRally({ ...base, members: 0 })).toBe(false);
+    expect(mayRally({ ...base, resentment: 0.4 })).toBe(false);
+    expect(joinsRally({ resentment: 0.5, trust: 0.6, fear: 0.6, followsTarget: false })).toBe(true);
+    expect(joinsRally({ resentment: 0.5, trust: 0.6, fear: 0.9, followsTarget: false })).toBe(false);
+    expect(joinsRally({ resentment: 0.5, trust: 0.3, fear: 0.2, followsTarget: false })).toBe(false);
+    expect(joinsRally({ resentment: 0.9, trust: 0.9, fear: 0.1, followsTarget: true })).toBe(false);
+  });
+
+  it('reads calls to rise and promises to join them, about people we know', () => {
+    const known = ['Rex', 'Bo'];
+    expect(parseRally("Rex has pushed us around long enough. let's deal with Rex together.", known)).toBe('Rex');
+    expect(parseRally('we should take down rex', known)).toBe('Rex');
+    expect(parseRally('join me against Rex!', known)).toBe('Rex');
+    expect(parseRally("let's deal with the zombies", known)).toBeNull();
+    expect(parseRally("let's go mining", known)).toBeNull();
+    expect(parseFightPromise("fine. I'll fight Rex with you.", known)).toBe('Rex');
+    expect(parseFightPromise('count me in against Rex', known)).toBe('Rex');
+    expect(parseFightPromise("I'll bring you 8 logs", known)).toBeNull();
+    expect(codePromises(["fine. I'll fight Rex with you."], known).promises[0]?.what).toMatchObject({ kind: 'fight', target: 'Rex' });
+    expect(codePromises(["fine. I'll fight Rex with you."]).promises[0]?.what.kind).toBe('custom');
+  });
+});
+
+describe('the code default for power (§17.7, §17.8)', () => {
+  const never2 = (_k: string, _a: Record<string, unknown>) => false;
+  function ctx(o: Partial<PowerMoveCtx> & { leader?: string | null; members?: string[]; opening?: boolean; resenters?: string[]; said?: string[] } = {}): PowerMoveCtx {
+    const power: PowerView = {
+      leader: () => o.leader ?? null,
+      coalition: (target) => ({ target, members: o.members ?? ['Bo'], power: 0.55, against: 1.1, opening: o.opening ?? false }),
+      knownResenters: () => o.resenters ?? [],
+      saidLately: (stance, to) => (o.said ?? []).includes(`${stance}:${to}`),
+    };
+    return {
+      isStuck: o.isStuck ?? never2,
+      power,
+      resentmentOf: o.resentmentOf ?? ((n) => (n === 'Rex' ? 0.7 : 0)),
+      mayBrawl: o.mayBrawl ?? never,
+      mayKill: o.mayKill ?? never,
+      liking: o.liking ?? ((n) => (n === 'Rex' ? 2 : 7)),
+      candidates: o.candidates ?? ['Bo'],
+      roll: o.roll ?? 0.9,
+    };
+  }
+  const state = (people: SeenEntity[], commitments: Commitment[] = []): AgentState => {
+    const s = world(rebel, ['Rex', 'Bo', 'Cy']).state;
+    return { ...s, perception: { ...s.perception, nearbyEntities: people }, commitments };
+  };
+
+  it('a follower keeps close to the leader', () => {
+    expect(escortMove(state([ent('Rex', 20)]), ctx({ leader: 'Rex' }))).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    expect(escortMove(state([ent('Rex', 5)]), ctx({ leader: 'Rex' }))).toBeNull();
+    expect(escortMove(state([ent('Rex', 20)]), ctx())).toBeNull();
+  });
+
+  it('grumbles to a friend out of earshot of the one resented; a shared grudge is said as one', () => {
+    const shared = gossipMove(state([ent('Bo', 3)]), ctx({ resenters: ['Bo'] }));
+    expect(shared).toMatchObject({ option: 'talk', target: { agent: 'Bo' }, speechIntent: { stance: 'inform' } });
+    expect(shared?.speechIntent?.gist).toBe("Rex wronged you too. Rex is a bully, I can't stand Rex.");
+    // Not when Rex can hear it, not twice in a row, and grumbling without a shared grudge only sometimes.
+    expect(gossipMove(state([ent('Bo', 3), ent('Rex', 8)]), ctx({ resenters: ['Bo'] }))).toBeNull();
+    expect(gossipMove(state([ent('Bo', 3)]), ctx({ resenters: ['Bo'], said: ['inform:Bo'] }))).toBeNull();
+    expect(gossipMove(state([ent('Bo', 3)]), ctx({ roll: 0.9 }))).toBeNull();
+    expect(gossipMove(state([ent('Bo', 3)]), ctx({ roll: 0.1 }))?.speechIntent?.gist).toBe("Rex is a bully. I can't stand Rex.");
+  });
+
+  it('rallies one who resents Rex too when Rex is alone or hurt', () => {
+    const s = state([ent('Bo', 3), ent('Rex', 30)]);
+    expect(rallyMove(s, ctx({ opening: false }))).toBeNull();
+    const r = rallyMove(s, ctx({ opening: true }));
+    expect(r).toMatchObject({ option: 'recruit', target: { agent: 'Bo' }, speechIntent: { stance: 'rally', mayCommit: false } });
+    expect(parseRally(r?.speechIntent?.gist ?? '', ['Rex'])).toBe('Rex');
+    // Not against our own leader, not again soon, not once sworn already.
+    expect(rallyMove(s, ctx({ opening: true, leader: 'Rex' }))).toBeNull();
+    expect(rallyMove(s, ctx({ opening: true, said: ['rally:Bo'] }))).toBeNull();
+    expect(rallyMove({ ...s, commitments: [pact('Bo', 'Ann', 'Rex')] }, ctx({ opening: true }))).toBeNull();
+  });
+
+  it('answers a call to rise: joins (a promise to fight together) or stays out', () => {
+    const s = world(rebel, ['Rex', 'Bo']).state;
+    const heard: AgentState = {
+      ...s,
+      perception: { ...s.perception, heardSpeech: [{ id: 'u1', convId: 'c1', from: 'Bo', to: ['Ann'], text: "Rex has pushed us around long enough. let's deal with Rex together.", ts: 1, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true }] },
+    };
+    const view = (res: number, fear: number): ConflictView => ({ rungOf: () => 0, fearOf: () => fear, mayBrawl: never, resentmentOf: (n) => (n === 'Rex' ? res : 0), warnedLately: never });
+    const yes = codeDecision(heard, { from: 'Bo', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.6, 0.4) });
+    expect(yes?.speechIntent).toMatchObject({ stance: 'agree', gist: "fine. I'll fight Rex with you.", mayCommit: true });
+    expect(yes?.commitmentsToCreate?.[0]).toMatchObject({ debtor: 'Ann', creditor: 'Bo', what: { kind: 'fight', target: 'Rex' } });
+    const scared = codeDecision(heard, { from: 'Bo', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.6, 0.95) });
+    expect(scared?.speechIntent?.stance).toBe('decline');
+    const loyal = codeDecision(heard, { from: 'Bo', convId: 'c1' }, false, never, {
+      candidates: [],
+      roll: 1,
+      conflict: view(0.6, 0.4),
+      power: { leader: () => 'Rex', coalition: (t) => ({ target: t, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false },
+    });
+    expect(loyal?.speechIntent?.gist).toBe('no. Rex looks after me');
+  });
+
+  it('carries out the uprising: meet up, find Rex, set upon Rex together once the gate allows it', () => {
+    const sworn = [pact('Bo', 'Ann', 'Rex')];
+    // Bo is far: go to Bo first.
+    expect(uprisingMove(state([ent('Bo', 30)], sworn), ctx())).toMatchObject({ option: 'follow', target: { agent: 'Bo' } });
+    // Bo out of sight, last seen somewhere: go there.
+    const s0 = state([], sworn);
+    const s1 = { ...s0, social: { ...s0.social, Bo: { ...(s0.social.Bo ?? newSocialProfile('Bo', rebel, 0)), lastSeenPos: { x: 50, y: 0, z: 5 } } } };
+    expect(uprisingMove(s1, ctx())?.task).toEqual({ skill: 'goTo', args: { x: 50, y: 0, z: 5, range: 3 } });
+    // Together, Rex out of sight: go where Rex was last seen.
+    const s2 = { ...state([ent('Bo', 3)], sworn) };
+    const s3 = { ...s2, social: { ...s2.social, Rex: { ...(s2.social.Rex ?? newSocialProfile('Rex', rebel, 0)), lastSeenPos: { x: -20, y: 0, z: 9 } } } };
+    expect(uprisingMove(s3, ctx())?.rationale).toMatch(/looking for Rex with Bo/);
+    // Rex in sight with Bo at hand: the gate says not yet → close in; then a brawl alongside Bo; at rung 4, to the death.
+    const s4 = state([ent('Bo', 3), ent('Rex', 12)], sworn);
+    expect(uprisingMove(s4, ctx())).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    const brawl = uprisingMove(s4, ctx({ mayBrawl: () => true }));
+    expect(brawl).toMatchObject({ option: 'fight', fight: { target: 'Rex', intent: 'brawl', withAllies: ['Bo'] }, speechIntent: { stance: 'threaten' } });
+    expect(brawl?.task?.args.lethal).toBeUndefined();
+    const kill = uprisingMove(s4, ctx({ mayKill: () => true }));
+    expect(kill?.task?.args).toMatchObject({ target: 'Rex', lethal: true, spareChance: Math.round(spareChance(0.5, 0.7, 4) * 100) / 100 });
+    // No pact, nothing to do.
+    expect(uprisingMove(state([ent('Rex', 12)]), ctx())).toBeNull();
+  });
+
+  it('in the CC: busy with work when Rex comes near with Bo at hand, the sworn fight comes first', () => {
+    const s = state([ent('Bo', 3), ent('Rex', 12)], [pact('Bo', 'Ann', 'Rex')]);
+    const conflict: ConflictView = { rungOf: () => 3, fearOf: () => 0.2, mayBrawl: () => true, mayKill: never, resentmentOf: () => 0.7, warnedLately: never };
+    const power: PowerView = { leader: () => null, coalition: (t) => ({ target: t, members: ['Bo'], power: 0.55, against: 1, opening: false }), knownResenters: () => ['Bo'], saidLately: () => false };
+    const d = codeDecision(s, { atOdds: 'Rex' }, true, never, { candidates: ['Bo'], roll: 0.9, conflict, power });
+    expect(d?.fight).toMatchObject({ target: 'Rex', withAllies: ['Bo'] });
+  });
+});
+
+describe('the evaluator with power (§17.6, §17.8)', () => {
+  function evaluator(persona = rebel) {
+    const s = world(persona, ['Rex', 'Bo']);
+    const bus = new AgentBus();
+    const t = { now: 10_000_000 };
+    const w = WorldConfigSchema.parse({ conflict: { newcomerGraceSec: 0 } });
+    const ce = new ConflictEvaluator({ store: s, bus, logger: nullLogger(), me: persona.name, config: w.conflict, mode: 'test', myGear: () => 0.1, bornAt: 0, rng: () => 0.5, now: () => t.now });
+    s.update('social', (all) => ({ ...all, Rex: { ...(all.Rex ?? newSocialProfile('Rex', persona, 0)), gearScore: 0.9, estCombat: 0.8, fightsWonSeen: 3 }, Bo: { ...(all.Bo ?? newSocialProfile('Bo', persona, 0)), gearScore: 0.4 } }));
+    ce.start();
+    return { s, bus, t, ce };
+  }
+
+  it('those sworn to take Rex on, at hand, shrink the fear of Rex and are the moment to act', () => {
+    const e = evaluator();
+    e.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 8), ent('Bo', 3)] }));
+    const alone = e.ce.pressureOf('Rex');
+    e.s.update('commitments', () => [pact('Bo', 'Ann', 'Rex')]);
+    expect(e.ce.swornAgainst('Rex')).toEqual(['Bo']);
+    const together = e.ce.pressureOf('Rex');
+    expect(together.fear).toBeLessThan(alone.fear);
+    expect(together.motive).toBeCloseTo(alone.motive + 0.3);
+    expect(together.pressure).toBeGreaterThan(alone.pressure + 0.3);
+    expect(e.ce.powerOfName('Rex')).toBeGreaterThan(e.ce.powerOfName('Bo'));
+    e.ce.stop();
+  });
+
+  it('blows on someone who gave up are a betrayal everyone who saw it holds heavily against the attacker', () => {
+    const e = evaluator();
+    e.bus.emit({ type: 'observedAction', action: { id: 'f1', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now } });
+    e.bus.emit({ type: 'heard', utterance: { id: 'u1', convId: 'c1', from: 'Bo', to: 'nearby', text: 'ok ok, I yield!', ts: e.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    // A blow in the same breath doesn't count; one five seconds on does, once.
+    e.t.now += 500;
+    e.bus.emit({ type: 'observedAction', action: { id: 'f2', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now } });
+    expect(e.s.state.social.Rex?.grievances.some((g) => g.kind === 'betrayal')).toBe(false);
+    e.t.now += 5000;
+    e.bus.emit({ type: 'observedAction', action: { id: 'f3', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now } });
+    e.bus.emit({ type: 'observedAction', action: { id: 'f4', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now } });
+    const b = e.s.state.social.Rex?.grievances.filter((g) => g.kind === 'betrayal') ?? [];
+    expect(b).toHaveLength(1);
+    expect(b[0]?.weight).toBeCloseTo(1.2);
+    e.ce.stop();
+  });
+
+  it('the lethal rung opens only where maxRung allows it, and in live mode only for the vengeful or domineering', () => {
+    const e = evaluator(tyrant);
+    const w = WorldConfigSchema.parse({});
+    expect(w.conflict.maxRung).toBe(4);
+    e.s.update('conflict', (c) => ({ ...c, rungs: { Rex: 4 } }));
+    e.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Bo', 3)] }));
+    for (let i = 0; i < 4; i++) e.bus.emit({ type: 'attacked', by: 'Bo', damage: 8 });
+    e.s.update('social', (all) => ({ ...all, Bo: { ...(all.Bo ?? newSocialProfile('Bo', tyrant, 0)), gearScore: 0 } }));
+    let r = e.ce.evaluate('Bo');
+    for (let i = 0; i < 4; i++) {
+      e.t.now += 16_000;
+      e.bus.emit({ type: 'attacked', by: 'Bo', damage: 8 });
+      r = e.ce.evaluate('Bo');
+    }
+    expect(r.rung).toBe(4);
+    expect(e.ce.mayFight('Bo', 'lethal')).toBeNull();
+    const capped = new ConflictEvaluator({ store: e.s, bus: new AgentBus(), logger: nullLogger(), me: 'Rex', config: WorldConfigSchema.parse({ conflict: { maxRung: 3, newcomerGraceSec: 0 } }).conflict, mode: 'test', myGear: () => 0.1, bornAt: 0, now: () => e.t.now });
+    expect(capped.mayFight('Bo', 'lethal')).toMatch(/limited to rung 3/);
+    e.ce.stop();
+  });
+});
+
+describe('fight promises (§17.8) in the commitment tracker', () => {
+  function tracker() {
+    const s = world(rebel, ['Rex', 'Bo']);
+    const bus = new AgentBus();
+    const t = { now: 10_000_000 };
+    const social = { promiseResolved: () => undefined } as unknown as SocialAwareness;
+    const ct = new CommitmentTracker({ store: s, bus, logger: nullLogger(), llm: null, me: 'Ann', social, now: () => t.now });
+    ct.start();
+    return { s, bus, t, ct };
+  }
+
+  it('kept when they strike the one they swore to take on; when we do; moot if that one dies untouched; lapses unbroken', async () => {
+    const k = tracker();
+    k.s.update('commitments', () => [pact('Bo', 'Ann', 'Rex'), { ...pact('Ann', 'Bo', 'Rex'), id: 'mine' }, { ...pact('Bo', 'Ann', 'Cy'), id: 'cy' }, { ...pact('Bo', 'Ann', 'Di'), id: 'di', dueBy: k.t.now - 1 }]);
+    k.bus.emit({ type: 'observedAction', action: { id: 'x1', actor: 'Bo', kind: 'attack', target: 'Rex', ts: k.t.now } });
+    k.bus.emit({ type: 'actionRecorded', record: { id: 'r1', skill: 'duel', args: { target: 'Rex' }, expected: '', observed: 'Rex gave up', ok: true, ts: k.t.now, durationMs: 1 } });
+    k.bus.emit({ type: 'peerDied', name: 'Cy', cause: 'fell', witnessed: false });
+    await (k.ct as unknown as { check(): Promise<void> }).check();
+    const by = (id: string) => k.s.state.commitments.find((c) => c.id === id)?.status;
+    expect(by('kBoAnnRex')).toBe('fulfilled');
+    expect(by('mine')).toBe('fulfilled');
+    expect(by('cy')).toBe('cancelled');
+    expect(by('di')).toBe('cancelled');
+    k.ct.stop();
   });
 });

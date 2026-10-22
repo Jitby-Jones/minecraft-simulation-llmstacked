@@ -1,8 +1,9 @@
 // Commitment tracking (§6.4): what was promised against what happens, checked in code. A `give` to us is kept when
 // they hand the items over (seen tossed to us and collected); a `give` from us when our give action to them
 // succeeds; `meet` when both are within 5 blocks of the place in time; `help` when they work or fight near us for
-// a while. Anything still open at its deadline is broken, except `custom` promises, which an L1 judgment settles
-// from what was observed. Resolutions feed Social Awareness (trust and sentiment) and working memory.
+// a while; `fight` (an uprising, §17.8) when they are seen to strike the one they swore to take on. Anything still
+// open at its deadline is broken, except `custom` promises, which an L1 judgment settles from what was observed, and
+// `fight` promises, which lapse when no moment came. Resolutions feed Social Awareness and working memory.
 
 import type { AgentName, Commitment, CommitmentStatus, Logger } from '@agora/shared';
 import type { LlmClient } from '@agora/llm';
@@ -55,12 +56,21 @@ export class CommitmentTracker {
         if (a.kind === 'gave' && a.target === this.o.me) this.received(a.actor, a.item, a.qty ?? 1);
         if (a.kind === 'collect' && a.item) this.pickedUp(a.actor, a.item, a.qty ?? 1);
         if ((a.kind === 'dig' || a.kind === 'swing') && a.pos) this.workedNearby(a.actor, a.pos);
+        if (a.kind === 'attack' && a.target) this.struck(a.actor, a.target);
+      }),
+    );
+    // The one they swore to take on is dead: done if they were in it, else the promise is moot.
+    this.offs.push(
+      this.o.bus.on('peerDied', (e) => {
+        for (const c of this.open()) if (c.what.kind === 'fight' && c.what.target === e.name) this.resolve(c, this.struckAt.has(`${c.debtor}>${e.name}`) ? 'fulfilled' : 'cancelled', 'observation');
       }),
     );
     this.offs.push(
       this.o.bus.on('actionRecorded', (e) => {
         const r = e.record;
         if (r.skill === 'give' && r.ok && typeof r.args.to === 'string') this.gave(r.args.to, typeof r.args.item === 'string' ? r.args.item : undefined, Number(r.args.qty ?? 1));
+        // Our own blows in a fight we swore to.
+        if ((r.skill === 'duel' || r.skill === 'attack') && typeof r.args.target === 'string' && (r.ok || Number(r.data?.landed ?? 0) > 0)) this.struck(this.o.me, r.args.target);
         const left = Number(r.data?.tossed ?? 0);
         if (r.skill === 'give' && !r.ok && left > 0 && typeof r.args.to === 'string' && typeof r.args.item === 'string') {
           this.tossed.push({ to: r.args.to, item: r.args.item, qty: left, at: this.now() });
@@ -152,6 +162,16 @@ export class CommitmentTracker {
     this.o.store.update('taskQueue', (q) => q.map((t) => (t.commitmentId === c.id && t.skill === 'give' ? { ...t, args: { ...t.args, qty } } : t)), 'hand over what was gathered');
   }
 
+  /** Who struck whom, for `fight` promises: debtor>target → when. */
+  private readonly struckAt = new Map<string, number>();
+
+  /** §17.8: someone struck the one they swore to take on (or we did). */
+  private struck(actor: AgentName, target: AgentName): void {
+    this.struckAt.set(`${actor}>${target}`, this.now());
+    if (this.struckAt.size > 64) this.struckAt.delete(this.struckAt.keys().next().value ?? '');
+    for (const c of this.open()) if (c.what.kind === 'fight' && c.debtor === actor && c.what.target === target) this.resolve(c, 'fulfilled', actor === this.o.me ? 'self_report' : 'observation');
+  }
+
   private workedNearby(actor: AgentName, pos: { x: number; y: number; z: number }): void {
     const me = this.o.store.state.self.pos;
     if (Math.hypot(pos.x - me.x, pos.y - me.y, pos.z - me.z) > 8) return;
@@ -179,6 +199,11 @@ export class CommitmentTracker {
         }
       }
       if (c.dueBy === undefined || now < c.dueBy) continue;
+      // An uprising whose moment never came lapses; nobody was let down.
+      if (c.what.kind === 'fight') {
+        this.resolve(c, 'cancelled');
+        continue;
+      }
       if (c.what.kind === 'custom' && c.debtor !== this.o.me) {
         if (!this.judging.has(c.id)) {
           this.judging.add(c.id);

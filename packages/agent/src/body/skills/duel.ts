@@ -56,8 +56,16 @@ export function reckonBlow(weapon: string | undefined, theirArmor: readonly stri
 
 export const duel = defineSkill({
   name: 'duel',
-  description: 'duel {target, stopAtHealth?} — fight a person until one of you gives up (only when the conflict gate allows it)',
-  argsSchema: z.object({ target: z.string().min(1), stopAtHealth: z.coerce.number().min(1).max(19).default(8), seconds: z.coerce.number().min(5).max(120).default(60) }),
+  description: 'duel {target, stopAtHealth?, lethal?} — fight a person until one of you gives up, or to the death when lethal (only when the conflict gate allows it)',
+  argsSchema: z.object({
+    target: z.string().min(1),
+    stopAtHealth: z.coerce.number().min(1).max(19).default(8),
+    seconds: z.coerce.number().min(5).max(120).default(60),
+    /** §17.5 rung 4: no stopping at a beating, and a yield is spared only on the winner's mercy. */
+    lethal: z.boolean().default(false),
+    /** The chance of sparing them if they give up (§17.6 mercy, rolled once). */
+    spareChance: z.coerce.number().min(0).max(1).default(1),
+  }),
   talkOverable: false,
   slipKinds: ['tool'],
   expect: () => ({ kind: 'none' }),
@@ -75,6 +83,9 @@ export const duel = defineSkill({
     p.meleeAttackRate = combat < 0.3 ? new RandomTicks(2, 6) : new MaxDamageOffset(0, jitterTicks);
     let theyGaveUp = false;
     let calledOff = false;
+    // A fight to the death: whether we would spare them, decided once (§17.6).
+    const merciful = !args.lethal || ctx.rng.next() < args.spareChance;
+    let unspared = false;
     const onMsg = (m: string) => {
       const line = parseProximityLine(m);
       if (line.kind !== 'speech' || line.speaker !== args.target) return;
@@ -135,10 +146,14 @@ export const duel = defineSkill({
           outcome = 'yielded';
           break;
         }
-        if (theyGaveUp) {
+        if (theyGaveUp && merciful) {
           outcome = 'won';
           why = 'gave up';
           break;
+        }
+        if (theyGaveUp && !unspared) {
+          unspared = true;
+          ctx.logger.info({ module: 'duel', target: args.target }, 'no mercy for a yield');
         }
         if (calledOff) {
           why = 'called off';
@@ -150,14 +165,14 @@ export const duel = defineSkill({
           outcome = 'gone';
           break;
         }
-        if (dealt - REGEN_PER_S * ((Date.now() - started) / 1000) >= BEATEN_DAMAGE) {
+        if (!args.lethal && dealt - REGEN_PER_S * ((Date.now() - started) / 1000) >= BEATEN_DAMAGE) {
           outcome = 'won';
           why = 'took a beating';
           break;
         }
         const t = Date.now();
         // A yield in deeds: three of our blows in a row went unanswered, and theirs have stopped for a while.
-        if (unanswered >= 3 && t - theirLast > QUIET_MS && t - ourLast < 2500) {
+        if (!args.lethal && unanswered >= 3 && t - theirLast > QUIET_MS && t - ourLast < 2500) {
           outcome = 'won';
           why = 'stopped fighting back';
           break;

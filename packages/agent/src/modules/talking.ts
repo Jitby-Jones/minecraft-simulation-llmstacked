@@ -368,6 +368,12 @@ export class Talking {
     if (intent.stance === 'agree' && intent.mayCommit && /^I('ll|'m) /.test(intent.gist) && intent.gist.length <= 80) return `sure! ${intent.gist}`;
     // A counter-offer is said as it is, so the other side can take it or leave it (§6.6).
     if (intent.stance === 'negotiate' && /^how about /i.test(intent.gist) && intent.gist.length <= 100) return intent.gist;
+    // A demand (§17.7), the signal to strike together, a call to rise up, or news about someone (§17.8): said as
+    // worded, so it is understood.
+    if (intent.stance === 'threaten' && /^(give|bring|hand|now!)/i.test(intent.gist) && intent.gist.length <= 100) return intent.gist;
+    if ((intent.stance === 'rally' || intent.stance === 'inform') && intent.gist.length > 0 && intent.gist.length <= 120) return intent.gist;
+    // Giving in to a demand: said grudgingly, but plainly (§17.7).
+    if (intent.stance === 'agree' && intent.mayCommit && /^fine\. I'll /.test(intent.gist) && intent.gist.length <= 80) return intent.gist;
     const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
     if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
       return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';

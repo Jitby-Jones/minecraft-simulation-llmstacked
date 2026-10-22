@@ -24,6 +24,8 @@ import { pushWorkmem } from '../state/workmem';
 import { confirmationScaled, conformityPull, heardConsensus, pulledSentiment } from '../mind/biases';
 import { DEED_DELTAS, type Deed, TRUST_DELTAS, driftSentiment, withEvidence, withSentiment, withTrust } from './math';
 import { readOpinions } from './opinions';
+import { parseDemand, parseFightPromise } from '../conflict/coercion';
+import { itemMatcher } from '../body/items';
 
 export const SocialUpdateSchema = z.object({
   sentimentDelta: z.number().min(-2).max(2).default(0),
@@ -42,12 +44,20 @@ export const SocialUpdateSchema = z.object({
 });
 export type SocialUpdate = z.infer<typeof SocialUpdateSchema>;
 
-const KINDS = ['give', 'gather', 'meet', 'help', 'build', 'follow', 'custom'] as const;
+const KINDS = ['give', 'gather', 'meet', 'help', 'build', 'follow', 'fight', 'custom'] as const;
+/** An uprising agreed to (§17.8) waits this long for its moment before it lapses. */
+const FIGHT_DUE_SEC = 30 * 60;
 export const PromisesSchema = z.object({
   promises: z
     .array(
       z.object({
-        what: z.object({ kind: z.enum(KINDS), item: z.string().max(40).optional(), qty: z.number().int().min(1).max(256).optional(), text: z.string().min(1).max(160) }),
+        what: z.object({
+          kind: z.enum(KINDS),
+          item: z.string().max(40).optional(),
+          qty: z.number().int().min(1).max(256).optional(),
+          target: z.string().min(1).max(32).optional(),
+          text: z.string().min(1).max(160),
+        }),
         dueInSec: z.number().int().min(10).max(24 * 3600).optional(),
       }),
     )
@@ -75,12 +85,17 @@ export function codeSocialUpdate(theirLines: readonly string[]): SocialUpdate {
 const NUM = /\b(\d{1,3})\b/;
 const ITEMISH = /\b(?:\d{1,3}\s+)?([a-z_]{3,24}?)s?\b(?=[\s,.!?]|$)/i;
 
-/** The code default for a promise someone made us: "I'll bring you 8 logs" → give 8 logs. */
-export function codePromises(theirLines: readonly string[]): Promises {
+/**
+ * The code default for a promise someone made us: "I'll bring you 8 logs" → give 8 logs; "I'll fight Rex with you"
+ * → a fight against Rex (§17.8), when Rex is someone we know of.
+ */
+export function codePromises(theirLines: readonly string[], known: readonly AgentName[] = []): Promises {
   const promises = theirLines
     .filter((t) => looksLikePromise(t))
     .slice(0, 2)
     .map((t) => {
+      const foe = parseFightPromise(t, known);
+      if (foe) return { what: { kind: 'fight' as const, target: foe, text: t.slice(0, 160) }, dueInSec: FIGHT_DUE_SEC };
       const m = /\b(?:bring|give|get|fetch|grab)\s+(?:you\s+)?(?:some\s+)?(\d{1,3})?\s*([a-z_]{3,24})/i.exec(t);
       const qty = m?.[1] ? Number(m[1]) : NUM.exec(t)?.[1] ? Number(NUM.exec(t)?.[1]) : undefined;
       const item = m?.[2] ?? ITEMISH.exec(t)?.[1];
@@ -316,7 +331,7 @@ export class SocialAwareness {
 
   /** §6.4: promises the partner made to us become accepted commitments (L1, or code). */
   private async extractPromises(partner: AgentName, conv: ConversationState, theirs: readonly string[]): Promise<void> {
-    const fallback = () => codePromises(theirs);
+    const fallback = () => codePromises(theirs, Object.keys(this.o.store.state.social));
     let out: Promises = fallback();
     if (this.o.llm && !this.o.store.state.flags.codeOnly) {
       const r = await this.o.llm.call<Promises>({
@@ -329,7 +344,7 @@ export class SocialAwareness {
         messages: [
           {
             role: 'system',
-            content: `List only the promises ${partner} made to you in this conversation (things ${partner} said they would do for you). JSON: {"promises": [{"what": {"kind": "give|gather|meet|help|build|follow|custom", "item": "minecraft item id", "qty": 1, "text": "what they promised"}, "dueInSec": 600}]}`,
+            content: `List only the promises ${partner} made to you in this conversation (things ${partner} said they would do for you). JSON: {"promises": [{"what": {"kind": "give|gather|meet|help|build|follow|fight|custom", "item": "minecraft item id", "qty": 1, "target": "for fight: whom they will fight with you", "text": "what they promised"}, "dueInSec": 600}]}`,
           },
           { role: 'user', content: this.transcriptText(conv) },
         ],
@@ -339,23 +354,28 @@ export class SocialAwareness {
     const now = this.now();
     // A promise said twice (or restated later) is still one promise.
     const open = this.o.store.state.commitments.filter((c) => c.debtor === partner && c.creditor === this.o.me && (c.status === 'accepted' || c.status === 'proposed'));
-    const key = (w: Commitment['what']) => `${w.kind}:${w.item ?? w.text}`;
+    const key = (w: Commitment['what']) => `${w.kind}:${w.item ?? w.target ?? w.text}`;
     const seen = new Set(open.map((c) => key(c.what)));
     const fresh: Promises['promises'] = [];
     for (const pr of out.promises) {
+      // A fight is against someone (§17.8); a fight against no one in particular promises nothing.
+      if (pr.what.kind === 'fight' && (!pr.what.target || !this.o.store.state.social[pr.what.target])) continue;
       if (seen.has(key(pr.what))) continue;
       seen.add(key(pr.what));
       fresh.push(pr);
     }
+    // What we demanded of them in this conversation (§17.7): their giving in to it is coerced.
+    const demanded = conv.transcript.filter((u) => u.from === this.o.me).map((u) => parseDemand(u.text)?.item).filter((i): i is string => Boolean(i));
     const made: Commitment[] = fresh.map((pr) => ({
       id: newId('k', now),
       debtor: partner,
       creditor: this.o.me,
       what: pr.what,
-      dueBy: now + (pr.dueInSec ?? 600) * 1000,
+      dueBy: now + (pr.dueInSec ?? (pr.what.kind === 'fight' ? FIGHT_DUE_SEC : 600)) * 1000,
       status: 'accepted',
       createdFromConv: conv.convId,
       createdAt: now,
+      ...(pr.what.item && demanded.some((d) => itemMatcher(d).matches(pr.what.item ?? '') || itemMatcher(pr.what.item ?? '').matches(d)) ? { coerced: true } : {}),
     }));
     if (made.length === 0) return;
     this.o.store.update('commitments', (all) => [...all, ...made], `${partner} promised`);

@@ -86,8 +86,14 @@ interface Running {
   crashes: number[];
 }
 
+/** The extinction brake looks at the deaths of the last hour (§17.10). */
+const HOUR_MS = 60 * 60_000;
+
 export class Supervisor {
   private roster: Roster;
+  /** When agents died this past hour, and until when the extinction brake holds (§17.10). */
+  private readonly deaths: number[] = [];
+  private brakeUntil = 0;
   private readonly running = new Map<string, Running>();
   private stopping = false;
   private readonly timers = new Set<NodeJS.Timeout>();
@@ -306,6 +312,9 @@ export class Supervisor {
     }
     entry.kitGiven = true;
     this.save();
+    // Born during the extinction brake: as careful as everyone else for the rest of it.
+    const b = this.o.world.conflict.extinctionBrake;
+    if (this.now() < this.brakeUntil) s.send({ t: 'cautionShift', shift: b.cautionShift, untilTs: this.brakeUntil });
   }
 
   private onDied(s: HubSession, username: string, cause: string): void {
@@ -317,6 +326,23 @@ export class Supervisor {
     this.save();
     this.publishSkins();
     this.o.logger.info({ module: 'supervisor', agent: username, cause }, 'agent died');
+    this.brake();
+  }
+
+  /**
+   * §17.10 extinction brake: more deaths in an hour than `deathsPerHourMax` raises every living agent's own caution
+   * baseline for a while (like a mood; it never changes what they perceive). Each application is logged.
+   */
+  private brake(): void {
+    const t = this.now();
+    this.deaths.push(t);
+    while (this.deaths.length > 0 && t - (this.deaths[0] ?? t) > HOUR_MS) this.deaths.shift();
+    const b = this.o.world.conflict.extinctionBrake;
+    if (this.deaths.length <= b.deathsPerHourMax || b.cautionShift <= 0 || b.durationSec <= 0) return;
+    this.brakeUntil = t + b.durationSec * 1000;
+    const told = this.o.hub.list().filter((x) => x.username);
+    for (const x of told) x.send({ t: 'cautionShift', shift: b.cautionShift, untilTs: this.brakeUntil });
+    this.o.logger.warn({ module: 'supervisor', deathsLastHour: this.deaths.length, shift: b.cautionShift, until: this.brakeUntil, agents: told.map((x) => x.username) }, 'extinction brake: everyone more careful for a while');
   }
 
   private memoryFile(username: string): string {

@@ -15,7 +15,8 @@ import { newSocialProfile } from '@agora/agent/state/social';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
-const world = WorldConfigSchema.parse({});
+// Words and a punch at most here: the lethal rung (M8b) stays off.
+const world = WorldConfigSchema.parse({ conflict: { maxRung: 3 } });
 const Y = -60;
 const PORT = 25574;
 

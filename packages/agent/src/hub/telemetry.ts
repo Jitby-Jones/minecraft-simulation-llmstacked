@@ -58,10 +58,13 @@ export function startTelemetry(o: TelemetryOptions): () => void {
     on('actionRecorded', (e) => {
       const r = e.record;
       send('skill', { skill: r.skill, args: brief(r.args), ok: r.ok, observed: r.observed, ...(r.error ? { error: r.error } : {}), ms: r.durationMs, ...(r.data ? { data: r.data } : {}) });
-      if (r.skill === 'duel') send('fight', { kind: 'duel', with: r.args.target ?? null, outcome: r.data?.outcome ?? 'interrupted' });
+      if (r.skill === 'duel') send('fight', { kind: 'duel', with: r.args.target ?? null, outcome: r.data?.outcome ?? 'interrupted', lethal: r.args.lethal === true });
     }),
   );
   offs.push(on('rungChanged', (e) => send('fight', { kind: 'rung', with: e.name, from: e.from, to: e.to })));
+  // §17.7, §17.8: whom we follow, and walking away from a leader set upon by a group.
+  offs.push(on('leaderChanged', (e) => send('fight', { kind: 'follow', leader: e.leader, before: e.before })));
+  offs.push(on('defected', (e) => send('fight', { kind: 'defect', from: e.from, attackers: e.attackers })));
   offs.push(
     on('conversationEnded', (e) => {
       const c = store.state.conversations[e.convId];
@@ -73,7 +76,7 @@ export function startTelemetry(o: TelemetryOptions): () => void {
   offs.push(
     on('commitmentResolved', (e) => {
       const c = store.state.commitments.find((x) => x.id === e.commitmentId);
-      if (c) send('commitment', { debtor: c.debtor, creditor: c.creditor, text: c.what.text, status: e.status });
+      if (c) send('commitment', { debtor: c.debtor, creditor: c.creditor, text: c.what.text, kind: c.what.kind, status: e.status, ...(c.coerced ? { coerced: true } : {}) });
     }),
   );
 
@@ -91,7 +94,7 @@ export function startTelemetry(o: TelemetryOptions): () => void {
     for (const c of store.state.commitments) {
       if (seenCommitments.has(c.id)) continue;
       seenCommitments.add(c.id);
-      send('commitment', { debtor: c.debtor, creditor: c.creditor, text: c.what.text, status: c.status, ...(c.dueBy ? { dueBy: c.dueBy } : {}) });
+      send('commitment', { debtor: c.debtor, creditor: c.creditor, text: c.what.text, kind: c.what.kind, status: c.status, ...(c.coerced ? { coerced: true } : {}), ...(c.dueBy ? { dueBy: c.dueBy } : {}) });
     }
   };
   store.on('change', onChange);
@@ -108,6 +111,7 @@ export function startTelemetry(o: TelemetryOptions): () => void {
       isDay: s.self.isDay,
       goal: s.goals.current?.text ?? null,
       role: s.goals.role ?? null,
+      leader: Object.values(s.social).find((p) => p.allegiance === 'leader')?.name ?? null,
       village: s.goals.social.filter((g) => g.status === 'active').map((g) => g.text),
       option: opt ? { option: opt.option, status: opt.status, startedAt: opt.startedAt, ...(opt.skill ? { skill: opt.skill, args: brief(opt.args) } : {}), ...(opt.progress ? { progress: opt.progress } : {}), ...(opt.targetAgent ? { target: opt.targetAgent } : {}) } : null,
       emotions: { anger: r2(e.anger), fear: r2(e.fear), joy: r2(e.joy), sadness: r2(e.sadness), shame: r2(e.shame), envy: r2(e.envy), affection: r2(e.affection), arousal: r2(e.arousal) },

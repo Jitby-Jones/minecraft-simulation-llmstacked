@@ -32,6 +32,8 @@ import { TradeTracker } from './social/trades';
 import { CATEGORIES, gearScore, normalizeItemName } from './body/items';
 import { BiasWatch } from './mind/biasWatch';
 import { ConflictEvaluator } from './conflict/evaluator';
+import { PowerWatch } from './conflict/power';
+import { authorityShift } from './conflict/coercion';
 import { SURRENDER_RE } from './body/skills/duel';
 import { Crowd } from './mind/crowd';
 import { Feelings } from './mind/feelings';
@@ -93,6 +95,7 @@ export class Agent {
   readonly crowd: Crowd;
   readonly biases: BiasWatch;
   readonly conflict: ConflictEvaluator;
+  readonly power: PowerWatch;
   private dangerSource = '';
   /** The danger was a person (by name, or "someone"): no article. */
   private dangerIsPerson = false;
@@ -172,7 +175,23 @@ export class Agent {
       conflict: {
         rungOf: (n) => this.conflict.rungOf(n),
         fearOf: (n) => this.store.state.social[n]?.fearOf ?? 0,
+        resentmentOf: (n) => this.conflict.resentmentOf(n),
+        // §18.4 authority: a demand from the leader we follow, someone seen leading, or an idol, is easier to give in to.
+        authorityOf: (n) => {
+          const p = this.store.state.social[n];
+          return authorityShift({
+            leader: this.power.leader() === n || p?.perceivedRole === 'leader',
+            admiration: p?.admiration ?? 0,
+            susceptibility: persona.mind.biasProfile.authority,
+            override: this.mind.override(),
+          });
+        },
         mayFight: (t, intent) => this.conflict.mayFight(t, intent),
+      },
+      power: {
+        leader: () => this.power.leader(),
+        coalition: (t) => this.power.coalition(t),
+        knownResenters: (t) => this.power.knownResenters(t),
       },
       isPerson: (n) => Boolean(body.bot.players[n]) || Boolean(this.store.state.social[n]),
       mindLines: () => {
@@ -191,6 +210,7 @@ export class Agent {
           const g = [...(s.social[n]?.grievances ?? [])].sort((a, b) => b.weight - a.weight)[0];
           lines.push(`${n}: resentment ${r.resentment.toFixed(1)}, fear ${r.fear.toFixed(1)}, ${['keep away', 'hostile talk', 'threats', 'ready to fight', 'deadly'][rung] ?? 'calm'}${g ? `; worst: ${g.note ?? g.kind}` : ''}`);
         }
+        lines.push(...this.powerLines(people));
         return lines;
       },
       claimToCheck: () => {
@@ -243,8 +263,12 @@ export class Agent {
       me: username,
       mind: {
         override: () => this.mind.override(),
-        // §18.4.1 fearLevel = max(fear, caution above its baseline); a feared leader joins in with M8b.
-        fearLevel: () => Math.max(this.store.state.emotions.fear, this.store.state.drives.caution - this.store.state.drives.cautionBaseline),
+        // §18.4.1 fearLevel = max(fear, caution above its baseline, fear of the leader we follow).
+        fearLevel: () => {
+          const s = this.store.state;
+          const leader = this.power.leader();
+          return Math.max(s.emotions.fear, s.drives.caution - s.drives.cautionBaseline, leader ? (s.social[leader]?.fearOf ?? 0) : 0);
+        },
       },
       now,
     });
@@ -287,6 +311,17 @@ export class Agent {
       fightCapReached: this.fightCapReached,
       bornAt: now(),
       ...rng,
+      now,
+    });
+    this.power = new PowerWatch({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      mode: world.mode,
+      powerOf: (n) => this.conflict.powerOfName(n),
+      myPower: () => this.conflict.myPower(),
+      fearOf: (n) => this.store.state.social[n]?.fearOf ?? 0,
       now,
     });
     this.biases = new BiasWatch({ store: this.store, bus: this.bus, logger, me: username, override: () => this.mind.override(), nudge: (n, d, note) => this.social.nudge(n, d, note), ...rng, now });
@@ -344,7 +379,8 @@ export class Agent {
     body.reflexes.setHooks({
       caution: () => this.store.state.drives.caution,
       combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
-      shouldDefend: (name) => Boolean(this.store.state.social[name]) && this.mind.liking(name) >= 7,
+      // Friends, and the leader we follow unless a group sets upon them and we walk away (§17.7, §17.8).
+      shouldDefend: (name) => this.power.standsBy(name) || (Boolean(this.store.state.social[name]) && this.mind.liking(name) >= 7),
       // Self-defense is always allowed; deliberate fights are code-gated in the conflict core (M6b).
       mayFightBack: () => true,
       deliberateFight: () => ['attack', 'duel'].includes(this.store.state.option?.skill ?? ''),
@@ -404,6 +440,30 @@ export class Agent {
     return this.o.username;
   }
 
+  /**
+   * §17.7, §17.8 in the CC packet: whom we follow, who leads whom among those around, a grudge we share with someone
+   * here ("you and Y share a grudge against X"), and who else we believe resents those we resent.
+   */
+  private powerLines(people: readonly AgentName[]): string[] {
+    const s = this.store.state;
+    const lines: string[] = [];
+    const leader = this.power.leader();
+    if (leader) lines.push(`You follow ${leader}.`);
+    for (const n of people) {
+      const f = s.social[n]?.followersSeen ?? 0;
+      if (n !== leader && f >= 2) lines.push(`${n} leads ${f} followers.`);
+    }
+    const resented = Object.keys(s.social).filter((n) => this.conflict.resentmentOf(n) >= 0.4);
+    for (const x of resented.slice(0, 3)) {
+      const others = this.power.knownResenters(x);
+      const shared = people.filter((y) => y !== x && others.includes(y) && this.mind.liking(y) >= 6);
+      for (const y of shared) lines.push(`You and ${y} share a grudge against ${x}.`);
+      const rest = others.filter((o) => !shared.includes(o));
+      if (rest.length > 0) lines.push(`Others who resent ${x}: ${rest.slice(0, 4).join(', ')}.`);
+    }
+    return lines;
+  }
+
   start(): void {
     this.o.body.reflexes.start();
     this.perception.start();
@@ -430,11 +490,13 @@ export class Agent {
     this.crowd.start();
     this.biases.start();
     this.conflict.start();
+    this.power.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.power.stop();
     this.conflict.stop();
     this.biases.stop();
     this.crowd.stop();
@@ -468,6 +530,12 @@ export class Agent {
    * §17.6: running from a person, say we give up so they stop. A duel that is giving up says so itself, so wait a
    * moment to hear it first; and say it only once.
    */
+  /** §17.10 extinction brake: our own caution baseline is raised for a while (a mood), never what we perceive. */
+  brake(shift: number, until: number): void {
+    this.store.update('drives', (d) => ({ ...d, brakeShift: shift, brakeUntil: until, caution: Math.max(d.caution, Math.min(1, d.cautionBaseline + shift)) }), 'extinction brake');
+    this.o.logger.info({ module: 'agent', shift, until }, 'extinction brake: more careful for a while');
+  }
+
   private sayYield(to: AgentName): void {
     const now = this.o.now ?? Date.now;
     if (now() - this.yieldSaidAt < 20_000 || this.yieldPending) return;

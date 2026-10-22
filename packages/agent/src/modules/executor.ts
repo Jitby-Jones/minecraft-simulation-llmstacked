@@ -55,6 +55,8 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     // A trade is talked through (§6.6); the hand-over is a give task once it's agreed.
     case 'talk':
     case 'trade':
+    case 'demand':
+    case 'recruit':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
       return { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 600) } };
     // A fight is a duel until someone yields (the conflict gate let it through, §17.5).
@@ -63,10 +65,8 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
       // A person is fought until someone yields; a mob just until it's gone.
       if (opt.targetAgent) return { skill: nearAgent(opt.targetAgent, 32) ? 'duel' : 'attack', args: { target: opt.targetAgent } };
       return { skill: 'wait', args: { seconds: 5 } };
-    // Romance and the power options get their own skills in M8b–M9; until then they pass time.
-    case 'demand':
+    // Romance gets its own skills in M9; until then these pass time.
     case 'yield':
-    case 'recruit':
     case 'court':
     case 'apologize':
     case 'rest':

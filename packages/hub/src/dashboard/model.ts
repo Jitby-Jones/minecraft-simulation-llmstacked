@@ -94,6 +94,8 @@ export class DashboardModel {
   private readonly chat = new Ring<Row>(400);
   private readonly events = new Ring<Row>(300);
   private readonly problems = new Ring<Row>(100);
+  /** Power and its fights (§17.12 metrics): duels, defections, uprisings agreed, coerced payments, kills. */
+  private readonly power = new Ring<Row>(400);
   private readonly costs: CostBucket[] = [];
   private readonly totals = { input: 0, output: 0, calls: 0, errors: 0 };
   private readonly now: () => number;
@@ -154,6 +156,9 @@ export class DashboardModel {
     v.online = false;
     v.died = { ts: this.now(), cause };
     this.event(name, 'died', { cause });
+    // Killed by one of the agents (the death message names them).
+    const killer = [...this.agents.keys()].find((n) => n !== name && new RegExp(`\\b${n}\\b`).test(cause));
+    if (killer) this.power.push({ ts: this.now(), what: 'killed', agent: killer, victim: name });
   }
 
   /** A bot's `log` line at warn or worse (shown as a problem). */
@@ -193,13 +198,25 @@ export class DashboardModel {
         return;
       }
       case 'fight':
+        // Following someone, or walking away from them as a group sets upon them (§17.7, §17.8).
+        if (data.kind === 'follow' || data.kind === 'defect') {
+          this.event(name, data.kind === 'defect' ? 'defected' : 'follows', data);
+          if (data.kind === 'defect') this.power.push({ ts, what: 'defected', agent: name });
+          return;
+        }
+        if (data.kind === 'duel') this.power.push({ ts, what: 'duel', agent: name, lethal: data.lethal === true, outcome: data.outcome });
         // A rung climbing toward a fight, or a fight itself, is worth the event feed; small moves stay per agent.
         if (data.kind === 'duel' || num(data.to) >= 2) this.event(name, data.kind === 'duel' ? 'fight' : 'escalation', data);
         else v.events.push({ ...row, what: 'rung' });
         return;
+      case 'commitment':
+        // An uprising agreed to (§17.8), and tribute paid under threat (§17.7).
+        if (data.kind === 'fight' && data.status === 'accepted' && data.debtor === name) this.power.push({ ts, what: 'uprising', agent: name });
+        if (data.coerced === true && data.status === 'fulfilled' && data.debtor === name) this.power.push({ ts, what: 'coerced', agent: name });
+        this.event(name, kind, data);
+        return;
       case 'conversation':
       case 'goal':
-      case 'commitment':
       case 'modelSwap':
       case 'guard':
         this.event(name, kind, data);
@@ -315,6 +332,7 @@ export class DashboardModel {
       cost: this.costView(),
       agents: agents.map((a) => this.summary(a)),
       society: this.society(),
+      power: this.powerView(),
       events: this.events.last(40).reverse(),
       problems: this.problems.last(20).reverse(),
     };
@@ -358,6 +376,38 @@ export class DashboardModel {
     }
     const keywords = [...words.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
     return { roles, entropy: shannonEntropy(labels), keywords };
+  }
+
+  /**
+   * §17.12: who follows whom among those online (a leader has two or more), and over the last hour the fights (a
+   * brawl or to the death), how they ended, kills, defections, uprisings agreed and payments made under threat.
+   */
+  powerView(): {
+    leaders: { name: string; followers: string[] }[];
+    hour: { brawls: number; lethal: number; yields: number; kills: number; defections: number; uprisings: number; coerced: number };
+  } {
+    const led = new Map<string, string[]>();
+    for (const v of this.agents.values()) {
+      const l = v.state?.leader;
+      if (v.online && typeof l === 'string' && l) led.set(l, [...(led.get(l) ?? []), v.name]);
+    }
+    const leaders = [...led.entries()].map(([name, followers]) => ({ name, followers: followers.sort() })).sort((a, b) => b.followers.length - a.followers.length || a.name.localeCompare(b.name));
+    const t = this.now();
+    const rows = this.power.items().filter((r) => t - r.ts <= HOUR);
+    const duels = rows.filter((r) => r.what === 'duel');
+    const count = (what: string) => rows.filter((r) => r.what === what).length;
+    return {
+      leaders,
+      hour: {
+        brawls: duels.filter((r) => r.lethal !== true).length,
+        lethal: duels.filter((r) => r.lethal === true).length,
+        yields: duels.filter((r) => r.outcome === 'yielded').length,
+        kills: count('killed'),
+        defections: count('defected'),
+        uprisings: count('uprising'),
+        coerced: count('coerced'),
+      },
+    };
   }
 
   /** Who thinks what of whom (§18.8 heatmaps): one cell per observer and person they know. */

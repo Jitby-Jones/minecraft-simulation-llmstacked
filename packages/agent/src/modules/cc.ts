@@ -22,7 +22,8 @@ import {
 import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
 import type { AgentBus } from '../bus';
 import { itemMatcher } from '../body/items';
-import { yieldHealth } from '../conflict/pressure';
+import { complies, spareChance, yieldHealth } from '../conflict/pressure';
+import { type Demand, demandFor, joinsRally, parseDemand, parseRally } from '../conflict/coercion';
 import { type Offer, amountOf, judgeOffer, parseHelpRequest, parseTradeOffer, stacksText } from '../social/trades';
 import { getSkill, skillCatalog } from '../body/skills/registry';
 import { CC_POLICY } from '../state/policies';
@@ -36,6 +37,7 @@ import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 import { villageWorkOf } from '../social/village';
 import { deathNoticeMove, hungerMove, hurtMove, villageMove } from './villageMove';
+import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from './powerMove';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -77,7 +79,7 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
   if ((d.option === 'talk' || d.option === 'follow') && !d.target?.agent) return `option ${d.option} needs target.agent`;
   if (d.option === 'move' && !d.target?.pos && !d.target?.agent) return 'option move needs target.pos or target.agent';
   const who = d.target?.agent;
-  if (who && who !== env.me && ['talk', 'follow', 'help', 'trade', 'move'].includes(d.option) && !env.canPerceive(who)) {
+  if (who && who !== env.me && ['talk', 'follow', 'help', 'trade', 'move', 'demand', 'recruit'].includes(d.option) && !env.canPerceive(who)) {
     return `you can't see or hear ${who} right now`;
   }
   return null;
@@ -101,12 +103,20 @@ export interface SocialChance {
   conflict?: ConflictView;
   /** Whether a word names a thing one can have ("give me a sec" asks for no item). */
   isItem?: (word: string) => boolean;
+  /** Power structures (§17.7, §17.8): whom we follow, who resents whom, coalitions. */
+  power?: PowerView;
 }
 
 export interface ConflictView {
   rungOf: (name: AgentName) => number;
   fearOf: (name: AgentName) => number;
   mayBrawl: (name: AgentName) => boolean;
+  /** §17.5 rung 4 through the gate: a fight to the death is allowed now. */
+  mayKill?: (name: AgentName) => boolean;
+  /** How much we resent someone (0..1): mercy toward a yielding foe shrinks with it. */
+  resentmentOf?: (name: AgentName) => number;
+  /** §18.4 authority bias: how much lower the bar to comply is for a demand from them (a leader or an idol). */
+  authorityOf?: (name: AgentName) => number;
   warnedLately: (name: AgentName) => boolean;
 }
 
@@ -143,6 +153,8 @@ const DEAL_DUE_SEC = 600;
 const DUSK = 12_500;
 /** Hostile talk toward the same person at most this often. */
 const WARN_EVERY_MS = 3 * 60_000;
+/** Grumbling to the same friend, or calling on the same person to rise, at most this often. */
+const SPOKE_EVERY_MS = 10 * 60_000;
 
 type Ask = { kind: 'trade'; offer: Offer } | { kind: 'help'; item: string; qty: number } | { kind: 'item'; item: string; qty: number };
 
@@ -169,11 +181,20 @@ function answerRequest(
   isStuck: ValidationEnv['isStuck'],
   judge?: (name: AgentName) => number,
   isItem?: (word: string) => boolean,
+  conflict?: ConflictView,
+  power?: PowerView,
 ): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
   const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
   const theirs = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId)).slice(-4);
+  // §17.8: a call to rise against someone is weighed by resentment of them, trust in who asks, and fear.
+  const known = Object.keys(s.social);
+  const foe = theirs.map((u) => parseRally(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
+  if (foe) return answerRally(s, from, foe, busy, conflict, power);
+  // §17.7: a demand ("give me 3 bread, or else") is weighed by fear, not by liking.
+  const demand = theirs.map((u) => parseDemand(u.text)).filter((d): d is Demand => d !== null && (isItem?.(d.item) ?? true)).at(-1);
+  if (demand) return answerDemand(s, from, demand, busy, conflict);
   const ask = theirs.map((u) => readAsk(u.text, isItem)).filter((a) => a !== null).at(-1) ?? null;
   const liking = judge?.(from) ?? s.social[from]?.sentiment ?? persona.social.baselineSentiment;
   const owing = s.commitments.filter((c) => c.debtor === me && c.status === 'accepted').length;
@@ -261,11 +282,86 @@ function answerRequest(
   return decline("you can't think it through right now; maybe later", 'answered a request without committing');
 }
 
+/** How long an agreed uprising waits for its moment (§17.8). */
+const FIGHT_DUE_SEC = 30 * 60;
+
+/**
+ * §17.8: join an uprising against X when we resent X enough, trust the one who asks, and fear of X is in check; one
+ * of X's own followers won't. Joining is a promise to fight X together (commitment kind `fight`).
+ */
+function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName, busy: boolean, c?: ConflictView, power?: PowerView): DecisionOutput {
+  const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
+  const resentment = c?.resentmentOf?.(x) ?? 0;
+  const fear = c?.fearOf(x) ?? s.social[x]?.fearOf ?? 0;
+  const followsTarget = power?.leader() === x;
+  if (!joinsRally({ resentment, trust: s.social[from]?.trust ?? 0.5, fear, followsTarget })) {
+    return {
+      option: keep,
+      target: { agent: from },
+      speechIntent: { stance: 'decline', gist: followsTarget ? `no. ${x} looks after me` : `not me. I'm staying out of it`, mayCommit: false },
+      terminate: { maxSeconds: 20 },
+      rationale: `code default: not joining against ${x} (resentment ${resentment.toFixed(2)}, fear ${fear.toFixed(2)})`,
+    };
+  }
+  return {
+    option: keep,
+    target: { agent: from },
+    speechIntent: { stance: 'agree', gist: `fine. I'll fight ${x} with you.`, mayCommit: true },
+    commitmentsToCreate: [{ debtor: s.self.username, creditor: from, what: { kind: 'fight', target: x, text: `fight ${x} together with ${from}` }, dueInSec: FIGHT_DUE_SEC }],
+    terminate: { maxSeconds: 20 },
+    rationale: `code default: with ${from} against ${x} (resentment ${resentment.toFixed(2)}, fear ${fear.toFixed(2)})`,
+  };
+}
+
+/**
+ * §17.7 compliance: give in when fear of the demander outweighs resentment of them plus pride (1 − 0.5·loyalty),
+ * a lower bar for a leader or an idol (§18.4 authority). Giving in is a coerced commitment: owed like any promise,
+ * and every payment a small grievance against them.
+ */
+function answerDemand(s: AgentStateStore['state'], from: AgentName, d: Demand, busy: boolean, c?: ConflictView): DecisionOutput {
+  const fear = c?.fearOf(from) ?? s.social[from]?.fearOf ?? 0;
+  const resent = c?.resentmentOf?.(from) ?? 0;
+  const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
+  const what = amountOf(d.item, d.qty);
+  if (s.flags.inDanger || !complies(fear, resent, s.self.persona.temperament.loyalty, c?.authorityOf?.(from) ?? 0)) {
+    return {
+      option: keep,
+      target: { agent: from },
+      speechIntent: { stance: 'hostile', gist: `refuse to give ${from} anything`, mayCommit: false },
+      terminate: { maxSeconds: 20 },
+      rationale: `code default: not giving in to ${from} (fear ${fear.toFixed(2)}, resentment ${resent.toFixed(2)})`,
+    };
+  }
+  const m = itemMatcher(d.item);
+  const have = s.self.inventory.filter((x) => m.matches(x.item)).reduce((a, x) => a + x.qty, 0);
+  return {
+    option: 'work',
+    target: { agent: from },
+    task: have >= d.qty ? { skill: 'give', args: { to: from, item: d.item, qty: d.qty } } : { skill: 'obtain', args: { item: d.item, qty: d.qty } },
+    speechIntent: { stance: 'agree', gist: `fine. I'll give you ${what}`, mayCommit: true },
+    commitmentsToCreate: [{ debtor: s.self.username, creditor: from, what: { kind: 'give', item: d.item, qty: d.qty, text: what }, dueInSec: 600, coerced: true }],
+    terminate: { maxSeconds: 600 },
+    rationale: `code default: afraid of ${from}, giving in (fear ${fear.toFixed(2)})`,
+  };
+}
+
 /** What the conflict rungs call for with the people nearby (§17.5), if anything. */
 function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (name: AgentName) => number): DecisionOutput | null {
   const near = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.distance <= 12).sort((a, b) => c.rungOf(b.name) - c.rungOf(a.name));
   for (const e of near) {
     const rung = c.rungOf(e.name);
+    if (rung >= 4 && c.mayKill?.(e.name)) {
+      const t = s.self.persona.temperament;
+      return {
+        option: 'fight',
+        target: { agent: e.name },
+        task: { skill: 'duel', args: { target: e.name, stopAtHealth: yieldHealth(s.drives.caution), lethal: true, spareChance: Math.round(spareChance(t.mercy, c.resentmentOf?.(e.name) ?? 0.5, 4) * 100) / 100, seconds: 120 } },
+        fight: { target: e.name, intent: 'lethal', withAllies: [] },
+        speechIntent: { stance: 'threaten', gist: 'this ends now', mayCommit: false },
+        terminate: { maxSeconds: 150 },
+        rationale: `code default: ${e.name} has to go`,
+      };
+    }
     if (rung >= 3 && c.mayBrawl(e.name)) {
       return {
         option: 'fight',
@@ -279,6 +375,17 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
     }
     // Words and distance come now and then, not on every decision.
     if (c.warnedLately(e.name)) continue;
+    // §17.7: a domineering agent's threat is a demand: tribute, or else.
+    if (rung >= 2 && s.self.persona.temperament.dominance >= 0.5) {
+      const want = demandFor(s.self.inventory.filter((x) => /^(bread|apple|cooked_\w+|baked_potato|carrot)$/.test(x.item)).reduce((a, x) => a + x.qty, 0));
+      return {
+        option: 'demand',
+        target: { agent: e.name },
+        speechIntent: { stance: 'threaten', gist: `give me ${amountOf(want.item, want.qty)}, or else`, mayCommit: false },
+        terminate: { maxSeconds: 40 },
+        rationale: `code default: ${e.name} will pay up`,
+      };
+    }
     if (rung >= 1) {
       return {
         option: 'talk',
@@ -306,6 +413,29 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
   return null;
 }
 
+/** What the power moves need (§17.7, §17.8), when the conflict core and the power watch are there. */
+function powerCtx(social: SocialChance, isStuck: ValidationEnv['isStuck']): PowerMoveCtx | null {
+  const c = social.conflict;
+  const power = social.power;
+  if (!c || !power) return null;
+  return {
+    isStuck,
+    power,
+    resentmentOf: (n) => c.resentmentOf?.(n) ?? 0,
+    mayBrawl: (n) => c.mayBrawl(n),
+    mayKill: (n) => c.mayKill?.(n) ?? false,
+    liking: (n) => social.liking?.(n) ?? 5,
+    candidates: social.candidates,
+    roll: social.roll,
+  };
+}
+
+/** While busy, only the fight itself: the one we swore to take on is here, with the others at hand. */
+function uprisingFight(s: AgentStateStore['state'], v: PowerMoveCtx): DecisionOutput | null {
+  const d = uprisingMove(s, v);
+  return d?.option === 'fight' ? d : null;
+}
+
 /** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
 export function codeDecision(
   s: AgentStateStore['state'],
@@ -314,12 +444,15 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem);
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power);
+  const pv = social ? powerCtx(social, isStuck) : null;
   if (busy) {
     // Starving with nothing to eat: food before whatever we are doing.
     const food = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
     if (food) return food;
-    return ctx.atOdds && social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
+    if (!ctx.atOdds || !social?.conflict) return null;
+    // Someone we're at odds with came near: the one we swore to take on (with the others at hand), or the rungs.
+    return (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking);
   }
   // Starving with nothing to eat comes before anything, even the night (§16.3: carry food).
   const starving = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
@@ -334,12 +467,18 @@ export function codeDecision(
   // Badly hurt: food, then lie low until healed; no work, no quarrels.
   const hurt = hurtMove(s, { isStuck });
   if (hurt) return hurt;
+  // §17.8: an uprising we swore to: meet up, find them, set upon them together.
+  const uprising = pv ? uprisingMove(s, pv) : null;
+  if (uprising) return uprising;
   // §17.5: someone we're at odds with nearby comes first: the brawl the gate allows, a warning, or keeping away.
   const odds = social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
   if (odds) return odds;
   // Hungry with nothing to eat: food first.
   const hungry = hungerMove(s, { isStuck });
   if (hungry) return hungry;
+  // §17.7, §17.8: the moment to rally others against someone; a follower's place by its leader; a grudge shared.
+  const power = pv ? (rallyMove(s, pv) ?? escortMove(s, pv) ?? gossipMove(s, pv)) : null;
+  if (power) return power;
   const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
   if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };
@@ -428,7 +567,15 @@ export interface CCOptions {
   liking?: (name: AgentName) => number;
   mindLines?: () => string[];
   /** The conflict core (§17.5); without it nobody fights anybody on purpose. */
-  conflict?: { rungOf(name: AgentName): number; fearOf(name: AgentName): number; mayFight(target: AgentName, intent: 'brawl' | 'lethal' | 'impulse'): string | null };
+  conflict?: {
+    rungOf(name: AgentName): number;
+    fearOf(name: AgentName): number;
+    resentmentOf?(name: AgentName): number;
+    authorityOf?(name: AgentName): number;
+    mayFight(target: AgentName, intent: 'brawl' | 'lethal' | 'impulse'): string | null;
+  };
+  /** Power structures (§17.7, §17.8): whom we follow, who resents whom, coalitions. */
+  power?: Omit<PowerView, 'saidLately'>;
   /** A person (fights with them are gated) rather than a mob. */
   isPerson?: (name: AgentName) => boolean;
   rng?: () => number;
@@ -450,6 +597,8 @@ export class CognitiveController {
   private readonly rng: () => number;
   /** When we last warned someone off, and at which rung (words come now and then, and again when it gets worse). */
   private readonly warned = new Map<AgentName, { at: number; rung: number }>();
+  /** When we last grumbled to someone, or called on them to rise (`inform:Y`, `rally:Y`). */
+  private readonly spoke = new Map<string, number>();
 
   constructor(private readonly o: CCOptions) {
     this.now = o.now ?? Date.now;
@@ -716,6 +865,9 @@ export class CognitiveController {
         rungOf: (n) => c.rungOf(n),
         fearOf: (n) => c.fearOf(n),
         mayBrawl: (n) => c.mayFight(n, 'brawl') === null,
+        mayKill: (n) => c.mayFight(n, 'lethal') === null,
+        ...(c.resentmentOf ? { resentmentOf: (n: AgentName) => c.resentmentOf?.(n) ?? 0 } : {}),
+        ...(c.authorityOf ? { authorityOf: (n: AgentName) => c.authorityOf?.(n) ?? 0 } : {}),
         warnedLately: (n) => {
           const w = this.warned.get(n);
           return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);
@@ -728,6 +880,7 @@ export class CognitiveController {
         ...(this.o.liking ? { liking: this.o.liking } : {}),
         ...(conflict ? { conflict } : {}),
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
+        ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < SPOKE_EVERY_MS } } : {}),
       });
       source = 'default';
       if (out && validateDecision(out, env)) out = null;
@@ -750,6 +903,7 @@ export class CognitiveController {
     const stance = decision.speechIntent?.stance;
     const who = decision.target?.agent;
     if (who && (stance === 'hostile' || stance === 'threaten' || (decision.option === 'move' && decision.target?.pos))) this.warned.set(who, { at: now, rung: this.o.conflict?.rungOf(who) ?? 0 });
+    if (who && (stance === 'inform' || stance === 'rally')) this.spoke.set(`${stance}:${who}`, now);
     // Our own promises become commitments and tasks only when the CC allowed committing (§6.4); accepting a deal
     // also records their half of it (§6.6).
     if (decision.speechIntent?.mayCommit) {
