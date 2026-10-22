@@ -74,6 +74,10 @@ const PROPOSE_AT = 0.75;
 const FLIRT_EVERY_MS = 3 * 60_000;
 const GIFT_EVERY_MS = 10 * 60_000;
 const PROPOSE_EVERY_MS = 10 * 60_000;
+/** A crush seeks them out (goes near) at most this often. */
+const APPROACH_EVERY_MS = 2 * 60_000;
+/** Wrongs by a partner that end it (§19.2 breakup: betrayal, coercion, being hit). */
+const PARTNER_WRONGS: ReadonlySet<string> = new Set(['attack', 'betrayal', 'coercion']);
 /** They returned it this many times: the question may be asked. */
 const RETURNED_TO_PROPOSE = 2;
 /** Courted in sight within this. */
@@ -97,7 +101,11 @@ const PANG_EVERY_MS = 5 * 60_000;
 const FLOWERS = /^(poppy|dandelion|blue_orchid|allium|azure_bluet|\w+_tulip|oxeye_daisy|cornflower|lily_of_the_valley|sunflower|lilac|rose_bush|peony)$/;
 const FOOD_GIFT = /^(bread|apple|cooked_\w+|baked_potato|carrot|cookie)$/;
 
-export type CourtStep = { with: AgentName; kind: 'flirt'; line: string } | { with: AgentName; kind: 'gift'; item: string } | { with: AgentName; kind: 'propose' };
+export type CourtStep =
+  | { with: AgentName; kind: 'approach' }
+  | { with: AgentName; kind: 'flirt'; line: string }
+  | { with: AgentName; kind: 'gift'; item: string }
+  | { with: AgentName; kind: 'propose' };
 
 /** What the CC needs (§19.2, §19.10). */
 export interface RomanceView {
@@ -273,15 +281,21 @@ export class RomanceWatch implements RomanceView {
     const partner = this.partner();
     const seen = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= COURT_SIGHT);
     const candidates = seen
-      .map((e) => e.name)
-      .filter((n) => this.eligible(n) && (partner === null || n === partner) && this.fit(n) === 1 && !this.locked(n) && !((this.avoid.get(n) ?? 0) > t))
-      .map((n) => ({ n, interest: s.social[n]?.romanticInterest ?? 0 }))
-      .filter((c) => c.interest >= COURT_AT || c.n === partner)
+      .filter((e) => this.eligible(e.name) && (partner === null || e.name === partner) && this.fit(e.name) > 0 && !this.locked(e.name) && !((this.avoid.get(e.name) ?? 0) > t))
+      .map((e) => ({ n: e.name, d: e.distance, interest: s.social[e.name]?.romanticInterest ?? 0 }))
+      .filter((c) => c.interest >= CRUSH_AT || c.n === partner)
       .sort((a, b) => b.interest - a.interest);
     const top = candidates[0];
     if (!top) return null;
     const n = top.n;
     const since = (kind: string) => t - (this.stepAt.get(`${kind}:${n}`) ?? -Infinity);
+    // §19.2 crush: seeking them out.
+    if (top.d > TOGETHER && since('approach') >= APPROACH_EVERY_MS) {
+      this.stepAt.set(`approach:${n}`, t);
+      return { with: n, kind: 'approach' };
+    }
+    // Courting is for one whose sex we know, and once we're drawn enough (a partner, always).
+    if (n !== partner && (this.fit(n) !== 1 || top.interest < COURT_AT)) return null;
     if (n !== partner && top.interest >= PROPOSE_AT && this.liking(n) >= 7 && (this.returned.get(n) ?? 0) >= RETURNED_TO_PROPOSE && since('propose') >= PROPOSE_EVERY_MS) {
       return { with: n, kind: 'propose' };
     }
@@ -597,7 +611,13 @@ export class RomanceWatch implements RomanceView {
       const withPartner = near.includes(rival) && near.includes(partner);
       if (together || withPartner) this.jealous(rival, partner);
     }
-    // §19.2 breakup: a heart gone cold, or no time together for days.
+    // §19.2 breakup: a heart gone cold, no time together for days, or a wrong done by them since we got together.
+    const since = s.social[partner]?.relationshipSince ?? 0;
+    if ((s.social[partner]?.grievances ?? []).some((g) => PARTNER_WRONGS.has(g.kind) && g.ts > since)) {
+      this.o.say?.(partner, BREAKUP_LINE);
+      this.brokeUp(partner, true);
+      return;
+    }
     const cold = this.liking(partner) < 5;
     this.coldSince = cold ? (this.coldSince ?? t) : null;
     if ((this.coldSince !== null && t - this.coldSince >= COLD_MS) || t - this.lastWithPartner >= NEGLECT_MS) {

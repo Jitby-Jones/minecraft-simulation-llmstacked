@@ -404,6 +404,8 @@ function courtMove(romance: RomanceView): DecisionOutput | null {
   const step = romance.courtship();
   if (!step) return null;
   const to = step.with;
+  // A crush seeks them out: over to be near them.
+  if (step.kind === 'approach') return { option: 'move', target: { agent: to }, terminate: { maxSeconds: 30 }, rationale: `code default: going over to be near ${to}` };
   if (step.kind === 'propose') {
     return { option: 'court', target: { agent: to }, speechIntent: { stance: 'propose', gist: PROPOSAL, mayCommit: false }, romance: { with: to, phase: 'propose' }, terminate: { maxSeconds: 40 }, rationale: `code default: asking ${to} to be my partner` };
   }

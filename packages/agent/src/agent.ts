@@ -549,9 +549,16 @@ export class Agent {
     return conformityPull(conformityOf(s), Math.max(this.fearLevel(), s.social[about]?.fearOf ?? 0), this.mind.override());
   }
 
-  /** §18.4 in-group: the leader we follow and those seen going about with them, those sworn with us, neighbors. */
+  /** §19.5: a partner, or family: in-group, with the strongest in-group bias. */
+  private kin(name: AgentName): boolean {
+    const s = this.store.state;
+    return s.family.partner === name || Boolean(s.social[name]?.kin);
+  }
+
+  /** §18.4 in-group: family, the leader we follow and those seen going about with them, those sworn with us, neighbors. */
   private ingroup(name: AgentName): boolean {
     const s = this.store.state;
+    if (this.kin(name)) return true;
     const leader = this.power.leader();
     if (leader && (name === leader || this.power.companions(leader).includes(name))) return true;
     if (s.commitments.some((c) => c.what.kind === 'fight' && c.status === 'accepted' && (c.debtor === name || c.creditor === name))) return true;
@@ -564,7 +571,7 @@ export class Agent {
   private grievanceScale(name: AgentName): number {
     const s = this.store.state;
     const ov = this.mind.override();
-    if (this.ingroup(name)) return 1 - 0.5 * susceptibilityToward(s, 'ingroup', name) * (1 - ov);
+    if (this.ingroup(name)) return 1 - (this.kin(name) ? 0.8 : 0.5) * susceptibilityToward(s, 'ingroup', name) * (1 - ov);
     if (this.mind.liking(name) < 4) return 1 + 0.5 * susceptibilityToward(s, 'attribution', name) * (1 - ov);
     return 1;
   }

@@ -310,6 +310,26 @@ describe('the romance watch (§19.1, §19.2)', () => {
     expect(r.s.state.family.partner).toBeUndefined();
   });
 
+  it('seeks out a crush in sight; a partner who coerces or hits them is left', () => {
+    const r = rig();
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', romanticInterest: 0.55, relationship: 'crush' } }));
+    r.see(['Ivy', 15]);
+    expect(r.w.courtship()).toEqual({ with: 'Ivy', kind: 'approach' });
+    // Paced; and near, only a crush (not yet drawn enough to court): nothing more.
+    expect(r.w.courtship()).toBeNull();
+    r.see(['Ivy', 4]);
+    expect(r.w.courtship()).toBeNull();
+    // Partners: then she demands of him under threat.
+    r.s.update('family', (f) => ({ ...f, partner: 'Ivy' }));
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), relationship: 'partner', kin: 'partner', relationshipSince: r.t.now, sentiment: 8 } }));
+    r.t.now += 60_000;
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), grievances: [{ kind: 'coercion', weight: 0.12, ts: r.t.now, witnessed: true, source: 'self_observed' }] } }));
+    r.tick();
+    expect(r.s.state.family.partner).toBeUndefined();
+    expect(r.s.state.social.Ivy?.relationship).toBe('ex');
+    expect(r.said).toContain("Ivy: I think we're done.");
+  });
+
   it('turning an advance down: disgust is a grievance and costs them our liking; discomfort keeps us away', () => {
     const r = rig();
     r.decide({ option: 'rest', target: { agent: 'Bea' }, romance: { with: 'Bea', phase: 'decline', reaction: 'disgusted' } });
@@ -355,6 +375,7 @@ describe('romance in the code default (§19.2, §19.10)', () => {
     expect(court({ with: 'Ivy', kind: 'flirt', line: 'you look lovely today.' })).toMatchObject({ option: 'court', target: { agent: 'Ivy' }, speechIntent: { stance: 'flirt', gist: 'you look lovely today.' }, romance: { phase: 'flirt' } });
     expect(court({ with: 'Ivy', kind: 'gift', item: 'poppy' })).toMatchObject({ option: 'court', task: { skill: 'give', args: { to: 'Ivy', item: 'poppy', qty: 1 } } });
     expect(court({ with: 'Ivy', kind: 'propose' })).toMatchObject({ option: 'court', speechIntent: { stance: 'propose', gist: PROPOSAL }, romance: { phase: 'propose' } });
+    expect(court({ with: 'Ivy', kind: 'approach' })).toMatchObject({ option: 'move', target: { agent: 'Ivy' } });
     const env = { me: 'Ned', isStuck: () => false, canPerceive: () => true, mayCourt: (n: string) => (n === 'Bea' ? 'Bea is family' : null) };
     expect(validateDecision({ option: 'court', target: { agent: 'Bea' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea: Bea is family/);
     expect(validateDecision({ option: 'talk', target: { agent: 'Bea' }, romance: { with: 'Bea', phase: 'propose' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea/);
