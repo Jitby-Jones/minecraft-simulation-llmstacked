@@ -280,6 +280,11 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     it('flees instead of fighting when badly hurt', async () => {
       const o = await zone();
       dangers.length = 0;
+      // From full health, whatever the zombie before did: 13 off a lower health would kill instead of hurt. The
+      // instant effect lands on the next tick, so let it land before the damage (or it heals the damage away).
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await sleep(1000);
+      await waitFor(() => pip.bot.health >= 19, 5000, 'full health');
       await server.cmd('damage Pip 13');
       await waitFor(() => pip.bot.health <= 8, 5000, 'hurt');
       await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
