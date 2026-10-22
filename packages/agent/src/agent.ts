@@ -34,7 +34,7 @@ import { CATEGORIES, gearScore, normalizeItemName } from './body/items';
 import { BiasWatch } from './mind/biasWatch';
 import { ConflictEvaluator } from './conflict/evaluator';
 import { PowerWatch } from './conflict/power';
-import { authorityShift } from './conflict/coercion';
+import { authorityShift, defendsAlly } from './conflict/coercion';
 import { SURRENDER_RE } from './body/skills/duel';
 import { Crowd } from './mind/crowd';
 import { Feelings } from './mind/feelings';
@@ -408,7 +408,12 @@ export class Agent {
       caution: () => this.store.state.drives.caution,
       combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
       // Friends, and the leader we follow unless a group sets upon them and we walk away (§17.7, §17.8).
-      shouldDefend: (name) => this.power.standsBy(name) || (Boolean(this.store.state.social[name]) && this.mind.liking(name) >= 7),
+      shouldDefend: (name, attacker) =>
+        defendsAlly({
+          leader: this.power.standsBy(name),
+          liking: this.store.state.social[name] ? this.mind.liking(name) : 0,
+          fearOfAttacker: attacker ? (this.store.state.social[attacker]?.fearOf ?? 0) : 0,
+        }),
       // Self-defense is always allowed; deliberate fights are code-gated in the conflict core (M6b).
       mayFightBack: () => true,
       deliberateFight: () => ['attack', 'duel'].includes(this.store.state.option?.skill ?? ''),

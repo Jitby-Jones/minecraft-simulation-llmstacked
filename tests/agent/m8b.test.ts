@@ -12,6 +12,7 @@ import {
   companionsOf,
   complies,
   defects,
+  defendsAlly,
   follows,
   joinsRally,
   looksLikeLeader,
@@ -697,6 +698,14 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(joinsRally({ resentment: 0.5, trust: 0.6, fear: 0.9, followsTarget: false })).toBe(false);
     expect(joinsRally({ resentment: 0.5, trust: 0.3, fear: 0.2, followsTarget: false })).toBe(false);
     expect(joinsRally({ resentment: 0.9, trust: 0.9, fear: 0.1, followsTarget: true })).toBe(false);
+  });
+
+  it('steps in for a friend, unless the one attacking frightens us too much; a follower stands by its leader all the same', () => {
+    expect(defendsAlly({ liking: 8, fearOfAttacker: 0.5, leader: false })).toBe(true);
+    // The timid stay out of it when the tyrant is the one attacking.
+    expect(defendsAlly({ liking: 8, fearOfAttacker: 0.95, leader: false })).toBe(false);
+    expect(defendsAlly({ liking: 6, fearOfAttacker: 0, leader: false })).toBe(false);
+    expect(defendsAlly({ liking: 3, fearOfAttacker: 0.95, leader: true })).toBe(true);
   });
 
   it('reads calls to rise and promises to join them, about people we know', () => {

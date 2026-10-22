@@ -36,8 +36,8 @@ export interface DangerInfo {
 export interface ReflexHooks {
   /** drives.caution, 0..1 (§16.3). */
   caution: () => number;
-  /** Social reflex: defend allies with sentiment ≥ 7 (§4.5). */
-  shouldDefend: (username: string) => boolean;
+  /** Social reflex: defend allies with sentiment ≥ 7 (§4.5), from this attacker (a person's name, if one). */
+  shouldDefend: (ally: string, attacker?: string) => boolean;
   /** Self-defense against a person: allowed unless the agent is fleeing-only (youth, §19.5). */
   mayFightBack: (username: string) => boolean;
   quirks: () => readonly Quirk[];
@@ -198,7 +198,7 @@ export class ReflexController {
     if (this.mode === 'fight' && pvp(this.bot).target?.id === e.id) this.reckon(e);
     this.swings.attribute(e, ({ attacker }) => {
       // Asked once the attacker is known: whether to step in can depend on who is attacking.
-      if (!this.timer || !attacker || attacker === this.bot.entity || !this.hooks.shouldDefend(ally)) return;
+      if (!this.timer || !attacker || attacker === this.bot.entity || !this.hooks.shouldDefend(ally, isPlayer(attacker) ? attacker.username : undefined)) return;
       this.allyAttacks.set(attacker.id, { ally, attacker, ts: Date.now() });
       this.hooks.onAllyAttacked?.(ally, entityLabel(attacker));
     });

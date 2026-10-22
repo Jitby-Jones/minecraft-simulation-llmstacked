@@ -110,6 +110,17 @@ export function mayRally(i: RallyInput): boolean {
   return i.resentment >= 0.5 && Math.max(i.ambition, i.vengefulness, i.loyalty) >= 0.6 && i.members >= 1 && (i.power > i.against || i.opening);
 }
 
+/** Fear of the one attacking a friend that keeps us out of it: the timid don't step in against a tyrant. */
+export const DEFEND_FEAR_MAX = 0.75;
+
+/**
+ * §4.5 the defend reflex: stepping in for a friend (liking 7 or more) being attacked, unless the attacker frightens
+ * us too much. A follower stands by its leader all the same (§17.7).
+ */
+export function defendsAlly(i: { liking: number; fearOfAttacker: number; leader: boolean }): boolean {
+  return i.leader || (i.liking >= 7 && i.fearOfAttacker < DEFEND_FEAR_MAX);
+}
+
 /** §17.8: whether to join a proposed uprising: enough resentment of the target, trust in who asks, fear in check. */
 export function joinsRally(i: { resentment: number; trust: number; fear: number; followsTarget: boolean }): boolean {
   return !i.followsTarget && i.resentment >= 0.4 && i.trust >= 0.5 && i.fear < i.resentment + 0.3;
