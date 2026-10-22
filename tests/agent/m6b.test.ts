@@ -258,7 +258,9 @@ describe('fights end in a yield (§17.6)', () => {
     b.bus.emit({ type: 'heard', utterance: { id: 'u', convId: '', from: 'Rex', to: 'nearby', text: 'ok ok, I yield!', ts: b.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
     expect(b.ce.settled('Rex')).toBe(true);
     expect(b.ce.settled('Rex', b.t.now - 500)).toBe(true);
-    expect(b.ce.settled('Rex', b.t.now + 500)).toBe(false); // a blow after the yield: a new fight
+    // A blow right after the yield (a last swing) is the same fight; one a while after starts a new one.
+    expect(b.ce.settled('Rex', b.t.now + 500)).toBe(true);
+    expect(b.ce.settled('Rex', b.t.now + 9000)).toBe(false);
     expect(b.s.state.social.Ann?.fightsWonSeen).toBe(1);
     b.t.now += 31_000;
     expect(b.ce.settled('Rex')).toBe(false);

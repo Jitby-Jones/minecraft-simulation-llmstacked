@@ -56,6 +56,8 @@ const NEAR_BLOCKS = 12;
 const NEAR_EVERY_MS = 60_000;
 /** Blows this recent, when the danger passes, were a fight (one we fought back in, or ran from). */
 const FIGHT_WINDOW_MS = 30_000;
+/** A blow this soon after a fight was settled is still that fight (§17.6), not the start of a new one. */
+const SETTLED_GRACE_MS = 8000;
 /** After someone gives up, no new brawl with them starts for this long (§17.6: the yield is let stand). */
 const YIELD_STANDS_MS = 30_000;
 /** A blow this long after someone gave up ignores the yield (the first moments are the winner's reaction time). */
@@ -238,10 +240,11 @@ export class ConflictEvaluator {
   }
 
   /** A fight with them was settled after `since` (their last blow), in the last half minute: they gave up or called
-   *  it off, or our duel with them ended. The reflexes leave such a person be until they strike again (§17.6). */
+   *  it off, or our duel with them ended. The reflexes leave such a person be until they strike again (§17.6); a
+   *  blow just after (a parting blow, a last swing before they knew it was over) is still that fight, not a new one. */
   settled(name: AgentName, since = -Infinity): boolean {
     const at = this.settledAt.get(name);
-    return at !== undefined && at >= since && this.now() - at < 30_000;
+    return at !== undefined && this.now() - at < 30_000 && since - at < SETTLED_GRACE_MS;
   }
 
   /** Someone gave up a fight in front of us: the other one won (§17.4 fights won, §21.4 perceived combat). */
