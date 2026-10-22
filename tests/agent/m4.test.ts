@@ -229,6 +229,38 @@ describe('goal generation (§4.2 module 10)', () => {
       rt.stop();
     }
   });
+
+  it('nothing runs into a stopped agent: a run asked for soon is dropped, and memory read after its database closed finds nothing', async () => {
+    const s = store();
+    const db = new MemoryDB(':memory:');
+    const hash = new HashEmbedder();
+    // An embedder that takes its time, like the Hub's shared one: the database closes while it works (shutdown).
+    const slow = {
+      dims: hash.dims,
+      model: hash.model,
+      embed: async (t: readonly string[]) => {
+        await wait(40);
+        return hash.embed(t);
+      },
+    };
+    const memory = new Memory({ store: s, bus: new AgentBus(), logger: nullLogger(), db, embedder: slow, llm: null, me: 'Pip' });
+    await memory.ingest([{ id: 'w1', text: 'Bram keeps his iron in the chest by the lake', ts: 0, salience: 0.6, source: 'self_observed' }]);
+    const set: string[] = [];
+    const gg = new GoalGen({ store: s, bus: new AgentBus(), logger: nullLogger(), llm: null, me: 'Pip', setGoal: (t) => set.push(t), memories: (k) => memory.forPacket(k) });
+    gg.soon('goal done', 20);
+    gg.stop();
+    await wait(60);
+    expect(set).toEqual([]);
+    await gg.run('late');
+    expect(set).toEqual([]);
+    const reading = memory.recall('where is the iron');
+    const writing = memory.ingest([{ id: 'w2', text: 'the sun is setting over the lake', ts: 1, salience: 0.5, source: 'self_observed' }]);
+    db.close();
+    await expect(reading).resolves.toEqual([]);
+    await expect(writing).resolves.toBeUndefined();
+    await expect(memory.forPacket(3)).resolves.toEqual([]);
+    expect(memory.markFalseMatching('Bram keeps his iron')).toBe(0);
+  });
 });
 
 describe('code quirks (§7)', () => {

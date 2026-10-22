@@ -402,6 +402,9 @@ export class CognitiveController {
   private readonly flight = new SingleFlight<void>();
   private readonly offs: (() => void)[] = [];
   private beat: NodeJS.Timeout | null = null;
+  /** Decisions held back by the rate cap: cleared on stop, so none fires into a stopped agent. */
+  private readonly waiting = new Set<NodeJS.Timeout>();
+  private stopped = false;
   private lastDecisionAt = 0;
   private deferred: { reason: string; ctx: DecideContext } | null = null;
   private readonly now: () => number;
@@ -457,8 +460,11 @@ export class CognitiveController {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.beat) clearInterval(this.beat);
     this.beat = null;
+    for (const t of this.waiting) clearTimeout(t);
+    this.waiting.clear();
     for (const off of this.offs.splice(0)) off();
   }
 
@@ -582,10 +588,19 @@ export class CognitiveController {
     // Rate cap (§13 rule 6): non-urgent decisions at most every 2 s.
     const wait = ctx.urgent ? 0 : this.lastDecisionAt + 2000 - this.now();
     if (wait > 0) {
-      setTimeout(() => void this.flight.run('cc', () => this.decide(reason, ctx)), wait).unref();
+      const t = setTimeout(() => {
+        this.waiting.delete(t);
+        this.kick(reason, ctx);
+      }, wait);
+      t.unref();
+      this.waiting.add(t);
       return;
     }
-    void this.flight.run('cc', () => this.decide(reason, ctx));
+    this.kick(reason, ctx);
+  }
+
+  private kick(reason: string, ctx: DecideContext): void {
+    this.flight.run('cc', () => this.decide(reason, ctx)).catch((err: unknown) => this.o.logger.warn({ module: 'cc', reason, err: String(err) }, 'decision failed'));
   }
 
   private checkGoal(): void {
@@ -597,6 +612,7 @@ export class CognitiveController {
   }
 
   private async decide(reason: string, ctx: DecideContext): Promise<void> {
+    if (this.stopped) return;
     this.o.refreshSelf?.();
     this.checkGoal();
     const { store, logger } = this.o;

@@ -119,8 +119,10 @@ export class Memory {
 
   /** workmem → recentmem, replacing near-duplicates. */
   async ingest(items: readonly WorkItem[]): Promise<void> {
-    if (items.length === 0) return;
+    if (items.length === 0 || !this.o.db.isOpen) return;
     const vecs = await this.o.embedder.embed(items.map((w) => w.text));
+    // The database may have closed while we waited (shutdown).
+    if (!this.o.db.isOpen) return;
     const recent = this.o.db.list('recent');
     for (const [i, w] of items.entries()) {
       const v = vecs[i];
@@ -168,6 +170,7 @@ export class Memory {
           }
           const text = await this.merge(rows);
           const [v] = await this.o.embedder.embed([text]);
+          if (!this.o.db.isOpen) return;
           if (!v) continue;
           const sources = new Set(rows.map((r) => r.source));
           const about = new Set(rows.map((r) => r.aboutAgent));
@@ -220,7 +223,7 @@ export class Memory {
   /** A claim turned out false (§6.5): memories quoting it never come back as true. */
   markFalseMatching(text: string): number {
     const needle = text.trim().toLowerCase();
-    if (needle.length < 8) return 0;
+    if (needle.length < 8 || !this.o.db.isOpen) return 0;
     const rows = this.o.db.list().filter((r) => r.text.toLowerCase().includes(needle));
     for (const r of rows) this.o.db.markFalse(r.id);
     return rows.length;
@@ -228,9 +231,9 @@ export class Memory {
 
   /** Top-k memories for a query: cosine × recency × importance, scaled by confidence; false ones never come back. */
   async recall(query: string, k = 4): Promise<Recalled[]> {
-    if (!query.trim()) return [];
+    if (!query.trim() || !this.o.db.isOpen) return [];
     const [q] = await this.o.embedder.embed([query]);
-    if (!q) return [];
+    if (!q || !this.o.db.isOpen) return [];
     const now = this.now();
     const half = this.o.halfLifeMs ?? 6 * 3_600_000;
     return this.o.db

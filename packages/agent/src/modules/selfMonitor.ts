@@ -72,7 +72,7 @@ export class SelfMonitor {
     const wait = Math.max(5000 + this.rng() * 5000, this.lastRun + minGap - this.now());
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.flight.run('self', () => this.run());
+      this.flight.run('self', () => this.run()).catch((err: unknown) => this.o.logger.warn({ module: 'selfMonitor', err: String(err) }, 'self summary failed'));
     }, wait);
     this.timer.unref();
   }

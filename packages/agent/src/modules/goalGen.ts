@@ -61,6 +61,9 @@ export interface GoalGenOptions {
 
 export class GoalGen {
   private timer: NodeJS.Timeout | null = null;
+  /** Runs asked for soon (goal done, starting): cleared on stop, so none fires into a stopped agent. */
+  private readonly soonTimers = new Set<NodeJS.Timeout>();
+  private stopped = false;
   private readonly flight = new SingleFlight<void>();
   private readonly offs: (() => void)[] = [];
   private readonly rng: () => number;
@@ -78,9 +81,16 @@ export class GoalGen {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    for (const t of this.soonTimers) clearTimeout(t);
+    this.soonTimers.clear();
     for (const off of this.offs.splice(0)) off();
+  }
+
+  private kick(reason: string): void {
+    this.flight.run('goal', () => this.run(reason)).catch((err: unknown) => this.o.logger.warn({ module: 'goal', err: String(err) }, 'goal generation failed'));
   }
 
   private scheduleNext(): void {
@@ -89,24 +99,30 @@ export class GoalGen {
     const ms = (180_000 + this.rng() * 120_000) * cadence;
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.flight.run('goal', () => this.run('periodic'));
+      this.kick('periodic');
       this.scheduleNext();
     }, ms);
     this.timer.unref();
   }
 
   soon(reason: string, ms: number): void {
-    setTimeout(() => void this.flight.run('goal', () => this.run(reason)), ms).unref();
+    if (this.stopped) return;
+    const t = setTimeout(() => {
+      this.soonTimers.delete(t);
+      this.kick(reason);
+    }, ms);
+    t.unref();
+    this.soonTimers.add(t);
   }
 
   async run(reason: string): Promise<void> {
     const s = this.o.store.state;
-    if (s.flags.inDanger) return;
+    if (this.stopped || s.flags.inDanger) return;
     let out: { text: string; doneWhen?: string } | null = null;
     if (this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('goal')) {
       const guard = this.o.store.guard(SLOW_POLICY);
       try {
-        const memories = (await this.o.memories?.(5)) ?? [];
+        const memories = (await this.o.memories?.(5).catch(() => [])) ?? [];
         const inv = s.self.inventory.map((x) => `${x.qty} ${x.item}`).join(', ') || 'nothing';
         const people = Object.values(s.social)
           .sort((a, b) => b.lastSeen - a.lastSeen)
@@ -159,6 +175,7 @@ export class GoalGen {
         guard.dispose();
       }
     }
+    if (this.stopped) return;
     out ??= codeGoal(this.o.store.state);
     if (!out || out.text === this.o.store.state.goals.current?.text) return;
     this.o.logger.info({ module: 'goal', reason, goal: out.text, doneWhen: out.doneWhen }, 'new goal');

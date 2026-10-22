@@ -125,7 +125,7 @@ export class SocialAwareness {
         const t = setTimeout(() => {
           this.settling.delete(t);
           const conv = this.o.store.state.conversations[e.convId];
-          if (conv) void this.flight.run(`conv:${e.convId}`, () => this.afterConversation(conv));
+          if (conv) this.flight.run(`conv:${e.convId}`, () => this.afterConversation(conv)).catch((err: unknown) => this.o.logger.warn({ module: 'social', err: String(err) }, 'reading the conversation failed'));
         }, this.o.settleMs ?? SETTLE_MS);
         t.unref();
         this.settling.add(t);

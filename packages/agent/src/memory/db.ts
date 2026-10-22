@@ -138,6 +138,11 @@ export class MemoryDB {
     return (this.db.prepare('SELECT COUNT(*) AS n FROM memories WHERE tier = ?').get(tier) as { n: number }).n;
   }
 
+  /** False once closed (shutdown): late callers find nothing instead of an error. */
+  get isOpen(): boolean {
+    return this.db.open;
+  }
+
   close(): void {
     this.db.close();
   }
