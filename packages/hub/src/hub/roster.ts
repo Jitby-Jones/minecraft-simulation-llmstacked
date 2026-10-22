@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { PersonaSchema } from '@agora/shared';
+import { AgentSkinSchema } from '../skins/service';
 
 export const RosterEntrySchema = z.object({
   username: z.string(),
@@ -16,6 +17,8 @@ export const RosterEntrySchema = z.object({
   cause: z.string().optional(),
   /** Starter kit already handed out (only on the first spawn of a life). */
   kitGiven: z.boolean().default(false),
+  /** The skin the agent wears (§16.5), given when it was created. */
+  skin: AgentSkinSchema.optional(),
 });
 export type RosterEntry = z.infer<typeof RosterEntrySchema>;
 

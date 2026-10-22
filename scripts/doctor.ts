@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   dataPaths,
+  getMineSkinKey,
   getNanoGptKey,
   loadEnv,
   loadHubConfig,
@@ -15,7 +16,7 @@ import {
   loadVersionsConfig,
   loadWorldConfig,
 } from '@agora/shared';
-import { bindingWarning, eulaAccepted, findJava, readModeState, verifyInstall } from '@agora/hub';
+import { bindingWarning, eulaAccepted, findJava, ownerSkinIds, readModeState, verifyInstall } from '@agora/hub';
 import { checkSubscriptionLock, checkTiers } from './lib/doctor-llm';
 
 type Status = 'ok' | 'warn' | 'fail';
@@ -110,8 +111,8 @@ async function main(): Promise<void> {
   }
 
   // Jars and server files
-  const install = verifyInstall(paths, versions, !world.chat.allowPrivateMessages);
-  report(install.ok ? 'ok' : 'fail', 'Jars', install.ok ? 'Paper, ProximityChat! and guard plugin hashes match' : install.problems.join('; '));
+  const install = verifyInstall(paths, versions, !world.chat.allowPrivateMessages, world.skins.enabled);
+  report(install.ok ? 'ok' : 'fail', 'Jars', install.ok ? "Paper, ProximityChat! and our plugins' hashes match" : install.problems.join('; '));
   report(eulaAccepted(paths) ? 'ok' : 'fail', 'EULA', eulaAccepted(paths) ? 'accepted' : 'run `pnpm run setup --accept-eula`');
   const mode = readModeState(paths);
   report(
@@ -120,6 +121,14 @@ async function main(): Promise<void> {
     mode ? `server set up for ${mode.mode} (world "${mode.levelName}"); config says ${world.mode}` : 'run `pnpm run setup`',
   );
   report(process.env.RCON_PASSWORD ? 'ok' : 'fail', 'RCON password', process.env.RCON_PASSWORD ? 'set in .env' : 'run `pnpm run setup`');
+
+  // Agents' skins (§16.5): NameMC tags, owner-saved pages, MineSkin
+  if (!world.skins.enabled) report('ok', 'Skins', 'off (skins.enabled: false): agents wear the default skin');
+  else {
+    const saved = Object.values(world.skins.tags).map((tag) => `${tag}: ${ownerSkinIds(path.join(paths.skins, 'namemc'), tag).length} saved`);
+    const mineskin = getMineSkinKey() ? 'MineSkin key present (never logged)' : 'no MineSkin key: its anonymous limits apply';
+    report('ok', 'Skins', `NameMC tags ${Object.values(world.skins.tags).join(', ')} (${saved.join(', ')}); ${mineskin}`);
+  }
 
   // API key + subscription lock (§5, §22.1)
   const key = getNanoGptKey();

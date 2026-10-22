@@ -31,7 +31,7 @@ export interface ManagedServerOptions {
 export function preflightServer(opts: ManagedServerOptions): PreflightResult {
   const problems: string[] = [];
   const warnings: string[] = [];
-  const install = verifyInstall(opts.paths, opts.versions, !opts.world.chat.allowPrivateMessages);
+  const install = verifyInstall(opts.paths, opts.versions, !opts.world.chat.allowPrivateMessages, opts.world.skins.enabled);
   problems.push(...install.problems);
   if (!eulaAccepted(opts.paths)) problems.push('Minecraft EULA not accepted: run `pnpm run setup --accept-eula`');
   const java = findJava(opts.versions.java.minMajor, opts.world.server.javaPath).found;

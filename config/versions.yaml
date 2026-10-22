@@ -16,6 +16,9 @@ proximityChat:              # https://modrinth.com/plugin/proximitychat! (projec
 guardPlugin:                # server-plugin/agora-guard: disables /msg /tell /w /me /teammsg for non-ops (§15.3)
   filename: agora-guard-1.0.0.jar
   sha256: "810cc3edb4d22e2f208b13c3bf9779bd9c98c0a8c33653e57ac1b414ad9e0760"
+skinsPlugin:                # server-plugin/agora-skins: puts each agent's skin on it as it logs in (§16.5)
+  filename: agora-skins-1.0.0.jar
+  sha256: "6171e4ce01120747cd97025361b9410b4b2cc6b0e4f640134caa12f801ba3186"
 java:
   minMajor: 25              # Paper 26.1.2 requires Java 25 (Fill API java.version.minimum)
 node:

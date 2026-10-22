@@ -27,7 +27,21 @@ pnpm start                     # server + hub + agents
 
 `pnpm setup`, `pnpm doctor` and `pnpm import` are pnpm built-ins, so those three need `pnpm run`.
 
-Everything mutable lives in `DATA_DIR` (default `./data`): `server/`, `agents/`, `graveyard/`, `logs/`, `cache/`.
+Everything mutable lives in `DATA_DIR` (default `./data`): `server/`, `agents/`, `graveyard/`, `logs/`, `cache/`,
+and `skins/` (NameMC pages you saved for agents' skins, below).
+
+## Agents' skins
+
+Each agent is created in a skin from [NameMC](https://namemc.com): one tagged **boy** for a male agent, **girl**
+for a female one (`skins:` in `config/world.yaml`, DESIGN.md §16.5). [MineSkin](https://mineskin.org) signs a copy
+so clients show it, and our `agora-skins` plugin puts it on as the agent logs in. A MineSkin key is optional
+(`MINESKIN_API_KEY` in `.env`; without one its anonymous limits apply, enough for a village).
+
+NameMC shows its tag pages only to browsers (a Cloudflare challenge), and agora doesn't try to get around that.
+If it is turned away, the log says so: open `https://namemc.com/minecraft-skins/tag/boy` (and `…/girl`) in your
+browser, save the page (Ctrl+S, "HTML only") into `data/skins/namemc/boy/` (and `girl/`), or list NameMC skin
+links in a `.txt` file there. New agents pick from what you saved. `skins.exclude` lists skins never to use, and
+`skins.enabled: false` turns skins off.
 
 ## Scripts
 
@@ -43,7 +57,7 @@ Everything mutable lives in `DATA_DIR` (default `./data`): `server/`, `agents/`,
 | `pnpm run import <file> [--force]` | Restores an export (`--force` moves the existing data aside first); then `pnpm run setup` |
 | `pnpm deploy:systemd` | Writes `deploy/minecraft-agents.service`, a systemd user unit for this checkout |
 | `pnpm chat-discovery [--seconds 60] [--speak "hi"]` | Logs raw chat JSON and how the parser reads it (§15.3) |
-| `pnpm build:guard-plugin` | Rebuilds `server-plugin/agora-guard` (needs a JDK 25) and prints its sha256 |
+| `pnpm build:guard-plugin` / `pnpm build:skins-plugin` | Rebuilds `server-plugin/agora-guard` / `agora-skins` (needs a JDK 25) and prints its sha256 |
 | `pnpm run check` | Typecheck + lint + forbidden-strings (§22.2) + unit tests. Must be green after every change |
 | `pnpm test:live` | Live tests against a real, isolated Paper server (needs `AGORA_JAVA`) |
 
@@ -83,7 +97,7 @@ packages/shared  types, zod schemas, config, geometry, chat format, logging
 packages/llm     NanoGPT client and subscription lock
 packages/hub     supervisor, server management, rate limiter, dashboard
 packages/agent   one bot: body, blackboard, modules, social, memory
-server-plugin/   agora-guard (disables private chat commands for non-ops)
+server-plugin/   agora-guard (disables private chat commands for non-ops), agora-skins (agents' skins)
 scripts/         setup, start, doctor, server-mode, ctl, logs, export/import, …
 tests/           unit tests; tests/live/ needs a real server
 ```

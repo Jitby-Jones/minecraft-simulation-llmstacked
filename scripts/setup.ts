@@ -21,6 +21,7 @@ import {
   installEmbeddingModel,
   installGuardPlugin,
   installPaper,
+  installSkinsPlugin,
   installProximityChat,
   writeInstallRecord,
 } from '@agora/hub';
@@ -51,6 +52,12 @@ async function main(): Promise<void> {
   const paper = await installPaper(versions, paths, log);
   const plugin = await installProximityChat(versions, paths, log);
   installGuardPlugin(versions, paths, !world.chat.allowPrivateMessages, log);
+  installSkinsPlugin(versions, paths, world.skins.enabled, log);
+  if (world.skins.enabled) {
+    // Where the owner can drop NameMC pages saved from a browser, for when NameMC turns automated requests away.
+    for (const tag of new Set(Object.values(world.skins.tags))) fs.mkdirSync(path.join(paths.skins, 'namemc', tag), { recursive: true });
+    log(`agents' skins: NameMC tags ${Object.values(world.skins.tags).join(', ')}; saved pages go in ${path.join(paths.skins, 'namemc', '<tag>')}`);
+  }
   if (!args.has('--skip-model')) await installEmbeddingModel(versions, paths, log);
   else log('skipping embedding model download (--skip-model); agents fall back to hashed embeddings');
   writeInstallRecord(paths, versions, paper, plugin);

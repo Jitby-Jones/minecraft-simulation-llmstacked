@@ -1,8 +1,9 @@
-// The supervisor (§3, §16.2, §16.3, §19.7, §23.4): one OS process per bot, so a crash or a loop takes down only
-// that bot. It keeps the population between minAlive and maxAlive, assigns each slot its persona and username for
-// this life (pool first, then generated, balanced by sex), hands out the starter kit, restarts crashed bots as the
-// same agent, replaces the dead after respawnDelaySec under a new name (never reused), archives their memory to the
-// graveyard, and shuts everyone down gracefully, writing roster.json for the next start.
+// The supervisor (§3, §16.2, §16.3, §16.5, §19.7, §23.4): one OS process per bot, so a crash or a loop takes down
+// only that bot. It keeps the population between minAlive and maxAlive, assigns each slot its persona and username
+// for this life (pool first, then generated, balanced by sex), dresses each new agent in its skin before it first
+// logs in, hands out the starter kit, restarts crashed bots as the same agent, replaces the dead after
+// respawnDelaySec under a new name (never reused), archives their memory to the graveyard, and shuts everyone down
+// gracefully, writing roster.json for the next start.
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -12,6 +13,7 @@ import {
   type Logger,
   type Persona,
   type Random,
+  type Sex,
   type SexDifferences,
   type WorldConfig,
   agentDbPath,
@@ -19,8 +21,17 @@ import {
   generateUsername,
   isValidUsername,
 } from '@agora/shared';
+import type { AgentSkin } from '../skins/service';
 import type { Hub, HubSession } from './hub';
 import { type Roster, type RosterEntry, livingAgents, loadRoster, saveRoster } from './roster';
+
+/** Where agents' skins come from (§16.5): the SkinService, or a stand-in. */
+export interface SkinSource {
+  /** A skin for a new agent of this sex, not one of `taken` (NameMC ids worn by the living), or null. */
+  skinFor(sex: Sex, taken: ReadonlySet<string>): Promise<AgentSkin | null>;
+  /** Tells the server who wears what (each puts it on as they log in). */
+  publish(entries: readonly { username: string; skin?: AgentSkin | undefined }[]): void;
+}
 
 export interface BotProcess {
   slot: string;
@@ -60,8 +71,10 @@ export interface SupervisorOptions {
   launcher: Launcher;
   logger: Logger;
   rng: Random;
-  /** Server console access for starter kits (never used to tell a bot anything). */
+  /** Server console access for starter kits and skins (never used to tell a bot anything). */
   rcon?: (cmd: string) => Promise<string>;
+  /** Agents' skins (§16.5); without it, agents wear the default skin. */
+  skins?: SkinSource;
   /** Override population.initial (tests, `pnpm start --population`). */
   initial?: number;
   now?: () => number;
@@ -119,7 +132,9 @@ export class Supervisor {
   /** Reconnects the living agents from roster.json, then fills up to the target population, staggered. */
   async start(): Promise<void> {
     const resumed = this.living;
-    for (const a of resumed) this.launch(a.slot);
+    this.publishSkins();
+    // One without a skin yet (it couldn't be had when it was created) gets one before it logs in again.
+    for (const a of resumed) void this.dress(a).then(() => this.launch(a.slot));
     if (resumed.length > 0) this.o.logger.info({ module: 'supervisor', agents: resumed.map((a) => a.username) }, 'resuming agents');
     const want = Math.max(this.target, this.o.world.population.minAlive) - resumed.length;
     const stagger = this.o.world.population.spawnStaggerSec * 1000;
@@ -127,7 +142,7 @@ export class Supervisor {
       if (this.stopping) return;
       if (i > 0 || resumed.length > 0) await this.sleep(stagger);
       if (this.stopping) return;
-      this.spawnNew();
+      await this.spawnNew();
     }
   }
 
@@ -136,7 +151,7 @@ export class Supervisor {
     const max = this.o.world.population.maxAlive;
     this.target = Math.max(0, Math.min(max, n));
     const alive = this.living;
-    if (alive.length < this.target) for (let i = alive.length; i < this.target; i++) this.spawnNew();
+    if (alive.length < this.target) for (let i = alive.length; i < this.target; i++) void this.spawnNew();
     else {
       for (const a of alive.slice(this.target).reverse()) {
         a.status = 'retired';
@@ -177,7 +192,7 @@ export class Supervisor {
     return generatePersona({ rng: this.o.rng, world: this.o.world, sexDiffs: this.o.sexDiffs, takenNames: this.usedNames(), ...(wantSex ? { sex: wantSex } : {}) });
   }
 
-  private spawnNew(): RosterEntry {
+  private async spawnNew(): Promise<RosterEntry> {
     const persona = this.nextPersona();
     const used = this.usedNames();
     const username = isValidUsername(persona.name) && !used.has(persona.name) ? persona.name : generateUsername(persona.name, used, this.o.rng);
@@ -187,8 +202,54 @@ export class Supervisor {
     this.roster.usedNames.push(username);
     this.save();
     this.o.logger.info({ module: 'supervisor', agent: username, persona: persona.id ?? persona.name, source: persona.source }, 'new agent');
+    await this.dress(entry);
     this.launch(entry.slot);
     return entry;
+  }
+
+  /**
+   * §16.5: the agent's skin, before it logs in. Should it take longer than skins.waitSec, the agent logs in
+   * without one, and puts it on when it comes (the plugin reloads skins.tsv for those online).
+   */
+  private async dress(entry: RosterEntry): Promise<void> {
+    const skins = this.o.skins;
+    if (!skins || entry.skin) return;
+    const taken = new Set(this.living.flatMap((a) => (a.skin ? [a.skin.id] : [])));
+    const got = skins.skinFor(entry.persona.sex, taken).then(
+      (skin) => {
+        if (!skin || entry.status !== 'alive') return false;
+        entry.skin = skin;
+        this.save();
+        this.publishSkins();
+        this.o.logger.info({ module: 'supervisor', agent: entry.username, skin: skin.id, tag: skin.tag, variant: skin.variant }, 'agent dressed');
+        return true;
+      },
+      (err: unknown) => {
+        this.o.logger.warn({ module: 'supervisor', agent: entry.username, err: String(err) }, 'no skin for the agent');
+        return false;
+      },
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), this.o.world.skins.waitSec * 1000);
+      timer.unref();
+    });
+    const inTime = await Promise.race([got, late]);
+    clearTimeout(timer);
+    if (inTime !== 'late') return;
+    this.o.logger.info({ module: 'supervisor', agent: entry.username }, 'skin not ready yet: logging in without it for now');
+    void got.then(async (ok) => {
+      if (ok && this.o.rcon) await this.o.rcon('agoraskins reload').catch(() => '');
+    });
+  }
+
+  /** skins.tsv for the plugin: the living and their skins. */
+  private publishSkins(): void {
+    try {
+      this.o.skins?.publish(this.living);
+    } catch (err) {
+      this.o.logger.warn({ module: 'supervisor', err: String(err) }, 'skins.tsv not written');
+    }
   }
 
   private launch(slot: string, crashes: number[] = []): void {
@@ -254,6 +315,7 @@ export class Supervisor {
     entry.diedAt = this.now();
     entry.cause = cause;
     this.save();
+    this.publishSkins();
     this.o.logger.info({ module: 'supervisor', agent: username, cause }, 'agent died');
   }
 
@@ -278,7 +340,7 @@ export class Supervisor {
     if (this.living.length >= Math.max(this.o.world.population.minAlive, this.target)) return;
     const t = setTimeout(() => {
       this.timers.delete(t);
-      if (!this.stopping && this.living.length < Math.max(this.o.world.population.minAlive, this.target)) this.spawnNew();
+      if (!this.stopping && this.living.length < Math.max(this.o.world.population.minAlive, this.target)) void this.spawnNew();
     }, this.o.world.population.respawnDelaySec * 1000);
     this.timers.add(t);
   }

@@ -19,6 +19,8 @@ export interface DataPaths {
   graveyard: string;
   logs: string;
   cache: string;
+  /** What the owner drops in for agents' skins (§16.5): NameMC tag pages saved from a browser, lists of skin ids. */
+  skins: string;
   roster: string;
   ctlSocket: string;
 }
@@ -42,6 +44,7 @@ export function dataPaths(root: string = dataDir()): DataPaths {
     graveyard: path.join(root, 'graveyard'),
     logs: path.join(root, 'logs'),
     cache: path.join(root, 'cache'),
+    skins: path.join(root, 'skins'),
     roster: path.join(root, 'agents', 'roster.json'),
     // Windows needs a named pipe; elsewhere a unix socket inside DATA_DIR.
     ctlSocket:

@@ -50,7 +50,10 @@ export const ModelsConfigSchema = z
 export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
 
 // ---------------------------------------------------------------------------------------------------------------
-// config/world.yaml (§16.2, §16.3, §17.10, §19.7, §20, §21.5, §6.8, §15)
+// config/world.yaml (§16.2, §16.3, §16.5, §17.10, §19.7, §20, §21.5, §6.8, §15)
+
+/** A NameMC skin tag as it appears in the listing's URL (namemc.com/minecraft-skins/tag/<tag>). */
+const NameMcTag = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
 
 export const WorldConfigSchema = z
   .object({
@@ -168,6 +171,23 @@ export const WorldConfigSchema = z
         privateServerAck: z.boolean().default(false),
       })
       .prefault({}),
+    /** Agents' skins (§16.5): a NameMC skin by the agent's sex, given when the agent is created. */
+    skins: z
+      .object({
+        enabled: z.boolean().default(true),
+        source: z.literal('namemc').default('namemc'),
+        /** The NameMC skin tag each sex's skins are picked from. */
+        tags: z.object({ male: NameMcTag.default('boy'), female: NameMcTag.default('girl') }).prefault({}),
+        /** Pages of each tag's listing to read (the most liked come first); 24 skins a page. */
+        pages: z.number().int().min(1).max(10).default(2),
+        /** How MineSkin lists the signed copy it makes of each skin. */
+        visibility: z.enum(['public', 'unlisted', 'private']).default('unlisted'),
+        /** How long a new agent waits for its skin before it logs in without one (it gets it on the way). */
+        waitSec: z.number().min(0).max(600).default(60),
+        /** NameMC skin ids never to use. */
+        exclude: z.array(z.string().regex(/^[0-9a-f]{16}$/)).default([]),
+      })
+      .prefault({}),
   })
   .superRefine((c, ctx) => {
     if (c.population.minAlive > c.population.maxAlive) {
@@ -238,6 +258,11 @@ export const VersionsConfigSchema = z.object({
   }),
   /** Our own plugin that disables private chat commands for non-ops (§15.3); built from server-plugin/. */
   guardPlugin: z.object({
+    filename: z.string().regex(/^[A-Za-z0-9_.-]+\.jar$/),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  /** Our own plugin that puts each agent's skin on it as it logs in (§16.5); built from server-plugin/. */
+  skinsPlugin: z.object({
     filename: z.string().regex(/^[A-Za-z0-9_.-]+\.jar$/),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
   }),

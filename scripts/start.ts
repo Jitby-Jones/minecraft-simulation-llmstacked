@@ -13,6 +13,7 @@ import {
   SeededRandom,
   createLogger,
   ensureDataDirs,
+  getMineSkinKey,
   getNanoGptKey,
   loadEnv,
   loadHubConfig,
@@ -25,7 +26,18 @@ import {
   seedFromString,
 } from '@agora/shared';
 import { type Embedder, KeyLockError, QuotaGovernor, createEmbedder, createGuardedFetch, evaluateKeyLock, fetchUsage } from '@agora/llm';
-import { DashboardModel, DashboardServer, Hub, type ManagedServer, Supervisor, attachDashboard, controlHandler, nodeLauncher, startManagedServer } from '@agora/hub';
+import {
+  DashboardModel,
+  DashboardServer,
+  Hub,
+  type ManagedServer,
+  SkinService,
+  Supervisor,
+  attachDashboard,
+  controlHandler,
+  nodeLauncher,
+  startManagedServer,
+} from '@agora/hub';
 import { readRosterNames } from './lib/roster-names';
 import { setWorldMode } from './lib/mode';
 
@@ -115,6 +127,18 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
   const telemetry = fs.createWriteStream(path.join(paths.logs, 'telemetry.jsonl'), { flags: 'a' });
   hub.on('telemetry', (s, m) => telemetry.write(`${JSON.stringify({ agent: s.username, ...m })}\n`));
 
+  // §16.5: each new agent's skin, from NameMC by its sex, put on by the agora-skins plugin as it logs in.
+  const skins = world.skins.enabled
+    ? new SkinService({
+        config: world.skins,
+        ownerDir: paths.skins,
+        cacheDir: path.join(paths.cache, 'skins'),
+        pluginDir: path.join(paths.plugins, 'AgoraSkins'),
+        logger,
+        rng: new SeededRandom(seedFromString(`skins-${Date.now()}`)),
+        mineskinKey: getMineSkinKey(),
+      })
+    : null;
   const supervisor = new Supervisor({
     hub,
     paths,
@@ -125,6 +149,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     logger,
     rng: new SeededRandom(seedFromString(`${Date.now()}`)),
     ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
+    ...(skins ? { skins } : {}),
   });
 
   let ending: Ending = 'stop';

@@ -76,3 +76,12 @@ owner:
 skillWriter:
   enabled: false              # L3 skill writer (§1.4, M10). Private servers only.
   privateServerAck: false
+
+skins:                        # §16.5: each new agent gets a NameMC skin by its sex, signed through MineSkin
+  enabled: true
+  source: namemc
+  tags: { male: boy, female: girl }   # namemc.com/minecraft-skins/tag/<tag>
+  pages: 2                    # pages of each listing to read (24 skins a page, the most liked first)
+  visibility: unlisted        # how MineSkin lists its signed copies: public | unlisted | private
+  waitSec: 60                 # a new agent waits this long for its skin, then logs in and gets it on the way
+  exclude: []                 # NameMC skin ids never to use

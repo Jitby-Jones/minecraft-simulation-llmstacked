@@ -37,7 +37,13 @@ export function requireNanoGptKey(env: NodeJS.ProcessEnv = process.env): string 
   return key;
 }
 
-const SECRET_ENV_NAMES = ['NANOGPT_API_KEY', 'RCON_PASSWORD'] as const;
+/** The optional MineSkin API key (§16.5): without one, MineSkin's anonymous rate limits apply. */
+export function getMineSkinKey(env: NodeJS.ProcessEnv = process.env): string | null {
+  const key = env.MINESKIN_API_KEY?.trim();
+  return key && key.length > 0 ? key : null;
+}
+
+const SECRET_ENV_NAMES = ['NANOGPT_API_KEY', 'RCON_PASSWORD', 'MINESKIN_API_KEY'] as const;
 
 /** Replaces any known secret values (and bearer tokens) with a placeholder. */
 export function redactSecrets(text: string, env: NodeJS.ProcessEnv = process.env): string {

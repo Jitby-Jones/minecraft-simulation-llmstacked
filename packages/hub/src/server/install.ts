@@ -107,6 +107,27 @@ export function guardPluginSource(v: VersionsConfig): string {
   return path.join(repoRoot(), 'server-plugin', 'agora-guard', 'dist', v.guardPlugin.filename);
 }
 
+export function skinsPluginSource(v: VersionsConfig): string {
+  return path.join(repoRoot(), 'server-plugin', 'agora-skins', 'dist', v.skinsPlugin.filename);
+}
+
+/** Copies one of our own committed plugin jars into the server (hash-checked like any download), or removes it. */
+function installOwnPlugin(src: string, pin: { filename: string; sha256: string }, paths: DataPaths, enabled: boolean, rebuild: string): string | null {
+  const dest = path.join(paths.plugins, pin.filename);
+  if (!enabled) {
+    if (fs.existsSync(dest)) fs.rmSync(dest);
+    return null;
+  }
+  if (!fileMatches(src, 'sha256', pin.sha256)) {
+    throw new Error(`${src} is missing or its sha256 differs from config/versions.yaml (rebuild with \`${rebuild}\`)`);
+  }
+  if (!fileMatches(dest, 'sha256', pin.sha256)) {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+  return dest;
+}
+
 /**
  * Installs (or removes) our guard plugin that disables private chat commands for non-ops (§15.3).
  * The jar is built from server-plugin/agora-guard and committed; its hash is pinned like any download.
@@ -117,21 +138,15 @@ export function installGuardPlugin(
   enabled: boolean,
   log: (msg: string) => void,
 ): string | null {
-  const dest = path.join(paths.plugins, v.guardPlugin.filename);
-  if (!enabled) {
-    if (fs.existsSync(dest)) fs.rmSync(dest);
-    log('guard plugin not installed (chat.allowPrivateMessages: true)');
-    return null;
-  }
-  const src = guardPluginSource(v);
-  if (!fileMatches(src, 'sha256', v.guardPlugin.sha256)) {
-    throw new Error(`${src} is missing or its sha256 differs from config/versions.yaml (rebuild with scripts/build-guard-plugin.ts)`);
-  }
-  if (!fileMatches(dest, 'sha256', v.guardPlugin.sha256)) {
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
-  }
-  log('guard plugin installed: private chat commands disabled for non-ops');
+  const dest = installOwnPlugin(guardPluginSource(v), v.guardPlugin, paths, enabled, 'pnpm build:guard-plugin');
+  log(dest ? 'guard plugin installed: private chat commands disabled for non-ops' : 'guard plugin not installed (chat.allowPrivateMessages: true)');
+  return dest;
+}
+
+/** Installs (or removes) our plugin that puts each agent's skin on it as it logs in (§16.5, skins.enabled). */
+export function installSkinsPlugin(v: VersionsConfig, paths: DataPaths, enabled: boolean, log: (msg: string) => void): string | null {
+  const dest = installOwnPlugin(skinsPluginSource(v), v.skinsPlugin, paths, enabled, 'pnpm build:skins-plugin');
+  log(dest ? "skins plugin installed: agents log in wearing their skins" : 'skins plugin not installed (skins.enabled: false)');
   return dest;
 }
 
@@ -174,11 +189,15 @@ export interface InstallCheck {
 }
 
 /** Startup check (§15.4): the Paper version is the pinned one and the ProximityChat! jar is present and intact. */
-export function verifyInstall(paths: DataPaths, v: VersionsConfig, guardEnabled = true): InstallCheck {
+export function verifyInstall(paths: DataPaths, v: VersionsConfig, guardEnabled = true, skinsEnabled = false): InstallCheck {
   const problems: string[] = [];
   const guard = path.join(paths.plugins, v.guardPlugin.filename);
   if (guardEnabled && !fileMatches(guard, 'sha256', v.guardPlugin.sha256)) {
     problems.push(`guard plugin missing or modified: ${guard} (run \`pnpm run setup\`)`);
+  }
+  const skins = path.join(paths.plugins, v.skinsPlugin.filename);
+  if (skinsEnabled && !fileMatches(skins, 'sha256', v.skinsPlugin.sha256)) {
+    problems.push(`skins plugin missing or modified: ${skins} (run \`pnpm run setup\`)`);
   }
   const jar = path.join(paths.server, paperJarName(v));
   if (!fs.existsSync(jar)) problems.push(`Paper jar missing: ${jar} (run \`pnpm run setup\`)`);
