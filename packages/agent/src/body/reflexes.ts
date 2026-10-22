@@ -48,6 +48,10 @@ export interface ReflexHooks {
   onSoftResume?: (kind: 'eat' | 'armor' | 'unstick' | 'pickup') => void;
   /** True when no skill is driving the body: the collect reflex may walk over nearby drops (§6.6). */
   isIdle: () => boolean;
+  /** Whether a drop is ours to take (not what someone else is digging or dropping). Default: yes. */
+  mayPickUp?: (item: Entity) => boolean;
+  /** Someone else hit a mob that was after us. */
+  onHelpedFight?: (helper: string) => void;
 }
 
 export interface ReflexOptions {
@@ -160,6 +164,13 @@ export class ReflexController {
   };
 
   private readonly onEntityHurt = (e: Entity): void => {
+    // A mob that was after us (or that we are fighting), hit by someone else: they helped us fight (§6.3 deed).
+    const fighting = this.mode === 'fight' ? pvp(this.bot).target : undefined;
+    if (!isPlayer(e) && (this.recentAttackers.has(e.id) || fighting?.id === e.id)) {
+      const att = this.swings.attackerOf(e);
+      if (att.attacker && att.attacker !== this.bot.entity && isPlayer(att.attacker) && att.attacker.username) this.hooks.onHelpedFight?.(att.attacker.username);
+      return;
+    }
     if (e === this.bot.entity || !isPlayer(e) || !e.username) return;
     if (!this.hooks.shouldDefend(e.username)) return;
     const att = this.swings.attackerOf(e);
@@ -405,7 +416,11 @@ export class ReflexController {
     const bot = this.bot;
     const radius = this.opts.pickupRadius ?? 4;
     const drop = bot.nearestEntity(
-      (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) <= radius && Math.abs(e.position.y - bot.entity.position.y) < 2,
+      (e) =>
+        e.name === 'item' &&
+        e.position.distanceTo(bot.entity.position) <= radius &&
+        Math.abs(e.position.y - bot.entity.position.y) < 2 &&
+        (this.hooks.mayPickUp?.(e) ?? true),
     );
     if (!drop || drop.position.distanceTo(bot.entity.position) < 0.8 || !canSee(this.bot, drop.position.offset(0, 0.25, 0), radius + 1)) return false;
     this.busy = true;

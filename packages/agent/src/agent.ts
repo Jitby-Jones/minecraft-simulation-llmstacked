@@ -23,6 +23,8 @@ import { SocialAwareness } from './social/awareness';
 import { ClaimChecker } from './social/claims';
 import { CommitmentTracker } from './social/commitments';
 import { DeathWatch } from './social/deaths';
+import { DeedWatch } from './social/deeds';
+import { TradeTracker } from './social/trades';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
@@ -60,6 +62,8 @@ export class Agent {
   readonly commitments: CommitmentTracker;
   readonly deaths: DeathWatch;
   readonly claims: ClaimChecker;
+  readonly deeds: DeedWatch;
+  readonly trades: TradeTracker;
   private dangerSource = '';
   private readonly offs: (() => void)[] = [];
 
@@ -118,7 +122,9 @@ export class Agent {
     this.commitments = new CommitmentTracker({ store: this.store, bus: this.bus, logger, llm, me: username, social: this.social, now });
     this.deaths = new DeathWatch({ store: this.store, bus: this.bus, logger, me: username, sawDeath: (name, ms) => this.perception.saw(name, 'death', ms), now });
     this.claims = new ClaimChecker({ store: this.store, bus: this.bus, logger, bot: body.bot, social: this.social, ...(mem ? { markFalse: (t: string) => void mem.markFalseMatching(t) } : {}), now });
+    this.trades = new TradeTracker({ store: this.store, bus: this.bus, logger, me: username, onDeal: (w, ours, theirs) => this.cc.recordDeal(w, ours, theirs), now });
     // Notable deeds move sentiment by code (§6.3 rule 2).
+    this.deeds = new DeedWatch({ bot: body.bot, store: this.store, social: this.social, me: username, placed: body.placed, now });
     this.offs.push(
       this.bus.on('observedAction', (e) => {
         const a = e.action;
@@ -144,7 +150,10 @@ export class Agent {
       // Self-defense is always allowed; deliberate fights are code-gated in the conflict core (M6b).
       mayFightBack: () => true,
       deliberateFight: () => this.store.state.option?.skill === 'attack',
-      isIdle: () => !this.executor.busy,
+      isIdle: () => this.executor.idleBody,
+      mayPickUp: (item) => this.perception.mayPickUp(item.id),
+      onAllyAttacked: (ally, by) => this.deeds.allyAttacked(ally, by),
+      onHelpedFight: (helper) => this.deeds.helpedFight(helper),
       onDanger: (info) => {
         this.dangerSource = info.source;
         this.store.update('flags', (f) => ({ ...f, inDanger: true, busyLevel: 'critical', busySpeech: cannedBusyLine(info.source) }), `danger: ${info.kind} ${info.source}`);
@@ -194,11 +203,15 @@ export class Agent {
     this.commitments.start();
     this.deaths.start();
     this.claims.start();
+    this.deeds.start();
+    this.trades.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.trades.stop();
+    this.deeds.stop();
     this.claims.stop();
     this.deaths.stop();
     this.commitments.stop();

@@ -31,6 +31,8 @@ const ENTITY_RADIUS = 32;
 const HEAR_RADIUS = 4;
 const MAX_ENTITIES = 24;
 const RING_ACTIONS = 20;
+/** How long a drop counts as someone else's (then it's anyone's). */
+const THEIRS_MS = 60_000;
 const RING_SYSTEM = 20;
 // Blocks worth noting: rare ones (also remembered as sightings, which is what lets skills target them) and a few
 // landmarks.
@@ -73,6 +75,8 @@ export class Perception {
   private lastSelfKey = '';
   /** Item entity → who it appeared next to (the likely thrower). */
   private readonly droppedBy = new Map<number, { by: AgentName; at: number }>();
+  /** Item entity → whose it is: tossed or dug out by someone else, not toward us (pickup courtesy). */
+  private readonly theirs = new Map<number, { by: AgentName; at: number }>();
   private lastEntitiesKey = '';
   private lastBlocksKey = '';
   private readonly socialSeenAt = new Map<AgentName, number>();
@@ -111,11 +115,21 @@ export class Perception {
     // thrower is the player the item appeared next to (within 2 blocks of their hands, while we could see them).
     on('entitySpawn', (e: Entity) => {
       if (e.name !== 'item') return;
-      for (const [id, d] of this.droppedBy) if (this.now() - d.at > 60_000) this.droppedBy.delete(id);
+      const t = this.now();
+      for (const [id, d] of this.droppedBy) if (t - d.at > 60_000) this.droppedBy.delete(id);
+      for (const [id, d] of this.theirs) if (t - d.at > THEIRS_MS) this.theirs.delete(id);
       const thrower = Object.values(bot.entities).find(
         (p) => p.type === 'player' && p !== bot.entity && p.username && p.position.offset(0, 1.2, 0).distanceTo(e.position) <= 2 && canSee(bot, p, ENTITY_RADIUS + 1),
       );
-      if (thrower?.username) this.droppedBy.set(e.id, { by: thrower.username, at: this.now() });
+      if (thrower?.username) this.droppedBy.set(e.id, { by: thrower.username, at: t });
+      // Tossed toward us (a hand-over happens within 2 blocks) is ours to take; anything else someone tossed, or
+      // the drop of a block we saw them dig, is theirs for a while.
+      const forUs = e.position.distanceTo(bot.entity.position) <= 3.5;
+      const digger = this.o.store.state.perception.observedActions.find(
+        (a) => a.kind === 'dig' && a.pos && t - a.ts < 15_000 && Math.hypot(a.pos.x + 0.5 - e.position.x, a.pos.y + 0.5 - e.position.y, a.pos.z + 0.5 - e.position.z) <= 1.5,
+      );
+      const owner = thrower?.username && !forUs ? thrower.username : digger?.actor;
+      if (owner && owner !== this.me) this.theirs.set(e.id, { by: owner, at: t });
     });
     on('playerCollect', (collector: Entity, collected: Entity) => {
       const it = (collected as unknown as { getDroppedItem?: () => { name: string; count: number } | null }).getDroppedItem?.();
@@ -155,6 +169,12 @@ export class Perception {
   }
 
   /** People this bot perceives within speech range (seen, or heard recently). */
+  /** Pickup courtesy: an item someone else just dug out or dropped (not toward us) is theirs to collect. */
+  mayPickUp(entityId: number): boolean {
+    const d = this.theirs.get(entityId);
+    return !d || this.now() - d.at > THEIRS_MS;
+  }
+
   /** Whether we saw `name` do `kind` (e.g. die) within the last `withinMs`. */
   saw(name: AgentName, kind: ObservedAction['kind'], withinMs: number): boolean {
     const t = this.now();

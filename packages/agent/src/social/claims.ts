@@ -60,7 +60,9 @@ export class ClaimChecker {
   }
 
   start(): void {
+    // Overheard claims count too: rumors spread by being overheard.
     this.offs.push(this.o.bus.on('addressed', (e) => this.onHeard(e.utterance)));
+    this.offs.push(this.o.bus.on('overheard', (e) => this.onHeard(e.utterance)));
     this.timer = setInterval(() => this.check(), 2000);
     this.timer.unref();
   }
@@ -79,7 +81,7 @@ export class ClaimChecker {
 
   private onHeard(u: Utterance): void {
     const c = parseClaim(u.text);
-    if (!c) return;
+    if (!c || this.claims.some((x) => x.status === 'open' && x.item === c.item && dist(x.pos, c.pos) < 3)) return;
     this.claims.push({ id: `cl${(seq++).toString(36)}`, by: u.from, item: c.item, pos: c.pos, text: u.text, ts: this.now(), status: 'open' });
     if (this.claims.length > 20) this.claims.shift();
   }

@@ -1,15 +1,18 @@
 // M6 (§6.3, §6.4): Social Awareness and commitment tracking against fakes and the mocked NanoGPT. Live scenarios
 // are in tests/live/m6-social.test.ts.
 
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { type Commitment, type ConversationState, ModelsConfigSchema, PersonaSchema, type Utterance, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
+import { type Bot, Vec3 } from '@agora/agent/body/bot';
 import { AgentBus } from '@agora/agent/bus';
-import { codeDecision, parseItemRequest } from '@agora/agent/modules/cc';
+import { amountOf, codeDecision, parseItemRequest } from '@agora/agent/modules/cc';
 import { SocialAwareness, codePromises, codeSocialUpdate } from '@agora/agent/social/awareness';
 import { parseClaim } from '@agora/agent/social/claims';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
 import { DeathWatch, reactToDeath } from '@agora/agent/social/deaths';
+import { DeedWatch } from '@agora/agent/social/deeds';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -92,7 +95,7 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
     const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
     const s = store();
     const bus = new AgentBus();
-    const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', now: () => 5000 });
+    const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', settleMs: 0, now: () => 5000 });
     sa.start();
     const conv = conversation([
       ['Bram', 'hey Pip, I am building a house by the lake'],
@@ -111,6 +114,37 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
     expect(s.state.commitments[0]).toMatchObject({ debtor: 'Bram', creditor: 'Pip', status: 'accepted', what: { kind: 'give', item: 'oak_log', qty: 8 }, dueBy: 5000 + 300_000 });
     sa.stop();
     rt.stop();
+  });
+
+  it('records a promise said twice, or restated in a later conversation, once', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', settleMs: 0 });
+    sa.start();
+    s.update('conversations', (cs) => ({ ...cs, c1: conversation([['Bram', "I'll bring you 8 logs"], ['Pip', 'great'], ['Bram', "yes, I'll bring you 8 logs soon"]]) }));
+    bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
+    for (let i = 0; i < 50 && s.state.commitments.length === 0; i++) await wait(20);
+    expect(s.state.commitments).toHaveLength(1);
+    s.update('conversations', (cs) => ({ ...cs, c2: { ...conversation([['Bram', "don't worry, I'll bring you 8 logs"]]), convId: 'c2' } }));
+    bus.emit({ type: 'conversationEnded', convId: 'c2', reason: 'turn cap' });
+    await wait(200);
+    expect(s.state.commitments).toHaveLength(1);
+    sa.stop();
+  });
+
+  it('waits a moment after the end, so a last reply heard after it is read too', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', settleMs: 300 });
+    sa.start();
+    s.update('conversations', (cs) => ({ ...cs, c1: conversation([['Pip', 'can you give me 8 logs?']]) }));
+    bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'repetition' });
+    // The answer arrives just after the end (Conversations appends such tails to the ended transcript).
+    const c1 = s.state.conversations.c1;
+    if (c1) s.update('conversations', (cs) => ({ ...cs, c1: { ...c1, transcript: [...c1.transcript, utter('Bram', "sure, I'll bring you 8 logs", 5)] } }));
+    for (let i = 0; i < 50 && s.state.commitments.length === 0; i++) await wait(20);
+    expect(s.state.commitments[0]).toMatchObject({ debtor: 'Bram', creditor: 'Pip', what: { kind: 'give', item: 'log', qty: 8 } });
+    sa.stop();
   });
 });
 
@@ -143,7 +177,7 @@ describe('commitment tracking (§6.4)', () => {
     const mine = k({ id: 'k2', debtor: 'Pip', creditor: 'Bram' });
     const theirs = k({ id: 'k3', what: { kind: 'give', item: 'bread', qty: 1, text: 'a loaf' }, dueBy: 2000 });
     const { s, bus, ct } = tracker([mine, theirs], now);
-    bus.emit({ type: 'actionRecorded', record: { id: 'r', skill: 'give', args: { agent: 'Bram', item: 'oak_log', qty: 8 }, expected: '', observed: '', ok: true, ts: 1000, durationMs: 1 } });
+    bus.emit({ type: 'actionRecorded', record: { id: 'r', skill: 'give', args: { to: 'Bram', item: 'oak_log', qty: 8 }, expected: '', observed: '', ok: true, ts: 1000, durationMs: 1 } });
     expect(s.state.commitments.find((c) => c.id === 'k2')?.status).toBe('fulfilled');
     expect(s.state.workmem.at(-1)?.text).toMatch(/I kept my promise to Bram/);
     now.t = 3000;
@@ -174,6 +208,34 @@ describe('the code default answers a favor (§6.3 share policy, scenario A witho
     expect(yes?.commitmentsToCreate?.[0]).toMatchObject({ debtor: 'Pip', creditor: 'Bram', what: { kind: 'give', item: 'log', qty: 8 } });
     const disliked = { ...asked, social: { Bram: { ...newProfile('Bram'), sentiment: 3 } } };
     expect(codeDecision(disliked, { from: 'Bram', convId: 'c1' }, false, never)?.speechIntent).toMatchObject({ stance: 'decline', mayCommit: false });
+  });
+
+  it('reads a follow-up as the same request, and does not promise twice', () => {
+    const base = createInitialState({ persona, username: 'Pip', now: 0 });
+    const never = () => false;
+    const heard = [utter('Bram', 'Pip, can you give me 8 logs?', 1), utter('Bram', 'so, can you?', 2)];
+    const asked = { ...base, social: { Bram: { ...newProfile('Bram'), sentiment: 7 } }, perception: { ...base.perception, heardSpeech: heard } };
+    const yes = codeDecision(asked, { from: 'Bram', convId: 'c1' }, false, never);
+    expect(yes?.speechIntent).toMatchObject({ stance: 'agree', mayCommit: true });
+    expect(yes?.commitmentsToCreate).toHaveLength(1);
+    // Asked again after promising: say so and keep at it.
+    const promise: Commitment = { id: 'k1', debtor: 'Pip', creditor: 'Bram', what: { kind: 'give', item: 'log', qty: 8, text: '8 logs' }, status: 'accepted', createdFromConv: 'c1', createdAt: 0 };
+    const working = { ...asked, commitments: [promise], option: { decisionId: 'd', option: 'work' as const, startedAt: 0, maxSeconds: 600, skill: 'obtain', args: { item: 'log', qty: 8 }, status: 'running' as const } };
+    const again = codeDecision(working, { from: 'Bram', convId: 'c1' }, true, never);
+    expect(again?.option).toBe('work');
+    expect(again?.task).toBeUndefined();
+    expect(again?.commitmentsToCreate).toBeUndefined();
+    expect(again?.speechIntent).toMatchObject({ stance: 'agree', mayCommit: true, gist: "I'm on it, bringing you 8 logs" });
+    // A line from another conversation is not part of this request.
+    const elsewhere = { ...asked, perception: { ...base.perception, heardSpeech: [utter('Bram', 'so, can you?', 3)] } };
+    expect(codeDecision(elsewhere, { from: 'Bram', convId: 'c9' }, false, never)?.speechIntent?.stance).toBe('decline');
+  });
+
+  it('counts things the way people do', () => {
+    expect(amountOf('log', 8)).toBe('8 logs');
+    expect(amountOf('bread', 2)).toBe('2 bread');
+    expect(amountOf('cobblestone', 16)).toBe('16 cobblestone');
+    expect(amountOf('apple', 1)).toBe('1 apple');
   });
 });
 
@@ -215,5 +277,52 @@ describe('rumor control (§6.5)', () => {
     expect(parseClaim('found iron_ore at 10 64 -3 by the river')).toEqual({ item: 'iron_ore', pos: { x: 10, y: 64, z: -3 } });
     expect(parseClaim('diamonds are great')).toBeNull();
     expect(parseClaim('meet me at 10, 64, 20')).toBeNull();
+  });
+});
+
+describe('notable deeds seen in the world (§6.3 rule 2)', () => {
+  function watch() {
+    const s = store();
+    const bus = new AgentBus();
+    const t = { now: 100_000 };
+    const social = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', now: () => t.now });
+    const ee = Object.assign(new EventEmitter(), { players: { Bram: {}, Tobin: {} }, targetDigBlock: null });
+    const bot = ee as unknown as Bot;
+    const placed = new Set<string>(['1,64,1', '2,64,1']);
+    const dw = new DeedWatch({ bot, store: s, social, me: 'Pip', placed, now: () => t.now });
+    dw.start();
+    const block = (x: number, name: string) => ({ position: new Vec3(x, 64, 1), name });
+    return { s, t, bot: ee, dw, placed, block };
+  }
+
+  it('counts someone breaking the blocks we placed, once a minute', () => {
+    const { s, t, bot, dw, placed, block } = watch();
+    s.update('perception', (p) => ({ ...p, observedActions: [{ id: 'a', actor: 'Bram', kind: 'dig', pos: { x: 1, y: 64, z: 1 }, ts: t.now - 2000 }] }));
+    bot.emit('blockUpdate', block(1, 'oak_planks'), block(1, 'air'));
+    expect(s.state.social.Bram?.sentiment).toBeLessThan(5);
+    expect(s.state.workmem.at(-1)?.text).toBe('Bram broke the oak planks I placed');
+    expect(placed.has('1,64,1')).toBe(false);
+    const after = s.state.social.Bram?.sentiment;
+    s.update('perception', (p) => ({ ...p, observedActions: [...p.observedActions, { id: 'b', actor: 'Bram', kind: 'dig', pos: { x: 2, y: 64, z: 1 }, ts: t.now - 500 }] }));
+    bot.emit('blockUpdate', block(2, 'oak_planks'), block(2, 'air'));
+    expect(s.state.social.Bram?.sentiment).toBe(after);
+    // A block nobody placed, or one changing into something else, is nobody's deed.
+    bot.emit('blockUpdate', block(5, 'stone'), block(5, 'air'));
+    expect(Object.keys(s.state.social)).toEqual(['Bram']);
+    dw.stop();
+  });
+
+  it('dislikes whoever attacks a friend and likes whoever helps us fight', () => {
+    const { s, dw } = watch();
+    dw.allyAttacked('Tobin', 'Bram');
+    dw.allyAttacked('Tobin', 'zombie');
+    expect(s.state.social.Bram?.sentiment).toBeLessThan(5);
+    expect(s.state.social.zombie).toBeUndefined();
+    dw.helpedFight('Tobin');
+    dw.helpedFight('Tobin');
+    // +1.5, doubled by first-meeting anchoring, clamped to +2; the second hit in the same fight doesn't count.
+    expect(s.state.social.Tobin?.sentiment).toBe(7);
+    expect(s.state.workmem.at(-1)?.text).toBe('Tobin helped me fight');
+    dw.stop();
   });
 });

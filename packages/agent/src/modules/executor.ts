@@ -22,6 +22,9 @@ export interface ExecutorOptions {
 
 const ACTION_LOG = 30;
 
+/** "that's enough", "we're done, thanks": the person being helped calls it off (§6.7). */
+export const HELP_DONE_RE = /\b(that'?s enough|enough|we'?re done|i'?m done|done now|all done|you can stop|stop now|that'?s all|that'?ll do|all good now)\b/i;
+
 /** Which skill an option runs, and with what. */
 /** What the `explore` option runs (also its stuck key). */
 export const EXPLORE_ARGS = { distance: 32 } as const;
@@ -29,7 +32,10 @@ export const EXPLORE_ARGS = { distance: 32 } as const;
 export function skillForOption(opt: ActiveOption, nearAgent: (name: string, within: number) => boolean): { skill: string; args: Record<string, unknown> } {
   switch (opt.option) {
     case 'work':
+      return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'wait', args: { seconds: 5 } };
+    // §6.7: help works near the person; walk over first if they are far.
     case 'help':
+      if (opt.targetAgent && !nearAgent(opt.targetAgent, 8)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
       return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'wait', args: { seconds: 5 } };
     case 'move':
       if (opt.targetPos) return { skill: 'goTo', args: { ...opt.targetPos, range: 1 } };
@@ -41,11 +47,12 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
       return { skill: 'explore', args: { ...EXPLORE_ARGS } };
     case 'flee':
       return { skill: 'flee', args: opt.targetAgent ? { from: opt.targetAgent } : {} };
+    // A trade is talked through (§6.6); the hand-over is a give task once it's agreed.
     case 'talk':
+    case 'trade':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
       return { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 600) } };
-    // Trades, conflict and romance options get their own skills in M6–M9; until then they pass time.
-    case 'trade':
+    // Conflict and romance options get their own skills in M6b–M9; until then they pass time.
     case 'fight':
     case 'demand':
     case 'yield':
@@ -58,7 +65,7 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
 }
 
 export class SkillExecutor {
-  private current: { opt: ActiveOption; ac: AbortController; reason: string | null } | null = null;
+  private current: { opt: ActiveOption; ac: AbortController; reason: string | null; skill?: string } | null = null;
   private readonly offs: (() => void)[] = [];
   private readonly now: () => number;
 
@@ -70,9 +77,15 @@ export class SkillExecutor {
     return this.current !== null;
   }
 
+  /** Nothing physical going on (resting or just looking around): upkeep reflexes like picking things up may run. */
+  get idleBody(): boolean {
+    const skill = this.current?.skill ?? this.current?.opt.skill;
+    return this.current === null || skill === 'wait' || skill === 'look';
+  }
+
   /** The running option's skill can continue during a conversation (§6.2 busy matrix). */
   talkOverable(): boolean {
-    const name = this.current?.opt.skill;
+    const name = this.current?.skill ?? this.current?.opt.skill;
     return !name || this.o.body.skill(name)?.talkOverable !== false;
   }
 
@@ -88,6 +101,13 @@ export class SkillExecutor {
     this.o.store.on('change', onChange);
     this.offs.push(() => this.o.store.off('change', onChange));
     this.offs.push(this.o.bus.on('danger', () => this.abort('danger')));
+    // Helping ends when the person we help says it's enough (§6.7 shared termination).
+    this.offs.push(
+      this.o.bus.on('addressed', (e) => {
+        const opt = this.current?.opt;
+        if (opt?.option === 'help' && opt.targetAgent === e.utterance.from && HELP_DONE_RE.test(e.utterance.text)) this.abort('they said done');
+      }),
+    );
     // A talk option is over when its conversation is.
     this.offs.push(
       this.o.bus.on('conversationEnded', (e) => {
@@ -116,7 +136,7 @@ export class SkillExecutor {
 
   private async run(opt: ActiveOption): Promise<void> {
     const ac = new AbortController();
-    const me = { opt, ac, reason: null as string | null };
+    const me: { opt: ActiveOption; ac: AbortController; reason: string | null; skill?: string } = { opt, ac, reason: null };
     this.current = me;
     const { store, bus, body, logger } = this.o;
     const L = this.o.levers();
@@ -143,6 +163,7 @@ export class SkillExecutor {
     // A talk option walks into range first, then waits while Talking does the talking.
     let step = skillForOption(opt, (n, w) => this.nearAgent(n, w));
     for (let leg = 0; leg < 2; leg++) {
+      me.skill = step.skill;
       store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, skill: step.skill, args: step.args } : o), `running ${step.skill}`);
       const r = await body.run(step.skill, step.args, {
         signal: ac.signal,
@@ -167,8 +188,12 @@ export class SkillExecutor {
       store.update('actionLog', (log) => [...log, rec as ActionRecord].slice(-ACTION_LOG), `action ${r.skill}`);
       logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');
       bus.emit({ type: 'actionRecorded', record: rec });
-      if (opt.option === 'talk' && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
+      if ((opt.option === 'talk' || opt.option === 'trade') && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
         step = { skill: 'wait', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)) } };
+        continue;
+      }
+      if (opt.option === 'help' && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted && opt.skill) {
+        step = { skill: opt.skill, args: opt.args ?? {} };
         continue;
       }
       break;
@@ -177,7 +202,8 @@ export class SkillExecutor {
     clearInterval(watch);
     const reason = me.reason ?? (ok ? 'done' : (rec?.error ?? 'failed'));
     // A condition that came true or a timer counts as a normal end, not a failure.
-    const success = ok || reason.startsWith('until ') || reason === 'conversation over' || (reason === 'time is up' && ['rest', 'follow', 'talk', 'explore'].includes(opt.option));
+    const success =
+      ok || reason.startsWith('until ') || reason === 'conversation over' || reason === 'they said done' || (reason === 'time is up' && ['rest', 'follow', 'talk', 'trade', 'explore'].includes(opt.option));
     if (this.current === me) this.current = null;
     store.update(
       'option',
@@ -185,6 +211,6 @@ export class SkillExecutor {
       `option ${reason}`,
     );
     store.update('flags', (f) => ({ ...f, busyLevel: f.inDanger ? 'critical' : this.current ? 'working' : 'idle' }), 'option ended');
-    bus.emit({ type: 'optionTerminated', reason, ok: success });
+    bus.emit({ type: 'optionTerminated', reason, ok: success, option: opt.option, ...(opt.targetAgent ? { targetAgent: opt.targetAgent } : {}) });
   }
 }

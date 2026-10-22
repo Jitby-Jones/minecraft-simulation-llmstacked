@@ -4,7 +4,7 @@
 // `needsDecision`; the CC's speechIntent then drives the real answer. Reply timing follows the busy matrix; lines
 // that arrive while a reply is pending are answered together (batching).
 
-import { type AgentName, type ConvId, type Decision, type Logger, type SpeechIntent, type Utterance, capWords } from '@agora/shared';
+import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, capWords } from '@agora/shared';
 import type { ChatMessage, LlmClient } from '@agora/llm';
 import { SingleFlight } from '@agora/llm';
 import { z } from 'zod';
@@ -14,6 +14,8 @@ import { talkPolicy } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import type { Conversations } from './conversations';
 import type { SkillExecutor } from './executor';
+import { topEmotion } from '../mind/emotions';
+import { parseTradeOffer } from '../social/trades';
 import { NO_PROMISE_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
 
 export const PROMISE_RE =
@@ -29,7 +31,7 @@ export function looksLikePromise(text: string): boolean {
 }
 
 export function needsDecision(text: string): boolean {
-  return REQUEST_RE.test(text);
+  return REQUEST_RE.test(text) || parseTradeOffer(text) !== null;
 }
 
 /** One clean chat line from a model reply: no "Name:" prefix, no quotes, no commands, capped. */
@@ -42,6 +44,23 @@ export function cleanReply(raw: string, me: string, maxWords: number): string {
 }
 
 const GREETINGS: readonly string[] = ['hey!', 'hi there', 'hello!', 'oh, hey', 'hey, how is it going?'];
+
+/** Small talk when one feeling is strong (§18.2 expression). */
+const FEELING_LINES: Partial<Record<EmotionName, readonly string[]>> = {
+  anger: ['what now?', 'not in the mood.', 'ugh. what?'],
+  sadness: ['*sighs*', 'yeah... I guess.', "it's been a rough day."],
+  joy: ['haha, yes!', 'what a day!', 'ooh, this is great!'],
+  fear: ["it's not safe here...", 'did you hear that?'],
+  shame: ['...sorry.', "I'd rather not talk about it."],
+};
+
+/** "angry", "a little sad": the feeling worth mentioning to the model (§18.2 expression). */
+export function feelingText(e: EmotionState): string | null {
+  const t = topEmotion(e);
+  if (!t) return null;
+  const word: Record<EmotionName, string> = { anger: 'angry', fear: 'afraid', joy: 'happy', sadness: 'sad', disgust: 'disgusted', shame: 'ashamed', envy: 'envious', affection: 'warm toward people' };
+  return `${t.intensity > 0.7 ? 'very ' : t.intensity < 0.4 ? 'a little ' : ''}${word[t.name]}`;
+}
 
 const CANNED: Readonly<Record<SpeechIntent['stance'], readonly string[]>> = {
   agree: ['sure', 'ok, can do', 'yeah, alright'],
@@ -184,8 +203,28 @@ export class Talking {
     return r.ok && r.value.addressedToMe;
   }
 
+  /** People we won't talk to for a while (refused on impulse, §18.5): name → until. */
+  private readonly refusing = new Map<AgentName, number>();
+
+  /** Says something right away to them, no model and no waiting (§18.5 outbursts); replaces a reply in the making. */
+  async blurt(to: AgentName, text: string, volume: SpeechIntent['volume'] = 'normal'): Promise<boolean> {
+    const conv = this.o.conversations.withPartner(to) ?? this.o.conversations.open(to, true);
+    const p = this.pending.get(conv.convId);
+    if (p) {
+      clearTimeout(p.timer);
+      this.pending.delete(conv.convId);
+    }
+    return this.send(conv.convId, text, volume);
+  }
+
+  /** Won't answer them for `ms` (sulking, refusing to talk). */
+  refuse(name: AgentName, ms: number): void {
+    this.refusing.set(name, this.now() + ms);
+  }
+
   private onAddressed(u: Utterance): void {
     if (!u.convId) return;
+    if ((this.refusing.get(u.from) ?? 0) > this.now()) return;
     const p = this.pending.get(u.convId);
     if (p) {
       p.lines.push(u); // batched into the pending reply
@@ -297,8 +336,16 @@ export class Talking {
 
   private canned(intent: SpeechIntent, opening = false): string {
     const persona = this.o.store.state.self.persona;
+    // §18.2 expression: a strong feeling colors small talk.
+    const felt = topEmotion(this.o.store.state.emotions);
+    if (intent.stance === 'chat' && felt && felt.intensity > 0.55) {
+      const moodLines = FEELING_LINES[felt.name];
+      if (moodLines) return moodLines[Math.floor(this.rng() * moodLines.length)] ?? '';
+    }
     // A promise the CC allowed is said plainly, so the other side knows what was agreed (§6.4).
-    if (intent.stance === 'agree' && intent.mayCommit && /^I'll /.test(intent.gist) && intent.gist.length <= 80) return `sure! ${intent.gist}`;
+    if (intent.stance === 'agree' && intent.mayCommit && /^I('ll|'m) /.test(intent.gist) && intent.gist.length <= 80) return `sure! ${intent.gist}`;
+    // A counter-offer is said as it is, so the other side can take it or leave it (§6.6).
+    if (intent.stance === 'negotiate' && /^how about /i.test(intent.gist) && intent.gist.length <= 100) return intent.gist;
     const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
     if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
       return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
@@ -330,9 +377,11 @@ export class Talking {
       const promises = owes.map((c) => (c.debtor === name ? `${name} owes you ${c.what.text}` : `you owe ${name} ${c.what.text}`));
       return `You feel ${Math.round(p.sentiment)}/10 about ${name}${p.trust < 0.35 ? ' and don\u2019t trust them much' : ''}.${p.summary ? ` ${p.summary}` : ''}${promises.length > 0 ? ` ${promises.join('; ')}.` : ''}`;
     });
+    const feeling = feelingText(s.emotions);
     const user = [
       `Right now you are: ${activity}.`,
       s.selfSummary ? `About you: ${s.selfSummary}` : '',
+      feeling ? `You feel ${feeling}; let it show in how you talk.` : '',
       ...about,
       onMind.length > 0 ? `On your mind: ${onMind.join('; ')}` : '',
       remembered.length > 0 ? `You remember:\n${remembered.map((m) => `- ${m}`).join('\n')}` : '',

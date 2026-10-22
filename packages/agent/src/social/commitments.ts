@@ -54,7 +54,12 @@ export class CommitmentTracker {
     this.offs.push(
       this.o.bus.on('actionRecorded', (e) => {
         const r = e.record;
-        if (r.skill === 'give' && r.ok && typeof r.args.agent === 'string') this.gave(r.args.agent, typeof r.args.item === 'string' ? r.args.item : undefined, Number(r.args.qty ?? 1));
+        if (r.skill === 'give' && r.ok && typeof r.args.to === 'string') this.gave(r.args.to, typeof r.args.item === 'string' ? r.args.item : undefined, Number(r.args.qty ?? 1));
+      }),
+    );
+    this.offs.push(
+      this.o.bus.on('optionTerminated', (e) => {
+        if (e.reason === 'they said done' && e.option === 'help' && e.targetAgent) this.helpCalledOff(e.targetAgent);
       }),
     );
     this.timer = setInterval(() => void this.check(), 2000);
@@ -95,16 +100,35 @@ export class CommitmentTracker {
     }
   }
 
-  /** We handed items over: progress on our own `give` promises. */
+  /** We handed items over: progress on our own `give` promises (and on help, whose gatherings are handed over). */
   private gave(to: AgentName, item: string | undefined, qty: number): void {
     for (const c of this.open()) {
-      if (c.debtor !== this.o.me || c.creditor !== to || (c.what.kind !== 'give' && c.what.kind !== 'gather')) continue;
+      if (c.debtor !== this.o.me || c.creditor !== to || (c.what.kind !== 'give' && c.what.kind !== 'gather' && c.what.kind !== 'help')) continue;
       if (!matches(c.what.item, item)) continue;
       const progress = (c.progress ?? 0) + qty;
       if (progress >= (c.what.qty ?? 1)) this.resolve({ ...c, progress }, 'fulfilled', 'inventory');
       else this.o.store.update('commitments', (all) => all.map((x) => (x.id === c.id ? { ...x, progress } : x)), 'partly delivered');
       return;
     }
+  }
+
+  /**
+   * §6.7: the one we were helping said it's enough. Whatever we gathered so far is still theirs (the queued
+   * hand-over shrinks to it); with nothing gathered the help is simply done.
+   */
+  private helpCalledOff(who: AgentName): void {
+    const c = this.open().find((x) => x.debtor === this.o.me && x.creditor === who && x.what.kind === 'help');
+    if (!c) return;
+    const item = c.what.item;
+    const m = item ? itemMatcher(item) : null;
+    const have = m ? this.o.store.state.self.inventory.filter((x) => m.matches(x.item)).reduce((a, x) => a + x.qty, 0) : 0;
+    const qty = Math.min(c.what.qty ?? 1, have);
+    if (qty <= 0) {
+      this.resolve(c, 'fulfilled', 'observation');
+      return;
+    }
+    this.o.store.update('commitments', (all) => all.map((x) => (x.id === c.id ? { ...x, what: { ...x.what, qty } } : x)), 'help called off');
+    this.o.store.update('taskQueue', (q) => q.map((t) => (t.commitmentId === c.id && t.skill === 'give' ? { ...t, args: { ...t.args, qty } } : t)), 'hand over what was gathered');
   }
 
   private workedNearby(actor: AgentName, pos: { x: number; y: number; z: number }): void {

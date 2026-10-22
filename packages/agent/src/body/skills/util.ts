@@ -77,11 +77,82 @@ export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, time
       if (err instanceof SkillAbortedError) throw err;
     }
   }
-  await abortable(
-    ctx.signal,
-    withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), timeoutMs),
-    () => stopMotion(bot),
-  );
+  // What the pathfinder went through, for the log when a walk fails.
+  const events: Record<string, number> = {};
+  const count = (k: string) => (events[k] = (events[k] ?? 0) + 1);
+  const onUpdate = (r: { status: string }) => count(`update:${r.status}`);
+  const onReset = (reason: string) => count(`reset:${reason}`);
+  bot.on('path_update', onUpdate);
+  bot.on('path_reset', onReset);
+  const from = bot.entity.position.clone();
+  try {
+    await abortable(
+      ctx.signal,
+      withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), timeoutMs),
+      () => stopMotion(bot),
+    );
+  } catch (err) {
+    if (!(err instanceof SkillAbortedError)) {
+      const at = bot.entity.position;
+      ctx.logger.info({ module: 'skill', from: from.floored().toString(), at: at.floored().toString(), to: pos.floored().toString(), range, events, err: errMsg(err) }, 'walk failed');
+      stopMotion(bot);
+    }
+    throw err;
+  } finally {
+    bot.off('path_update', onUpdate);
+    bot.off('path_reset', onReset);
+  }
+}
+
+/**
+ * Walks up to a person: pathfinds to where they are now, again if they moved, in short tries. If the pathfinder
+ * keeps failing while they are in plain view a few blocks away, walks straight at them. Throws if they leave.
+ */
+export async function approachPlayer(ctx: SkillContext, name: string, within: number, timeoutMs = 45_000): Promise<void> {
+  const { bot } = ctx;
+  const where = () => bot.players[name]?.entity?.position ?? null;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 4 && Date.now() < deadline; attempt++) {
+    const p = where();
+    if (!p) throw new Error(`${name} walked away`);
+    if (p.distanceTo(bot.entity.position) <= within + 0.3) return;
+    try {
+      await gotoNear(ctx, p, within, Math.min(15_000, deadline - Date.now()));
+    } catch (err) {
+      if (err instanceof SkillAbortedError) throw err;
+      lastError = err;
+    }
+  }
+  const p = where();
+  if (!p) throw new Error(`${name} walked away`);
+  if (p.distanceTo(bot.entity.position) <= within + 0.3) return;
+  if (p.distanceTo(bot.entity.position) <= 6) {
+    await walkStraightTo(ctx, where, within, 5000);
+    const q = where();
+    if (q && q.distanceTo(bot.entity.position) <= within + 0.3) return;
+  }
+  throw lastError instanceof Error ? lastError : new Error(`could not get to ${name}`);
+}
+
+/** A few steps straight toward a (moving) point on open ground, jumping over bumps. */
+async function walkStraightTo(ctx: SkillContext, where: () => Vec3 | null, within: number, timeoutMs: number): Promise<void> {
+  const { bot } = ctx;
+  stopMotion(bot);
+  const end = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < end) {
+      throwIfAborted(ctx.signal);
+      const p = where();
+      if (!p || p.distanceTo(bot.entity.position) <= within) return;
+      await bot.lookAt(p.offset(0, 1.2, 0), true);
+      bot.setControlState('forward', true);
+      bot.setControlState('jump', Boolean((bot.entity as unknown as { isCollidedHorizontally?: boolean }).isCollidedHorizontally));
+      await waitMs(ctx, 100);
+    }
+  } finally {
+    bot.clearControlStates();
+  }
 }
 
 export function withTimeout<T>(p: Promise<T>, ms: number, label = 'timed out'): Promise<T> {

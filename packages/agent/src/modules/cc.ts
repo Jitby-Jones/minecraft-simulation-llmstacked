@@ -5,9 +5,24 @@
 // requests wake it (§4.4). Semantically wrong decisions get one retry with the reason, then the code default, which
 // also keeps the agent working in code-only mode (§22.4).
 
-import { type AgentName, type Commitment, type ConvId, type Decision, type DecisionOutput, DecisionOutputSchema, type Goal, type Logger, type Task } from '@agora/shared';
+import {
+  type ActionRecord,
+  type AgentName,
+  type Commitment,
+  type CommitmentDraft,
+  type ConvId,
+  type Decision,
+  type DecisionOutput,
+  DecisionOutputSchema,
+  type Goal,
+  type ItemStack,
+  type Logger,
+  type Task,
+} from '@agora/shared';
 import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
 import type { AgentBus } from '../bus';
+import { itemMatcher } from '../body/items';
+import { type Offer, amountOf, judgeOffer, parseHelpRequest, parseTradeOffer, stacksText } from '../social/trades';
 import { getSkill, skillCatalog } from '../body/skills/registry';
 import { CC_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
@@ -77,6 +92,130 @@ export function parseItemRequest(text: string): { item: string; qty: number } | 
 }
 
 const GENEROUS = /generous|kind|helpful|giving|warm/i;
+export { amountOf } from '../social/trades';
+
+/** Both halves of a deal as promises: we give `ours`, they give `theirs` (§6.6). */
+export function dealDrafts(me: AgentName, other: AgentName, ours: readonly ItemStack[], theirs: readonly ItemStack[]): CommitmentDraft[] {
+  const draft = (debtor: AgentName, creditor: AgentName, x: ItemStack): CommitmentDraft => ({
+    debtor,
+    creditor,
+    what: { kind: 'give', item: x.item, qty: x.qty, text: amountOf(x.item, x.qty) },
+    dueInSec: DEAL_DUE_SEC,
+  });
+  return [...ours.map((x) => draft(me, other, x)), ...theirs.map((x) => draft(other, me, x))];
+}
+
+/** How long either side has to hand over its half of a deal. */
+const DEAL_DUE_SEC = 600;
+
+type Ask = { kind: 'trade'; offer: Offer } | { kind: 'help'; item: string; qty: number } | { kind: 'item'; item: string; qty: number };
+
+/** What a line asks of us, if anything: a trade offer, a hand with gathering, or some items. */
+export function readAsk(text: string): Ask | null {
+  const offer = parseTradeOffer(text);
+  if (offer) return { kind: 'trade', offer };
+  const help = parseHelpRequest(text);
+  if (help) return { kind: 'help', ...help };
+  const want = parseItemRequest(text);
+  return want ? { kind: 'item', ...want } : null;
+}
+
+/**
+ * The code default's answer to someone asking us something (§6.3 share policy, §6.6 trades, §6.7 help). A
+ * follow-up ("so, can you?") refers back to what they asked earlier in this conversation; what we already promised
+ * them is restated, never promised twice.
+ */
+function answerRequest(s: AgentStateStore['state'], from: AgentName, convId: ConvId | undefined, busy: boolean, isStuck: ValidationEnv['isStuck']): DecisionOutput {
+  const persona = s.self.persona;
+  const me = s.self.username;
+  const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
+  const theirs = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId)).slice(-4);
+  const ask = theirs.map((u) => readAsk(u.text)).filter((a) => a !== null).at(-1) ?? null;
+  const liking = s.social[from]?.sentiment ?? persona.social.baselineSentiment;
+  const owing = s.commitments.filter((c) => c.debtor === me && c.status === 'accepted').length;
+  const have = (item: string) => {
+    const m = itemMatcher(item);
+    return s.self.inventory.filter((x) => m.matches(x.item)).reduce((a, x) => a + x.qty, 0);
+  };
+  const decline = (gist: string, rationale: string): DecisionOutput => ({
+    option: keep,
+    target: { agent: from },
+    speechIntent: { stance: 'decline', gist, mayCommit: false },
+    terminate: { maxSeconds: 20 },
+    rationale: `code default: ${rationale}`,
+  });
+  if (ask?.kind === 'trade') {
+    const v = judgeOffer(ask.offer, { sentiment: liking, trust: s.social[from]?.trust ?? 0.5, have, quirks: persona.quirks });
+    const ours = ask.offer.want;
+    const first = ours[0];
+    if (v.kind === 'accept' && first && !s.flags.inDanger) {
+      return {
+        option: 'work',
+        target: { agent: from },
+        task: { skill: 'give', args: { to: from, item: first.item, qty: first.qty } },
+        trade: { with: from, phase: 'accept', give: ours, want: ask.offer.give },
+        speechIntent: { stance: 'agree', gist: `I'll give you ${stacksText(ours)} for your ${stacksText(ask.offer.give)}`, mayCommit: true },
+        terminate: { maxSeconds: 120 },
+        rationale: `code default: a fair trade with ${from}`,
+      };
+    }
+    if (v.kind === 'counter') {
+      const mine = v.offer.want;
+      return {
+        option: keep,
+        target: { agent: from },
+        trade: { with: from, phase: 'counter', give: mine, want: ask.offer.give },
+        speechIntent: { stance: 'negotiate', gist: `how about ${stacksText(mine)} for your ${stacksText(ask.offer.give)}?`, mayCommit: false },
+        terminate: { maxSeconds: 30 },
+        rationale: `code default: countered ${from}'s offer`,
+      };
+    }
+    return { ...decline(v.kind === 'decline' ? v.why : 'not now', `turned down ${from}'s offer`), trade: { with: from, phase: 'decline', give: [], want: [] } };
+  }
+  const kind = ask?.kind === 'help' ? 'help' : 'give';
+  const promised = ask && s.commitments.find((c) => c.debtor === me && c.creditor === from && c.status === 'accepted' && c.what.kind === kind && c.what.item === ask.item);
+  if (promised) {
+    // Asked again: say so, and keep at it.
+    const keepOn = busy ? null : codeDecision(s, {}, busy, isStuck);
+    return {
+      ...(keepOn ?? { option: keep, terminate: { maxSeconds: 20 } }),
+      target: { agent: from },
+      speechIntent: { stance: 'agree', gist: kind === 'help' ? `I'm on it, helping you gather ${promised.what.item ?? ''}`.trim() : `I'm on it, bringing you ${promised.what.text}`, mayCommit: true },
+      rationale: `code default: already promised ${from} ${promised.what.text}`,
+    };
+  }
+  if (ask?.kind === 'help') {
+    if (s.flags.inDanger || owing >= 2 || liking < 6) return decline('you have too much on right now', `could not help ${from}`);
+    const what = amountOf(ask.item, ask.qty);
+    return {
+      option: 'help',
+      target: { agent: from },
+      task: { skill: 'gather', args: { item: ask.item, qty: ask.qty } },
+      speechIntent: { stance: 'agree', gist: `I'll help you gather ${ask.item}`, mayCommit: true },
+      commitmentsToCreate: [{ debtor: me, creditor: from, what: { kind: 'help', item: ask.item, qty: ask.qty, target: from, text: `help gather ${what}` }, dueInSec: 900 }],
+      terminate: { maxSeconds: 600 },
+      rationale: `code default: helping ${from} gather ${ask.item}`,
+    };
+  }
+  // §6.3 policy: share with people you like (sentiment ≥ 6) what you have, or can get if you're the generous kind.
+  const generous = persona.big5.agreeableness >= 0.6 || persona.traits.some((t) => GENEROUS.test(t));
+  if (ask?.kind === 'item' && !s.flags.inDanger && owing < 2 && liking >= 6) {
+    const got = have(ask.item);
+    if (got >= ask.qty || generous) {
+      const what = amountOf(ask.item, ask.qty);
+      return {
+        option: 'work',
+        target: { agent: from },
+        task: got >= ask.qty ? { skill: 'give', args: { to: from, item: ask.item, qty: ask.qty } } : { skill: 'obtain', args: { item: ask.item, qty: ask.qty } },
+        speechIntent: { stance: 'agree', gist: `I'll bring you ${what}`, mayCommit: true },
+        commitmentsToCreate: [{ debtor: me, creditor: from, what: { kind: 'give', item: ask.item, qty: ask.qty, text: what }, dueInSec: 900 }],
+        terminate: { maxSeconds: 600 },
+        rationale: `code default: happy to help ${from}`,
+      };
+    }
+  }
+  return decline("you can't think it through right now; maybe later", 'answered a request without committing');
+}
 
 /** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
 export function codeDecision(
@@ -86,44 +225,14 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) {
-    // §6.3 policy: share with people you like (sentiment ≥ 6) what you have, or can get if you're the generous kind.
-    const persona = s.self.persona;
-    const asked = s.perception.heardSpeech.filter((u) => u.from === ctx.from && u.addressedToMe).at(-1);
-    const want = asked ? parseItemRequest(asked.text) : null;
-    const liking = s.social[ctx.from]?.sentiment ?? persona.social.baselineSentiment;
-    const generous = persona.big5.agreeableness >= 0.6 || persona.traits.some((t) => GENEROUS.test(t));
-    const owing = s.commitments.filter((c) => c.debtor === s.self.username && c.status === 'accepted').length;
-    if (want && !s.flags.inDanger && owing < 2 && liking >= 6) {
-      const have = s.self.inventory.filter((x) => x.item === want.item || x.item.endsWith(`_${want.item}`)).reduce((a, x) => a + x.qty, 0);
-      if (have >= want.qty || generous) {
-        const what = `${want.qty} ${want.item}${want.qty > 1 && !want.item.endsWith('s') ? 's' : ''}`;
-        return {
-          option: 'work',
-          target: { agent: ctx.from },
-          task: have >= want.qty ? { skill: 'give', args: { agent: ctx.from, item: want.item, qty: want.qty } } : { skill: 'obtain', args: { item: want.item, qty: want.qty } },
-          speechIntent: { stance: 'agree', gist: `I'll bring you ${what}`, mayCommit: true },
-          commitmentsToCreate: [{ debtor: s.self.username, creditor: ctx.from, what: { kind: 'give', item: want.item, qty: want.qty, text: what }, dueInSec: 900 }],
-          terminate: { maxSeconds: 600 },
-          rationale: `code default: happy to help ${ctx.from}`,
-        };
-      }
-    }
-    return {
-      option: busy ? (s.option?.option ?? 'rest') : 'rest',
-      target: { agent: ctx.from },
-      speechIntent: { stance: 'decline', gist: "you can't think it through right now; maybe later", mayCommit: false },
-      terminate: { maxSeconds: 20 },
-      rationale: 'code default: answered a request without committing',
-    };
-  }
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck);
   if (busy) return null;
   // Survive the night (M1 shelter).
   if (!s.self.isDay && !s.flags.inDanger && !isStuck('shelter', { untilMorning: true })) {
     return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, dig in' };
   }
-  const next = s.taskQueue[0];
-  if (next && !isStuck(next.skill, next.args)) {
+  const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
+  if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };
   }
   // Work toward a goal with a machine-checkable target: obtain it (or the prerequisite it said to get first).
@@ -146,6 +255,9 @@ export function codeDecision(
     if (!isStuck('obtain', { item, qty })) {
       return { option: 'work', task: { skill: 'obtain', args: { item, qty } }, terminate: { maxSeconds: 600 }, rationale: `code default: get ${item} for the goal` };
     }
+    // Stuck on it for a while (the mark lasts minutes): look around a little, then give it a rest before trying again.
+    const explored = s.actionLog.slice(-3).filter((a) => a.skill === 'explore').length;
+    if (explored >= 2) return { option: 'rest', terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal; a break before trying again' };
     return { option: 'explore', terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal, look around' };
   }
   // Nothing to work on: go and see whether what someone told us is true (§6.5).
@@ -224,9 +336,18 @@ export class CognitiveController {
     this.offs.push(
       b.on('needsDecision', (e) => {
         if (e.reason === 'request') this.trigger(`${e.from ?? 'someone'} asked you something`, { convId: e.convId, from: e.from, urgent: true });
+        // They took our offer: hand over our half (the deal's give task is queued).
+        if (e.reason === 'deal') this.trigger(`${e.from ?? 'someone'} agreed to your trade`, { urgent: !this.o.executor.busy });
       }),
     );
     this.offs.push(b.on('newGoal', (e) => this.trigger(`new goal: ${e.goal.text}`, { urgent: !this.o.executor.busy })));
+    this.offs.push(b.on('actionRecorded', (e) => this.onPromiseTaskResult(e.record)));
+    // A promise that is settled (kept, broken or called off) has nothing left to do.
+    this.offs.push(
+      b.on('commitmentResolved', (e) =>
+        this.o.store.update('taskQueue', (q) => (q.some((t) => t.commitmentId === e.commitmentId) ? q.filter((t) => t.commitmentId !== e.commitmentId) : q), 'promise settled'),
+      ),
+    );
     this.beat = setInterval(() => {
       const s = this.o.store.state;
       if (s.flags.inDanger || this.o.executor.busy || this.flight.inFlight('cc')) return;
@@ -239,6 +360,87 @@ export class CognitiveController {
     if (this.beat) clearInterval(this.beat);
     this.beat = null;
     for (const off of this.offs.splice(0)) off();
+  }
+
+  /**
+   * §6.4: tasks done for a promise stay queued until they succeed, so a failed hand-over is tried again (stuck
+   * detection stops endless retries; the deadline settles the rest). A give that finds us short gets the items first.
+   */
+  private onPromiseTaskResult(r: ActionRecord): void {
+    const k = taskKey(r.skill, r.args);
+    const q = this.o.store.state.taskQueue;
+    const task = q.find((t) => t.source === 'commitment' && taskKey(t.skill, t.args) === k);
+    if (!task) return;
+    if (r.ok) {
+      this.o.store.update('taskQueue', (all) => all.filter((t) => t.id !== task.id), 'promise task done');
+      return;
+    }
+    const short = r.skill === 'give' && /^not enough /.test(r.error ?? '');
+    const item = typeof r.args.item === 'string' ? r.args.item : undefined;
+    if (!short || !item) return;
+    const obtain = { item, qty: Number(r.args.qty ?? 1) };
+    if (q.some((t) => t.skill === 'obtain' && taskKey(t.skill, t.args) === taskKey('obtain', obtain))) return;
+    const now = this.now();
+    const get: Task = { id: newId('t', now), skill: 'obtain', args: obtain, source: 'commitment', ...(task.commitmentId ? { commitmentId: task.commitmentId } : {}), createdAt: now, priority: task.priority, note: task.note ?? 'for a promise' };
+    this.o.store.update('taskQueue', (all) => {
+      const i = all.findIndex((t) => t.id === task.id);
+      return i < 0 ? all : [...all.slice(0, i), get, ...all.slice(i)];
+    }, 'get the promised items first');
+  }
+
+  /** A deal they agreed to after we offered (the trade tracker saw their "deal!"): both halves are promises now. */
+  recordDeal(withWhom: AgentName, ours: readonly ItemStack[], theirs: readonly ItemStack[], convId = ''): void {
+    this.recordPromises(dealDrafts(this.o.me, withWhom, ours, theirs), convId);
+  }
+
+  /**
+   * Records commitments: ours go into the task queue too (get the items, hand them over); theirs only into
+   * `commitments`, to be checked when they deliver. The same promise twice is recorded once.
+   */
+  private recordPromises(drafts: readonly CommitmentDraft[], convId: string): void {
+    const { store } = this.o;
+    const now = this.now();
+    const key = (d: { debtor: string; creditor: string; what: Commitment['what'] }) => `${d.debtor}>${d.creditor}:${d.what.kind}:${d.what.item ?? d.what.text}`;
+    const seen = new Set(store.state.commitments.filter((c) => c.status === 'accepted' || c.status === 'proposed').map(key));
+    const made: Commitment[] = [];
+    for (const d of drafts) {
+      if (seen.has(key(d))) continue;
+      seen.add(key(d));
+      made.push({
+        id: newId('k', now),
+        debtor: d.debtor,
+        creditor: d.creditor,
+        what: d.what,
+        ...(d.dueInSec ? { dueBy: now + d.dueInSec * 1000 } : {}),
+        status: 'accepted',
+        createdFromConv: convId,
+        createdAt: now,
+        ...(d.coerced ? { coerced: true } : {}),
+      });
+    }
+    if (made.length === 0) return;
+    store.update('commitments', (all) => [...all, ...made], 'promised');
+    const have = (item: string) => {
+      const m = itemMatcher(item);
+      return store.state.self.inventory.filter((x) => m.matches(x.item)).reduce((a, x) => a + x.qty, 0);
+    };
+    const task = (k: Commitment, skill: string, args: Record<string, unknown>, note: string): Task => ({ id: newId('t', now), skill, args, source: 'commitment', commitmentId: k.id, createdAt: now, priority: 1, note });
+    const tasks: Task[] = made
+      .filter((k) => k.debtor === this.o.me)
+      .flatMap((k): Task[] => {
+        const w = k.what;
+        if (!w.item) return [];
+        const qty = w.qty ?? 1;
+        if (w.kind === 'give') {
+          const give = task(k, 'give', { to: k.creditor, item: w.item, qty }, `promised ${k.creditor}`);
+          return have(w.item) >= qty ? [give] : [task(k, 'obtain', { item: w.item, qty }, `for ${k.creditor}`), give];
+        }
+        if (w.kind === 'gather') return [task(k, 'obtain', { item: w.item, qty }, `promised ${k.creditor}`)];
+        // Help with gathering (§6.7): the help option does the work; what we gathered is handed over after.
+        if (w.kind === 'help') return [task(k, 'give', { to: k.creditor, item: w.item, qty }, `helping ${k.creditor}`)];
+        return [];
+      });
+    if (tasks.length > 0) store.update('taskQueue', (q) => [...tasks, ...q].slice(0, this.o.levers().queueDepth + tasks.length), 'promise tasks');
   }
 
   /** Sets the current goal (Goal Gen does this from M4 on; the runner/tests before that). */
@@ -360,35 +562,13 @@ export class CognitiveController {
     }
     this.lastDecisionAt = now;
     store.set('decision', decision, `decision ${decision.option}`);
-    // Our own promises become commitments and tasks only when the CC allowed committing (§6.4).
-    const promises = decision.speechIntent?.mayCommit ? (decision.commitmentsToCreate ?? []).filter((c) => c.debtor === this.o.me || c.debtor.toLowerCase() === 'you') : [];
-    if (promises.length > 0) {
-      const made: Commitment[] = promises.map((c) => ({
-        id: newId('k', now),
-        debtor: this.o.me,
-        creditor: c.creditor,
-        what: c.what,
-        ...(c.dueInSec ? { dueBy: now + c.dueInSec * 1000 } : {}),
-        status: 'accepted',
-        createdFromConv: ctx.convId ?? '',
-        createdAt: now,
-        ...(c.coerced ? { coerced: true } : {}),
-      }));
-      store.update('commitments', (all) => [...all, ...made], 'promised');
-      const tasks: Task[] = made.flatMap((k): Task[] => {
-        const w = k.what;
-        if (w.kind === 'give' && w.item) {
-          return [
-            { id: newId('t', now), skill: 'obtain', args: { item: w.item, qty: w.qty ?? 1 }, source: 'commitment', commitmentId: k.id, createdAt: now, priority: 1, note: `for ${k.creditor}` },
-            { id: newId('t', now), skill: 'give', args: { agent: k.creditor, item: w.item, qty: w.qty ?? 1 }, source: 'commitment', commitmentId: k.id, createdAt: now, priority: 1, note: `promised ${k.creditor}` },
-          ];
-        }
-        if (w.kind === 'gather' && w.item) {
-          return [{ id: newId('t', now), skill: 'obtain', args: { item: w.item, qty: w.qty ?? 1 }, source: 'commitment', commitmentId: k.id, createdAt: now, priority: 1, note: `promised ${k.creditor}` }];
-        }
-        return [];
-      });
-      if (tasks.length > 0) store.update('taskQueue', (q) => [...tasks, ...q].slice(0, this.o.levers().queueDepth + tasks.length), 'promise tasks');
+    // Our own promises become commitments and tasks only when the CC allowed committing (§6.4); accepting a deal
+    // also records their half of it (§6.6).
+    if (decision.speechIntent?.mayCommit) {
+      const own = (decision.commitmentsToCreate ?? []).filter((c) => c.debtor === this.o.me || c.debtor.toLowerCase() === 'you').map((c) => ({ ...c, debtor: this.o.me }));
+      const t = decision.trade;
+      const deal = t?.phase === 'accept' ? dealDrafts(this.o.me, t.with, t.give, t.want) : [];
+      this.recordPromises([...own, ...deal], ctx.convId ?? '');
     }
     const cur = store.state.option;
     const sameTask =
@@ -396,10 +576,11 @@ export class CognitiveController {
       cur.option === decision.option &&
       (!decision.task || (cur.skill !== undefined && taskKey(cur.skill, cur.args ?? {}) === taskKey(decision.task.skill, decision.task.args)));
     if (!sameTask) {
-      // A queued task that is now being run leaves the queue.
+      // A queued task that is now being run leaves the queue (promise tasks only once they succeed).
       if (decision.task) {
         const k = taskKey(decision.task.skill, decision.task.args);
-        store.update('taskQueue', (q) => (q.some((t) => taskKey(t.skill, t.args) === k) ? q.filter((t) => taskKey(t.skill, t.args) !== k) : q), 'task started');
+        const leaves = (t: Task) => taskKey(t.skill, t.args) === k && t.source !== 'commitment';
+        store.update('taskQueue', (q) => (q.some(leaves) ? q.filter((t) => !leaves(t)) : q), 'task started');
       }
       store.set(
         'option',

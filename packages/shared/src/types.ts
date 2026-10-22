@@ -238,6 +238,11 @@ export interface SocialProfile {
   lastFight?: { ts: number; outcome: FightOutcome };
   // §18.3
   admiration: number;
+  /**
+   * §18.5 FACTS: what they have actually done to us, 0..10, the same scale as sentiment but without first
+   * impressions, halo, envy or hearsay. The CC sees both; code mixes them by the override factor.
+   */
+  evidence: number;
   /** Interactions counted so far toward the ×2 anchoring of the first 2. */
   anchorCount: number;
   // §19
@@ -451,8 +456,10 @@ export type AgentEvent =
   | { type: 'overheard'; utterance: Utterance }
   /** Social Awareness read an insult in a conversation (an appraisal event, §18.2). */
   | { type: 'insulted'; by: AgentName }
+  /** Something stirred a feeling (§18.2): the impulse path (§18.5) looks at it. */
+  | { type: 'felt'; cause: string; by?: AgentName; arousal: number }
   | { type: 'needsDecision'; reason: string; convId?: ConvId; from?: AgentName }
-  | { type: 'optionTerminated'; reason: string; ok: boolean }
+  | { type: 'optionTerminated'; reason: string; ok: boolean; option?: OptionName; targetAgent?: AgentName }
   | { type: 'decision'; decision: Decision }
   | { type: 'conversationStarted'; convId: ConvId }
   | { type: 'conversationEnded'; convId: ConvId; reason: string }

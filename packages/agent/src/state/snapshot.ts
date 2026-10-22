@@ -5,6 +5,7 @@
 
 import type { AgentState } from '@agora/shared';
 import type { MemoryDB } from '../memory/db';
+import { newSocialProfile } from './social';
 import type { AgentStateStore } from './store';
 
 export const SNAPSHOT_FACETS = [
@@ -49,6 +50,13 @@ export function restoreSnapshot(db: MemoryDB, store: AgentStateStore, now = Date
     if (v === undefined) continue;
     set(f, v as AgentState[typeof f]);
   }
+  // Profiles saved before a field existed get its default (the snapshot outlives code changes).
+  const persona = store.state.self.persona;
+  store.update(
+    'social',
+    (all) => Object.fromEntries(Object.entries(all).map(([name, p]) => [name, { ...newSocialProfile(name, persona, p.firstMet), ...p }])),
+    'resume: profile defaults',
+  );
   const fade = 0.5 ** (offline / EMOTION_HALF_LIFE_MS);
   store.update(
     'emotions',

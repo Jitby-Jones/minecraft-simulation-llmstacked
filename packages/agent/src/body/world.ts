@@ -64,19 +64,26 @@ const FACE_POINTS: readonly [number, number, number][] = [
   [0.5, 0.02, 0.5],
 ];
 
-/** Line of sight to any face of the block at `pos`: ore in the ground shows its top, ore in a wall its side. */
+/**
+ * Line of sight to any face of the block at `pos`: ore in the ground shows its top, ore in a wall its side. Rays
+ * pass through blocks without a collision shape (flowers, torches, rails), so those count as seen when nothing
+ * else is in the way.
+ */
 export function canSeeBlock(bot: Bot, pos: Vec3, maxDistance = 64): boolean {
   const from = bot.entity.position.offset(0, (bot.entity as unknown as { eyeHeight?: number }).eyeHeight ?? 1.62, 0);
   const raycast = (bot.world as unknown as { raycast: Raycast }).raycast.bind(bot.world);
   const target = pos.floored();
+  const block = bot.blockAt(target);
+  if (!block) return false;
+  const shapeless = block.shapes.length === 0;
   for (const [fx, fy, fz] of FACE_POINTS) {
     const to = target.offset(fx, fy, fz);
     const delta = to.minus(from);
     const dist = delta.norm();
     if (dist > maxDistance) continue;
     if (dist < 0.01) return true;
-    const hit = raycast(from, delta.normalize(), dist + 0.1);
-    if (hit?.position.equals(target)) return true;
+    const hit = raycast(from, delta.normalize(), shapeless ? dist : dist + 0.1);
+    if (shapeless ? !hit : hit?.position.equals(target)) return true;
   }
   return false;
 }
@@ -177,13 +184,16 @@ export function isAirLike(b: Block | null): boolean {
 /** A spot within `radius` where a block can be placed (air with solid ground below), excluding our own column. */
 export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
   const me = bot.entity.position.floored();
+  // The server refuses a block inside anyone's hitbox, ours included (standing near a cell's edge overlaps it).
+  const bodies = Object.values(bot.entities).filter((e) => e === bot.entity || e.type === 'player' || e.type === 'mob' || e.type === 'hostile');
+  const occupied = (p: Vec3) => bodies.some((e) => overlapsCell(e, p));
   for (let r = 1; r <= radius; r++) {
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         for (const dy of [0, 1, -1]) {
           const p = me.offset(dx, dy, dz);
-          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0)))) {
+          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0))) && !occupied(p)) {
             return p;
           }
         }
@@ -191,6 +201,14 @@ export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
     }
   }
   return null;
+}
+
+/** Whether an entity's hitbox reaches into the block cell at `cell` (with a hair of margin). */
+export function overlapsCell(e: Entity, cell: Vec3): boolean {
+  const half = (e.width || 0.6) / 2 + 0.05;
+  const h = e.height || 1.8;
+  const { x, y, z } = e.position;
+  return x + half > cell.x && x - half < cell.x + 1 && z + half > cell.z && z - half < cell.z + 1 && y + h > cell.y && y < cell.y + 1;
 }
 
 const SIDES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];

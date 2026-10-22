@@ -32,6 +32,8 @@ export interface RunOptions {
   planDepth?: number;
 }
 
+const MAX_PLACED = 4000;
+
 export const DEFAULT_REFLEX_HOOKS: ReflexHooks = {
   caution: () => 0.5,
   shouldDefend: () => false,
@@ -51,6 +53,8 @@ export class Body {
   readonly rng: Random;
   /** Where this body first appeared: exploring stays within reach of it. */
   home: Vec3 | null = null;
+  /** Blocks this body placed ("x,y,z", oldest first): someone breaking them is a deed against us (§6.3). */
+  readonly placed = new Set<string>();
   private quirks: readonly Quirk[];
   private cachedMovements: Movements | null = null;
 
@@ -71,12 +75,24 @@ export class Body {
     loadBodyPlugins(bot);
     const body = new Body(bot, cfg.logger, cfg, { ...DEFAULT_REFLEX_HOOKS, ...hooks });
     body.home = bot.entity.position.clone();
+    // Every confirmed placement (skills and the pathfinder's scaffolding alike) comes through here.
+    (bot as unknown as { on(ev: 'blockPlaced', f: (old: unknown, placed: { position: Vec3 }) => void): void }).on('blockPlaced', (_old, placed) => body.notePlaced(placed.position));
     // Placed somewhere far away (a respawn, an operator's teleport): that is where this body lives now.
     bot.on('forcedMove', () => {
       const p = bot.entity.position;
       if (!body.home || p.distanceTo(body.home) > 64) body.home = p.clone();
     });
     return body;
+  }
+
+  notePlaced(p: Vec3): void {
+    const k = `${p.x},${p.y},${p.z}`;
+    this.placed.delete(k);
+    this.placed.add(k);
+    if (this.placed.size > MAX_PLACED) {
+      const oldest = this.placed.values().next().value;
+      if (oldest !== undefined) this.placed.delete(oldest);
+    }
   }
 
   setQuirks(quirks: readonly Quirk[]): void {

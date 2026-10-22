@@ -40,7 +40,8 @@ export function appraise(e: EmotionState, ev: AppraisalEvent, p: Persona): Emoti
       break;
     }
     case 'insulted':
-      d.anger = 0.35 * (1 - p.big5.agreeableness);
+      // The disagreeable and the aggressive bristle; a sore spot stings too.
+      d.anger = (0.3 + 0.3 * (1 - p.big5.agreeableness)) * (0.5 + p.temperament.aggression);
       if (ev.hitsInsecurity) d.shame = 0.35;
       break;
     case 'gift':

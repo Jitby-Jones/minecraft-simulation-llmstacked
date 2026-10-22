@@ -91,13 +91,18 @@ export interface SocialAwarenessOptions {
   logger: Logger;
   llm: LlmClient | null;
   me: AgentName;
+  /** How long after a conversation ends to read it, so a last reply heard after the end is included. */
+  settleMs?: number;
   now?: () => number;
 }
+
+const SETTLE_MS = 8000;
 
 export class SocialAwareness {
   private readonly flight = new SingleFlight<void>();
   private readonly offs: (() => void)[] = [];
   private timer: NodeJS.Timeout | null = null;
+  private readonly settling = new Set<NodeJS.Timeout>();
   private readonly now: () => number;
 
   constructor(private readonly o: SocialAwarenessOptions) {
@@ -111,8 +116,13 @@ export class SocialAwareness {
   start(): void {
     this.offs.push(
       this.o.bus.on('conversationEnded', (e) => {
-        const conv = this.o.store.state.conversations[e.convId];
-        if (conv) void this.flight.run(`conv:${e.convId}`, () => this.afterConversation(conv));
+        const t = setTimeout(() => {
+          this.settling.delete(t);
+          const conv = this.o.store.state.conversations[e.convId];
+          if (conv) void this.flight.run(`conv:${e.convId}`, () => this.afterConversation(conv));
+        }, this.o.settleMs ?? SETTLE_MS);
+        t.unref();
+        this.settling.add(t);
       }),
     );
     // §6.3 decay toward the baseline, checked once a minute.
@@ -123,6 +133,8 @@ export class SocialAwareness {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    for (const t of this.settling) clearTimeout(t);
+    this.settling.clear();
     for (const off of this.offs.splice(0)) off();
   }
 
@@ -266,7 +278,17 @@ export class SocialAwareness {
       out = r.value;
     }
     const now = this.now();
-    const made: Commitment[] = out.promises.map((pr) => ({
+    // A promise said twice (or restated later) is still one promise.
+    const open = this.o.store.state.commitments.filter((c) => c.debtor === partner && c.creditor === this.o.me && (c.status === 'accepted' || c.status === 'proposed'));
+    const key = (w: Commitment['what']) => `${w.kind}:${w.item ?? w.text}`;
+    const seen = new Set(open.map((c) => key(c.what)));
+    const fresh: Promises['promises'] = [];
+    for (const pr of out.promises) {
+      if (seen.has(key(pr.what))) continue;
+      seen.add(key(pr.what));
+      fresh.push(pr);
+    }
+    const made: Commitment[] = fresh.map((pr) => ({
       id: newId('k', now),
       debtor: partner,
       creditor: this.o.me,

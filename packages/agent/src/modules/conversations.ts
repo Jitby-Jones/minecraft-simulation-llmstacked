@@ -63,12 +63,18 @@ const IDLE_END_MS = 60_000;
 const OUT_OF_RANGE_MS = 10_000;
 const SILENT_NUDGE_MS = 20_000;
 const SILENT_END_MS = 40_000;
+/** A reply this soon after the end still belongs to the conversation's transcript (Social Awareness reads it). */
+export const TAIL_MS = 15_000;
+/** Ended conversations kept in state (the newest; older ones live on in memory). */
+const KEEP_ENDED = 20;
 
 export class Conversations {
   private readonly now: () => number;
   private readonly rng: () => number;
   /** partner → epoch ms until which I may not start another conversation with them. */
   private readonly cooldownUntil = new Map<AgentName, number>();
+  /** convId → when it ended. */
+  private readonly endedAt = new Map<ConvId, number>();
   private timer: NodeJS.Timeout | null = null;
   private readonly offs: (() => void)[] = [];
 
@@ -134,6 +140,7 @@ export class Conversations {
       initiatedByMe,
       nudged: false,
     };
+    this.prune();
     this.write(conv, `conversation started with ${partner}`);
     this.o.bus.emit({ type: 'conversationStarted', convId: conv.convId });
     return conv;
@@ -183,6 +190,7 @@ export class Conversations {
     for (const p of conv.participants) {
       if (p !== this.o.me) this.cooldownUntil.set(p, this.now() + 60_000 + this.rng() * 60_000);
     }
+    this.endedAt.set(convId, this.now());
     this.write({ ...conv, status: 'ended', endedReason: reason }, `conversation ended: ${reason}`);
     this.o.bus.emit({ type: 'conversationEnded', convId, reason });
   }
@@ -222,6 +230,31 @@ export class Conversations {
     }
     if (addressed) this.o.bus.emit({ type: 'addressed', utterance: utter });
     else if (!tail) this.o.bus.emit({ type: 'overheard', utterance: utter });
+    // Their answer to our last line arrives after we ended it: it goes on the record (a promise made in it counts).
+    if (tail) {
+      const ended = Object.values(this.o.store.state.conversations)
+        .filter((c) => c.status === 'ended' && c.participants.includes(u.from) && now - (this.endedAt.get(c.convId) ?? 0) < TAIL_MS)
+        .at(-1);
+      if (ended) this.write({ ...ended, transcript: [...ended.transcript, { ...utter, convId: ended.convId }].slice(-TRANSCRIPT) }, `heard ${u.from} after the end`);
+    }
+  }
+
+  /** Keeps the newest ended conversations only (state stays small over a long life). */
+  private prune(): void {
+    const ended = Object.values(this.o.store.state.conversations).filter((c) => c.status === 'ended');
+    if (ended.length < KEEP_ENDED) return;
+    const drop = new Set(
+      ended
+        .sort((a, b) => b.lastActivity - a.lastActivity)
+        .slice(KEEP_ENDED - 1)
+        .map((c) => c.convId),
+    );
+    for (const id of drop) this.endedAt.delete(id);
+    this.o.store.update(
+      'conversations',
+      (all) => Object.fromEntries(Object.entries(all).filter(([id]) => !drop.has(id))),
+      'old conversations dropped',
+    );
   }
 
   /** We chimed in but someone else answered first: the conversation never happened (no cooldown, no ending). */

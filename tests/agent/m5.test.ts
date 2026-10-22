@@ -111,9 +111,26 @@ describe('conversation tails (§6.2 pair cooldown)', () => {
     bus.emit({ type: 'heard', utterance: line('Bram', 'well, see you then', 'me') });
     expect(addressed).toEqual([]);
     expect(conv.withPartner('Bram')).toBeUndefined();
+    // The tail still goes on the ended conversation's record (Social Awareness reads it a few seconds later).
+    expect(s.state.conversations[c.convId]?.transcript.map((u) => u.text)).toEqual(['well, see you then']);
     bus.emit({ type: 'heard', utterance: line('Bram', 'Cass, one more thing', 'me') });
     expect(addressed).toEqual(['Cass, one more thing']);
     conv.stop();
+  });
+
+  it('keeps only the newest ended conversations in state', () => {
+    const s = store();
+    const bus = new AgentBus();
+    let t = 1000;
+    const conv = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Cass', inRange: () => [], rng: () => 0, now: () => t });
+    for (let i = 0; i < 30; i++) {
+      t += 1000;
+      conv.end(conv.open(`P${i}`, true).convId, 'turn cap');
+    }
+    const ids = Object.values(s.state.conversations).map((c) => c.participants[1]);
+    expect(ids.length).toBeLessThanOrEqual(20);
+    expect(ids).toContain('P29');
+    expect(ids).not.toContain('P0');
   });
 });
 
