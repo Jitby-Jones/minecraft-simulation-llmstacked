@@ -95,28 +95,6 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     expect(countItem(pip.bot, 'wooden_pickaxe')).toBe(1);
   });
 
-  it('a stack held over a window that has closed (dying mid-craft) fails to go back at once instead of spinning forever', async () => {
-    // Our mineflayer patch: putSelectedItemRange clicked on whichever window was open now, so the closed window's
-    // cursor never emptied and the loop, all microtasks, starved the process (seen in M6 scenario H).
-    const { x, z } = await zone();
-    await server.cmd('clear Pip');
-    await server.cmd('give Pip minecraft:oak_planks 16');
-    await server.cmd(`setblock ${x + 2} ${Y} ${z} minecraft:crafting_table`);
-    await waitFor(() => countItem(pip.bot, 'oak_planks') === 16 && pip.bot.blockAt(new Vec3(x + 2, Y, z))?.name === 'crafting_table', 10_000, 'planks and a table');
-    const table = pip.bot.blockAt(new Vec3(x + 2, Y, z));
-    if (!table) throw new Error('no table');
-    const window = await pip.bot.openBlock(table);
-    const slot = window.slots.findIndex((it, i) => i >= window.inventoryStart && it?.name === 'oak_planks');
-    await pip.bot.clickWindow(slot, 0, 0);
-    expect(window.selectedItem?.name).toBe('oak_planks');
-    await pip.bot.closeWindow(window);
-    const t0 = Date.now();
-    await expect(pip.bot.putSelectedItemRange(window.inventoryStart, window.inventoryEnd, window, null)).rejects.toThrow(/window is gone/);
-    expect(Date.now() - t0).toBeLessThan(2000);
-    // The server hands the closed window's cursor back to the inventory.
-    await waitFor(() => countItem(pip.bot, 'oak_planks') === 16, 10_000, 'the planks back');
-  });
-
   it('refuses recipes the agent does not know (§21.2 gate) and names missing ingredients', async () => {
     const r = await pip.run('craft', { item: 'stone_pickaxe' }, { knowsRecipe: (i) => i !== 'stone_pickaxe' });
     expect(r.ok).toBe(false);
@@ -249,6 +227,29 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     await server.cmd('gamerule advance_time false');
     expect(r.ok).toBe(true);
     await server.cmd('time set 1000');
+  });
+
+  it('a stack held over a window that has closed (dying mid-craft) fails to go back at once instead of spinning forever', async () => {
+    // Our mineflayer patch: putSelectedItemRange clicked on whichever window was open now, so the closed window's
+    // cursor never emptied and the loop, all microtasks, starved the process (seen in M6 scenario H). Bamboo planks,
+    // which no other case uses, so nothing else here is disturbed.
+    const { x, z } = await zone();
+    await server.cmd('give Pip minecraft:bamboo_planks 16');
+    await server.cmd(`setblock ${x + 2} ${Y} ${z} minecraft:crafting_table`);
+    await waitFor(() => countItem(pip.bot, 'bamboo_planks') === 16 && pip.bot.blockAt(new Vec3(x + 2, Y, z))?.name === 'crafting_table', 10_000, 'planks and a table');
+    const table = pip.bot.blockAt(new Vec3(x + 2, Y, z));
+    if (!table) throw new Error('no table');
+    const window = await pip.bot.openBlock(table);
+    const slot = window.slots.findIndex((it, i) => i >= window.inventoryStart && it?.name === 'bamboo_planks');
+    await pip.bot.clickWindow(slot, 0, 0);
+    expect(window.selectedItem?.name).toBe('bamboo_planks');
+    await pip.bot.closeWindow(window);
+    const t0 = Date.now();
+    await expect(pip.bot.putSelectedItemRange(window.inventoryStart, window.inventoryEnd, window, null)).rejects.toThrow(/window is gone/);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    // The server hands the closed window's cursor back to the inventory.
+    await waitFor(() => countItem(pip.bot, 'bamboo_planks') === 16, 10_000, 'the planks back');
+    await server.cmd('clear Pip minecraft:bamboo_planks');
   });
 
   describe('reflexes (§4.5)', () => {
