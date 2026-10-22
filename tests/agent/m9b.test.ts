@@ -130,6 +130,41 @@ describe('what is said about starting a family (§19.3)', () => {
     expect(warnLine('Gorm', 'Gorm attacked me')).toBe('watch out for Gorm. Gorm attacked me.');
     expect(warnLine('Gorm', 'I lost my sword')).toBe('watch out for Gorm. Gorm is a bully.');
   });
+
+  it('a family line is said once in a conversation; what follows is small talk, not a second "how about it?" or a stall', async () => {
+    const talk = async (gist: string, stance: 'propose' | 'agree', phase: 'propose' | 'accept') => {
+      const me = person('Ned', 'male');
+      const s = new AgentStateStore(createInitialState({ persona: me, username: 'Ned', now: Date.now() }));
+      s.update('family', (f) => ({ ...f, partner: 'Ivy' }));
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [{ id: 1, kind: 'player', name: 'Ivy', pos: { x: 3, y: 64, z: 0 }, distance: 3, visible: true, heldItem: null, armor: [], lastSeen: Date.now(), hurtRecently: false }] }));
+      const bus = new AgentBus();
+      const said: string[] = [];
+      const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => ({ talkOverable: true }), run: () => Promise.reject(new Error('unused')) } as unknown as Body;
+      const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Ned', inRange: () => ['Ivy'], rng: () => 0 });
+      const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+      const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: 'Ned', rng: () => 0 });
+      conversations.start();
+      talking.start();
+      const until = async (f: () => boolean) => {
+        for (let i = 0; i < 200 && !f(); i++) await new Promise((r) => setTimeout(r, 20));
+      };
+      try {
+        const d = { option: 'talk' as const, target: { agent: 'Ivy' }, speechIntent: { stance, gist, mayCommit: false }, family: { with: 'Ivy', phase }, terminate: { maxSeconds: 30 }, rationale: 'test', id: 'd1', createdAt: Date.now(), stateVersion: 1, source: 'default' as const };
+        s.update('decision', () => d);
+        bus.emit({ type: 'decision', decision: d });
+        await until(() => said.length >= 1);
+        const convId = Object.keys(s.state.conversations)[0] ?? '';
+        bus.emit({ type: 'heard', utterance: { id: 'u1', convId, from: 'Ivy', to: ['Ned'], text: "Ned, hehe, you're sweet too.", ts: Date.now(), pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+        await until(() => said.length >= 2);
+        return said;
+      } finally {
+        talking.stop();
+        conversations.stop();
+      }
+    };
+    expect(await talk(FAMILY_PROPOSAL, 'propose', 'propose')).toEqual([`Ivy, ${FAMILY_PROPOSAL}`, 'heh']);
+    expect(await talk(FAMILY_YES, 'agree', 'accept')).toEqual([`Ivy, ${FAMILY_YES}`, 'heh']);
+  });
 });
 
 /** Ned and his partner Ivy, together long enough and fond of each other, with a home and food unless told otherwise. */

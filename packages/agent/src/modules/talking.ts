@@ -428,11 +428,14 @@ export class Talking {
    * as worded, once per conversation (`said` tells what we already said there), and opens with the name of whom it
    * is for (`to`), so that one answers it and not whoever else is around (§6.2); after that the stance's own lines.
    */
-  private canned(intent: SpeechIntent, opening = false, said: (line: string) => boolean = () => false, to?: AgentName): string {
+  private canned(asked: SpeechIntent, opening = false, said: (line: string) => boolean = () => false, to?: AgentName): string {
     const persona = this.o.store.state.self.persona;
-    const worded = this.worded(intent);
+    const worded = this.worded(asked);
     const line = worded && to && !mentionsName(worded, to) ? `${to}, ${worded}` : worded;
     if (line && !said(line)) return line;
+    // A courting or family line said once in this conversation: what follows is small talk, not that stance's stock
+    // line (a second "how about it?" after the question, or "let me think" after a yes).
+    const intent: SpeechIntent = line && ROMANCE_LINES.has(asked.gist) ? { stance: 'chat', gist: 'friendly and short', mayCommit: false } : asked;
     // §18.2 expression: a strong feeling colors small talk.
     const felt = topEmotion(this.o.store.state.emotions);
     if (intent.stance === 'chat' && felt && felt.intensity > 0.55) {
