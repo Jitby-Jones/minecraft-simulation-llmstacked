@@ -410,3 +410,14 @@ describe('what the village knows survives a restart (§23.4)', () => {
     expect(PersonaSchema.parse({ name: 'X', sex: 'male', traits: ['quiet'] })).toBeTruthy();
   });
 });
+
+describe('what the new skills expect to see (§4.6)', () => {
+  it('a sign is a category, so a posted oak sign counts; meat counts as food', async () => {
+    const { itemMatcher } = await import('@agora/agent/body/items');
+    expect(itemMatcher('sign').matches('oak_sign')).toBe(true);
+    expect(itemMatcher('sign').matches('birch_sign')).toBe(true);
+    expect(itemMatcher('sign').matches('oak_hanging_sign')).toBe(false);
+    const raw = (n: string) => ['beef', 'porkchop'].includes(n);
+    expect(itemMatcher('meat', raw).matches('porkchop')).toBe(true);
+  });
+});

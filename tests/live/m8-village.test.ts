@@ -1,6 +1,6 @@
 // M8 exit test (§10: "roles diverge in a 5-bot village over 60 min") on a real server, plus the notice board.
-//   NB  the notice board (§6.8, §16.3): Ann sees Bo die in lava by the village and posts it on a sign at the board;
-//       Cy, who arrives later and never heard of it, reads the sign: it goes on Cy's mind, and Cy grows more careful.
+//   NB  the notice board (§6.8, §16.3): Ann sees Bodo die in lava by the village and posts it on a sign at the board;
+//       Cyrus, who arrives later and never heard of it, reads the sign: it goes on his mind, and he grows more careful.
 //   V   the village: five code-only agents (real bot processes, as in production) live together at the world spawn
 //       with trees, a stone outcrop, animals and ore farther out; days and nights pass, with monsters at night. What
 //       each one takes on for the village comes from what it sees: the village's needs, its own likings and who is
@@ -64,40 +64,40 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     await server.cmd(`fill ${x + 5} ${Y - 2} 3 ${x + 6} ${Y - 1} 4 minecraft:lava`);
     const world = WorldConfigSchema.parse({ server: { host: '127.0.0.1', port: PORT } });
     const annBody = await Body.connect({ host: server.host, port: server.port, username: 'Ann', version: versions.minecraft.version, logger });
-    const bo = await Body.connect({ host: server.host, port: server.port, username: 'Bo', version: versions.minecraft.version, logger });
+    const bodo = await Body.connect({ host: server.host, port: server.port, username: 'Bodo', version: versions.minecraft.version, logger });
     await server.cmd('give Ann minecraft:oak_sign 2');
     await sleep(1500);
     const ann = new Agent({ body: annBody, persona: persona('mira'), username: 'Ann', llm: null, logger, world, goalGen: false });
     ann.start();
-    let cy: Agent | null = null;
+    let cyrus: Agent | null = null;
     let cyBody: Body | null = null;
     try {
       await sleep(3000);
-      // Bo walks into the lava in front of Ann.
-      await server.cmd(`tp Bo ${x + 5.5} ${Y - 1} 3.5`);
-      await waitFor(() => ann.store.state.perception.systemEvents.some((e) => e.kind === 'death' && e.subject === 'Bo'), 30_000, "Bo's death notice", 250);
-      const death = ann.store.state.perception.systemEvents.find((e) => e.subject === 'Bo');
-      console.log(`[m8 NB] Ann heard: ${death?.text}; saw it: ${ann.perception.saw('Bo', 'death', 60_000)}`);
-      await bo.disconnect();
+      // Bodo walks into the lava in front of Ann.
+      await server.cmd(`tp Bodo ${x + 5.5} ${Y - 1} 3.5`);
+      await waitFor(() => ann.store.state.perception.systemEvents.some((e) => e.kind === 'death' && e.subject === 'Bodo'), 30_000, "Bodo's death notice", 250);
+      const death = ann.store.state.perception.systemEvents.find((e) => e.subject === 'Bodo');
+      console.log(`[m8 NB] Ann heard: ${death?.text}; saw it: ${ann.perception.saw('Bodo', 'death', 60_000)}`);
+      await bodo.disconnect();
       // Ann posts it at the board.
       const posted = await waitFor(() => ann.store.state.actionLog.find((a) => a.skill === 'sign' && a.ok), 90_000, 'a notice posted', 500);
       console.log(`[m8 NB] Ann: ${posted.observed}`);
-      expect(String(posted.args.text)).toMatch(/^Bo /);
-      // Cy arrives later, knowing nothing of it.
-      cyBody = await Body.connect({ host: server.host, port: server.port, username: 'Cy', version: versions.minecraft.version, logger });
-      cy = new Agent({ body: cyBody, persona: persona('tobin'), username: 'Cy', llm: null, logger, world, goalGen: false });
-      const before = cy.store.state.drives.caution;
-      cy.start();
-      const c = cy;
-      const learned = await waitFor(() => c.store.state.workmem.find((w) => /a sign at the village board says "Bo /.test(w.text)), 60_000, 'Cy reads the board', 250);
-      console.log(`[m8 NB] Cy: ${learned.text}; caution ${before} → ${c.store.state.drives.caution}`);
+      expect(String(posted.args.text)).toMatch(/^Bodo /);
+      // Cyrus arrives later, knowing nothing of it.
+      cyBody = await Body.connect({ host: server.host, port: server.port, username: 'Cyrus', version: versions.minecraft.version, logger });
+      cyrus = new Agent({ body: cyBody, persona: persona('tobin'), username: 'Cyrus', llm: null, logger, world, goalGen: false });
+      const before = cyrus.store.state.drives.caution;
+      cyrus.start();
+      const c = cyrus;
+      const learned = await waitFor(() => c.store.state.workmem.find((w) => /a sign at the village board says "Bodo /.test(w.text)), 60_000, 'Cyrus reads the board', 250);
+      console.log(`[m8 NB] Cyrus: ${learned.text}; caution ${before} → ${c.store.state.drives.caution}`);
       expect(learned.source).toBe('self_observed');
       expect(c.store.state.drives.caution).toBeGreaterThan(before);
-      // The sign is the only way Cy could know: the death notice went out before Cy arrived.
-      expect(c.store.state.perception.systemEvents.some((e) => e.subject === 'Bo')).toBe(false);
+      // The sign is the only way Cyrus could know: the death notice went out before Cyrus arrived.
+      expect(c.store.state.perception.systemEvents.some((e) => e.subject === 'Bodo')).toBe(false);
       expect(c.store.state.village.board).not.toBeNull();
     } finally {
-      await cy?.stop();
+      await cyrus?.stop();
       await cyBody?.disconnect();
       await ann.stop();
       await annBody.disconnect();

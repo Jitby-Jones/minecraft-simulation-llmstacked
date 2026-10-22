@@ -39,6 +39,19 @@ export function round(v: number, digits = 2): number {
   return Math.round(v * f) / f;
 }
 
+/** Shannon entropy in bits of a list of labels: 0 when they are all the same, log2(n) when all differ. */
+export function shannonEntropy(labels: readonly string[]): number {
+  if (labels.length === 0) return 0;
+  const m = new Map<string, number>();
+  for (const l of labels) m.set(l, (m.get(l) ?? 0) + 1);
+  let h = 0;
+  for (const n of m.values()) {
+    const p = n / labels.length;
+    h -= p * Math.log2(p);
+  }
+  return Math.round(h * 1000) / 1000;
+}
+
 export function mean(values: readonly number[]): number {
   if (values.length === 0) return 0;
   let s = 0;

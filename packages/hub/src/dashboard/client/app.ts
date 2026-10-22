@@ -43,6 +43,9 @@ interface AgentSummary {
   health: number | null;
   food: number | null;
   goal: string | null;
+  /** The role its last five social goals add up to (§6.8). */
+  role: string | null;
+  village: string[];
   option: OptionView | null;
   flags: { inDanger?: boolean; codeOnly?: boolean; degrade?: number } | null;
   rungs: Record<string, number>;
@@ -63,6 +66,7 @@ interface Overview {
   quota: Quota | null;
   cost: CostView;
   agents: AgentSummary[];
+  society: { roles: Record<string, number>; entropy: number; keywords: [string, number][] };
   events: Row[];
   problems: Row[];
 }
@@ -274,6 +278,7 @@ function renderKpis(o: Overview): void {
       p.exhaustAt ? until(p.exhaustAt, o.now) : '—',
       p.exhaustAt ? `${new Date(p.exhaustAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}, ${p.beforeReset === null ? 'at this rate' : p.beforeReset ? 'before the reset' : 'after the reset (fine)'}` : 'not at this rate',
     ),
+    tile('Roles', `${Object.keys(o.society.roles).length}`, Object.keys(o.society.roles).length > 0 ? `${o.society.entropy.toFixed(2)} bits of role entropy` : 'none taken up yet'),
     tile('Fights in the last hour', `${fights}`),
     tile('Deaths', `${deaths}`),
   );
@@ -303,7 +308,7 @@ function doing(o: OptionView | null): string {
 
 function renderAgents(o: Overview): void {
   const t = $('agents');
-  const head = el('thead', {}, [el('tr', {}, ['Agent', 'Health', 'Goal', 'Doing', 'Why', 'Feeling', 'Fear', 'Decided by'].map((h, i) => el('th', { text: h, ...(i === 1 ? { cls: 'num' } : {}) })))]);
+  const head = el('thead', {}, [el('tr', {}, ['Agent', 'Health', 'Role', 'Goal', 'Doing', 'Why', 'Feeling', 'Fear', 'Decided by'].map((h, i) => el('th', { text: h, ...(i === 1 ? { cls: 'num' } : {}) })))]);
   const body = el('tbody');
   if (o.agents.length === 0) body.append(emptyRow('No agents yet.'));
   for (const a of o.agents) {
@@ -317,6 +322,7 @@ function renderAgents(o: Overview): void {
     const tr = el('tr', { cls: `pick${selected === a.name ? ' selected' : ''}` }, [
       el('td', {}, [status, el('div', { cls: 'muted', text: state })]),
       el('td', { cls: 'num', text: a.health === null ? '—' : `${Math.round(a.health)}/20` }),
+      el('td', { text: a.role ?? '—', title: a.village.length > 0 ? `For the village: ${a.village.join('; ')}` : '' }),
       el('td', { text: a.goal ?? '—' }),
       el('td', { text: doing(a.option) }),
       el('td', { cls: 'why', text: a.lastDecision ? `${a.lastDecision.rationale} (${a.lastDecision.source}, ${ago(a.lastDecision.ts, o.now)})` : '—' }),
@@ -534,6 +540,17 @@ function eventText(r: Row): string {
   return w;
 }
 
+// ---- the village (§6.8): who does what for it, and what people talk about ----
+function renderVillage(o: Overview): void {
+  const byRole = new Map<string, string[]>();
+  for (const a of o.agents) if (a.online && a.role) byRole.set(a.role, [...(byRole.get(a.role) ?? []), a.name]);
+  const roles = [...byRole.entries()].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0]));
+  const rolesList = el('ol', { cls: 'feed' }, roles.length > 0 ? roles.map(([r, names]) => el('li', {}, [el('span', { cls: 'who', text: r }), el('span', { text: names.join(', ') })])) : [el('li', { cls: 'empty', text: 'Nobody has a role yet.' })]);
+  const words = o.society.keywords;
+  const talk = el('ol', { cls: 'feed' }, words.length > 0 ? words.map(([w, n]) => el('li', {}, [el('span', { cls: 'num', text: `${n}×` }), el('span', { text: w })])) : [el('li', { cls: 'empty', text: 'Nothing said in the last hour.' })]);
+  $('village').replaceChildren(el('h3', { text: 'Roles' }), rolesList, el('h3', { text: 'What people talk about (last hour)' }), talk);
+}
+
 // ---- refresh loops: a failed fetch keeps the last render, dimmed ----
 async function refresh(): Promise<void> {
   const main = document.querySelector('main');
@@ -544,6 +561,7 @@ async function refresh(): Promise<void> {
     renderBanner(o.quota);
     renderKpis(o);
     renderAgents(o);
+    renderVillage(o);
     renderCost(o.cost);
     renderFeed('events', o.events, o.now, (r) => [el('span', { cls: 'who', text: `${str(r.agent)} ` }), eventText(r)], 'Nothing has happened yet.');
     renderFeed('problems', o.problems, o.now, (r) => [el('span', { cls: 'who', text: `${str(r.agent)} ${str(r.module)}: ` }), str(r.msg)], 'No problems.');

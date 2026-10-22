@@ -74,6 +74,29 @@ describe('the dashboard model', () => {
     expect(s.cells.map((c) => `${c.from}>${c.to}:${c.sentiment}`)).toEqual(['Pip>Rex:2', 'Rex>Pip:7']);
   });
 
+  it('shows the village (§6.8): each one’s role, how varied the roles are, and what people talk about', () => {
+    const { m, t } = model();
+    for (const [i, [name, role]] of [['Pip', 'woodcutter'], ['Rex', 'guard'], ['Ann', 'woodcutter'], ['Bo', null]].entries()) {
+      m.online(name ?? '', `s${i}`);
+      m.telemetry(name ?? '', 'state', t.now, { role, village: role ? [`work as a ${role}`] : [] });
+    }
+    for (const text of ['the zombies came again last night', 'we need more logs for the hut', 'zombies everywhere, stay inside', 'logs are in the chest']) m.telemetry('Pip', 'utterance', t.now, { text, volume: 'normal' });
+    const o = m.overview() as { agents: { name: string; role: string | null; village: string[] }[]; society: { roles: Record<string, number>; entropy: number; keywords: [string, number][] } };
+    expect(o.agents.find((a) => a.name === 'Rex')).toMatchObject({ role: 'guard', village: ['work as a guard'] });
+    expect(o.society.roles).toEqual({ woodcutter: 2, guard: 1 });
+    expect(o.society.entropy).toBeCloseTo(0.918, 3);
+    expect(o.society.keywords.slice(0, 2)).toEqual([
+      ['logs', 2],
+      ['zombies', 2],
+    ]);
+    // Common words don't count; an hour later the chat has aged out of the counts.
+    expect(o.society.keywords.map(([w]) => w)).not.toContain('there');
+    t.now += 61 * 60_000;
+    expect((m.overview() as { society: { keywords: unknown[] } }).society.keywords).toEqual([]);
+    m.offline('Rex', 'left');
+    expect((m.overview() as { society: { roles: Record<string, number> } }).society.roles).toEqual({ woodcutter: 2 });
+  });
+
   it('counts tokens per hour by module, tier and agent, and projects when the weekly quota runs out', () => {
     const { m, t } = model();
     const cost = (agent: string, module: 'cc' | 'talking', tier: 'L1' | 'L2', input: number) => m.cost(agent, { t: 'cost', module, tier, model: 'm', inputTokens: input, outputTokens: 10, ms: 100, ok: true });

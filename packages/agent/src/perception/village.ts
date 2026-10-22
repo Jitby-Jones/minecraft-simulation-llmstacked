@@ -12,8 +12,11 @@ import type { AgentStateStore } from '../state/store';
 
 /** How far from home the village reaches. */
 export const VILLAGE_RADIUS = 32;
-/** Signs this close to home are the notice board. */
-export const BOARD_RADIUS = 10;
+/**
+ * Signs this close to home are the notice board. Everyone's home is where they arrived, a few blocks apart around the
+ * world spawn, so the board has to be found from each of them.
+ */
+export const BOARD_RADIUS = 16;
 const CHEST_RADIUS = 20;
 const RING_SIGNS = 20;
 const RING_THREATS = 20;

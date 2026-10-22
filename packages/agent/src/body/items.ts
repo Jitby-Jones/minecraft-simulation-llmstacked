@@ -122,6 +122,8 @@ export const CATEGORIES: Readonly<Record<string, (name: string) => boolean>> = {
     n.endsWith('_tulip'),
   leaves: (n) => n.endsWith('_leaves'),
   sapling: (n) => n.endsWith('_sapling'),
+  /** A sign to stand on the ground or hang on a wall (not the hanging kind). */
+  sign: (n) => n.endsWith('_sign') && !n.endsWith('_hanging_sign'),
 };
 
 export interface ItemMatcher {

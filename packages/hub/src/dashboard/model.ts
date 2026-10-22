@@ -5,7 +5,7 @@
 // infrastructure (§8): nothing here ever reaches a bot.
 
 import type { QuotaStatus } from '@agora/llm';
-import type { BotToHub, TelemetryKind } from '@agora/shared';
+import { type BotToHub, type TelemetryKind, shannonEntropy } from '@agora/shared';
 
 export type Row = { ts: number } & Record<string, unknown>;
 
@@ -83,6 +83,10 @@ export interface DashboardModelOptions {
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+/** Words too common to say anything about what people talk about. */
+const STOPWORDS = new Set(
+  'that this with have what your just like from they will there then them been were would could should about some into here okay yeah sure know think want need well good right really going doing maybe thing things still also only very much more than when where which while because does done didn sorry thanks hello there their over again back come came gonna gotta mean said says tell told look looks make made take took give gave something anything nothing everyone someone anyone hmm hmmm'.split(' '),
+);
 const num = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
 export class DashboardModel {
@@ -284,6 +288,8 @@ export class DashboardModel {
       health: s?.health ?? null,
       food: s?.food ?? null,
       goal: s?.goal ?? null,
+      role: typeof s?.role === 'string' ? s.role : null,
+      village: Array.isArray(s?.village) ? s.village : [],
       option: s?.option ?? null,
       flags: s?.flags ?? null,
       rungs: s?.rungs ?? {},
@@ -308,6 +314,7 @@ export class DashboardModel {
       quota: q,
       cost: this.costView(),
       agents: agents.map((a) => this.summary(a)),
+      society: this.society(),
       events: this.events.last(40).reverse(),
       problems: this.problems.last(20).reverse(),
     };
@@ -328,6 +335,29 @@ export class DashboardModel {
       events: v.events.items().reverse(),
       fear: v.fear.items(),
     };
+  }
+
+  /**
+   * §6.8, §11 F: the roles the agents' social goals add up to (those online), how varied they are (Shannon entropy
+   * in bits), and the words most used in the chat over the last hour (the culture metrics, counted in code).
+   */
+  society(): { roles: Record<string, number>; entropy: number; keywords: [string, number][] } {
+    const roles: Record<string, number> = {};
+    const labels: string[] = [];
+    for (const v of this.agents.values()) {
+      const r = v.state?.role;
+      if (!v.online || typeof r !== 'string' || !r) continue;
+      roles[r] = (roles[r] ?? 0) + 1;
+      labels.push(r);
+    }
+    const t = this.now();
+    const words = new Map<string, number>();
+    for (const l of this.chat.items()) {
+      if (t - l.ts > HOUR || typeof l.text !== 'string') continue;
+      for (const w of l.text.toLowerCase().match(/[a-z]{4,}/g) ?? []) if (!STOPWORDS.has(w)) words.set(w, (words.get(w) ?? 0) + 1);
+    }
+    const keywords = [...words.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
+    return { roles, entropy: shannonEntropy(labels), keywords };
   }
 
   /** Who thinks what of whom (§18.8 heatmaps): one cell per observer and person they know. */

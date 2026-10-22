@@ -8,6 +8,7 @@ import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { isSignBlock, readSign, wrapForSign } from '../signs';
 import { canSee, isAirLike, isHostile, isSolid } from '../world';
+import { BOARD_RADIUS } from '../../perception/village';
 import { placeItemAt } from './building';
 import { equipBestWeapon, pvp } from './combat';
 import { stopCollecting } from './gathering';
@@ -232,7 +233,7 @@ export function signsNear(bot: Bot, center: Vec3, radius: number): Block[] {
 
 /** A free ground cell next to the board (or near home when there is none yet) for one more sign. */
 function boardSpot(bot: Bot, home: Vec3): Vec3 | null {
-  const board = signsNear(bot, home, 10).sort((a, b) => a.position.distanceTo(home) - b.position.distanceTo(home));
+  const board = signsNear(bot, home, BOARD_RADIUS).sort((a, b) => a.position.distanceTo(home) - b.position.distanceTo(home));
   const around = board.length > 0 ? board.map((b) => b.position) : [home.floored().offset(2, 0, 2)];
   for (const c of around) {
     for (let r = board.length > 0 ? 1 : 0; r <= 3; r++) {

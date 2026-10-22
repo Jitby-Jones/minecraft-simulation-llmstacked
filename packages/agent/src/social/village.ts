@@ -2,7 +2,7 @@
 // doing what. Division of labor comes from perception alone (§13 rule 4): need × liking ÷ (1 + others on it), the
 // code default of Social Goal Gen, which is how roles diverge (Sid's emergent roles) without a model.
 
-import type { AgentState, Persona } from '@agora/shared';
+import { type AgentState, type Persona, shannonEntropy } from '@agora/shared';
 
 export const VILLAGE_KINDS = ['wood', 'stone', 'food', 'build', 'guard', 'tools', 'scout'] as const;
 export type VillageKind = (typeof VILLAGE_KINDS)[number];
@@ -124,16 +124,7 @@ export function roleFrom(kinds: readonly VillageKind[]): string | null {
 
 /** Shannon entropy (bits) of the roles across agents (§11 F): 0 when everyone does the same thing. */
 export function roleEntropy(roles: readonly (string | null | undefined)[]): number {
-  const xs = roles.filter((r): r is string => Boolean(r));
-  if (xs.length === 0) return 0;
-  const m = new Map<string, number>();
-  for (const r of xs) m.set(r, (m.get(r) ?? 0) + 1);
-  let h = 0;
-  for (const n of m.values()) {
-    const p = n / xs.length;
-    h -= p * Math.log2(p);
-  }
-  return Math.round(h * 1000) / 1000;
+  return shannonEntropy(roles.filter((r): r is string => Boolean(r)));
 }
 
 /** The village as the agent's own state has it (§13 rule 4: nothing it didn't perceive). */
