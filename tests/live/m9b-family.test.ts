@@ -1,7 +1,7 @@
 // M9b exit test (§19.8 scenarios T and U) on a real server, with code-only agents.
 //   T  reproduction, through the real Hub, supervisor and bot runtime: Ned and Ivy, partners for days and fond of
-//      each other, with a home (two beds side by side by a chest) and food. Ned asks "want to start a family?"; Ivy,
-//      all being in place on her side too, says yes. At night both go to bed in the two beds; each, lying beside the
+//      each other, with a home (two beds side by side by a chest) and food. One asks "want to start a family?" (whoever
+//      gets there first; each checks it from their own side); the other, all being in place on their side too, says yes. At night both go to bed in the two beds; each, lying beside the
 //      other asleep, reports it to the Hub, which pairs the two reports and, after gestation, brings a child into the
 //      world at the beds. The child's first words name its parents ("Ned, Ivy: hi dad, hi mom!"), which is how they
 //      know it for theirs. Its traits fall within the parents' ranges ± noise; it starts out knowing its family (kin,
@@ -176,9 +176,12 @@ describe.skipIf(!liveJavaPath())('M9b live: families', () => {
       await server.cmd(`tp Ned ${x + 0.5} ${Y} 3.5`);
       await server.cmd(`tp Ivy ${x + 2.5} ${Y} 3.5`);
       await server.cmd(`tp Watcher ${x + 6.5} ${Y} 3.5`);
-      // Ned asks; Ivy, all being in place on her side too, says yes: both are planning a family.
-      await waitFor(() => heard.lines.some((l) => l.who === 'Ned' && /start a family\?/.test(l.text)), 240_000, 'Ned asking', 500);
-      await waitFor(() => heard.lines.some((l) => l.who === 'Ivy' && /yes, let'?s start a family/i.test(l.text)), 60_000, 'Ivy saying yes', 500);
+      // One asks (whoever gets there first); the other, all being in place on their side too, says yes: both are
+      // planning a family.
+      const ask = () => heard.lines.find((l) => (l.who === 'Ned' || l.who === 'Ivy') && /start a family\?/.test(l.text));
+      await waitFor(() => Boolean(ask()), 240_000, 'one of them asking', 500);
+      const asker = ask()?.who;
+      await waitFor(() => heard.lines.some((l) => l.who !== asker && (l.who === 'Ned' || l.who === 'Ivy') && /yes, let'?s start a family/i.test(l.text)), 60_000, 'the other saying yes', 500);
       await waitFor(() => agentOf('Ned')?.store.state.family.planning && agentOf('Ivy')?.store.state.family.planning, 30_000, 'both planning', 500);
       // Night: both to bed, side by side; each reports it, and the Hub pairs the reports.
       await server.cmd('time set 13000');
