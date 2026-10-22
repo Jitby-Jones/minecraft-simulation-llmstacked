@@ -4,7 +4,7 @@
 // take them on: the coalition, weighed against the target's power and followers. A follower whose leader is set
 // upon by a group picks a side then and there: it stands by the leader, or walks away.
 
-import type { AgentName, Logger, SocialProfile } from '@agora/shared';
+import { type AgentName, type Logger, type SocialProfile, openingName } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 import { companionsOf, defects, follows, looksLikeLeader, parseDemand } from './coercion';
@@ -90,8 +90,10 @@ export class PowerWatch {
       b.on('heard', (e) => {
         const u = e.utterance;
         if (u.from === this.o.me) return;
-        // A demand made of someone else, overheard: they will resent it.
-        const target = Array.isArray(u.to) ? u.to[0] : undefined;
+        // A demand made of someone else, overheard: they will resent it. It is made of whomever it names first
+        // ("Ann, give me 3 bread, or else").
+        const named = openingName(u.text);
+        const target = Array.isArray(u.to) ? u.to[0] : named ? Object.keys(this.o.store.state.social).find((n) => n.toLowerCase() === named.toLowerCase()) : undefined;
         if (target && target !== this.o.me && parseDemand(u.text)) this.grudge(target, u.from);
       }),
     );

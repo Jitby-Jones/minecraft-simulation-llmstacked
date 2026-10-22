@@ -8,6 +8,9 @@ import type { AgentName, AgentState, DecisionOutput } from '@agora/shared';
 import { mayRally } from '../conflict/coercion';
 import { spareChance, yieldHealth } from '../conflict/pressure';
 
+/** At a moment like that (alone or hurt), a call to rise may be made again this soon. */
+const RALLY_AGAIN_MS = 2 * 60_000;
+
 export interface PowerView {
   /** Whom we follow (§17.7), or null. */
   leader: () => AgentName | null;
@@ -16,7 +19,7 @@ export interface PowerView {
   /** People we believe resent someone (§17.8 knownResenters). */
   knownResenters: (target: AgentName) => AgentName[];
   /** We said this kind of thing to them lately: grumbling (`inform`) or a call to rise (`rally`). */
-  saidLately: (stance: 'inform' | 'rally', to: AgentName) => boolean;
+  saidLately: (stance: 'inform' | 'rally', to: AgentName, withinMs?: number) => boolean;
 }
 
 export interface PowerMoveCtx {
@@ -84,7 +87,8 @@ export function rallyMove(s: AgentState, v: PowerMoveCtx): DecisionOutput | null
     if (x === leader || s.commitments.some((c) => c.what.kind === 'fight' && c.what.target === x && c.status === 'accepted')) continue;
     const c = v.power.coalition(x);
     if (!mayRally({ resentment: v.resentmentOf(x), ambition: t.ambition, vengefulness: t.vengefulness, loyalty: t.loyalty, members: c.members.length, power: c.power, against: c.against, opening: c.opening })) continue;
-    const y = c.members.find((m) => v.candidates.includes(m) && !v.power.saidLately('rally', m));
+    // The moment (they're alone or hurt) is worth a call again, even to someone already called on not long ago.
+    const y = c.members.find((m) => v.candidates.includes(m) && !v.power.saidLately('rally', m, c.opening ? RALLY_AGAIN_MS : undefined));
     if (!y) continue;
     return {
       option: 'recruit',

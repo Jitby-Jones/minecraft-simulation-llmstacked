@@ -451,6 +451,9 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     // An hour later it's old news.
     w.t.now += 61 * 60_000;
     expect(w.pw.knownResenters('Rex')).toEqual([]);
+    // Overheard, a demand is made of whomever it names first.
+    w.bus.emit({ type: 'heard', utterance: { id: 'u2', convId: '', from: 'Rex', to: 'nearby', text: 'Cy, give me 3 bread, or else', ts: w.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    expect(w.pw.knownResenters('Rex')).toEqual(['Cy']);
     w.pw.stop();
   });
 
@@ -510,12 +513,12 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
 
 describe('the code default for power (§17.7, §17.8)', () => {
   const never2 = (_k: string, _a: Record<string, unknown>) => false;
-  function ctx(o: Partial<PowerMoveCtx> & { leader?: string | null; members?: string[]; opening?: boolean; resenters?: string[]; said?: string[] } = {}): PowerMoveCtx {
+  function ctx(o: Partial<PowerMoveCtx> & { leader?: string | null; members?: string[]; opening?: boolean; resenters?: string[]; said?: string[]; saidAgo?: Record<string, number> } = {}): PowerMoveCtx {
     const power: PowerView = {
       leader: () => o.leader ?? null,
       coalition: (target) => ({ target, members: o.members ?? ['Bo'], power: 0.55, against: 1.1, opening: o.opening ?? false }),
       knownResenters: () => o.resenters ?? [],
-      saidLately: (stance, to) => (o.said ?? []).includes(`${stance}:${to}`),
+      saidLately: (stance, to, within = 10 * 60_000) => (o.said ?? []).includes(`${stance}:${to}`) || (o.saidAgo?.[`${stance}:${to}`] ?? Infinity) < within,
     };
     return {
       isStuck: o.isStuck ?? never2,
@@ -560,6 +563,10 @@ describe('the code default for power (§17.7, §17.8)', () => {
     expect(rallyMove(s, ctx({ opening: true, leader: 'Rex' }))).toBeNull();
     expect(rallyMove(s, ctx({ opening: true, said: ['rally:Bo'] }))).toBeNull();
     expect(rallyMove({ ...s, commitments: [pact('Bo', 'Ann', 'Rex')] }, ctx({ opening: true }))).toBeNull();
+    // Called on three minutes ago, to no end: when the moment comes (Rex alone or hurt), Bo is called on again.
+    expect(rallyMove(s, ctx({ opening: false, members: ['Bo'], saidAgo: { 'rally:Bo': 3 * 60_000 } }))).toBeNull();
+    expect(rallyMove(s, ctx({ opening: true, saidAgo: { 'rally:Bo': 3 * 60_000 } }))?.target).toEqual({ agent: 'Bo' });
+    expect(rallyMove(s, ctx({ opening: true, saidAgo: { 'rally:Bo': 60_000 } }))).toBeNull();
   });
 
   it('answers a call to rise: joins (a promise to fight together) or stays out', () => {

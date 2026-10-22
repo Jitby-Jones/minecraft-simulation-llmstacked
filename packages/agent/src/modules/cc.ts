@@ -944,7 +944,7 @@ export class CognitiveController {
         ...(this.o.liking ? { liking: this.o.liking } : {}),
         ...(conflict ? { conflict } : {}),
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
-        ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < SPOKE_EVERY_MS } } : {}),
+        ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
       });
       source = 'default';
       const why = out ? validateDecision(out, env) : null;
