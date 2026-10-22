@@ -203,6 +203,11 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       expect(followers.length).toBeGreaterThanOrEqual(1);
       expect(agents.Rex.store.state.commitments.filter((c) => c.coerced && c.creditor === 'Rex' && c.createdAt >= t0).length).toBeGreaterThanOrEqual(1);
       expect(deaths).toEqual([]);
+      // His rule goes on until the proud have had a taste of it too: two of them resent him enough to rise (they were
+      // asked, refused, were beaten), a few minutes at most.
+      const wronged = () => (['Ann', 'Bo', 'Cyd'] as const).filter((n) => agents[n].conflict.resentmentOf('Rex') >= 0.5);
+      await waitFor(() => wronged().length >= 2, 480_000, 'two of the proud resenting Rex enough to rise', 1000).catch(() => undefined);
+      heard.timeline.push(`${heard.at()} -- resenting Rex enough to rise: ${wronged().join(', ') || 'nobody'} --`);
 
       // K: Rex goes out alone, hurt: the followers are off somewhere far.
       for (const n of followers) await server.cmd(`tp ${n} ${x + 80} ${Y} 60`);
@@ -232,16 +237,14 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
         }
         return [...rose];
       };
-      // The followers come back as it starts: as the rebels close in on him, or strike.
-      const closingIn = () =>
-        (['Ann', 'Bo', 'Cyd'] as const).some((n) => {
-          const o = agents[n].store.state.option;
-          return o?.status === 'running' && o.targetAgent === 'Rex' && (o.option === 'follow' || o.option === 'fight');
-        }) || struck().length >= 1;
+      // The followers come back as it gets under way: one sworn to it meeting up with the others, looking for Rex,
+      // closing in on him or striking (in time to see the blows).
+      const UNDERWAY_RE = /against Rex|looking for Rex|closing in on Rex|taking on Rex/;
+      const underway = () => (['Ann', 'Bo', 'Cyd'] as const).some((n) => pacts(n).length > 0 && UNDERWAY_RE.test(agents[n].store.state.decision?.rationale ?? '')) || struck().length >= 1;
       try {
         await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.exec(l.text)?.[1] === 'Rex'), 600_000, 'a call to rise against Rex', 500);
         await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.exec(l.text)?.[1] === 'Rex'), 180_000, 'someone joining', 500);
-        await waitFor(closingIn, 600_000, 'the rebels closing in on Rex', 250);
+        await waitFor(underway, 600_000, 'the uprising under way', 250);
       } finally {
         clearInterval(keepAway);
       }
