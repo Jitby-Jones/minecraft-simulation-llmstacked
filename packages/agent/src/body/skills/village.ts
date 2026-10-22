@@ -225,6 +225,24 @@ export const build = defineSkill({
       }
       if (placed % 8 === 0) ctx.progress(`hut: ${placed}/${plan.length}`);
     }
+    // A second go at what didn't take the first time (out of reach, or nothing yet to set it against), from close by.
+    for (const cell of plan) {
+      throwIfAborted(ctx.signal);
+      const target = corner.plus(cell);
+      if (isSolid(bot.blockAt(target))) continue;
+      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      if (!block) break;
+      await gotoNear(ctx, target, 3, 10_000).catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+      });
+      try {
+        await placeItemAt(ctx, block, target);
+        placed++;
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        ctx.logger.debug({ module: 'skill', cell: target.toString(), err: errMsg(err) }, 'hut block not placed, second try');
+      }
+    }
     // Out through the doorway, and the door in it if we have one.
     const doorway = corner.plus(HUT_DOOR);
     await gotoNear(ctx, doorway.offset(0, 0, -2), 0.8, 20_000).catch((err: unknown) => {

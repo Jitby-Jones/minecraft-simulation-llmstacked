@@ -132,6 +132,10 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     const never = () => false;
     const night = withState((x) => ({ ...x, self: { ...x.self, isDay: false } }));
     expect(codeDecision(night, {}, false, never)?.task?.skill).toBe('shelter');
+    // Dug in from dusk, before the monsters come out at dark; not in the afternoon.
+    const at = (time: number) => withState((x) => ({ ...x, self: { ...x.self, isDay: true, time } }));
+    expect(codeDecision(at(12_800), {}, false, never)?.task?.skill).toBe('shelter');
+    expect(codeDecision(at(11_000), {}, false, never)?.task?.skill).not.toBe('shelter');
     const goal = withState((x) => ({ ...x, goals: { ...x.goals, current: { id: 'g', text: 'stone tools', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'inventoryHas:stone_pickaxe>=1' } } }));
     expect(codeDecision(goal, {}, false, never)?.task).toEqual({ skill: 'obtain', args: { item: 'stone_pickaxe', qty: 1 } });
     const deep = {

@@ -139,6 +139,8 @@ export function dealDrafts(me: AgentName, other: AgentName, ours: readonly ItemS
 
 /** How long either side has to hand over its half of a deal. */
 const DEAL_DUE_SEC = 600;
+/** Time of day from which the code default digs in for the night (sunset; monsters come out at about 13000). */
+const DUSK = 12_500;
 /** Hostile talk toward the same person at most this often. */
 const WARN_EVERY_MS = 3 * 60_000;
 
@@ -322,10 +324,11 @@ export function codeDecision(
   // Starving with nothing to eat comes before anything, even the night (§16.3: carry food).
   const starving = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
   if (starving) return starving;
-  // Survive the night (M1 shelter); a guard on duty stays out while fit for it.
+  // Survive the night (M1 shelter), dug in from dusk on, before the monsters come out at dark; a guard on duty stays
+  // out while fit for it.
   const village = villageWorkOf(s.goals.current?.doneWhen);
   const onGuard = village === 'guard' && s.self.health >= 12 && s.drives.caution < 0.8;
-  if (!s.self.isDay && !s.flags.inDanger && !onGuard && !isStuck('shelter', { untilMorning: true })) {
+  if ((!s.self.isDay || s.self.time > DUSK) && !s.flags.inDanger && !onGuard && !isStuck('shelter', { untilMorning: true })) {
     return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, dig in' };
   }
   // Badly hurt: food, then lie low until healed; no work, no quarrels.
