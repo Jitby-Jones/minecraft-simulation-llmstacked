@@ -169,8 +169,19 @@ export const craft = defineSkill({
 
 const FUELS = ['coal', 'charcoal', 'coal_block', 'blaze_rod', 'dried_kelp_block'];
 
-function pickFuel(bot: Bot): { name: string; perItem: number } | null {
+/** How many items one of this fuel smelts. */
+export function fuelValue(name: string): number {
+  if (name === 'coal_block') return 80;
+  if (name === 'dried_kelp_block') return 20;
+  if (name === 'blaze_rod') return 12;
+  if (FUELS.includes(name)) return 8;
+  if (name === 'stick') return 0.5;
+  return CATEGORIES.log?.(name) || name.endsWith('_planks') ? 1.5 : 1;
+}
+
+function pickFuel(bot: Bot, prefer?: string): { name: string; perItem: number } | null {
   const items = bot.inventory.items();
+  if (prefer && items.some((i) => i.name === prefer)) return { name: prefer, perItem: fuelValue(prefer) };
   for (const f of FUELS) {
     if (items.some((i) => i.name === f)) return { name: f, perItem: f === 'coal_block' ? 80 : f === 'blaze_rod' ? 12 : 8 };
   }
@@ -183,13 +194,39 @@ function pickFuel(bot: Bot): { name: string; perItem: number } | null {
   return null;
 }
 
-interface FurnaceApi {
+/**
+ * An open furnace made ready for `qty` of `input`: what is left in it from before (cooked, or something else still
+ * raw when the fuel ran out) comes out first, since a slot that holds something else takes nothing new; and there
+ * is fuel enough for the batch, counting what is in it (a different fuel comes out to make room for ours). The
+ * error, if there is no fuel at all.
+ */
+export async function readyFurnace(bot: Bot, furnace: FurnaceApi, input: string, qty: number): Promise<string | null> {
+  if (furnace.outputItem()) await furnace.takeOutput();
+  const left = furnace.inputItem();
+  if (left && left.name !== input) await furnace.takeInput();
+  const inFuel = furnace.fuelItem();
+  const burns = inFuel ? fuelValue(inFuel.name) * inFuel.count : 0;
+  if (burns >= qty) return null;
+  const fuel = pickFuel(bot, inFuel?.name);
+  if (!fuel) return inFuel ? null : 'need fuel (coal, logs or planks)';
+  const fuelType = bot.registry.itemsByName[fuel.name]?.id;
+  if (fuelType === undefined) return inFuel ? null : 'unknown fuel';
+  const same = inFuel?.name === fuel.name;
+  if (inFuel && !same) await furnace.takeFuel();
+  const n = Math.min(countItem(bot, fuel.name), Math.ceil((qty - (same ? burns : 0)) / fuel.perItem));
+  if (n > 0) await furnace.putFuel(fuelType, null, n);
+  return null;
+}
+
+export interface FurnaceApi {
   putInput(itemType: number, metadata: number | null, count: number): Promise<void>;
   putFuel(itemType: number, metadata: number | null, count: number): Promise<void>;
   takeOutput(): Promise<unknown>;
   outputItem(): { name: string; count: number } | null;
   inputItem(): { name: string; count: number } | null;
   fuelItem(): { name: string; count: number } | null;
+  takeInput(): Promise<unknown>;
+  takeFuel(): Promise<unknown>;
   close(): void;
 }
 
@@ -219,14 +256,8 @@ export const smelt = defineSkill({
     let outputName = '';
     try {
       furnace = await bot.openFurnace(furnaceBlock);
-      if (!furnace.fuelItem()) {
-        const fuel = pickFuel(bot);
-        if (!fuel) return { ok: false, observed: 'no fuel', error: 'need fuel (coal, logs or planks)' };
-        const fuelType = bot.registry.itemsByName[fuel.name]?.id;
-        if (fuelType === undefined) return { ok: false, observed: 'no fuel', error: 'unknown fuel' };
-        const n = Math.min(countItem(bot, fuel.name), Math.ceil(qty / fuel.perItem));
-        await furnace.putFuel(fuelType, null, n);
-      }
+      const unready = await readyFurnace(bot, furnace, input, qty);
+      if (unready) return { ok: false, observed: 'no fuel', error: unready };
       await furnace.putInput(inputItem.type, null, qty);
       const deadline = Date.now() + qty * 10_500 + 8000;
       while (got < qty && Date.now() < deadline) {

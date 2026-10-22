@@ -45,6 +45,8 @@ const NOT_NEARBY_COST = 20;
  * any other way to make it wins (planks from logs), but ore still plans as "find it" (§13 rule 4).
  */
 const UNSEEN_RARE_COST = 200;
+/** Blocks that are nine of something packed together: made, not found, so never searched for unseen. */
+const STORAGE_BLOCK = /^(raw_)?(iron|gold|copper|diamond|emerald|lapis|redstone|coal|netherite)_block$/;
 
 interface Recipe {
   result: { id: number; count: number };
@@ -284,7 +286,7 @@ async function route(p: PlanCtx, item: string, stack: readonly string[]): Promis
     }
   }
 
-  if (scan.drops(item).length > 0) {
+  if (scan.drops(item).length > 0 && (!STORAGE_BLOCK.test(item) || scan.sample(item))) {
     const tool = toolNeeded(bot, scan, item);
     const seen = scan.sample(item);
     const ground = scan.drops(item).some((id) => isInferable(bot.registry.blocks[id]?.name ?? ''));

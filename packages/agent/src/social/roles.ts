@@ -1,7 +1,9 @@
 // What others seem to do for the village, from what they're seen doing (§6.3 perceivedRole, in code; the L2
 // conversation read can still name one). Each deed seen adds to a tally per person that halves every 10 minutes;
 // the role is the work with the biggest tally once it reaches 3: someone seen chopping three logs is a woodcutter,
-// for now. It feeds the division of labor (village.ts `others`) and what the agent knows of people.
+// for now. Digging dirt, the stuff huts are made of, counts half toward building: a builder gathers long before
+// setting a block down, and a few dug for a shelter or on the way to stone don't make a builder. It feeds the
+// division of labor (village.ts `others`) and what the agent knows of people.
 
 import type { AgentName, ObservedAction } from '@agora/shared';
 import type { AgentBus } from '../bus';
@@ -12,6 +14,7 @@ const HALF_LIFE_MS = 10 * 60_000;
 const ROLE_AT = 3;
 const HOSTILE = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|enderman|slime|phantom|pillager|vindicator|silverfish)$/;
 const ANIMAL = /^(cow|pig|sheep|chicken|rabbit|mooshroom|goat)$/;
+const BUILDING_DIRT = /^(dirt|grass_block|coarse_dirt|rooted_dirt)$/;
 
 /** The kind of work a deed shows, or null. */
 export function workOf(a: ObservedAction): VillageKind | null {
@@ -19,12 +22,17 @@ export function workOf(a: ObservedAction): VillageKind | null {
   if (a.kind === 'dig') {
     if (/_(log|wood|stem)$/.test(item)) return 'wood';
     if (/(^stone$|cobblestone|deepslate|_ore$|^andesite$|^diorite$|^granite$|^tuff$)/.test(item)) return 'stone';
-    return null;
+    return BUILDING_DIRT.test(item) ? 'build' : null;
   }
   // A blow at a mob (a person is never `item`, and a fight with a person has a `target`).
   if (a.kind === 'attack' && !a.target) return HOSTILE.test(item) ? 'guard' : ANIMAL.test(item) ? 'food' : null;
   if (a.kind === 'place' && !/(torch|sign|_bed|crafting_table|furnace|chest)$/.test(item)) return 'build';
   return null;
+}
+
+/** How much a deed counts toward its kind of work: dirt dug counts half (gathering, maybe for something else). */
+export function weightOf(a: ObservedAction): number {
+  return a.kind === 'dig' && BUILDING_DIRT.test(a.item ?? '') ? 0.5 : 1;
 }
 
 export interface RoleWatchOptions {
@@ -61,7 +69,7 @@ export class RoleWatch {
     const per = this.tallies.get(a.actor) ?? new Map<VillageKind, { v: number; at: number }>();
     this.tallies.set(a.actor, per);
     const cur = per.get(kind);
-    per.set(kind, { v: (cur ? cur.v * 0.5 ** ((t - cur.at) / HALF_LIFE_MS) : 0) + 1, at: t });
+    per.set(kind, { v: (cur ? cur.v * 0.5 ** ((t - cur.at) / HALF_LIFE_MS) : 0) + weightOf(a), at: t });
     const role = this.roleOf(a.actor, t);
     if (role && this.o.store.state.social[a.actor]?.perceivedRole !== role) {
       this.o.store.update(

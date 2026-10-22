@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
-import type { Vec3 } from 'vec3';
+import { Vec3 } from 'vec3';
 import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
@@ -110,6 +110,27 @@ async function pickUpDropsNear(ctx: SkillContext, dug: readonly Vec3[], matcher:
   return walked;
 }
 
+/** Ground dug for its blocks (dirt and the like). */
+const GROUND = /^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|sand|red_sand|gravel|clay|mud)$/;
+/** Ground this close to home is left whole: it is where huts go (§6.8). Dirt for them is dug farther out. */
+export const HOME_GROUND = 16;
+
+/** The blocks among `near` that are not in the ground kept whole round home. */
+export function awayFromHome<T extends { position: { x: number; z: number } }>(near: readonly T[], home: { x: number; z: number }): T[] {
+  return near.filter((b) => Math.hypot(b.position.x - home.x, b.position.z - home.z) > HOME_GROUND);
+}
+
+/** Out past the ground kept whole round home, on the side we are on. */
+async function walkOutFrom(ctx: SkillContext, home: Vec3): Promise<void> {
+  const here = ctx.bot.entity.position;
+  const a = Math.hypot(here.x - home.x, here.z - home.z) > 1 ? Math.atan2(here.z - home.z, here.x - home.x) : ctx.rng.next() * Math.PI * 2;
+  const to = new Vec3(home.x + Math.cos(a) * (HOME_GROUND + 6), here.y, home.z + Math.sin(a) * (HOME_GROUND + 6));
+  ctx.progress('heading out of the village to dig');
+  await gotoNear(ctx, to, 3, 30_000).catch((err: unknown) => {
+    if (err instanceof SkillAbortedError) throw err;
+  });
+}
+
 async function collectUntil(
   ctx: SkillContext,
   matcher: ItemMatcher,
@@ -123,6 +144,8 @@ async function collectUntil(
   let failures = 0;
   let lastError = '';
   const skipped = new Set<string>();
+  const home = ctx.home && blockIds.every((id) => GROUND.test(bot.registry.blocks[id]?.name ?? '')) ? ctx.home : null;
+  let walkedOut = 0;
   // Every loop has a cap (§13): enough rounds for the job and a few failures, never more.
   const maxRounds = qty + 12;
   for (let round = 0; countItem(bot, matcher) - start < qty; round++) {
@@ -132,8 +155,14 @@ async function collectUntil(
     }
     // Prefer blocks within reach of the ground we stand on: low logs before the canopy, near before far.
     const feetY = bot.entity.position.y;
-    const candidates = findKnownBlocks(bot, blockIds, maxDistance, 24)
-      .filter((b) => !skipped.has(b.position.toString()))
+    const near = findKnownBlocks(bot, blockIds, maxDistance, 24).filter((b) => !skipped.has(b.position.toString()));
+    const outside = home ? awayFromHome(near, home) : near;
+    if (home && outside.length === 0 && near.length > 0 && walkedOut < 3) {
+      walkedOut++;
+      await walkOutFrom(ctx, home);
+      continue;
+    }
+    const candidates = outside
       .sort(
         (a, b) =>
           a.position.distanceTo(bot.entity.position) + Math.max(0, a.position.y - feetY - 2) * 4 -

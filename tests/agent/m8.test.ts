@@ -8,7 +8,8 @@ import { type ActionRecord, type AgentState, ModelsConfigSchema, type ObservedAc
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import { AgentBus } from '@agora/agent/bus';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
-import { HUT_BLOCKS, hutPlan } from '@agora/agent/body/skills/village';
+import { Vec3 } from '@agora/agent/body/bot';
+import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles } from '@agora/agent/body/skills/village';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
@@ -17,7 +18,7 @@ import { codeGoal, villageFirst } from '@agora/agent/modules/goalGen';
 import { leversFor } from '@agora/agent/modules/levers';
 import { SocialGoalGen } from '@agora/agent/modules/socialGoalGen';
 import { deathNoticeMove, unpostedDeath, unpostedFind, villageMove } from '@agora/agent/modules/villageMove';
-import { RoleWatch, workOf } from '@agora/agent/social/roles';
+import { RoleWatch, weightOf, workOf } from '@agora/agent/social/roles';
 import { type VillageView, chooseWork, describeVillage, needs, preferences, roleEntropy, roleFrom, villageView, villageWorkDone, villageWorkOf } from '@agora/agent/social/village';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
@@ -119,6 +120,24 @@ describe('roles from what people are seen doing (§6.3 perceivedRole)', () => {
     expect(workOf(deed('Bo', 'place', 'torch'))).toBeNull();
     expect(workOf(deed('Bo', 'dig', 'short_grass'))).toBeNull();
     expect(workOf({ ...deed('Bo', 'attack'), target: 'Rex' })).toBeNull();
+    // Dirt is what huts are made of: digging it is gathering for one, counted half.
+    expect(workOf(deed('Bo', 'dig', 'dirt'))).toBe('build');
+    expect(weightOf(deed('Bo', 'dig', 'grass_block'))).toBe(0.5);
+    expect(weightOf(deed('Bo', 'dig', 'oak_log'))).toBe(1);
+  });
+
+  it('someone digging dirt for a while is seen as a builder; a shelter dug for the night is not', () => {
+    const store = new AgentStateStore(base());
+    store.update('social', (all) => ({ ...all, Bo: newSocialProfile('Bo', pip, 0), Cy: newSocialProfile('Cy', pip, 0) }));
+    const bus = new AgentBus();
+    const w = new RoleWatch({ store, bus, me: 'Pip', now: () => 1000 });
+    w.start();
+    for (let i = 0; i < 3; i++) bus.emit({ type: 'observedAction', action: deed('Cy', 'dig', 'dirt', i) });
+    expect(w.roleOf('Cy')).toBeNull();
+    for (let i = 0; i < 6; i++) bus.emit({ type: 'observedAction', action: deed('Bo', 'dig', i % 2 ? 'dirt' : 'grass_block', i) });
+    expect(store.state.social.Bo?.perceivedRole).toBe('builder');
+    expect(w.others()).toEqual({ build: 1 });
+    w.stop();
   });
 
   it('three logs chopped make a woodcutter; the tally fades, so a role can change', () => {
@@ -398,12 +417,59 @@ describe('the notice board: signs as a player reads and writes them (§6.8, §16
 
   it('a hut is 5×5 walls three high with a doorway and a flat roof laid rim first', () => {
     const plan = hutPlan();
-    expect(plan).toHaveLength(HUT_BLOCKS);
-    expect(HUT_BLOCKS).toBe(16 * 3 - 2 + 25);
+    expect(plan).toHaveLength(16 * 3 - 2 + 25);
+    // A builder carries enough over for the holes in the ground it may have to fill.
+    expect(HUT_BLOCKS).toBe(plan.length + HUT_HOLES);
     expect(plan.some((c) => c.x === 2 && c.z === 0 && c.y < 2)).toBe(false);
     const roof = plan.filter((c) => c.y === 3);
     expect(Math.max(Math.abs((roof[0]?.x ?? 2) - 2), Math.abs((roof[0]?.z ?? 2) - 2))).toBe(2);
     expect(roof.at(-1)).toMatchObject({ x: 2, z: 2 });
+  });
+});
+
+describe('where a hut goes (dug-up ground by home)', () => {
+  it('a site may have a few holes one deep, filled first; a deeper pit or too many holes rule it out', () => {
+    const holes = new Set<string>();
+    const pits = new Set<string>();
+    const air = { name: 'air', boundingBox: 'empty' };
+    const dirt = { name: 'dirt', boundingBox: 'block' };
+    const blockAt = (p: { x: number; y: number; z: number }) => {
+      const k = `${p.x},${p.z}`;
+      if (p.y >= 41) return air;
+      if (p.y === 40 && (holes.has(k) || pits.has(k))) return air;
+      if (p.y === 39 && pits.has(k)) return air;
+      return dirt;
+    };
+    const bot = { blockAt } as never;
+    const corner = new Vec3(4, 41, 4);
+    expect(hutSiteHoles(bot, corner)).toEqual([]);
+    holes.add('5,5');
+    holes.add('8,8');
+    // A hole in the free ring round the hut doesn't matter; one under it is filled.
+    holes.add('3,3');
+    expect(hutSiteHoles(bot, corner)?.map((h) => [h.x, h.y, h.z])).toEqual([
+      [5, 40, 5],
+      [8, 40, 8],
+    ]);
+    pits.add('6,6');
+    expect(hutSiteHoles(bot, corner)).toBeNull();
+    pits.clear();
+    for (const k of ['4,6', '5,6', '6,6', '7,6']) holes.add(k);
+    expect(hutSiteHoles(bot, corner)).toBeNull();
+    // Around home, the nearest site with the fewest holes.
+    holes.clear();
+    for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) if ((x * 7 + z * 3) % 5 === 0) holes.add(`${x},${z}`);
+    const site = findHutSite(bot, new Vec3(0, 41, 0));
+    expect(site).not.toBeNull();
+    expect(hutSiteHoles(bot, site as Vec3)?.length).toBeLessThanOrEqual(HUT_HOLES);
+  });
+});
+
+describe('the ground by home is left whole for huts', () => {
+  it('dirt is dug out past it', async () => {
+    const { HOME_GROUND, awayFromHome } = await import('@agora/agent/body/skills/gathering');
+    const at = (x: number, z: number) => ({ position: { x, z } });
+    expect(awayFromHome([at(3, 4), at(HOME_GROUND, 1), at(-HOME_GROUND - 1, 0), at(12, 12)], { x: 0, z: 0 })).toEqual([at(HOME_GROUND, 1), at(-HOME_GROUND - 1, 0), at(12, 12)]);
   });
 });
 
@@ -443,6 +509,77 @@ describe('cooking what was hunted (the obtain planner)', () => {
     // No meat, and no block drops any: nothing to cook.
     items[0] = { name: 'stick', count: 1 };
     expect((await planObtain(bot, 'cooked_mutton')).kind).toBe('none');
+  });
+
+  it('a furnace is cleared of what was left in it and given fuel enough for the batch', async () => {
+    const { readyFurnace } = await import('@agora/agent/body/skills/crafting');
+    const done: string[] = [];
+    const furnace = (slots: { input?: [string, number]; output?: [string, number]; fuel?: [string, number] }) => ({
+      inputItem: () => (slots.input ? { name: slots.input[0], count: slots.input[1] } : null),
+      outputItem: () => (slots.output ? { name: slots.output[0], count: slots.output[1] } : null),
+      fuelItem: () => (slots.fuel ? { name: slots.fuel[0], count: slots.fuel[1] } : null),
+      takeInput: () => Promise.resolve(done.push('take input')),
+      takeOutput: () => Promise.resolve(done.push('take output')),
+      takeFuel: () => Promise.resolve(done.push('take fuel')),
+      putFuel: async (_t: number, _m: number | null, n: number) => {
+        done.push(`fuel ${n}`);
+      },
+      putInput: async () => {
+        done.push('input');
+      },
+      close: () => undefined,
+    });
+    const bot = (inv: [string, number][]) => ({ inventory: { items: () => inv.map(([name, count]) => ({ name, count })), slots: [] }, registry: { itemsByName: { oak_log: { id: 5 }, coal: { id: 9 }, stick: { id: 10 } } } }) as never;
+    // Raw beef left in it when the fuel ran out, and a cooked one: both out, and logs for three chickens.
+    expect(await readyFurnace(bot([['chicken', 3], ['oak_log', 4]]), furnace({ input: ['beef', 2], output: ['cooked_beef', 1] }), 'chicken', 3)).toBeNull();
+    expect(done.splice(0)).toEqual(['take output', 'take input', 'fuel 2']);
+    // A stick in it isn't enough: the same fuel is topped up if we carry it, else ours goes in its place.
+    expect(await readyFurnace(bot([['chicken', 3], ['stick', 8]]), furnace({ fuel: ['stick', 1] }), 'chicken', 3)).toBeNull();
+    expect(done.splice(0)).toEqual(['fuel 5']);
+    expect(await readyFurnace(bot([['chicken', 3], ['coal', 2]]), furnace({ fuel: ['stick', 1] }), 'chicken', 3)).toBeNull();
+    expect(done.splice(0)).toEqual(['take fuel', 'fuel 1']);
+    // Enough already; and none anywhere.
+    expect(await readyFurnace(bot([['chicken', 3]]), furnace({ fuel: ['coal', 1] }), 'chicken', 3)).toBeNull();
+    expect(done.splice(0)).toEqual([]);
+    expect(await readyFurnace(bot([['chicken', 3]]), furnace({}), 'chicken', 3)).toMatch(/need fuel/);
+  });
+
+  it('iron is mined and smelted, not made out of an iron block nobody has seen', async () => {
+    const { planObtain } = await import('@agora/agent/body/skills/planner');
+    const items = [
+      { name: 'stone_pickaxe', count: 1, type: 6 },
+      { name: 'oak_log', count: 4, type: 5 },
+      { name: 'crafting_table', count: 1, type: 8 },
+    ];
+    const names = ['', 'iron_ingot', 'raw_iron', 'iron_block', 'furnace', 'oak_log', 'stone_pickaxe', 'cobblestone', 'crafting_table'];
+    const blocks = [
+      { id: 10, name: 'iron_ore', drops: [2], harvestTools: { 6: true } },
+      { id: 11, name: 'iron_block', drops: [3], harvestTools: { 6: true } },
+      { id: 12, name: 'stone', drops: [7], harvestTools: { 6: true } },
+      { id: 13, name: 'furnace', drops: [4] },
+    ];
+    const recipes: Record<number, unknown[]> = {
+      1: [{ result: { id: 1, count: 9 }, delta: [{ id: 3, count: -1 }, { id: 1, count: 9 }], requiresTable: false }],
+      4: [{ result: { id: 4, count: 1 }, delta: [{ id: 7, count: -8 }, { id: 4, count: 1 }], requiresTable: true }],
+    };
+    const bot = {
+      registry: {
+        itemsByName: Object.fromEntries(names.map((n, id): [string, { id: number }] => [n, { id }]).slice(1)),
+        items: Object.fromEntries(names.map((name, id): [number, { name: string }] => [id, { name }]).slice(1)),
+        blocksArray: blocks,
+        blocks: Object.fromEntries(blocks.map((b) => [b.id, b])),
+        blocksByName: Object.fromEntries(blocks.map((b) => [b.name, b])),
+        foodsByName: {},
+      },
+      inventory: { items: () => items, slots: [] },
+      entity: { position: new Vec3(0, 64, 0) },
+      on: () => undefined,
+      findBlocks: () => [],
+      blockAt: () => null,
+      recipesAll: (id: number) => recipes[id] ?? [],
+    } as never;
+    // A furnace still to make (out of stone) costs more than an iron block found: but none has been seen.
+    expect((await planObtain(bot, 'iron_ingot')).kind).toBe('smelt');
   });
 });
 

@@ -122,35 +122,51 @@ export function hutPlan(): Vec3[] {
   return [...walls, ...roof];
 }
 
-export const HUT_BLOCKS = hutPlan().length;
+/** Shallow holes a hut site may have under it, filled before the walls go up (dug-up ground by home, §6.8). */
+export const HUT_HOLES = 4;
+/** The blocks a hut takes, with enough over to fill the holes in its site. */
+export const HUT_BLOCKS = hutPlan().length + HUT_HOLES;
 /** Where the door goes in the plan (its lower half). */
 export const HUT_DOOR = new Vec3(2, 0, 0);
 
 const free = (bot: Bot, p: Vec3) => isAirLike(bot.blockAt(p));
 
-/** The nearest corner near `center` with level, solid ground under 5×5, room for 5×5×4 and a free cell all round. */
-export function findHutSite(bot: Bot, center: Vec3, radius = 16, minDist = 4): Vec3 | null {
-  const base = center.floored();
-  const fits = (c: Vec3) => {
-    for (let x = -1; x <= 5; x++) {
-      for (let z = -1; z <= 5; z++) {
-        const inside = x >= 0 && x <= 4 && z >= 0 && z <= 4;
-        for (let y = 0; y < 4; y++) if (!free(bot, c.offset(x, y, z))) return false;
-        if (inside && !isSolid(bot.blockAt(c.offset(x, -1, z)))) return false;
-      }
+/** Ground cells under a hut at corner `c` that are a hole one deep (to fill), or null when the site won't do. */
+export function hutSiteHoles(bot: Bot, c: Vec3): Vec3[] | null {
+  const holes: Vec3[] = [];
+  for (let x = -1; x <= 5; x++) {
+    for (let z = -1; z <= 5; z++) {
+      const inside = x >= 0 && x <= 4 && z >= 0 && z <= 4;
+      for (let y = 0; y < 4; y++) if (!free(bot, c.offset(x, y, z))) return null;
+      if (!inside || isSolid(bot.blockAt(c.offset(x, -1, z)))) continue;
+      // A hole one deep in solid ground is filled; anything deeper, or water, rules the site out.
+      if (!free(bot, c.offset(x, -1, z)) || !isSolid(bot.blockAt(c.offset(x, -2, z))) || holes.length >= HUT_HOLES) return null;
+      holes.push(c.offset(x, -1, z));
     }
-    return true;
-  };
+  }
+  return holes;
+}
+
+/**
+ * The nearest corner near `center` with level, solid ground under 5×5 (a few shallow holes are filled), room for
+ * 5×5×4 and a free cell all round; of those at the same distance, the one with the fewest holes.
+ */
+export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): Vec3 | null {
+  const base = center.floored();
   for (let r = minDist; r <= radius; r++) {
+    let best: { c: Vec3; holes: number } | null = null;
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         for (const dy of [0, 1, -1]) {
           const c = base.offset(dx, dy, dz);
-          if (fits(c)) return c;
+          const holes = hutSiteHoles(bot, c);
+          if (holes && (!best || holes.length < best.holes)) best = { c, holes: holes.length };
+          if (best?.holes === 0) return best.c;
         }
       }
     }
+    if (best) return best.c;
   }
   return null;
 }
@@ -177,6 +193,16 @@ export const build = defineSkill({
     const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z));
     if (!corner) return { ok: false, observed: 'no room', error: 'no level spot for a hut near home' };
     const at = { x: corner.x, y: corner.y, z: corner.z };
+    // The holes in the ground first, so the floor is whole.
+    for (const hole of hutSiteHoles(bot, corner) ?? []) {
+      throwIfAborted(ctx.signal);
+      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      if (!block) break;
+      await placeItemAt(ctx, block, hole).catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+        ctx.logger.debug({ module: 'skill', cell: hole.toString(), err: errMsg(err) }, 'hole not filled');
+      });
+    }
     const plan = hutPlan();
     const firstRoof = plan.findIndex((c) => c.y === 3);
     let placed = 0;
@@ -197,7 +223,7 @@ export const build = defineSkill({
         if (err instanceof SkillAbortedError) throw err;
         ctx.logger.debug({ module: 'skill', cell: target.toString(), err: errMsg(err) }, 'hut block not placed');
       }
-      if (placed % 8 === 0) ctx.progress(`hut: ${placed}/${HUT_BLOCKS}`);
+      if (placed % 8 === 0) ctx.progress(`hut: ${placed}/${plan.length}`);
     }
     // Out through the doorway, and the door in it if we have one.
     const doorway = corner.plus(HUT_DOOR);
