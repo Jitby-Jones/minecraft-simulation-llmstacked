@@ -8,7 +8,7 @@ import { VolumeSchema } from '@agora/shared';
 import { countItem } from '../inventory';
 import { type ItemMatcher, itemMatcher } from '../items';
 import { playerEntity } from '../world';
-import { approachPlayer, errMsg, throwIfAborted, waitMs } from './util';
+import { approachPlayer, errMsg, gotoNear, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 export const give = defineSkill({
@@ -47,10 +47,16 @@ export const give = defineSkill({
         const now = playerEntity(bot, args.to);
         const lying = [...dropped].map((id) => bot.entities[id]).filter((e) => e !== undefined);
         const others = [...got.keys()].some((id) => id !== target.id);
-        if (!others && lying.length > 0 && now && lying.every((e) => e.position.distanceTo(now.position) <= 2)) {
+        const off = now && lying.length > 0 ? Math.max(...lying.map((e) => e.position.distanceTo(now.position))) : null;
+        if (!others && off !== null && off <= 2) {
           return { ok: true, observed: `left ${args.qty} ${m.label} at ${args.to}'s feet` };
         }
-        observed = others ? `someone else took the ${m.label}` : `${args.to} did not pick them up`;
+        // Thrown wide and lying there: pick them up again, and try once more from closer.
+        if (!others && lying.length > 0 && attempt === 0 && (await pickUp(ctx, lying, m))) {
+          observed = `the ${m.label} landed ${off?.toFixed(1) ?? 'far'} blocks from ${args.to}`;
+          continue;
+        }
+        observed = others ? `someone else took the ${m.label}` : `${args.to} did not pick them up${off !== null ? ` (${off.toFixed(1)} blocks from them)` : ''}`;
         break;
       }
     } catch (err) {
@@ -92,6 +98,22 @@ async function tossAtFeet(ctx: SkillContext, target: Entity, m: ItemMatcher, qty
     bot.off('entitySpawn', onSpawn);
   }
   return seen;
+}
+
+/** Walks over what we tossed that went astray, to have it back; true if any came back. */
+async function pickUp(ctx: SkillContext, items: readonly Entity[], m: ItemMatcher): Promise<boolean> {
+  const { bot } = ctx;
+  const before = countItem(bot, m);
+  for (const e of items) {
+    if (!bot.entities[e.id]) continue;
+    try {
+      await gotoNear(ctx, e.position, 0.5, 6000);
+    } catch (err) {
+      if (err instanceof SkillAbortedError) throw err;
+    }
+  }
+  for (let i = 0; i < 20 && countItem(bot, m) <= before; i++) await waitMs(ctx, 100);
+  return countItem(bot, m) > before;
 }
 
 /** A short step away from the person, out of reach of what we just tossed. */
