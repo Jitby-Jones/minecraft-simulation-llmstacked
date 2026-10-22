@@ -1,0 +1,10 @@
+# Never in the image: secrets, state, installed modules, history, build output.
+.env
+data
+node_modules
+**/node_modules
+.git
+coverage
+dist
+export-*.tar.gz
+server-plugin/*/build

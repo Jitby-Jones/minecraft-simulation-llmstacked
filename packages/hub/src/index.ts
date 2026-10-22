@@ -10,3 +10,6 @@ export * from './server/managed';
 export * from './hub/hub';
 export * from './hub/roster';
 export * from './hub/supervisor';
+export * from './dashboard/model';
+export * from './dashboard/server';
+export * from './dashboard/control';

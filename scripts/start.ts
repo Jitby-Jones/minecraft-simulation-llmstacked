@@ -1,12 +1,15 @@
-// `pnpm start` (§23.2): one supervisor process runs the Minecraft server (a child process), the Hub, and one process
-// per bot. Ctrl+C or SIGTERM shuts down gracefully (§23.4): bots flush their memory and write snapshots, the server
-// saves and stops, roster.json is written. The next `pnpm start` resumes the same agents.
+// `pnpm start` (§23.2): one supervisor process runs the Minecraft server (a child process), the Hub, the dashboard
+// and one process per bot. Ctrl+C or SIGTERM shuts down gracefully (§23.4): bots flush their memory and write
+// snapshots, the server saves and stops, roster.json is written. The next `pnpm start` resumes the same agents.
+// `pnpm ctl restart` does the same and starts again: in this process when run by hand, or by exiting with 75 for
+// systemd or Docker to restart it (AGORA_SUPERVISED=1).
 //
 //   pnpm start [--population N] [--no-server]     (--no-server: use a server you run yourself, e.g. `pnpm run server`)
 
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  type Logger,
   SeededRandom,
   createLogger,
   ensureDataDirs,
@@ -22,15 +25,19 @@ import {
   seedFromString,
 } from '@agora/shared';
 import { type Embedder, KeyLockError, QuotaGovernor, createEmbedder, createGuardedFetch, evaluateKeyLock, fetchUsage } from '@agora/llm';
-import { Hub, type ManagedServer, Supervisor, nodeLauncher, startManagedServer } from '@agora/hub';
+import { DashboardModel, DashboardServer, Hub, type ManagedServer, Supervisor, attachDashboard, controlHandler, nodeLauncher, startManagedServer } from '@agora/hub';
 import { readRosterNames } from './lib/roster-names';
+import { setWorldMode } from './lib/mode';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-async function main(): Promise<void> {
+type Ending = 'stop' | 'restart';
+
+/** One run of the whole system; resolves once it has shut down, saying whether to start again. */
+async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) => void): Promise<Ending> {
   loadEnv();
   const paths = ensureDataDirs();
   const configured = loadWorldConfig();
@@ -41,9 +48,15 @@ async function main(): Promise<void> {
       ? configured
       : { ...configured, population: { ...configured.population, initial: fixed, minAlive: fixed, maxAlive: Math.max(configured.population.maxAlive, fixed) } };
   const hubCfg = loadHubConfig();
+  // In a container (deploy/Dockerfile) Minecraft and the dashboard listen on every interface so their ports can be
+  // published; deploy/compose.yaml publishes them on the host's loopback only (§23.3).
+  if (process.env.AGORA_CONTAINER === '1') {
+    world.server.host = '0.0.0.0';
+    hubCfg.dashboard.host = '0.0.0.0';
+  }
   const versions = loadVersionsConfig();
   const models = loadModelsConfig();
-  const logger = createLogger({ name: 'agora', logDir: paths.logs, console: true });
+  const logger: Logger = createLogger({ name: 'agora', logDir: paths.logs, console: true });
 
   // Layer 1 (§22.1), once for everyone: refuse to start with a key that can spend balance.
   const key = getNanoGptKey();
@@ -74,6 +87,7 @@ async function main(): Promise<void> {
   }
 
   let server: ManagedServer | null = null;
+  let serverState = 'not managed here (--no-server)';
   if (!process.argv.includes('--no-server')) {
     server = await startManagedServer({
       paths,
@@ -83,6 +97,7 @@ async function main(): Promise<void> {
       logger,
       botNames: readRosterNames(paths),
     });
+    serverState = 'running';
   }
 
   const embedder: Embedder = await createEmbedder({ modelDir: path.join(paths.cache, 'models'), modelId: versions.embeddingModel.id, dims: versions.embeddingModel.dims, logger });
@@ -112,25 +127,86 @@ async function main(): Promise<void> {
     ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
   });
 
+  let ending: Ending = 'stop';
+  let resolveEnded!: () => void;
+  const ended = new Promise<void>((r) => (resolveEnded = r));
   let stopping = false;
-  const stop = async (why: string): Promise<void> => {
+  // The dashboard (M7) and `pnpm ctl`: read-only views, plus control with the RCON password as the token.
+  const startedAt = Date.now();
+  const model = new DashboardModel({
+    mode: () => world.mode,
+    quota: () => governor?.status ?? null,
+    personas: () => supervisor.rosterSnapshot.agents.map((a) => ({ username: a.username, traits: a.persona.traits, sex: a.persona.sex, status: a.status })),
+  });
+  const detachDashboard = attachDashboard(hub, model);
+  let dashboard: DashboardServer | null = null;
+  const stop = async (why: string, how: Ending): Promise<void> => {
     if (stopping) return;
     stopping = true;
-    logger.info({ module: 'agora', why }, 'shutting down');
+    ending = how;
+    logger.info({ module: 'agora', why }, how === 'restart' ? 'restarting' : 'shutting down');
     await supervisor.shutdown(why);
+    await dashboard?.close();
+    detachDashboard();
     await hub.close();
     governor?.stop();
     telemetry.end();
     await server?.stop();
+    serverState = 'stopped';
     logger.info({ module: 'agora' }, 'stopped; roster saved');
-    process.exit(0);
+    resolveEnded();
   };
-  process.on('SIGINT', () => void stop('SIGINT'));
-  process.on('SIGTERM', () => void stop('SIGTERM'));
-  server?.paper.on('exit', () => void stop('the Minecraft server exited'));
+  onStop(stop);
+  server?.paper.on('exit', () => {
+    serverState = 'stopped';
+    void stop('the Minecraft server exited', 'stop');
+  });
+  if (hubCfg.dashboard.enabled) {
+    const url = `http://${hubCfg.dashboard.host === '0.0.0.0' ? '127.0.0.1' : hubCfg.dashboard.host}:${hubCfg.dashboard.port}`;
+    dashboard = new DashboardServer({
+      model,
+      host: hubCfg.dashboard.host,
+      port: hubCfg.dashboard.port,
+      logger,
+      control: {
+        token: process.env.RCON_PASSWORD ?? '',
+        handle: controlHandler({
+          mode: () => world.mode,
+          ...(world.owner.username ? { owner: world.owner.username } : {}),
+          startedAt,
+          supervisor,
+          online: () => new Set(hub.list().map((s) => s.username).filter((n): n is string => Boolean(n))),
+          snapshotAll: () => hub.snapshotAll(),
+          ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
+          serverState: () => serverState,
+          quota: () => governor?.status ?? null,
+          dashboardUrl: url,
+          setMode: (mode, newWorld) => setWorldMode(mode, newWorld),
+          stop: (why) => void stop(why, 'stop'),
+          restart: (why) => void stop(why, 'restart'),
+        }),
+      },
+    });
+    await dashboard.listen();
+  }
 
   logger.info({ module: 'agora', hub: `ws://${hubCfg.hub.host}:${hub.port}`, population: world.population.initial, mode: world.mode }, 'running');
   await supervisor.start();
+  await ended;
+  return ending;
+}
+
+async function main(): Promise<void> {
+  let current: ((why: string, how: Ending) => Promise<void>) | null = null;
+  process.on('SIGINT', () => void current?.('SIGINT', 'stop'));
+  process.on('SIGTERM', () => void current?.('SIGTERM', 'stop'));
+  for (;;) {
+    const how = await run((s) => (current = s));
+    if (how !== 'restart') break;
+    // Under systemd or Docker a fresh process is cleaner: exit 75 and let the manager start it again.
+    if (process.env.AGORA_SUPERVISED === '1') process.exit(75);
+  }
+  process.exit(0);
 }
 
 main().catch((err: unknown) => {

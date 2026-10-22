@@ -23,7 +23,7 @@
     "import": "tsx scripts/import.ts",
     "bench-models": "tsx scripts/bench-models.ts",
     "deploy:systemd": "tsx scripts/deploy-systemd.ts",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p packages/hub/src/dashboard/client/tsconfig.json",
     "lint": "eslint . --max-warnings 0",
     "check:forbidden": "tsx scripts/check-forbidden.ts",
     "test": "vitest run",
@@ -35,6 +35,7 @@
     "@agora/hub": "workspace:*",
     "@agora/llm": "workspace:*",
     "@agora/shared": "workspace:*",
+    "tar": "7.5.22",
     "yaml": "2.9.1",
     "zod": "4.6.7"
   },

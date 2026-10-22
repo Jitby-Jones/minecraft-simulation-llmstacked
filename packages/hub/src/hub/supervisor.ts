@@ -107,6 +107,11 @@ export class Supervisor {
     return livingAgents(this.roster);
   }
 
+  /** The population the supervisor keeps (`ctl population`). */
+  get targetPopulation(): number {
+    return this.target;
+  }
+
   get rosterSnapshot(): Roster {
     return structuredClone(this.roster);
   }

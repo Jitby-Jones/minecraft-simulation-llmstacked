@@ -8,3 +8,4 @@ coverage/
 *.log
 .DS_Store
 export-*.tar.gz
+deploy/minecraft-agents.service

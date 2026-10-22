@@ -1,0 +1,23 @@
+# docker compose -f deploy/compose.yaml up -d --build   (DESIGN.md §23.2)
+# Before the first start: cp .env.example .env (put NANOGPT_API_KEY there), read https://aka.ms/MinecraftEULA and
+# set AGORA_ACCEPT_EULA=true in .env. The same .env is mounted into the container, so the RCON password that
+# setup generates is written back to it and `pnpm ctl` on this host keeps working.
+name: agora
+services:
+  agora:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: agora:local
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ../data:/data
+      - ../.env:/app/.env
+    ports:
+      # Host loopback only: reach them with an SSH tunnel or a VPN, never from the internet.
+      - "127.0.0.1:25565:25565"
+      - "127.0.0.1:8080:8080"

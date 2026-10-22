@@ -74,9 +74,13 @@ export function buildServerProperties(existingText: string | null, input: Server
   return renderProperties(props, `Managed by agora scripts/server-mode.ts (${input.mode} mode). Edit config/world.yaml.`);
 }
 
-/** §23.3: warn if the server would be reachable from outside localhost/VPN. */
-export function bindingWarning(serverIp: string): string | null {
+/**
+ * §23.3: warn if the server would be reachable from outside localhost/VPN. In the container (deploy/Dockerfile,
+ * AGORA_CONTAINER=1) every interface is right: compose publishes the ports on the host's loopback only.
+ */
+export function bindingWarning(serverIp: string, inContainer = process.env.AGORA_CONTAINER === '1'): string | null {
   const ip = serverIp.trim();
+  if (inContainer && (ip === '0.0.0.0' || ip === '::')) return null;
   if (ip === '' || ip === '0.0.0.0' || ip === '::') {
     return `server-ip is "${ip || '(empty)'}": Minecraft listens on every interface. With online-mode=false anyone who can reach the port can join under any name. Use 127.0.0.1 plus an SSH tunnel, or a VPN address.`;
   }

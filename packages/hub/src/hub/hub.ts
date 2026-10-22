@@ -266,6 +266,31 @@ export class Hub extends EventEmitter<HubEvents> {
     this.o.logger.debug({ module: 'hub', agent: s.username, why, degrade: b.degrade, codeOnly: b.codeOnly }, 'budget');
   }
 
+  /**
+   * §23.4 (`ctl save`, `pnpm export --hot`): every assigned bot writes its snapshot and checkpoints its memory.
+   * Resolves with how many confirmed in time.
+   */
+  async snapshotAll(timeoutMs = 20_000): Promise<number> {
+    const sessions = this.list().filter((s) => s.username);
+    const one = (s: HubSession) =>
+      new Promise<boolean>((resolve) => {
+        const reqId = `snap-${s.id}-${this.now().toString(36)}`;
+        const done = (x: HubSession, m: { reqId: string; ok: boolean }) => {
+          if (x.id !== s.id || m.reqId !== reqId) return;
+          clearTimeout(timer);
+          this.off('snapshotDone', done);
+          resolve(m.ok);
+        };
+        const timer = setTimeout(() => {
+          this.off('snapshotDone', done);
+          resolve(false);
+        }, timeoutMs);
+        this.on('snapshotDone', done);
+        s.send({ t: 'snapshot', reqId });
+      });
+    return (await Promise.all(sessions.map(one))).filter(Boolean).length;
+  }
+
   broadcastBudget(why: string): void {
     for (const s of this.list()) if (s.username) this.sendBudget(s, why);
   }

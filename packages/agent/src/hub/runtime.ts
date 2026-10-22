@@ -21,6 +21,7 @@ import { inventoryStacks } from '../body/inventory';
 import { MemoryDB } from '../memory/db';
 import { restoreSnapshot, saveSnapshot } from '../state/snapshot';
 import { HubClient } from './client';
+import { startTelemetry } from './telemetry';
 
 export interface RunBotOptions {
   hubUrl: string;
@@ -113,6 +114,8 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   }
   agent.start();
   hub.send({ t: 'ready', username: a.username });
+  // The dashboard's view of this agent (M7): sent to the Hub, never to another bot.
+  const stopTelemetry = startTelemetry({ agent, bot: body.bot, send: (kind, data) => hub.send({ t: 'telemetry', kind, ts: Date.now(), data }) });
 
   let finishing: Promise<string> | null = null;
   let resolveDone!: (why: string) => void;
@@ -120,6 +123,7 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   const finish = (why: string, opts: { snapshot: boolean; goodbye?: boolean; code?: number }) => {
     finishing ??= (async () => {
       logger.info({ module: 'agent', why }, 'finishing');
+      stopTelemetry();
       await agent.stop().catch((err: unknown) => logger.warn({ module: 'agent', err: String(err) }, 'stop failed'));
       if (opts.snapshot) saveSnapshot(db, agent.store.state);
       db.checkpoint();
@@ -142,6 +146,8 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   hub.on('retire', (m) => void finish(`retired: ${m.reason}`, { snapshot: true, goodbye: true }));
   hub.on('snapshot', (m) => {
     saveSnapshot(db, agent.store.state);
+    // Checkpointed too, so a hot export (§23.4) copies a consistent database.
+    db.checkpoint();
     hub.send({ t: 'snapshotDone', reqId: m.reqId, ok: true });
   });
   const startedAt = Date.now();
