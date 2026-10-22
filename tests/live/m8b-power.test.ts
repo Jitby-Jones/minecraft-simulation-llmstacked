@@ -192,8 +192,11 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       await server.cmd('effect give Rex minecraft:instant_damage 1 0');
       const kAt = Date.now();
       heard.timeline.push(`${heard.at()} -- Rex alone and hurt (followers away) --`);
-      await waitFor(() => heard.lines.some((l) => l.at >= kAt && RALLY_RE.test(l.text)), 300_000, 'a call to rise against Rex', 500);
-      await waitFor(() => heard.lines.some((l) => l.at >= kAt && JOIN_RE.test(l.text)), 120_000, 'someone joining', 500);
+      // §17.11 K: proposed, agreed and carried out within about 20 minutes of the opening; those who swore just
+      // before it, when he went about with his followers, wait for it (and strike after it, below).
+      const since = kAt - 20 * 60_000;
+      await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.test(l.text)), 300_000, 'a call to rise against Rex', 500);
+      await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.test(l.text)), 120_000, 'someone joining', 500);
       // The followers come running as it starts.
       const struck = () => (['Ann', 'Bo', 'Cyd'] as const).filter((n) => agents[n].store.state.option?.option === 'fight' || agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= kAt));
       await waitFor(() => struck().length >= 1, 300_000, 'the uprising', 500);
