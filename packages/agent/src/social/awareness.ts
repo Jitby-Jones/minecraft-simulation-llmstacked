@@ -23,9 +23,9 @@ import { looksLikePromise } from '../modules/talking';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
-import { confirmationScaled, conformityPull, heardConsensus, pulledSentiment } from '../mind/biases';
-import { DEED_DELTAS, type Deed, TRUST_DELTAS, driftSentiment, withEvidence, withSentiment, withTrust } from './math';
-import { readOpinions } from './opinions';
+import { confirmationScaled, conformityOf, conformityPull, heardConsensus, inoculation, pulledSentiment, rationalityOf, susceptibilityToward } from '../mind/biases';
+import { DEED_DELTAS, type Deed, GRIEVANCE_WEIGHT, TRUST_DELTAS, driftSentiment, withEvidence, withGrievance, withSentiment, withTrust } from './math';
+import { type ToldDeed, readDeeds, readOpinions } from './opinions';
 import { parseDemand, parseFightPromise } from '../conflict/coercion';
 import { itemMatcher } from '../body/items';
 
@@ -122,8 +122,11 @@ export interface SocialAwarenessOptions {
   me: AgentName;
   /** How long after a conversation ends to read it, so a last reply heard after the end is included. */
   settleMs?: number;
-  /** System 2 and fear (§18.4, §18.5): biases weaken as the override grows; fear makes people conform. */
-  mind?: { override(): number; fearLevel(): number };
+  /**
+   * System 2 and fear (§18.4, §18.5): biases weaken as the override grows; fear makes people conform. A leader's or
+   * an idol's word counts for more (authority), and those of our own group get the benefit of the doubt (in-group).
+   */
+  mind?: { override(): number; fearLevel(): number; authorityOf?(name: AgentName): number; ingroup?(name: AgentName): boolean };
   now?: () => number;
 }
 
@@ -169,6 +172,7 @@ export class SocialAwareness {
         const known = [...new Set([...Object.keys(s.social), ...s.perception.nearbyEntities.filter((x) => x.kind === 'player').map((x) => x.name)])];
         const ops = readOpinions(u.text, u.from, known, this.now());
         if (ops.length > 0) this.heard(ops);
+        for (const d of readDeeds(u.text, u.from, known)) this.toldOf(d);
       }),
     );
     // §6.3 decay toward the baseline, checked once a minute.
@@ -189,6 +193,25 @@ export class SocialAwareness {
     return this.o.store.state.social[name] ?? newSocialProfile(name, this.persona, this.now());
   }
 
+  /**
+   * §17.8 hearsay grievances: a wrong we were told of is stored as told by the speaker, at half the weight of one
+   * seen (scaled down further for a speaker we don't trust), once an hour per telling.
+   */
+  private toldOf(d: ToldDeed): void {
+    if (d.target === this.o.me || d.target === d.speaker) return;
+    const s = this.o.store.state;
+    const friendKilled = d.deed === 'kill' && d.victim !== undefined && (s.social[d.victim]?.sentiment ?? 5) >= 7;
+    const kind = d.deed === 'theft' ? 'theft' : d.deed === 'lie' ? 'betrayal' : friendKilled ? 'killed_friend' : 'attack';
+    const verb = { theft: 'stole', attack: 'attacked', kill: 'killed', lie: 'lied' }[d.deed];
+    const note = `${d.speaker} says ${d.target} ${verb}${d.victim ? ` ${d.victim}` : ''}`;
+    const p = this.profile(d.target);
+    const t = this.now();
+    if (p.grievances.some((g) => g.note === note && t - g.ts < 3_600_000)) return;
+    const credence = Math.min(1, Math.max(0.2, (s.social[d.speaker]?.trust ?? 0.5) * 2));
+    // withGrievance takes the unwitnessed down to 0.6 of the weight; together, half of a wrong seen.
+    this.write(withGrievance(p, kind, this.persona, { now: t, witnessed: false, source: `told_by:${d.speaker}`, note, weight: ((GRIEVANCE_WEIGHT[kind] * 0.5) / 0.6) * credence }), `told: ${note}`);
+  }
+
   private write(p: SocialProfile, reason: string): void {
     this.o.store.update('social', (all) => ({ ...all, [p.name]: p }), reason);
   }
@@ -202,7 +225,7 @@ export class SocialAwareness {
    * first impression and the facts closes after a few interactions for the rational, hardly at all for the rest).
    */
   private aligned(p: SocialProfile): SocialProfile {
-    const r = this.persona.mind.rationality;
+    const r = rationalityOf(this.o.store.state);
     return { ...p, sentiment: Math.min(10, Math.max(0, p.sentiment + (p.evidence - p.sentiment) * r * 0.15)) };
   }
 
@@ -210,13 +233,13 @@ export class SocialAwareness {
   private heard(ops: readonly HeardOpinion[]): void {
     this.o.store.update('heardOpinions', (all) => [...all, ...ops].slice(-60), 'heard opinions');
     const s = this.o.store.state;
-    const pull = conformityPull(this.persona.mind.conformity, this.o.mind?.fearLevel() ?? 0, this.override());
+    const pull = conformityPull(conformityOf(s), this.o.mind?.fearLevel() ?? 0, this.override());
     for (const target of new Set(ops.map((o) => o.target))) {
       if (target === this.o.me) continue;
       const p = this.profile(target);
-      const consensus = heardConsensus(s.heardOpinions, target, (spk) => (s.social[spk]?.trust ?? 0.5) + (s.social[spk]?.admiration ?? 0), this.now());
+      const consensus = heardConsensus(s.heardOpinions, target, (spk) => (s.social[spk]?.trust ?? 0.5) + (s.social[spk]?.admiration ?? 0) + (this.o.mind?.authorityOf?.(spk) ?? 0), this.now());
       if (consensus === null) continue;
-      const next = pulledSentiment(p.sentiment, consensus, pull);
+      const next = pulledSentiment(p.sentiment, consensus, pull * inoculation(s, 'conformity', target));
       if (Math.abs(next - p.sentiment) >= 0.05) this.write({ ...p, sentiment: next }, `what people say about ${target}`);
     }
   }
@@ -321,7 +344,9 @@ export class SocialAwareness {
     const now = this.now();
     const before = this.profile(partner);
     // §18.4 confirmation: what fits how we already feel counts more, what goes against it less.
-    const delta = confirmationScaled(u.sentimentDelta, before.sentiment, this.persona.mind.biasProfile.confirmation, this.override());
+    // §18.4 in-group: one of our own gets a little warmth on top (the gut only).
+    const warmth = this.o.mind?.ingroup?.(partner) ? 0.3 * susceptibilityToward(this.o.store.state, 'ingroup', partner) * (1 - this.override()) : 0;
+    const delta = confirmationScaled(u.sentimentDelta, before.sentiment, susceptibilityToward(this.o.store.state, 'confirmation', partner), this.override()) + warmth;
     let p = withEvidence(withSentiment(before, delta, this.persona, now), u.sentimentDelta * 0.5);
     const facts = [...p.facts, ...u.facts.map((text) => ({ text, source: 'told' as const, ts: now }))].slice(-10);
     p = {

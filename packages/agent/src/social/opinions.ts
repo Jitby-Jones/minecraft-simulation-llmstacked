@@ -31,3 +31,39 @@ export function readOpinions(text: string, speaker: AgentName, known: readonly A
   }
   return [...out].map(([target, valence]) => ({ speaker, target, valence, ts: now }));
 }
+
+/** A wrong someone is said to have done (§17.8 hearsay grievances): "Bram stole my iron", "Rex hit Cass". */
+export interface ToldDeed {
+  speaker: AgentName;
+  target: AgentName;
+  deed: 'theft' | 'attack' | 'kill' | 'lie';
+  /** Whom it was done to, when named (for a killing: a friend of ours makes it the heaviest wrong). */
+  victim?: AgentName;
+}
+
+const DEEDS: readonly [RegExp, ToldDeed['deed']][] = [
+  [/\b(stole|steals|robbed|took my|takes my|swiped)\b/i, 'theft'],
+  [/\b(killed|murdered)\b/i, 'kill'],
+  [/\b(hit|attacked|beat|punched|hurt)\b/i, 'attack'],
+  [/\b(lied|lies to|cheated|tricked)\b/i, 'lie'],
+];
+
+/** Wrongs told of in one line: the named doer comes first in the clause, and a negation takes it back. */
+export function readDeeds(text: string, speaker: AgentName, known: readonly AgentName[]): ToldDeed[] {
+  const out: ToldDeed[] = [];
+  for (const clause of clauses(text)) {
+    if (NEGATED.test(clause)) continue;
+    for (const [re, deed] of DEEDS) {
+      const m = re.exec(clause);
+      if (!m) continue;
+      const before = clause.slice(0, m.index);
+      const after = clause.slice(m.index + m[0].length);
+      const target = known.find((n) => n !== speaker && mentionsName(before, n));
+      if (!target) continue;
+      const victim = known.find((n) => n !== target && mentionsName(after, n));
+      out.push({ speaker, target, deed, ...(victim ? { victim } : {}) });
+      break;
+    }
+  }
+  return out;
+}

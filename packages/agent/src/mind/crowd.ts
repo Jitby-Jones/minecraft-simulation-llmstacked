@@ -96,6 +96,8 @@ export class Crowd {
     if (this.o.liking(target) < 4.5) {
       this.spokeAt.set(target, t);
       this.joined = { target, at: t };
+      // §18.6: mobs joined count toward conformity unless reflection thinks them over.
+      this.o.store.update('growth', (g) => ({ ...g, mobParticipations: g.mobParticipations + 1 }), 'joined a mob');
       await this.o.say(speaker, `yeah, ${target} is no good!`);
       pushWorkmem(this.o.store, `Everyone is against ${target}, and so am I`, 0.6, 'self_observed', { aboutAgent: target, now: t });
       this.o.logger.info({ module: 'crowd', target, stance: 'joined' }, 'crowd');

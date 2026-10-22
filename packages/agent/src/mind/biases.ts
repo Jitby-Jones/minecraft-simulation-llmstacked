@@ -3,9 +3,29 @@
 // pulls opinions toward what was heard, more strongly under fear. The CC's final word on a judgment is a mix of gut
 // and facts by the override, nudged at most ±0.15 by the model.
 
-import type { HeardOpinion } from '@agora/shared';
+import type { AgentName, AgentState, BiasName, HeardOpinion, Inoculable } from '@agora/shared';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** §18.6 growth: rationality as it stands, the persona's plus what self-corrections added (up to +0.2). */
+export function rationalityOf(s: AgentState): number {
+  return clamp(s.self.persona.mind.rationality + s.growth.rationalityBonus, 0, 1);
+}
+
+/** §18.6 growth: conformity as it stands, raised by joining mobs without thinking it over afterwards. */
+export function conformityOf(s: AgentState): number {
+  return clamp(s.self.persona.mind.conformity + s.growth.conformityBonus, 0, 1);
+}
+
+/** A bias's susceptibility toward one person: halved for good once reflection corrected it there (§18.6). */
+export function susceptibilityToward(s: AgentState, bias: BiasName, name: AgentName): number {
+  return s.self.persona.mind.biasProfile[bias] * inoculation(s, bias, name);
+}
+
+/** ×0.5 where reflection has inoculated this agent against `bias` about `name`, else ×1. */
+export function inoculation(s: AgentState, bias: Inoculable, name: AgentName): number {
+  return s.social[name]?.inoculated?.includes(bias) ? 0.5 : 1;
+}
 
 /**
  * §18.5 override = rationality × (1 − arousal·0.7) × timeFactor × (1 − crowdSuppression). timeFactor grows with the

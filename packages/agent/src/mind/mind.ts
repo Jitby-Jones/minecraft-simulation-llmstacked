@@ -4,7 +4,7 @@
 // the mix for its own policies (sharing, trading, defending); the CC packet shows both sides in words.
 
 import type { AgentName, AgentState, SocialProfile } from '@agora/shared';
-import { effectiveJudgment, envyResentment, haloBonus, heardConsensus, overrideFactor } from './biases';
+import { effectiveJudgment, envyResentment, haloBonus, heardConsensus, overrideFactor, rationalityOf, susceptibilityToward } from './biases';
 
 export interface MindInputs {
   /** Seconds since the last strong feeling (Feelings). */
@@ -40,7 +40,7 @@ export class Mind {
   /** §18.5 override = rationality × (1 − arousal·0.7) × timeFactor × (1 − crowdSuppression). */
   override(): number {
     const s = this.state();
-    return overrideFactor(s.self.persona.mind.rationality, s.emotions.arousal, this.i.secondsSinceTrigger(), this.i.inCrowd?.() ?? false);
+    return overrideFactor(rationalityOf(s), s.emotions.arousal, this.i.secondsSinceTrigger(), this.i.inCrowd?.() ?? false);
   }
 
   /** How we see someone, both ways, and the mix we act on (0..10). */
@@ -53,7 +53,7 @@ export class Mind {
     const ov = this.override();
     const gutWhy: string[] = [];
     let gut = p.sentiment;
-    const halo = haloBonus(p.admiration, p.gearScore, bias.halo, persona.mind.vanity, ov) * 10;
+    const halo = haloBonus(p.admiration, p.gearScore, susceptibilityToward(s, 'halo', name), persona.mind.vanity, ov) * 10;
     if (halo >= 0.5) {
       gut += halo;
       gutWhy.push(p.admiration > 0.6 ? 'you look up to them' : 'their gear impressed you');

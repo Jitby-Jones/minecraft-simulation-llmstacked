@@ -230,7 +230,7 @@ describe('goal generation (§4.2 module 10)', () => {
     }
   });
 
-  it('without a model, a goal not finished in 20 minutes is given up for the next one', async () => {
+  it('without a model, a goal not finished in 20 minutes (longer, given to sunk costs) is given up for the next one', async () => {
     let t = 0;
     const s = store();
     const set: string[] = [];
@@ -250,7 +250,11 @@ describe('goal generation (§4.2 module 10)', () => {
     t = 19 * 60_000;
     await gg.run('periodic');
     expect(set).toEqual([]);
-    t = 21 * 60_000;
+    // §18.4 sunk cost (0.4 here): held on to for 20 × 1.2 = 24 minutes.
+    t = 23 * 60_000;
+    await gg.run('periodic');
+    expect(set).toEqual([]);
+    t = 25 * 60_000;
     await gg.run('periodic');
     expect(set).toEqual(['make a wooden pickaxe']);
   });

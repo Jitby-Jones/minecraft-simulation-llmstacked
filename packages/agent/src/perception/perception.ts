@@ -180,6 +180,10 @@ export class Perception {
         return;
       }
       this.observe(collector, 'collect', it ? { item: it.name, qty: it.count } : {});
+      // Someone handing something to someone else, seen from the side (tribute paid, a gift, §17.7).
+      const to = collector.username;
+      const giver = drop && it && to && drop.by !== to && this.now() - drop.at < 30_000 ? Object.values(bot.entities).find((x) => x.type === 'player' && x.username === drop.by) : undefined;
+      if (giver && it && to) this.observe(giver, 'gave', { target: to, item: it.name, qty: it.count });
     });
     on('blockBreakProgressObserved', (block: { position: Vec3; name: string }, _stage: number, e?: Entity) => {
       if (!e || e === bot.entity) return;

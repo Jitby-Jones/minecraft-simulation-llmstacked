@@ -8,6 +8,7 @@ import type { AgentName, Logger } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
+import { inoculation } from './biases';
 
 export interface BiasWatchOptions {
   store: AgentStateStore;
@@ -17,6 +18,8 @@ export interface BiasWatchOptions {
   override: () => number;
   /** A gut-only change in how we feel about someone (Social Awareness). */
   nudge: (name: AgentName, delta: number, note: string) => void;
+  /** A grudge with nothing seen behind it (the scapegoat's), which reflection may later see through (§18.6). */
+  blame?: (name: AgentName, note: string) => void;
   rng?: () => number;
   now?: () => number;
 }
@@ -76,8 +79,11 @@ export class BiasWatch {
     const goat = Object.values(s.social)
       .filter((p) => p.name !== name && p.name !== this.o.me && p.sentiment < 4)
       .sort((a, b) => a.sentiment - b.sentiment)[0];
-    if (!goat) return;
-    this.o.nudge(goat.name, -0.5, `I bet ${goat.name} had something to do with ${name}'s death`);
+    // Inoculated by reflection against blaming this one (§18.6): half as likely.
+    if (!goat || this.rng() >= inoculation(s, 'scapegoat', goat.name)) return;
+    const note = `I bet ${goat.name} had something to do with ${name}'s death`;
+    this.o.nudge(goat.name, -0.5, note);
+    this.o.blame?.(goat.name, note);
     this.o.logger.info({ module: 'bias', bias: 'scapegoat', target: goat.name, death: name }, 'blamed someone');
   }
 

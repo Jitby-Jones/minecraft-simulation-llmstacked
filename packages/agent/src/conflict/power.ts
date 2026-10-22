@@ -8,6 +8,7 @@ import { type AgentName, type Logger, type SocialProfile, openingName } from '@a
 import type { AgentBus } from '../bus';
 import { SURRENDER_RE } from '../body/skills/duel';
 import type { AgentStateStore } from '../state/store';
+import { pushWorkmem } from '../state/workmem';
 import { companionsOf, defects, follows, looksLikeLeader, parseDemand } from './coercion';
 import { fearOf } from './pressure';
 
@@ -24,12 +25,18 @@ const COMPLIED_MS = 60 * 60_000;
  * uprising's blows come over tens of seconds, one rebel after another, not all at once.
  */
 const SET_UPON_MS = 60_000;
+/** A demand's answer comes within this; a refusal unpunished this long is defiance that worked (§18.4.1). */
+const ANSWER_MS = 30_000;
+const PUNISH_MS = 60_000;
+/** Paid within this of the demand: tribute, as onlookers see it. */
+const PAID_MS = 3 * 60_000;
+/** A refusal, in words (an agreement says "fine", "sure", "I'll"). */
+const REFUSAL = /\b(no|nah|nope|never|get lost|leave me alone|back off|keep your distance|not giving|forget it|make me|or what|don't push me|leave, or we fight)\b/i;
+const GIVING_IN = /\b(fine|sure|ok|okay|alright|i'?ll|here you go|take it)\b/i;
 /** Each follower adds this much to how strong someone is, against a coalition (§17.8 k). */
 export const FOLLOWER_WEIGHT = 0.25;
 /** In live mode an uprising needs a bigger margin: death is for real (§17.8). */
 export const LIVE_MARGIN = 1.3;
-/** A line from someone this soon after a demand of them is their answer to it (§17.7). */
-const ANSWER_MS = 60_000;
 /** Blows on someone this close together are one wrong (a beating), however many land. */
 const WRONG_MERGE_MS = 10_000;
 /** Seen alone or hurt: the moment to rise against them lasts this long (§17.8). */
@@ -40,9 +47,6 @@ const OPENING_RESENTMENT = 0.5;
 const OUR_BLOW_MS = 5000;
 /** Giving in to a demand ("Rex, fine. I'll give you 3 bread"). */
 const GIVE_IN_RE = /\b(i'?ll give (it to )?you|here,? take (it|them)|you can have (it|them))\b/i;
-/** Standing up to one ("get lost.", "no. get your own"). */
-const REFUSE_RE =
-  /\b(no|nope|not giving|get lost|leave me alone|keep your distance|back off|go away|forget it|make me|get your own|don'?t push me|or we fight|or else|what do you want)\b/i;
 
 export interface PowerWatchOptions {
   store: AgentStateStore;
@@ -56,6 +60,8 @@ export interface PowerWatchOptions {
   fearOf: (name: AgentName) => number;
   /** How much we resent someone (0..1): a moment against one we resent enough wakes the CC. */
   resentmentOf?: (name: AgentName) => number;
+  /** §18.4 sunk cost: how much having followed someone a long time holds us to them (susceptibility × reason). */
+  sunkCost?: () => number;
   now?: () => number;
 }
 
@@ -83,11 +89,12 @@ export class PowerWatch {
   private readonly wrongs = new Map<string, number[]>();
   /** Who was seen hitting whom lately: target → attacker → when. */
   private readonly blows = new Map<AgentName, Map<AgentName, number>>();
+  /** Demands heard (§17.7): "demander>asked" → when, what came of them, and who answered back. */
+  private readonly demands = new Map<string, { at: number; paid?: number; refused?: number; settled?: boolean }>();
   private following: AgentName | null = null;
+  private followingSince = 0;
   /** Whom we walked away from, and when: a defection sticks for the hour. */
   private readonly left = new Map<AgentName, number>();
-  /** A demand made of someone, overheard: who made it, and when. */
-  private readonly asked = new Map<AgentName, { by: AgentName; at: number }>();
   /** Who was seen giving in to whom, and who standing up to whom (refusing them, striking them): person → them → when. */
   private readonly gaveIn = new Map<AgentName, Map<AgentName, number>>();
   private readonly defied = new Map<AgentName, Map<AgentName, number>>();
@@ -105,6 +112,7 @@ export class PowerWatch {
     this.now = o.now ?? Date.now;
     // Whom we follow is kept on their profile (allegiance 'leader'), so it survives a restart.
     this.following = Object.values(o.store.state.social).find((p) => p.allegiance === 'leader')?.name ?? null;
+    if (this.following) this.followingSince = this.now();
   }
 
   start(): void {
@@ -119,6 +127,27 @@ export class PowerWatch {
         this.blows.set(a.target, per);
         if (a.target !== this.o.me) this.grudge(a.target, a.actor);
         if (a.actor !== this.o.me) this.mark(this.defied, a.actor, a.target);
+        // A refusal answered with blows was not defiance that worked.
+        const d = this.demands.get(`${a.actor}>${a.target}`);
+        if (d?.refused !== undefined) d.settled = true;
+      }),
+    );
+    // Tribute seen paid (§17.7): items handed to someone who demanded them of the giver just now.
+    this.offs.push(
+      b.on('observedAction', (e) => {
+        const a = e.action;
+        if (a.kind !== 'gave' || !a.target) return;
+        const d = this.demands.get(`${a.target}>${a.actor}`);
+        if (d && this.now() - d.at < PAID_MS) {
+          d.paid = this.now();
+          this.mark(this.gaveIn, a.actor, a.target);
+        }
+      }),
+    );
+    this.offs.push(
+      b.on('attacked', (e) => {
+        const d = e.by ? this.demands.get(`${e.by}>${this.o.me}`) : undefined;
+        if (d?.refused !== undefined) d.settled = true;
       }),
     );
     this.offs.push(
@@ -127,21 +156,24 @@ export class PowerWatch {
         if (u.from === this.o.me) return;
         // Our leader giving up a fight in front of us: the side that beat them looks the stronger.
         if (u.from === this.following && SURRENDER_RE.test(u.text)) this.sawBeaten(u.from);
-        // A demand made of someone else, overheard: they will resent it. It is made of whomever it names first
-        // ("Ann, give me 3 bread, or else").
+        // A demand made of someone (us too): they will resent it, and what they answer is watched. Overheard, it is
+        // made of whomever it names first ("Ann, give me 3 bread, or else").
         const named = openingName(u.text);
-        const target = Array.isArray(u.to) ? u.to[0] : named ? Object.keys(this.o.store.state.social).find((n) => n.toLowerCase() === named.toLowerCase()) : undefined;
-        if (target && target !== this.o.me && parseDemand(u.text)) {
-          this.grudge(target, u.from);
-          this.asked.set(target, { by: u.from, at: this.now() });
+        const known = named ? Object.keys(this.o.store.state.social).find((n) => n.toLowerCase() === named.toLowerCase()) : undefined;
+        const target = u.addressedToMe ? this.o.me : Array.isArray(u.to) ? u.to[0] : known;
+        if (target && parseDemand(u.text)) {
+          if (target !== this.o.me) this.grudge(target, u.from);
+          this.demands.set(`${u.from}>${target}`, { at: this.now() });
+          return;
         }
-        // Their answer to a demand made of them: giving in, or standing up to the one who made it.
-        const a = this.asked.get(u.from);
-        if (a && this.now() - a.at < ANSWER_MS) {
-          const how = GIVE_IN_RE.test(u.text) ? this.gaveIn : REFUSE_RE.test(u.text) ? this.defied : null;
-          if (how) {
-            this.mark(how, u.from, a.by);
-            this.asked.delete(u.from);
+        // Their answer to someone who just demanded something of them: giving in, or standing up to them.
+        for (const [key, d] of this.demands) {
+          const [by, asked] = key.split('>');
+          if (!by || asked !== u.from || d.refused !== undefined || this.now() - d.at > ANSWER_MS) continue;
+          if (GIVE_IN_RE.test(u.text)) this.mark(this.gaveIn, u.from, by);
+          else if (REFUSAL.test(u.text) && !GIVING_IN.test(u.text)) {
+            d.refused = this.now();
+            this.mark(this.defied, u.from, by);
           }
         }
       }),
@@ -202,6 +234,29 @@ export class PowerWatch {
       if (at !== undefined && t - at < GRUDGE_MS && who !== this.o.me && who !== target) out.add(who);
     }
     return [...out];
+  }
+
+  /** Our own refusal of a demand counts too: what we said, as the chat echoes it back. */
+  ownLine(text: string): void {
+    for (const [key, d] of this.demands) {
+      const asked = key.split('>')[1];
+      if (asked !== this.o.me || d.refused !== undefined || this.now() - d.at > ANSWER_MS) continue;
+      if (REFUSAL.test(text) && !GIVING_IN.test(text)) d.refused = this.now();
+    }
+  }
+
+  /** §17.7 tribute seen paid to someone in the last hour (onlookers infer a leader from it, as from followers). */
+  tributeSeen(name: AgentName): number {
+    const t = this.now();
+    return [...this.demands].filter(([k, d]) => k.startsWith(`${name}>`) && d.paid !== undefined && t - d.paid < GRUDGE_MS).length;
+  }
+
+  /** Of those `name` demanded something of this past hour (that we saw), the share who paid; null if under two. */
+  tributeShare(name: AgentName): number | null {
+    const t = this.now();
+    const asked = [...this.demands].filter(([k, d]) => k.startsWith(`${name}>`) && !k.endsWith(`>${this.o.me}`) && t - d.at < GRUDGE_MS);
+    if (asked.length < 2) return null;
+    return asked.filter(([, d]) => d.paid !== undefined).length / asked.length;
   }
 
   /** Someone we follow (§17.7), or null. */
@@ -274,8 +329,10 @@ export class PowerWatch {
     const coalition = attackers.reduce((a, n) => a + this.o.powerOf(n), 0);
     const fearOfCoalition = fearOf(coalition, this.o.myPower(), 0, s.drives.caution);
     const fearOfLeader = this.o.fearOf(leader);
-    const go = defects({ loyalty: s.self.persona.temperament.loyalty, sentiment: s.social[leader]?.sentiment ?? 5, fearOfLeader, fearOfCoalition });
-    const facts = { module: 'conflict', leader, attackers, how, fearOfCoalition: Number(fearOfCoalition.toFixed(2)), fearOfLeader: Number(fearOfLeader.toFixed(2)) };
+    // §18.4 sunk cost: half an hour or more of following them makes walking away harder.
+    const sunk = 0.3 * (this.o.sunkCost?.() ?? 0) * Math.min(1, (t - this.followingSince) / (30 * 60_000));
+    const go = defects({ sunk, loyalty: s.self.persona.temperament.loyalty, sentiment: s.social[leader]?.sentiment ?? 5, fearOfLeader, fearOfCoalition });
+    const facts = { module: 'conflict', leader, attackers, how, fearOfCoalition: Number(fearOfCoalition.toFixed(2)), fearOfLeader: Number(fearOfLeader.toFixed(2)), sunk: Number(sunk.toFixed(2)) };
     if (!go) {
       // Asked on every blow: said once a minute for the same ones.
       const key = `${how}:${[...attackers].sort().join(',')}`;
@@ -311,14 +368,14 @@ export class PowerWatch {
     for (const name of Object.keys(s.social)) {
       const n = followers.get(name) ?? 0;
       const p = s.social[name];
-      if (!p || p.followersSeen === n) continue;
+      if (!p || (p.followersSeen === n && (p.perceivedRole === 'leader') === looksLikeLeader(n, this.tributeSeen(name)))) continue;
       this.o.store.update(
         'social',
         (all) => {
           const q = all[name];
           if (!q) return all;
           const next: SocialProfile = { ...q, followersSeen: n };
-          if (looksLikeLeader(n, 0)) next.perceivedRole = 'leader';
+          if (looksLikeLeader(n, this.tributeSeen(name))) next.perceivedRole = 'leader';
           else if (q.perceivedRole === 'leader') delete next.perceivedRole;
           return { ...all, [name]: next };
         },
@@ -340,7 +397,35 @@ export class PowerWatch {
         this.o.bus.emit({ type: 'opening', name: p.name });
       }
     }
+    this.defiance(t);
     this.chooseLeader(t);
+  }
+
+  /**
+   * §18.4.1: someone stood up to a demand and nothing happened to them (no blow in a minute). The demander looks
+   * weaker for it: fear of them falls (the evaluator counts these), and so does the pull to keep quiet about them.
+   */
+  private defiance(t: number): void {
+    for (const [key, d] of this.demands) {
+      if (t - d.at > GRUDGE_MS) {
+        this.demands.delete(key);
+        continue;
+      }
+      if (d.refused === undefined || d.settled || t - d.refused < PUNISH_MS) continue;
+      d.settled = true;
+      const [demander, asked] = key.split('>') as [AgentName, AgentName];
+      if (demander === this.o.me) continue;
+      this.o.store.update(
+        'social',
+        (all) => {
+          const p = all[demander];
+          return p ? { ...all, [demander]: { ...p, defiedSeen: [...(p.defiedSeen ?? []).filter((x) => t - x < GRUDGE_MS), t] } } : all;
+        },
+        `${asked} stood up to ${demander}`,
+      );
+      pushWorkmem(this.o.store, asked === this.o.me ? `I stood up to ${demander}, and ${demander} did nothing` : `${asked} stood up to ${demander}, and ${demander} did nothing`, 0.55, 'self_observed', { aboutAgent: demander, now: t });
+      this.o.logger.info({ module: 'conflict', demander, asked }, 'defiance went unpunished');
+    }
   }
 
   /** §17.7: follow X after giving in to X twice in the last hour, or for protection; stop when it no longer holds. */
@@ -364,6 +449,7 @@ export class PowerWatch {
     if (before) this.leave(before, `no longer following ${before}`);
     if (!next) return;
     this.following = next;
+    this.followingSince = t;
     this.o.store.update('social', (all) => {
       const is = all[next];
       return is ? { ...all, [next]: { ...is, allegiance: 'leader' } } : all;

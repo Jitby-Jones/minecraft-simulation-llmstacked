@@ -32,6 +32,11 @@ export interface ConflictOptions {
   fightCapReached?: () => boolean;
   /** When this agent was born (newcomer grace). */
   bornAt: number;
+  /**
+   * §18.4 in-group and fundamental attribution: how heavily a wrong by them weighs (below 1 for one of our own,
+   * "circumstances"; above 1 for someone disliked or an outsider, "they're bad").
+   */
+  grievanceScale?: (name: AgentName) => number;
   rng?: () => number;
   now?: () => number;
 }
@@ -65,6 +70,8 @@ const YIELD_STANDS_MS = 30_000;
 /** A blow this long after someone gave up ignores the yield (the first moments are the winner's reaction time). */
 const YIELD_HEARD_MS = 1000;
 const YIELD_IGNORED_MS = 20_000;
+/** Someone seen defied and doing nothing about it is feared less for this long (§18.4.1). */
+const DEFIED_MS = 60 * 60_000;
 /** Those who swore to take someone on with us count when within this (§17.6 groupAttack). */
 const ALLIES_NEAR = 10;
 
@@ -324,7 +331,8 @@ export class ConflictEvaluator {
   grieve(name: AgentName, kind: GrievanceKind, witnessed: boolean, note: string, weight?: number): void {
     if (name === this.o.me) return;
     const persona = this.o.store.state.self.persona;
-    this.update(name, (p) => withGrievance(p, kind, persona, { now: this.now(), witnessed, source: 'self_observed', note, ...(weight !== undefined ? { weight } : {}) }), `grievance: ${kind}`);
+    const w = (weight ?? GRIEVANCE_WEIGHT[kind]) * (this.o.grievanceScale?.(name) ?? 1);
+    this.update(name, (p) => withGrievance(p, kind, persona, { now: this.now(), witnessed, source: 'self_observed', note, weight: w }), `grievance: ${kind}`);
   }
 
   private provoke(name: AgentName, how: number): void {
@@ -355,7 +363,9 @@ export class ConflictEvaluator {
     const allies = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && sworn.includes(e.name) && e.distance <= ALLIES_NEAR).map((e) => e.name);
     const allyPower = allies.reduce((a, n) => a + this.powerOfName(n), 0);
     const friendsNear = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.name !== name && !allies.includes(e.name) && e.distance <= 10 && (s.social[e.name]?.sentiment ?? 5) >= 7).length;
-    const fear = fearOf(theirPower, this.myPower(), 0.1 * friendsNear + allyPower, s.drives.caution) * (mods?.fear ?? 1);
+    // §18.4.1: seen defied and doing nothing about it, they are less to be feared.
+    const defied = Math.min(3, (p.defiedSeen ?? []).filter((x) => t - x < DEFIED_MS).length);
+    const fear = fearOf(theirPower, this.myPower(), 0.1 * friendsNear + allyPower, s.drives.caution) * (mods?.fear ?? 1) * (1 - 0.15 * defied);
     const alone = them ? !s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name !== name && Math.hypot(e.pos.x - them.pos.x, e.pos.z - them.pos.z) <= 8) : false;
     const prov = this.provoked.get(name);
     const provocationNow = prov && t - prov.at < PROVOCATION_MS ? prov.how * (1 - (t - prov.at) / PROVOCATION_MS) : 0;

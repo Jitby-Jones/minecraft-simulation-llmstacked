@@ -30,6 +30,8 @@ export interface PowerView {
   knownResenters: (target: AgentName) => AgentName[];
   /** We said this kind of thing to them lately: grumbling (`inform`) or a call to rise (`rally`). */
   saidLately: (stance: 'inform' | 'rally', to: AgentName, withinMs?: number) => boolean;
+  /** §18.4.1: the pull to keep quiet about someone (conformity, raised by fear of them or of the leader). */
+  quiet?: (name: AgentName) => number;
 }
 
 export interface PowerMoveCtx {
@@ -76,7 +78,8 @@ export function gossipMove(s: AgentState, v: PowerMoveCtx): DecisionOutput | nul
   if (foes.length === 0) return null;
   for (const y of v.candidates) {
     if (foes.includes(y) || v.liking(y) < 6 || v.power.saidLately('inform', y)) continue;
-    const x = foes.find((f) => f !== y && (player(s, f)?.distance ?? Infinity) > EARSHOT);
+    // Out of their earshot, and unless fear keeps the grievance unvoiced (§18.4.1: dissent goes quiet).
+    const x = foes.find((f) => f !== y && (player(s, f)?.distance ?? Infinity) > EARSHOT && v.roll >= (v.power.quiet?.(f) ?? 0));
     if (!x) continue;
     const shared = v.power.knownResenters(x).includes(y);
     if (!shared && v.roll >= 0.35) continue;

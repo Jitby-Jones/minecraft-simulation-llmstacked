@@ -198,7 +198,9 @@ export class GoalGen {
     }
     if (this.stopped) return;
     const now = this.o.store.state;
-    const stale = !answered && now.goals.current && this.now() - now.goals.current.createdAt > STALE_GOAL_MS;
+    // §18.4 sunk cost: the more one is given to it, the longer an unfinished goal is held on to (up to ×1.5).
+    const holdOn = 1 + 0.5 * now.self.persona.mind.biasProfile.sunkCost;
+    const stale = !answered && now.goals.current && this.now() - now.goals.current.createdAt > STALE_GOAL_MS * holdOn;
     out ??= codeGoal(stale ? { ...now, goals: { ...now.goals, current: null } } : now);
     // A stale goal set again starts afresh (its villageWork counts from now).
     if (!out || (!stale && out.text === this.o.store.state.goals.current?.text)) return;

@@ -208,6 +208,8 @@ export interface Grievance {
 }
 
 export type Allegiance = 'ally' | 'follower' | 'leader' | 'rival' | 'enemy';
+/** What reflection can inoculate against (§18.6): a bias, or going along with what people say (conformity). */
+export type Inoculable = BiasName | 'conformity';
 export type Relationship = 'none' | 'crush' | 'courting' | 'partner' | 'ex';
 export type Kin = 'parent' | 'child' | 'sibling' | 'partner' | 'grandparent' | null;
 export type FightOutcome = 'won' | 'lost' | 'yielded' | 'spared' | 'interrupted';
@@ -269,6 +271,10 @@ export interface SocialProfile {
   followersSeen: number;
   /** Agents this person was seen accompanying recently (for follower/leader inference). */
   companions: AgentName[];
+  /** §18.4.1: when someone was seen standing up to them and getting away with it (they look weaker, fear falls). */
+  defiedSeen?: number[];
+  /** §18.6 inoculation: biases reflection corrected about this person (×0.5 susceptibility for the rest of this life). */
+  inoculated?: Inoculable[];
 }
 
 export interface ConversationState {

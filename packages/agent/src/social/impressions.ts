@@ -10,6 +10,7 @@ import type { AgentStateStore } from '../state/store';
 import { newSocialProfile } from '../state/social';
 import { pushWorkmem } from '../state/workmem';
 import { withSentiment } from './math';
+import { rationalityOf } from '../mind/biases';
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -80,7 +81,7 @@ export class Impressions {
     const s = this.o.store.state;
     const p = s.social[by];
     if (!p || p.admiration < 0.5) return;
-    if (this.rng() >= s.self.persona.mind.rationality) return;
+    if (this.rng() >= rationalityOf(s)) return;
     const fallen = withSentiment({ ...p, admiration: p.admiration * 0.3 }, -1.5, s.self.persona, this.now());
     this.write(fallen, 'disillusioned');
     pushWorkmem(this.o.store, `I used to look up to ${by}, but ${what}`, 0.75, 'self_observed', { aboutAgent: by, now: this.now() });

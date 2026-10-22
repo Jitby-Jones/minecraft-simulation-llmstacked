@@ -123,6 +123,8 @@ export interface ConflictView {
   resentmentOf?: (name: AgentName) => number;
   /** §18.4 authority bias: how much lower the bar to comply is for a demand from them (a leader or an idol). */
   authorityOf?: (name: AgentName) => number;
+  /** §18.4.1 behavioral conformity: most of those they asked paid, so paying comes easier (the pull, × 0.3). */
+  bandwagon?: (name: AgentName) => number;
   /** §17.8: fear of someone faced together with these allies. */
   fearWith?: (name: AgentName, allies: readonly AgentName[]) => number;
   /** §17.7 tribute: they gave in to us before, and it's time they paid again. */
@@ -379,7 +381,7 @@ function answerDemand(s: AgentStateStore['state'], from: AgentName, d: Demand, b
   const resent = c?.resentmentOf?.(from) ?? 0;
   const keep = keepDoing(s, busy, isStuck);
   const what = amountOf(d.item, d.qty);
-  if (s.flags.inDanger || !complies(fear, resent, s.self.persona.temperament.loyalty, c?.authorityOf?.(from) ?? 0)) {
+  if (s.flags.inDanger || !complies(fear, resent, s.self.persona.temperament.loyalty, (c?.authorityOf?.(from) ?? 0) + (c?.bandwagon?.(from) ?? 0))) {
     return {
       ...keep,
       target: { agent: from },
@@ -703,6 +705,7 @@ export interface CCOptions {
     fearOf(name: AgentName): number;
     resentmentOf?(name: AgentName): number;
     authorityOf?(name: AgentName): number;
+    bandwagon?(name: AgentName): number;
     fearWith?(name: AgentName, allies: readonly AgentName[]): number;
     mayFight(target: AgentName, intent: 'brawl' | 'lethal' | 'impulse', opts?: { joining?: boolean }): string | null;
   };
@@ -1018,6 +1021,7 @@ export class CognitiveController {
         mayJoin: (n) => c.mayFight(n, 'brawl', { joining: true }) === null,
         ...(c.resentmentOf ? { resentmentOf: (n: AgentName) => c.resentmentOf?.(n) ?? 0 } : {}),
         ...(c.authorityOf ? { authorityOf: (n: AgentName) => c.authorityOf?.(n) ?? 0 } : {}),
+        ...(c.bandwagon ? { bandwagon: (n: AgentName) => c.bandwagon?.(n) ?? 0 } : {}),
         ...(c.fearWith ? { fearWith: (n: AgentName, allies: readonly AgentName[]) => c.fearWith?.(n, allies) ?? c.fearOf(n) } : {}),
         tributeDue: (n) => tributeDue(store.state.commitments, this.o.me, n, t),
         demandPending: (n) => t - lastDemandSaid(store.state, n) < DEMAND_ANSWER_MS || paying(store.state.commitments, this.o.me, n, t),

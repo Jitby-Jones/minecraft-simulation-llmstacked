@@ -9,6 +9,7 @@ import type { MemoryDB } from './memory/db';
 import { Memory } from './memory/memory';
 import { GoalGen } from './modules/goalGen';
 import { SocialGoalGen } from './modules/socialGoalGen';
+import { Reflection } from './modules/reflection';
 import { RoleWatch } from './social/roles';
 import { villageView } from './social/village';
 import { EDIBLE } from './modules/villageMove';
@@ -35,6 +36,7 @@ import { BiasWatch } from './mind/biasWatch';
 import { ConflictEvaluator } from './conflict/evaluator';
 import { PowerWatch } from './conflict/power';
 import { authorityShift, defendsAlly } from './conflict/coercion';
+import { conformityOf, conformityPull, susceptibilityToward } from './mind/biases';
 import { SURRENDER_RE } from './body/skills/duel';
 import { Crowd } from './mind/crowd';
 import { Feelings } from './mind/feelings';
@@ -81,6 +83,7 @@ export class Agent {
   readonly memory: Memory | null;
   readonly goalGen: GoalGen | null;
   readonly socialGoals: SocialGoalGen | null;
+  readonly reflection: Reflection;
   readonly roles: RoleWatch;
   readonly quirks: QuirkRunner;
   readonly social: SocialAwareness;
@@ -190,12 +193,18 @@ export class Agent {
           });
         },
         fearWith: (n, allies) => this.conflict.fearWith(n, allies),
+        // §18.4.1: most of those they asked paid them; paying comes easier.
+        bandwagon: (n) => {
+          const share = this.power.tributeShare(n);
+          return share !== null && share >= 0.6 ? this.pull(n) * 0.3 : 0;
+        },
         mayFight: (t, intent, opts) => this.conflict.mayFight(t, intent, opts),
       },
       power: {
         leader: () => this.power.leader(),
         coalition: (t) => this.power.coalition(t),
         knownResenters: (t) => this.power.knownResenters(t),
+        quiet: (x) => this.pull(x),
       },
       isPerson: (n) => Boolean(body.bot.players[n]) || Boolean(this.store.state.social[n]),
       mindLines: () => {
@@ -267,12 +276,12 @@ export class Agent {
       me: username,
       mind: {
         override: () => this.mind.override(),
-        // §18.4.1 fearLevel = max(fear, caution above its baseline, fear of the leader we follow).
-        fearLevel: () => {
+        fearLevel: () => this.fearLevel(),
+        authorityOf: (n) => {
           const s = this.store.state;
-          const leader = this.power.leader();
-          return Math.max(s.emotions.fear, s.drives.caution - s.drives.cautionBaseline, leader ? (s.social[leader]?.fearOf ?? 0) : 0);
+          return this.power.leader() === n || s.social[n]?.perceivedRole === 'leader' ? persona.mind.biasProfile.authority : 0;
         },
+        ingroup: (n) => this.ingroup(n),
       },
       now,
     });
@@ -313,6 +322,7 @@ export class Agent {
       myGear,
       inMob: (t) => this.crowd.isMob(t),
       fightCapReached: this.fightCapReached,
+      grievanceScale: (n) => this.grievanceScale(n),
       bornAt: now(),
       ...rng,
       now,
@@ -327,14 +337,29 @@ export class Agent {
       myPower: () => this.conflict.myPower(),
       fearOf: (n) => this.store.state.social[n]?.fearOf ?? 0,
       resentmentOf: (n) => this.conflict.resentmentOf(n),
+      sunkCost: () => persona.mind.biasProfile.sunkCost * (1 - this.mind.override()),
       now,
     });
-    this.biases = new BiasWatch({ store: this.store, bus: this.bus, logger, me: username, override: () => this.mind.override(), nudge: (n, d, note) => this.social.nudge(n, d, note), ...rng, now });
+    this.biases = new BiasWatch({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      override: () => this.mind.override(),
+      nudge: (n, d, note) => this.social.nudge(n, d, note),
+      blame: (n, note) => this.conflict.grieve(n, 'scapegoat', false, note),
+      ...rng,
+      now,
+    });
+    this.reflection = new Reflection({ store: this.store, bus: this.bus, logger, llm, me: username, levers, ...rng, now });
     this.trades = new TradeTracker({ store: this.store, bus: this.bus, logger, me: username, onDeal: (w, ours, theirs) => this.cc.recordDeal(w, ours, theirs), now });
     // Our own yield, as the chat echoes it back (a duel's, or the reflex's below): said once is enough.
     const ownYield = (m: string) => {
       const p = parseProximityLine(m);
-      if (p.kind === 'speech' && p.speaker === username && SURRENDER_RE.test(p.text)) {
+      if (p.kind !== 'speech' || p.speaker !== username) return;
+      // Our own answer to a demand (§18.4.1 defiance that works).
+      this.power.ownLine(p.text);
+      if (SURRENDER_RE.test(p.text)) {
         this.yieldSaidAt = now();
         this.conflict.ownYield();
       }
@@ -480,6 +505,39 @@ export class Agent {
     return this.o.username;
   }
 
+  /** §18.4.1 fearLevel = max(fear, caution above its baseline, fear of the leader we follow). */
+  private fearLevel(): number {
+    const s = this.store.state;
+    const leader = this.power.leader();
+    return Math.max(s.emotions.fear, s.drives.caution - s.drives.cautionBaseline, leader ? (s.social[leader]?.fearOf ?? 0) : 0);
+  }
+
+  /** §18.4.1 social pull, and so the pull to keep quiet about `about`: fear of them counts as well. */
+  private pull(about: AgentName): number {
+    const s = this.store.state;
+    return conformityPull(conformityOf(s), Math.max(this.fearLevel(), s.social[about]?.fearOf ?? 0), this.mind.override());
+  }
+
+  /** §18.4 in-group: the leader we follow and those seen going about with them, those sworn with us, neighbors. */
+  private ingroup(name: AgentName): boolean {
+    const s = this.store.state;
+    const leader = this.power.leader();
+    if (leader && (name === leader || this.power.companions(leader).includes(name))) return true;
+    if (s.commitments.some((c) => c.what.kind === 'fight' && c.status === 'accepted' && (c.debtor === name || c.creditor === name))) return true;
+    const home = s.village.home;
+    const p = s.social[name];
+    return Boolean(home && p?.lastSeenPos && p.interactions >= 3 && Math.hypot(p.lastSeenPos.x - home.x, p.lastSeenPos.z - home.z) <= 24);
+  }
+
+  /** §18.4: a wrong by one of our own weighs less ("circumstances"); one by someone disliked, more ("they're bad"). */
+  private grievanceScale(name: AgentName): number {
+    const s = this.store.state;
+    const ov = this.mind.override();
+    if (this.ingroup(name)) return 1 - 0.5 * susceptibilityToward(s, 'ingroup', name) * (1 - ov);
+    if (this.mind.liking(name) < 4) return 1 + 0.5 * susceptibilityToward(s, 'attribution', name) * (1 - ov);
+    return 1;
+  }
+
   /**
    * §17.7, §17.8 in the CC packet: whom we follow, who leads whom among those around, a grudge we share with someone
    * here ("you and Y share a grudge against X"), and who else we believe resents those we resent.
@@ -500,6 +558,8 @@ export class Agent {
       for (const y of shared) lines.push(`You and ${y} share a grudge against ${x}.`);
       const rest = others.filter((o) => !shared.includes(o));
       if (rest.length > 0) lines.push(`Others who resent ${x}: ${rest.slice(0, 4).join(', ')}.`);
+      // §18.4.1: under a feared leader, grievances go unvoiced.
+      if (this.pull(x) >= 0.5) lines.push(`You keep your grudge against ${x} to yourself; speaking up feels dangerous.`);
     }
     return lines;
   }
@@ -517,6 +577,7 @@ export class Agent {
     this.goalGen?.start();
     this.roles.start();
     this.socialGoals?.start();
+    this.reflection.start();
     this.quirks.start();
     this.social.start();
     this.commitments.start();
@@ -551,6 +612,7 @@ export class Agent {
     this.social.stop();
     this.quirks.stop();
     this.socialGoals?.stop();
+    this.reflection.stop();
     this.roles.stop();
     this.goalGen?.stop();
     this.cc.stop();

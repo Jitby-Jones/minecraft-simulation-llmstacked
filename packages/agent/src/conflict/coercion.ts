@@ -130,8 +130,8 @@ export function joinsRally(i: { resentment: number; trust: number; fear: number;
  * §17.8 side-taking: a follower whose leader is set upon stays loyal while loyalty (with fondness) and fear of the
  * leader outweigh fear of those attacking; otherwise it defects.
  */
-export function defects(i: { loyalty: number; sentiment: number; fearOfLeader: number; fearOfCoalition: number }): boolean {
-  return i.fearOfCoalition > i.loyalty * (i.sentiment / 10) + 0.5 * i.fearOfLeader;
+export function defects(i: { loyalty: number; sentiment: number; fearOfLeader: number; fearOfCoalition: number; sunk?: number }): boolean {
+  return i.fearOfCoalition > i.loyalty * (i.sentiment / 10) + 0.5 * i.fearOfLeader + (i.sunk ?? 0);
 }
 
 /** Who among `people` someone was seen accompanying (within 8 blocks, at least 3 of the last 4 sightings). */
