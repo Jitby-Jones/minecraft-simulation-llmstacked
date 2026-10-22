@@ -438,7 +438,8 @@ export class Talking {
     if (opening && intent.stance === 'chat' && to && !this.introduced.has(to)) {
       this.introduced.add(to);
       const hello = GREETINGS[Math.floor(this.rng() * GREETINGS.length)] ?? 'hey!';
-      return `${hello} I'm a ${persona.sex === 'male' ? 'guy' : 'gal'} who loves ${LOVES[persona.values[0] ?? ''] ?? 'mining'}.`;
+      // "hi there", and then who one is: a stop between them.
+      return `${/[!?.]$/.test(hello) ? hello : `${hello}!`} I'm a ${persona.sex === 'male' ? 'guy' : 'gal'} who loves ${LOVES[persona.values[0] ?? ''] ?? 'mining'}.`;
     }
     const pool =
       opening && intent.stance === 'chat' ? GREETINGS : intent.gist === NUDGE.gist ? NUDGE_LINES : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];

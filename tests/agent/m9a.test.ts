@@ -442,7 +442,7 @@ describe('romance in the code default (§19.2, §19.10)', () => {
 });
 
 describe('saying it, PG (§19.1, §19.6)', () => {
-  function talker(persona: Persona) {
+  function talker(persona: Persona, rng = () => 0) {
     const s = new AgentStateStore(createInitialState({ persona, username: persona.name, now: 0 }));
     s.update('perception', (p) => ({ ...p, nearbyEntities: [{ id: 1, kind: 'player', name: 'Ivy', pos: { x: 3, y: 0, z: 0 }, distance: 3, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false }] }));
     const bus = new AgentBus();
@@ -450,7 +450,7 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
     const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: persona.name, inRange: () => ['Ivy'], rng: () => 0 });
     const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
-    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: persona.name, rng: () => 0 });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: persona.name, rng });
     conversations.start();
     talking.start();
     let n = 0;
@@ -488,6 +488,15 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     await wait(t.said, 3);
     expect(t.said[2]).toBe('Ivy, will you be my partner?');
     for (const line of t.said) expect(NOT_PG_RE.test(line)).toBe(false);
+  });
+
+  it('puts a stop between any greeting and who one is', async () => {
+    for (const r of [0, 0.2, 0.4, 0.6, 0.8]) {
+      const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }), () => r);
+      t.decide('d1', 'talk', 'chat', 'say hello');
+      await wait(t.said, 1);
+      expect(t.said[0]).toMatch(/^[^.!?]+[.!?] I'm a guy who loves exploring\.$/);
+    }
   });
 
   it('courts on purpose: right after a chat with them ended, the line is said all the same; small talk waits', async () => {
