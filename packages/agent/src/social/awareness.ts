@@ -128,6 +128,8 @@ export interface SocialAwarenessOptions {
 }
 
 const SETTLE_MS = 8000;
+/** Giving in to a demand of ours this long after it was made still counts as giving in to it. */
+const DEMAND_HEARD_MS = 10 * 60_000;
 
 export class SocialAwareness {
   private readonly flight = new SingleFlight<void>();
@@ -344,18 +346,33 @@ export class SocialAwareness {
   }
 
   /** §6.4: promises the partner made to us become accepted commitments (L1, or code). */
+  /** What we demanded of them lately (§17.7), in this conversation or an earlier one, oldest first. */
+  private demandsOf(name: AgentName, until: number): { item: string; ts: number }[] {
+    const out: { item: string; ts: number }[] = [];
+    for (const c of Object.values(this.o.store.state.conversations)) {
+      if (!c.participants.includes(name)) continue;
+      for (const x of c.transcript) {
+        if (x.from !== this.o.me || x.ts > until || until - x.ts > DEMAND_HEARD_MS) continue;
+        const d = parseDemand(x.text);
+        if (d) out.push({ item: d.item, ts: x.ts });
+      }
+    }
+    return out.sort((a, b) => a.ts - b.ts);
+  }
+
   /**
-   * Their answer to a demand we made in this conversation (§17.7): a promise to give the demanded item is a coerced
+   * Their answer to a demand we made of them lately (§17.7): a promise to give the demanded item is a coerced
    * commitment, recorded at once. One per demand: a payment restated isn't paid twice.
    */
   private onGivingIn(u: Utterance): void {
     const s = this.o.store.state;
     const conv = u.convId ? s.conversations[u.convId] : undefined;
     if (!conv || u.from === this.o.me || !looksLikePromise(u.text)) return;
-    const demands = conv.transcript.filter((x) => x.from === this.o.me && x.ts <= u.ts).map((x) => parseDemand(x.text)).filter((d) => d !== null);
+    const demands = this.demandsOf(u.from, u.ts);
     const last = demands[demands.length - 1];
     if (!last) return;
-    const taken = s.commitments.filter((c) => c.coerced && c.debtor === u.from && c.creditor === this.o.me && c.createdFromConv === conv.convId);
+    const first = demands[0]?.ts ?? u.ts;
+    const taken = s.commitments.filter((c) => c.coerced && c.debtor === u.from && c.creditor === this.o.me && c.createdAt >= first);
     if (taken.length >= demands.length) return;
     const pr = codePromises([u.text], [...Object.keys(s.social), this.o.me]).promises[0];
     const item = pr?.what.kind === 'give' ? pr.what.item : undefined;
@@ -404,8 +421,8 @@ export class SocialAwareness {
       seen.add(key(pr.what));
       fresh.push(pr);
     }
-    // What we demanded of them in this conversation (§17.7): their giving in to it is coerced.
-    const demanded = conv.transcript.filter((u) => u.from === this.o.me).map((u) => parseDemand(u.text)?.item).filter((i): i is string => Boolean(i));
+    // What we demanded of them lately (§17.7): their giving in to it is coerced.
+    const demanded = this.demandsOf(partner, now).map((d) => d.item);
     const made: Commitment[] = fresh.map((pr) => ({
       id: newId('k', now),
       debtor: partner,

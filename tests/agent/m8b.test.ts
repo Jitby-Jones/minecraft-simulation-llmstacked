@@ -244,6 +244,16 @@ describe('giving in, as it is said (§17.7)', () => {
     bus.emit({ type: 'conversationEnded', convId: 'p1', reason: 'turn cap' });
     await new Promise((r) => setTimeout(r, 100));
     expect(s.state.commitments.filter((c) => c.debtor === 'Pia')).toHaveLength(2);
+    // Demanded in that conversation, given in to in the next one: still giving in.
+    s.update('conversations', (cs) => ({
+      ...cs,
+      p2: { convId: 'p2', participants: ['Rex', 'Pia'], startedAt: 50, lastActivity: 50, turns: 0, myTurns: 0, lastEmbeds: [], status: 'ended', transcript: [{ id: 'd3', convId: 'p2', from: 'Rex', to: ['Pia'], text: 'Pia, give me 8 logs, or else', ts: 50, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false, endedReason: 'quiet' },
+      p3: { convId: 'p3', participants: ['Rex', 'Pia'], startedAt: 60, lastActivity: 60, turns: 1, myTurns: 0, lastEmbeds: [], status: 'active', transcript: [], initiatedByMe: false, nudged: false },
+    }));
+    const late = { id: 'g3', convId: 'p3', from: 'Pia', to: ['Rex'], text: "Rex, fine. I'll give you 8 logs", ts: 60, pos: null, volume: 'normal' as const, outOfSight: false, addressedToMe: true, heardAs: 'me' as const };
+    s.update('conversations', (cs) => ({ ...cs, p3: { ...(cs.p3 as NonNullable<typeof cs.p3>), transcript: [late] } }));
+    bus.emit({ type: 'addressed', utterance: late });
+    expect(coerced().map((c) => c.what.item)).toEqual(['bread', 'bread', 'log']);
     sa.stop();
   });
 });
