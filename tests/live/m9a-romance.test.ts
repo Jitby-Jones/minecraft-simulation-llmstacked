@@ -153,6 +153,8 @@ describe.skipIf(!liveJavaPath())('M9a live: romance', () => {
     const max = person({ name: 'Max', sex: 'male', traits: ['proud', 'vain'], big5: { agreeableness: 0, neuroticism: 0 }, mind: { vanity: 1, rationality: 0 }, temperament: { vengefulness: 1, aggression: 0 }, intelligence: 1, initiate: 0 });
     const zoe = person({ name: 'Zoe', sex: 'female', orientation: 'homo', traits: ['polite', 'calm'], initiate: 0 });
     const bodies = await cast(['Max', 'Zoe'], { Max: [0, 0], Zoe: [3, 0] }, 1200);
+    // Zoe in diamond: what catches a vain eye (§19.2: with vanity 1, attraction is all looks), so he keeps at it.
+    for (const [slot, item] of [['head', 'helmet'], ['chest', 'chestplate'], ['legs', 'leggings'], ['feet', 'boots']]) await server.cmd(`item replace entity Zoe armor.${slot} with minecraft:diamond_${item}`);
     const t0 = Date.now();
     const heard = listen(Object.values(bodies), t0);
     const agents: Record<string, Agent> = {};
