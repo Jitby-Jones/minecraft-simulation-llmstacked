@@ -640,7 +640,10 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(c.opening).toBe(false); // not in sight
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Bo', 3)] }));
     expect(w.pw.coalition('Rex').opening).toBe(true); // in sight, nobody but us near Rex
+    // The moment lasts a while (time to call on the others), then it's gone while Rex has company.
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Di', 16)] }));
+    expect(w.pw.coalition('Rex').opening).toBe(true);
+    w.t.now += 2 * 60_000;
     expect(w.pw.coalition('Rex').opening).toBe(false);
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14, { hurtRecently: true }), ent('Di', 16)] }));
     expect(w.pw.coalition('Rex').opening).toBe(true);
@@ -649,6 +652,37 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(live.pw.coalition('Rex').against).toBeCloseTo((0.6 + 2 * FOLLOWER_WEIGHT) * LIVE_MARGIN);
     w.pw.stop();
     live.pw.stop();
+  });
+
+  it('counts on those who have not given in to Rex since they stood up to him, and those who stood up to him last come first', () => {
+    const w = setup();
+    w.s.update('social', (all) => ({ ...all, ...Object.fromEntries(['Bo', 'Cy', 'Di'].map((n) => [n, { ...(all[n] ?? newSocialProfile(n, rebel, 0)), trust: 0.7 }])) }));
+    const say = (from: string, text: string) =>
+      w.bus.emit({ type: 'heard', utterance: { id: `u${w.t.now}${from}`, convId: '', from, to: 'nearby', text, ts: w.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    say('Rex', 'Bo, give me 3 bread, or else');
+    say('Bo', "Rex, fine. I'll give you 3 bread");
+    w.t.now += 1000;
+    say('Rex', 'Cy, give me 3 bread, or else');
+    say('Cy', 'get lost.');
+    w.t.now += 1000;
+    say('Rex', 'Di, give me 8 logs, or else');
+    say('Di', 'leave me alone.');
+    expect(w.pw.believedWilling('Bo', 'Rex')).toBe(false);
+    expect(w.pw.coalition('Rex').members).toEqual(['Di', 'Cy']);
+    // Bo speaking out against Rex since: the fear has lifted.
+    w.t.now += 1000;
+    w.s.update('heardOpinions', (o) => [...o, { speaker: 'Bo', target: 'Rex', valence: -0.7, ts: w.t.now }]);
+    expect(w.pw.believedWilling('Bo', 'Rex')).toBe(true);
+    // Cy striking Rex: the last to stand up to him.
+    w.t.now += 1000;
+    w.bus.emit({ type: 'observedAction', action: { id: 'a1', actor: 'Cy', kind: 'attack', target: 'Rex', ts: w.t.now } });
+    expect(w.pw.coalition('Rex').members).toEqual(['Cy', 'Di', 'Bo']);
+    // A line long after a demand is no answer to it.
+    say('Rex', 'Di, give me 8 logs, or else');
+    w.t.now += 2 * 60_000;
+    say('Di', "fine, I'll give you some");
+    expect(w.pw.believedWilling('Di', 'Rex')).toBe(true);
+    w.pw.stop();
   });
 
   it('proposes an uprising only when ambitious, vengeful or loyal enough, with someone to ask, and the odds or the moment right', () => {

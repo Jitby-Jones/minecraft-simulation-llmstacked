@@ -24,6 +24,15 @@ const SET_UPON_MS = 15_000;
 export const FOLLOWER_WEIGHT = 0.25;
 /** In live mode an uprising needs a bigger margin: death is for real (§17.8). */
 export const LIVE_MARGIN = 1.3;
+/** A line from someone this soon after a demand of them is their answer to it (§17.7). */
+const ANSWER_MS = 60_000;
+/** Seen alone or hurt: the moment to rise against them lasts this long (§17.8). */
+const OPENING_MS = 2 * 60_000;
+/** Giving in to a demand ("Rex, fine. I'll give you 3 bread"). */
+const GIVE_IN_RE = /\b(i'?ll give (it to )?you|here,? take (it|them)|you can have (it|them))\b/i;
+/** Standing up to one ("get lost.", "no. get your own"). */
+const REFUSE_RE =
+  /\b(no|nope|not giving|get lost|leave me alone|keep your distance|back off|go away|forget it|make me|get your own|don'?t push me|or we fight|or else|what do you want)\b/i;
 
 export interface PowerWatchOptions {
   store: AgentStateStore;
@@ -63,6 +72,13 @@ export class PowerWatch {
   private following: AgentName | null = null;
   /** Whom we walked away from, and when: a defection sticks for the hour. */
   private readonly left = new Map<AgentName, number>();
+  /** A demand made of someone, overheard: who made it, and when. */
+  private readonly asked = new Map<AgentName, { by: AgentName; at: number }>();
+  /** Who was seen giving in to whom, and who standing up to whom (refusing them, striking them): person → them → when. */
+  private readonly gaveIn = new Map<AgentName, Map<AgentName, number>>();
+  private readonly defied = new Map<AgentName, Map<AgentName, number>>();
+  /** When someone was last seen alone or hurt. */
+  private readonly openings = new Map<AgentName, number>();
   private timer: NodeJS.Timeout | null = null;
   private readonly offs: (() => void)[] = [];
   private readonly now: () => number;
@@ -84,6 +100,7 @@ export class PowerWatch {
         per.set(a.actor, this.now());
         this.blows.set(a.target, per);
         if (a.target !== this.o.me) this.grudge(a.target, a.actor);
+        if (a.actor !== this.o.me) this.mark(this.defied, a.actor, a.target);
       }),
     );
     this.offs.push(
@@ -94,7 +111,19 @@ export class PowerWatch {
         // ("Ann, give me 3 bread, or else").
         const named = openingName(u.text);
         const target = Array.isArray(u.to) ? u.to[0] : named ? Object.keys(this.o.store.state.social).find((n) => n.toLowerCase() === named.toLowerCase()) : undefined;
-        if (target && target !== this.o.me && parseDemand(u.text)) this.grudge(target, u.from);
+        if (target && target !== this.o.me && parseDemand(u.text)) {
+          this.grudge(target, u.from);
+          this.asked.set(target, { by: u.from, at: this.now() });
+        }
+        // Their answer to a demand made of them: giving in, or standing up to the one who made it.
+        const a = this.asked.get(u.from);
+        if (a && this.now() - a.at < ANSWER_MS) {
+          const how = GIVE_IN_RE.test(u.text) ? this.gaveIn : REFUSE_RE.test(u.text) ? this.defied : null;
+          if (how) {
+            this.mark(how, u.from, a.by);
+            this.asked.delete(u.from);
+          }
+        }
       }),
     );
     this.timer = setInterval(() => this.tick(), 10_000);
@@ -105,6 +134,24 @@ export class PowerWatch {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     for (const off of this.offs.splice(0)) off();
+  }
+
+  private mark(m: Map<AgentName, Map<AgentName, number>>, who: AgentName, them: AgentName): void {
+    if (who === them) return;
+    const per = m.get(who) ?? new Map<AgentName, number>();
+    per.set(them, this.now());
+    m.set(who, per);
+  }
+
+  /**
+   * §17.8 "believe willing": one seen giving in to `target` since they last stood up to them (refused them, struck
+   * them, spoke against them) is not counted on to rise against them.
+   */
+  believedWilling(name: AgentName, target: AgentName): boolean {
+    const gave = this.gaveIn.get(name)?.get(target);
+    if (gave === undefined) return true;
+    const said = this.o.store.state.heardOpinions.filter((o) => o.speaker === name && o.target === target && o.valence <= -0.3).reduce((a, o) => Math.max(a, o.ts), -Infinity);
+    return Math.max(this.defied.get(name)?.get(target) ?? -Infinity, said) > gave;
   }
 
   private grudge(resenter: AgentName, target: AgentName): void {
@@ -139,14 +186,20 @@ export class PowerWatch {
     return companionsOf((this.sightings.get(name) ?? []).filter((x) => t - x.at < SIGHTING_MS));
   }
 
-  /** §17.8 coalitionPower against `target`: us and the trusted who resent them too, against their power and followers. */
+  /**
+   * §17.8 coalitionPower against `target`: us and the trusted who resent them too and are believed willing, against
+   * their power and followers. Those who stood up to the target most lately come first: they're the likeliest to rise.
+   */
   coalition(target: AgentName): Coalition {
     const s = this.o.store.state;
     const t = this.now();
-    const members = this.knownResenters(target).filter((n) => {
-      const p = s.social[n];
-      return p && p.trust >= 0.5 && t - p.lastSeen < 30 * 60_000 && p.allegiance !== 'leader' && !this.companions(target).includes(n);
-    });
+    const stoodUp = (n: AgentName) => this.defied.get(n)?.get(target) ?? -Infinity;
+    const members = this.knownResenters(target)
+      .filter((n) => {
+        const p = s.social[n];
+        return p && p.trust >= 0.5 && t - p.lastSeen < 30 * 60_000 && p.allegiance !== 'leader' && !this.companions(target).includes(n) && this.believedWilling(n, target);
+      })
+      .sort((a, b) => (stoodUp(a) === stoodUp(b) ? 0 : stoodUp(b) > stoodUp(a) ? 1 : -1));
     const power = this.o.myPower() + members.reduce((a, n) => a + this.o.powerOf(n), 0);
     const followers = s.social[target]?.followersSeen ?? 0;
     const against = (this.o.powerOf(target) + followers * FOLLOWER_WEIGHT) * (this.o.mode === 'live' ? LIVE_MARGIN : 1);
@@ -154,7 +207,9 @@ export class PowerWatch {
     const alone = them
       ? !s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name !== target && !members.includes(e.name) && Math.hypot(e.pos.x - them.pos.x, e.pos.z - them.pos.z) <= TOGETHER)
       : false;
-    return { target, members, power, against, opening: Boolean(them && (alone || them.hurtRecently)) };
+    // Seen alone or hurt: the moment lasts a while (time to call on the others), not just while it's so.
+    if (them && (alone || them.hurtRecently)) this.openings.set(target, t);
+    return { target, members, power, against, opening: t - (this.openings.get(target) ?? -Infinity) < OPENING_MS };
   }
 
   /**
