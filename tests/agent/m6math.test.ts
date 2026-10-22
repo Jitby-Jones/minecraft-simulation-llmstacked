@@ -138,6 +138,9 @@ describe('the conflict evaluator (§17.4–17.7)', () => {
     expect(gateFight(base)).toBeNull();
     expect(gateFight({ ...base, pressure: 0.4 })).toMatch(/not angry enough/);
     expect(gateFight({ ...base, pressure: 0.4, intent: 'impulse' })).toBeNull();
+    // Keeping one's word: joining a sworn ally already at it clears the same lower bar (§17.6 groupAttack).
+    expect(gateFight({ ...base, pressure: 0.4, joining: true })).toBeNull();
+    expect(gateFight({ ...base, pressure: 0.3, joining: true })).toMatch(/not angry enough/);
     expect(gateFight({ ...base, intent: 'lethal', pressure: 0.9 })).toMatch(/to the death/);
     expect(gateFight({ ...base, lim: { maxRung: 2, lethalAllowed: false } })).toMatch(/limited to rung 2/);
     expect(gateFight({ ...base, cooldownUntil: 5000 })).toMatch(/too recently/);

@@ -197,8 +197,16 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       const since = kAt - 20 * 60_000;
       await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.test(l.text)), 300_000, 'a call to rise against Rex', 500);
       await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.test(l.text)), 120_000, 'someone joining', 500);
-      // The followers come running as it starts.
-      const struck = () => (['Ann', 'Bo', 'Cyd'] as const).filter((n) => agents[n].store.state.option?.option === 'fight' || agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= kAt));
+      // The followers come running as it starts. Who rose against Rex, as seen at any moment since the opening: a
+      // fight with him under way, or one fought.
+      const rose = new Set<string>();
+      const struck = () => {
+        for (const n of ['Ann', 'Bo', 'Cyd'] as const) {
+          const o = agents[n].store.state.option;
+          if ((o?.option === 'fight' && o.targetAgent === 'Rex') || agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= kAt)) rose.add(n);
+        }
+        return [...rose];
+      };
       await waitFor(() => struck().length >= 1, 300_000, 'the uprising', 500);
       for (const n of followers) await server.cmd(`tp ${n} ${x + 3} ${Y} -3`);
       await waitFor(() => struck().length >= 2, 120_000, 'a second rebel at Rex', 500);

@@ -655,6 +655,28 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     live.pw.stop();
   });
 
+  it('calls on the most wronged first; blows a beating apart count once', () => {
+    const w = setup();
+    w.s.update('social', (all) => ({ ...all, ...Object.fromEntries(['Bo', 'Cy', 'Di'].map((n) => [n, { ...(all[n] ?? newSocialProfile(n, rebel, 0)), trust: 0.7 }])) }));
+    const blow = (target: string) => w.bus.emit({ type: 'observedAction', action: { id: `a${w.t.now}${target}`, actor: 'Rex', kind: 'attack', target, ts: w.t.now } });
+    // Cy is beaten once (three blows in a row), Di twice, a minute apart; Bo once, last.
+    for (let i = 0; i < 3; i++) {
+      blow('Cy');
+      w.t.now += 1000;
+    }
+    blow('Di');
+    w.t.now += 60_000;
+    blow('Di');
+    w.t.now += 1000;
+    blow('Bo');
+    expect([w.pw.wrongsSeen('Cy', 'Rex'), w.pw.wrongsSeen('Di', 'Rex'), w.pw.wrongsSeen('Bo', 'Rex')]).toEqual([1, 2, 1]);
+    expect(w.pw.coalition('Rex').members[0]).toBe('Di');
+    // An hour on, it's old news.
+    w.t.now += 61 * 60_000;
+    expect(w.pw.wrongsSeen('Di', 'Rex')).toBe(0);
+    w.pw.stop();
+  });
+
   it('counts on those who have not given in to Rex since they stood up to him, and those who stood up to him last come first', () => {
     const w = setup();
     w.s.update('social', (all) => ({ ...all, ...Object.fromEntries(['Bo', 'Cy', 'Di'].map((n) => [n, { ...(all[n] ?? newSocialProfile(n, rebel, 0)), trust: 0.7 }])) }));

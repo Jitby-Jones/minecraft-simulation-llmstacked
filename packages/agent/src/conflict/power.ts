@@ -26,6 +26,8 @@ export const FOLLOWER_WEIGHT = 0.25;
 export const LIVE_MARGIN = 1.3;
 /** A line from someone this soon after a demand of them is their answer to it (§17.7). */
 const ANSWER_MS = 60_000;
+/** Blows on someone this close together are one wrong (a beating), however many land. */
+const WRONG_MERGE_MS = 10_000;
 /** Seen alone or hurt: the moment to rise against them lasts this long (§17.8). */
 const OPENING_MS = 2 * 60_000;
 /** Giving in to a demand ("Rex, fine. I'll give you 3 bread"). */
@@ -67,6 +69,8 @@ export class PowerWatch {
   private readonly sightings = new Map<AgentName, { with: AgentName[]; at: number }[]>();
   /** Who said what about whom, or was seen wronged by whom: resenter → target → when. */
   private readonly grudges = new Map<AgentName, Map<AgentName, number>>();
+  /** How often each was seen wronged by whom ("resenter>target" → when, a beating counted once). */
+  private readonly wrongs = new Map<string, number[]>();
   /** Who was seen hitting whom lately: target → attacker → when. */
   private readonly blows = new Map<AgentName, Map<AgentName, number>>();
   private following: AgentName | null = null;
@@ -156,9 +160,18 @@ export class PowerWatch {
 
   private grudge(resenter: AgentName, target: AgentName): void {
     if (resenter === target) return;
+    const t = this.now();
     const per = this.grudges.get(resenter) ?? new Map<AgentName, number>();
-    per.set(target, this.now());
+    // Blows a few seconds apart are one beating.
+    if (t - (per.get(target) ?? -Infinity) > WRONG_MERGE_MS) this.wrongs.set(`${resenter}>${target}`, [...(this.wrongs.get(`${resenter}>${target}`) ?? []), t].slice(-20));
+    per.set(target, t);
     this.grudges.set(resenter, per);
+  }
+
+  /** How many wrongs we saw `target` do to `name` this past hour (§17.8: the most wronged are the likeliest to rise). */
+  wrongsSeen(name: AgentName, target: AgentName): number {
+    const t = this.now();
+    return (this.wrongs.get(`${name}>${target}`) ?? []).filter((at) => t - at < GRUDGE_MS).length;
   }
 
   /** People we believe resent `target`: they said so (heard opinions), or we saw them wronged by `target`. */
@@ -188,7 +201,8 @@ export class PowerWatch {
 
   /**
    * §17.8 coalitionPower against `target`: us and the trusted who resent them too and are believed willing, against
-   * their power and followers. Those who stood up to the target most lately come first: they're the likeliest to rise.
+   * their power and followers. The most wronged by the target come first, then those who stood up to them most
+   * lately: they're the likeliest to rise.
    */
   coalition(target: AgentName): Coalition {
     const s = this.o.store.state;
@@ -199,7 +213,7 @@ export class PowerWatch {
         const p = s.social[n];
         return p && p.trust >= 0.5 && t - p.lastSeen < 30 * 60_000 && p.allegiance !== 'leader' && !this.companions(target).includes(n) && this.believedWilling(n, target);
       })
-      .sort((a, b) => (stoodUp(a) === stoodUp(b) ? 0 : stoodUp(b) > stoodUp(a) ? 1 : -1));
+      .sort((a, b) => this.wrongsSeen(b, target) - this.wrongsSeen(a, target) || (stoodUp(a) === stoodUp(b) ? 0 : stoodUp(b) > stoodUp(a) ? 1 : -1));
     const power = this.o.myPower() + members.reduce((a, n) => a + this.o.powerOf(n), 0);
     const followers = s.social[target]?.followersSeen ?? 0;
     const against = (this.o.powerOf(target) + followers * FOLLOWER_WEIGHT) * (this.o.mode === 'live' ? LIVE_MARGIN : 1);

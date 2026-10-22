@@ -478,6 +478,7 @@ export class ConflictEvaluator {
       graceUntil: this.o.bornAt + this.o.config.newcomerGraceSec * 1000,
       fightCapReached: this.o.fightCapReached?.() ?? false,
       justYielded: t - (this.surrenderedAt.get(target) ?? -Infinity) < YIELD_STANDS_MS,
+      joining,
       now: t,
     });
   }

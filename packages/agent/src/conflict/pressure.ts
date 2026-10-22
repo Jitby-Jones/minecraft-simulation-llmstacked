@@ -113,6 +113,8 @@ export interface GateInput {
   fightCapReached: boolean;
   /** They gave up a fight with us just now (§17.6): a yield is let stand; only a fight to the death ignores it. */
   justYielded?: boolean;
+  /** Joining a fight a sworn ally is in with them right now (§17.6 groupAttack): keeping one's word. */
+  joining?: boolean;
   now: number;
 }
 
@@ -126,8 +128,9 @@ export function gateFight(g: GateInput): string | null {
   if (g.justYielded && g.intent !== 'lethal') return 'they just gave up';
   // The world-wide cap (§17.10): the agent only holds back; it never learns that fights are going on elsewhere.
   if (g.fightCapReached) return 'you hold back for now';
-  // An impulsive single punch clears a lower bar (§18.5: threshold − 0.15).
-  const threshold = (RUNG_THRESHOLDS[need] ?? 1) + (g.lim.thresholdShift ?? 0) - (g.intent === 'impulse' ? 0.15 : 0);
+  // An impulsive single punch clears a lower bar (§18.5: threshold − 0.15), and so does keeping one's word in the
+  // heat of the moment: joining a sworn ally already at it.
+  const threshold = (RUNG_THRESHOLDS[need] ?? 1) + (g.lim.thresholdShift ?? 0) - (g.intent === 'impulse' || g.joining ? 0.15 : 0);
   if (g.pressure < threshold) return `not angry enough to fight (pressure ${g.pressure.toFixed(2)} < ${threshold.toFixed(2)})`;
   return null;
 }
