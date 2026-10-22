@@ -27,6 +27,9 @@ export const REQUEST_RE =
 
 const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 
+/** Options whose speech intent is said first, once the person is in range. */
+const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit']);
+
 export function looksLikePromise(text: string): boolean {
   return PROMISE_RE.test(text);
 }
@@ -303,8 +306,9 @@ export class Talking {
       void this.say(waiting, [], intent);
       return;
     }
-    // A talk option opens with its line; so does a fight (a threat, then blows).
-    if ((d.option === 'talk' || d.option === 'fight') && person) void this.openWhenInRange(person, intent, d.id);
+    // A talk option opens with its line; so does a fight (a threat, then blows), a demand (§17.7) and a call to
+    // rise together (§17.8).
+    if (OPENS_WITH_A_LINE.has(d.option) && person) void this.openWhenInRange(person, intent, d.id);
   }
 
   private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string): Promise<void> {
@@ -356,14 +360,29 @@ export class Talking {
     return true;
   }
 
-  private canned(intent: SpeechIntent, opening = false): string {
+  /**
+   * A line without a model. What the CC worded (a promise, a counter-offer, a demand, a call to rise, news) is said
+   * as worded, once per conversation (`said` tells what we already said there); after that the stance's own lines.
+   */
+  private canned(intent: SpeechIntent, opening = false, said: (line: string) => boolean = () => false): string {
     const persona = this.o.store.state.self.persona;
+    const worded = this.worded(intent);
+    if (worded && !said(worded)) return worded;
     // §18.2 expression: a strong feeling colors small talk.
     const felt = topEmotion(this.o.store.state.emotions);
     if (intent.stance === 'chat' && felt && felt.intensity > 0.55) {
       const moodLines = FEELING_LINES[felt.name];
       if (moodLines) return moodLines[Math.floor(this.rng() * moodLines.length)] ?? '';
     }
+    const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
+    if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
+      return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
+    }
+    return pool[Math.floor(this.rng() * pool.length)] ?? '';
+  }
+
+  /** What the CC worded to be said as it is, if anything. */
+  private worded(intent: SpeechIntent): string | null {
     // A promise the CC allowed is said plainly, so the other side knows what was agreed (§6.4).
     if (intent.stance === 'agree' && intent.mayCommit && /^I('ll|'m) /.test(intent.gist) && intent.gist.length <= 80) return `sure! ${intent.gist}`;
     // A counter-offer is said as it is, so the other side can take it or leave it (§6.6).
@@ -374,11 +393,7 @@ export class Talking {
     if ((intent.stance === 'rally' || intent.stance === 'inform') && intent.gist.length > 0 && intent.gist.length <= 120) return intent.gist;
     // Giving in to a demand: said grudgingly, but plainly (§17.7).
     if (intent.stance === 'agree' && intent.mayCommit && /^fine\. I'll /.test(intent.gist) && intent.gist.length <= 80) return intent.gist;
-    const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
-    if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
-      return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
-    }
-    return pool[Math.floor(this.rng() * pool.length)] ?? '';
+    return null;
   }
 
   /** The line to say, with the commitment and giveaway guards applied. */
@@ -386,7 +401,10 @@ export class Talking {
     const s = this.o.store.state;
     const persona = s.self.persona;
     const llm = this.o.llm;
-    if (!llm) return this.canned(intent, incoming.length === 0 && (s.conversations[convId]?.transcript.length ?? 0) === 0);
+    if (!llm) {
+      const transcript = s.conversations[convId]?.transcript ?? [];
+      return this.canned(intent, incoming.length === 0 && transcript.length === 0, (line) => transcript.some((u) => u.from === this.o.me && u.text === line));
+    }
     const conv = s.conversations[convId];
     const transcript = (conv?.transcript ?? []).slice(-8).map((u) => `${u.from === this.o.me ? 'You' : u.from}: ${u.text}`);
     const activity = s.option ? `${s.option.option}${s.option.skill ? ` (${s.option.skill})` : ''}${s.option.progress ? `, ${s.option.progress}` : ''}` : 'nothing in particular';

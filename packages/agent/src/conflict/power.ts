@@ -232,7 +232,7 @@ export class PowerWatch {
       const complied = s.commitments.filter((c) => c.coerced && c.debtor === this.o.me && c.creditor === p.name && c.status === 'fulfilled' && t - (c.resolvedAt ?? 0) < COMPLIED_MS).length;
       const fearOfOthers = Math.max(0, ...others.filter((q) => q.name !== p.name).map((q) => this.o.fearOf(q.name)));
       const power = this.o.powerOf(p.name);
-      if (!follows({ complied, fearOfOthers, sentiment: p.sentiment, power })) continue;
+      if (!follows({ complied, fear: this.o.fearOf(p.name), fearOfOthers, sentiment: p.sentiment, power })) continue;
       const score = complied + power;
       if (!best || score > best.score) best = { name: p.name, score };
     }

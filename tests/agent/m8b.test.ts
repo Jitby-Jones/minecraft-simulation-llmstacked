@@ -23,7 +23,7 @@ import {
 import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
 import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/power';
 import { spareChance } from '@agora/agent/conflict/pressure';
-import { type ConflictView, codeDecision } from '@agora/agent/modules/cc';
+import { type ConflictView, codeDecision, tributeDue } from '@agora/agent/modules/cc';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
 import { codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
@@ -31,6 +31,11 @@ import type { SocialAwareness } from '@agora/agent/social/awareness';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
+import type { Body } from '@agora/agent/body/body';
+import { Conversations } from '@agora/agent/modules/conversations';
+import { SkillExecutor } from '@agora/agent/modules/executor';
+import { leversFor } from '@agora/agent/modules/levers';
+import { Talking } from '@agora/agent/modules/talking';
 
 const tyrant = PersonaSchema.parse({
   name: 'Rex',
@@ -111,10 +116,12 @@ describe('demands and compliance (§17.7)', () => {
     expect(authorityShift({ leader: false, admiration: 0.2, susceptibility: 1, override: 0 })).toBe(0);
   });
 
-  it('follows after complying twice, or for protection; a leader has followers or tribute', () => {
-    expect(follows({ complied: 2, fearOfOthers: 0, sentiment: 3, power: 0.2 })).toBe(true);
-    expect(follows({ complied: 0, fearOfOthers: 0.7, sentiment: 7, power: 0.7 })).toBe(true);
-    expect(follows({ complied: 1, fearOfOthers: 0.7, sentiment: 4, power: 0.9 })).toBe(false);
+  it('follows after complying twice while still afraid, or for protection; a leader has followers or tribute', () => {
+    expect(follows({ complied: 2, fear: 0.8, fearOfOthers: 0, sentiment: 3, power: 0.2 })).toBe(true);
+    // The tyrant looks weak now (§18.4.1): giving in no longer binds.
+    expect(follows({ complied: 2, fear: 0.2, fearOfOthers: 0, sentiment: 3, power: 0.2 })).toBe(false);
+    expect(follows({ complied: 0, fear: 0, fearOfOthers: 0.7, sentiment: 7, power: 0.7 })).toBe(true);
+    expect(follows({ complied: 1, fear: 0.9, fearOfOthers: 0.7, sentiment: 4, power: 0.9 })).toBe(false);
     expect(looksLikeLeader(2, 0)).toBe(true);
     expect(looksLikeLeader(1, 1)).toBe(false);
     expect(companionsOf([{ with: ['Rex'] }, { with: ['Rex', 'Ann'] }, { with: ['Rex'] }, { with: ['Ann'] }])).toEqual(['Rex']);
@@ -138,6 +145,69 @@ describe('demands and compliance (§17.7)', () => {
     // The same fear, but Rex is the one we follow: authority tips it.
     const led = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.75, 0.24) });
     expect(led?.task?.skill).toBe('give');
+  });
+});
+
+describe('saying it (§17.7, §17.8)', () => {
+  it('a demand and a call to rise are said, as worded, once the person is in range', async () => {
+    const s = world(tyrant, ['Tib', 'Bo']);
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Tib', 3), ent('Bo', 4)] }));
+    const bus = new AgentBus();
+    const said: string[] = [];
+    const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Rex', inRange: () => ['Tib', 'Bo'], rng: () => 0 });
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: 'Rex', rng: () => 0, rungOf: () => 2 });
+    conversations.start();
+    talking.start();
+    const decide = (id: string, option: 'demand' | 'recruit', agent: string, stance: 'threaten' | 'rally', gist: string) => {
+      const d = { id, createdAt: 0, stateVersion: 1, source: 'default' as const, option, target: { agent }, speechIntent: { stance, gist, mayCommit: false }, terminate: { maxSeconds: 30 }, rationale: 'test' };
+      s.set('decision', d, 'test');
+      bus.emit({ type: 'decision', decision: d });
+    };
+    decide('d1', 'demand', 'Tib', 'threaten', 'give me 3 bread, or else');
+    for (let i = 0; i < 40 && said.length < 1; i++) await new Promise((r) => setTimeout(r, 50));
+    decide('d2', 'recruit', 'Bo', 'rally', "Tib has pushed us around long enough. let's deal with Tib together.");
+    for (let i = 0; i < 40 && said.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+    expect(said).toEqual(['give me 3 bread, or else', "Tib has pushed us around long enough. let's deal with Tib together."]);
+    // Bo answers in that conversation: the call isn't said again, word for word, on every turn.
+    const conv = Object.values(s.state.conversations).find((c) => c.participants.includes('Bo'));
+    bus.emit({ type: 'heard', utterance: { id: 'b1', convId: conv?.convId ?? '', from: 'Bo', to: ['Rex'], text: 'hmm, really?', ts: Date.now(), pos: null, volume: 'normal', outOfSight: false, addressedToMe: true, heardAs: 'me' } });
+    for (let i = 0; i < 60 && said.length < 3; i++) await new Promise((r) => setTimeout(r, 50));
+    expect(said[2]).toBeDefined();
+    expect(said[2]).not.toBe(said[1]);
+    talking.stop();
+    conversations.stop();
+  }, 10_000);
+});
+
+describe('tribute (§17.7)', () => {
+  it('who gave in pays again every few minutes, once nothing is owed, for an hour', () => {
+    const t = 10_000_000;
+    const paid = (at: number, status: Commitment['status'] = 'fulfilled'): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${at}${status}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status, resolvedAt: at });
+    expect(tributeDue([], 'Rex', 'Tib', t)).toBe(false);
+    expect(tributeDue([paid(t - 60_000)], 'Rex', 'Tib', t)).toBe(false);
+    expect(tributeDue([paid(t - 6 * 60_000)], 'Rex', 'Tib', t)).toBe(true);
+    expect(tributeDue([paid(t - 6 * 60_000), paid(t - 1000, 'accepted')], 'Rex', 'Tib', t)).toBe(false);
+    expect(tributeDue([paid(t - 61 * 60_000)], 'Rex', 'Tib', t)).toBe(false);
+    // Only what was paid to us under threat.
+    expect(tributeDue([{ ...paid(t - 6 * 60_000), coerced: false }], 'Rex', 'Tib', t)).toBe(false);
+  });
+
+  it('a domineering agent asks it of them even when not angry; a follower stays near the leader it fears', () => {
+    const s = world(tyrant, ['Tib']).state;
+    const near: AgentState = { ...s, perception: { ...s.perception, nearbyEntities: [ent('Tib', 4)] } };
+    const view = (due: boolean): ConflictView => ({ rungOf: () => 0, fearOf: () => 0, mayBrawl: never, tributeDue: () => due, warnedLately: never });
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: view(false) })?.option).not.toBe('demand');
+    const d = codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: view(true) });
+    expect(d).toMatchObject({ option: 'demand', target: { agent: 'Tib' }, speechIntent: { stance: 'threaten', gist: 'give me 3 bread, or else' } });
+    // Tib fears and dislikes Rex: keeps away from Rex, unless Rex is the one Tib follows.
+    const tib = world(meek, ['Rex']).state;
+    const t2: AgentState = { ...tib, perception: { ...tib.perception, nearbyEntities: [ent('Rex', 4)] }, social: { ...tib.social, Rex: { ...(tib.social.Rex ?? newSocialProfile('Rex', meek, 0)), sentiment: 3 } } };
+    const afraid: ConflictView = { rungOf: () => 0, fearOf: () => 0.9, mayBrawl: never, warnedLately: never };
+    expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid })?.option).toBe('move');
+    const led: PowerView = { leader: () => 'Rex', coalition: (x) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false };
+    expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })?.option).not.toBe('move');
   });
 });
 
@@ -186,6 +256,16 @@ describe('followers and leaders, as onlookers see them (§17.7)', () => {
     const w = watch(meek);
     const paid = (i: number): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${i}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status: 'fulfilled', resolvedAt: w.t.now - i * 60_000 });
     w.s.update('commitments', () => [paid(1), paid(2)]);
+    w.tick();
+    expect(w.pw.leader()).toBe('Rex');
+    expect(w.s.state.social.Rex?.allegiance).toBe('leader');
+    // Unafraid of Rex for a moment, Tib would drift off; afraid again, back.
+    w.fears.Rex = 0.1;
+    w.tick();
+    expect(w.pw.leader()).toBeNull();
+    w.t.now += 61 * 60_000;
+    w.s.update('commitments', () => [paid(1), paid(2)]);
+    w.fears.Rex = 0.8;
     w.tick();
     expect(w.pw.leader()).toBe('Rex');
     expect(w.s.state.social.Rex?.allegiance).toBe('leader');
@@ -420,6 +500,13 @@ describe('the evaluator with power (§17.6, §17.8)', () => {
     return { s, bus, t, ce };
   }
 
+  it('fear of Rex faced together with others is smaller than alone', () => {
+    const e = evaluator();
+    expect(e.ce.fearWith('Rex', ['Bo'])).toBeLessThan(e.ce.fearWith('Rex', []));
+    expect(e.ce.fearWith('Rex', ['Bo', 'Ann'])).toBeCloseTo(e.ce.fearWith('Rex', ['Bo']));
+    e.ce.stop();
+  });
+
   it('those sworn to take Rex on, at hand, shrink the fear of Rex and are the moment to act', () => {
     const e = evaluator();
     e.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 8), ent('Bo', 3)] }));
@@ -434,12 +521,36 @@ describe('the evaluator with power (§17.6, §17.8)', () => {
     e.ce.stop();
   });
 
+  it('no new brawl with someone who just gave up; only a fight to the death ignores it', () => {
+    const e = evaluator(tyrant);
+    e.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Bo', 3)] }));
+    e.s.update('conflict', (c) => ({ ...c, rungs: { Bo: 4 } }));
+    e.s.update('social', (all) => ({ ...all, Bo: { ...(all.Bo ?? newSocialProfile('Bo', tyrant, 0)), gearScore: 0, sentiment: 0 } }));
+    for (let i = 0; i < 4; i++) e.bus.emit({ type: 'attacked', by: 'Bo', damage: 8 });
+    expect(e.ce.mayFight('Bo', 'brawl')).toBeNull();
+    e.bus.emit({ type: 'heard', utterance: { id: 'y1', convId: 'c1', from: 'Bo', to: 'nearby', text: 'ok ok, I yield!', ts: e.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    expect(e.ce.mayFight('Bo', 'brawl')).toBe('they just gave up');
+    expect(e.ce.mayFight('Bo', 'lethal')).toBeNull();
+    e.t.now += 31_000;
+    expect(e.ce.mayFight('Bo', 'brawl')).toBeNull();
+    e.ce.stop();
+  });
+
+  it('a demand made of us with a threat is a small wrong in itself', () => {
+    const e = evaluator();
+    e.bus.emit({ type: 'heard', utterance: { id: 'u1', convId: 'c1', from: 'Rex', to: ['Ann'], text: 'give me 3 bread, or else', ts: e.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+    e.bus.emit({ type: 'heard', utterance: { id: 'u2', convId: 'c1', from: 'Rex', to: ['Bo'], text: 'give me 3 bread, or else', ts: e.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+    const g = e.s.state.social.Rex?.grievances.filter((x) => x.kind === 'coercion') ?? [];
+    expect(g.map((x) => x.note)).toEqual(['Rex threatened me']);
+    e.ce.stop();
+  });
+
   it('blows on someone who gave up are a betrayal everyone who saw it holds heavily against the attacker', () => {
     const e = evaluator();
     e.bus.emit({ type: 'observedAction', action: { id: 'f1', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now } });
     e.bus.emit({ type: 'heard', utterance: { id: 'u1', convId: 'c1', from: 'Bo', to: 'nearby', text: 'ok ok, I yield!', ts: e.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
     // A blow in the same breath doesn't count; one five seconds on does, once.
-    e.t.now += 500;
+    e.t.now += 400;
     e.bus.emit({ type: 'observedAction', action: { id: 'f2', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now } });
     expect(e.s.state.social.Rex?.grievances.some((g) => g.kind === 'betrayal')).toBe(false);
     e.t.now += 5000;

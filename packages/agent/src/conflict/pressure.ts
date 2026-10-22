@@ -111,6 +111,8 @@ export interface GateInput {
   graceUntil: number;
   /** The world-wide concurrent fight cap is reached (§17.10). */
   fightCapReached: boolean;
+  /** They gave up a fight with us just now (§17.6): a yield is let stand; only a fight to the death ignores it. */
+  justYielded?: boolean;
   now: number;
 }
 
@@ -121,6 +123,7 @@ export function gateFight(g: GateInput): string | null {
   if (g.intent === 'lethal' && !g.lim.lethalAllowed) return 'not angry or ruthless enough to fight to the death';
   if (g.now < g.graceUntil) return 'too new here to start a fight';
   if (g.now < g.cooldownUntil) return 'fought them too recently';
+  if (g.justYielded && g.intent !== 'lethal') return 'they just gave up';
   // The world-wide cap (§17.10): the agent only holds back; it never learns that fights are going on elsewhere.
   if (g.fightCapReached) return 'you hold back for now';
   // An impulsive single punch clears a lower bar (§18.5: threshold − 0.15).

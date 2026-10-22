@@ -40,6 +40,8 @@ export const COERCION_GRIEVANCE = 0.12;
 export interface FollowInput {
   /** Times we complied with them in the last hour. */
   complied: number;
+  /** How afraid of them we are now (giving in out of fear only binds while the fear lasts). */
+  fear: number;
   /** Our strongest fear of anyone else. */
   fearOfOthers: number;
   sentiment: number;
@@ -47,9 +49,12 @@ export interface FollowInput {
   power: number;
 }
 
-/** §17.7: we follow X after complying twice, or for protection (afraid of others, fond of a strong X). */
+/**
+ * §17.7: we follow X after complying twice while still afraid of X (§18.4.1: as the fear falls, so does the
+ * following), or for protection (afraid of others, fond of a strong X).
+ */
 export function follows(i: FollowInput): boolean {
-  return i.complied >= 2 || (i.fearOfOthers >= 0.6 && i.sentiment >= 6 && i.power >= 0.6);
+  return (i.complied >= 2 && i.fear >= 0.4) || (i.fearOfOthers >= 0.6 && i.sentiment >= 6 && i.power >= 0.6);
 }
 
 /** §17.7: a leader, as onlookers infer it: two or more seen following them, or tribute seen paid to them. */

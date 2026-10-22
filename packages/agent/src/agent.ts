@@ -186,6 +186,7 @@ export class Agent {
             override: this.mind.override(),
           });
         },
+        fearWith: (n, allies) => this.conflict.fearWith(n, allies),
         mayFight: (t, intent) => this.conflict.mayFight(t, intent),
       },
       power: {

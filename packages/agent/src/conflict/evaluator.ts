@@ -15,7 +15,7 @@ import { GRIEVANCE_WEIGHT, resentment, withGrievance } from '../social/math';
 import { mobModifiers } from '../mind/biases';
 import { CALL_OFF_RE, SURRENDER_RE } from '../body/skills/duel';
 import { type FightIntent, deterrence, fearOf, gateFight, motive, opportunity, powerOf, rungFor, witnessCost } from './pressure';
-import { COERCION_GRIEVANCE } from './coercion';
+import { COERCION_GRIEVANCE, parseDemand } from './coercion';
 
 export interface ConflictOptions {
   store: AgentStateStore;
@@ -56,8 +56,10 @@ const NEAR_BLOCKS = 12;
 const NEAR_EVERY_MS = 60_000;
 /** Blows this recent, when the danger passes, were a fight (one we fought back in, or ran from). */
 const FIGHT_WINDOW_MS = 30_000;
+/** After someone gives up, no new brawl with them starts for this long (§17.6: the yield is let stand). */
+const YIELD_STANDS_MS = 30_000;
 /** A blow this long after someone gave up ignores the yield (the first moments are the winner's reaction time). */
-const YIELD_HEARD_MS = 2000;
+const YIELD_HEARD_MS = 1000;
 const YIELD_IGNORED_MS = 20_000;
 /** Those who swore to take someone on with us count when within this (§17.6 groupAttack). */
 const ALLIES_NEAR = 10;
@@ -155,6 +157,13 @@ export class ConflictEvaluator {
       }),
     );
     this.offs.push(b.on('heard', (e) => this.onSurrender(e.utterance.from, e.utterance.text)));
+    // §17.7: a demand made of us with a threat is coercion, a small wrong whether or not we give in.
+    this.offs.push(
+      b.on('heard', (e) => {
+        const u = e.utterance;
+        if (u.addressedToMe && u.from !== this.o.me && this.isPerson(u.from) && parseDemand(u.text)) this.grieve(u.from, 'coercion', true, `${u.from} threatened me`, COERCION_GRIEVANCE);
+      }),
+    );
     // A fight fought by the reflexes (we hit back, or ran) is a fight too: when the danger passes, it is recorded
     // like a duel, with its pair cooldown, so neither side starts another right away (§17.10).
     this.offs.push(
@@ -372,6 +381,16 @@ export class ConflictEvaluator {
     return this.powerOfProfile(s.social[name] ?? newSocialProfile(name, s.self.persona, this.now()));
   }
 
+  /** §17.8: fear of someone faced together with `allies` (their strength on our side), as an uprising would face them. */
+  fearWith(name: AgentName, allies: readonly AgentName[]): number {
+    const s = this.o.store.state;
+    const p = s.social[name] ?? newSocialProfile(name, s.self.persona, this.now());
+    const them = s.perception.nearbyEntities.find((e) => e.kind === 'player' && e.name === name);
+    const theirPower = powerOf({ gear: p.gearScore, killsSeen: p.killsSeen, fightsWonSeen: p.fightsWonSeen, followersSeen: p.followersSeen, healthFrac: them?.hurtRecently ? 0.6 : 1, combat: p.estCombat });
+    const allyPower = allies.filter((n) => n !== name && n !== this.o.me).reduce((a, n) => a + this.powerOfName(n), 0);
+    return fearOf(theirPower, this.myPower(), allyPower, s.drives.caution);
+  }
+
   /** Those who swore to take `name` on with us (§17.8: an open commitment of kind fight, either way round). */
   swornAgainst(name: AgentName): AgentName[] {
     const me = this.o.me;
@@ -438,6 +457,7 @@ export class ConflictEvaluator {
       cooldownUntil: s.conflict.pairCooldownUntil[target] ?? 0,
       graceUntil: this.o.bornAt + this.o.config.newcomerGraceSec * 1000,
       fightCapReached: this.o.fightCapReached?.() ?? false,
+      justYielded: t - (this.surrenderedAt.get(target) ?? -Infinity) < YIELD_STANDS_MS,
       now: t,
     });
   }
