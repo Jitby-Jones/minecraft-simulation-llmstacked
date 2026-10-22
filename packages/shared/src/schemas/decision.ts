@@ -92,6 +92,8 @@ export const FightProposalSchema = z.object({
   target: z.string().min(1),
   intent: z.enum(['brawl', 'lethal']),
   withAllies: z.array(z.string()).max(6).default([]),
+  /** Joining a fight a sworn ally is in with them just now (§17.6 groupAttack); code checks that it is so. */
+  joining: z.boolean().optional(),
   reason: z.string().max(200).optional(),
 });
 export type FightProposal = z.infer<typeof FightProposalSchema>;

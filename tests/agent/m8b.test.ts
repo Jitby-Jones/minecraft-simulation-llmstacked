@@ -695,6 +695,7 @@ describe('the code default for power (§17.7, §17.8)', () => {
       resentmentOf: o.resentmentOf ?? ((n) => (n === 'Rex' ? 0.7 : 0)),
       mayBrawl: o.mayBrawl ?? never,
       mayKill: o.mayKill ?? never,
+      ...(o.mayJoin ? { mayJoin: o.mayJoin } : {}),
       liking: o.liking ?? ((n) => (n === 'Rex' ? 2 : 7)),
       candidates: o.candidates ?? ['Bo'],
       roll: o.roll ?? 0.9,
@@ -779,8 +780,30 @@ describe('the code default for power (§17.7, §17.8)', () => {
     expect(brawl?.task?.args.lethal).toBeUndefined();
     const kill = uprisingMove(s4, ctx({ mayKill: () => true }));
     expect(kill?.task?.args).toMatchObject({ target: 'Rex', lethal: true, spareChance: Math.round(spareChance(0.5, 0.7, 4) * 100) / 100 });
+    // Bo already at it with Rex: we join in, though our own gate (the pair cooldown) is still shut.
+    const join = uprisingMove(s4, ctx({ mayJoin: () => true }));
+    expect(join).toMatchObject({ option: 'fight', fight: { target: 'Rex', intent: 'brawl', withAllies: ['Bo'], joining: true } });
+    expect(brawl?.fight?.joining).toBeUndefined();
     // No pact, nothing to do.
     expect(uprisingMove(state([ent('Rex', 12)]), ctx())).toBeNull();
+  });
+
+  it('a fight joined is put to the gate as joining; any other is not', () => {
+    const seen: boolean[] = [];
+    const env = {
+      me: 'Ann',
+      isStuck: () => false,
+      canPerceive: () => true,
+      isPerson: (n: string) => n === 'Rex',
+      mayFight: (_t: string, _intent: 'brawl' | 'lethal', joining?: boolean) => {
+        seen.push(joining === true);
+        return joining ? null : 'fought them too recently';
+      },
+    };
+    const base = { option: 'fight' as const, terminate: { maxSeconds: 60 }, rationale: 'r' };
+    expect(validateDecision({ ...base, fight: { target: 'Rex', intent: 'brawl', withAllies: ['Bo'], joining: true } }, env)).toBeNull();
+    expect(validateDecision({ ...base, fight: { target: 'Rex', intent: 'brawl', withAllies: ['Bo'] } }, env)).toMatch(/fought them too recently/);
+    expect(seen).toEqual([true, false]);
   });
 
   it('in the CC: busy with work when Rex comes near with Bo at hand, the sworn fight comes first', () => {
@@ -833,6 +856,34 @@ describe('the evaluator with power (§17.6, §17.8)', () => {
     expect(together.motive).toBeCloseTo(alone.motive + 0.3);
     expect(together.pressure).toBeGreaterThan(alone.pressure + 0.3);
     expect(e.ce.powerOfName('Rex')).toBeGreaterThan(e.ce.powerOfName('Bo'));
+    e.ce.stop();
+  });
+
+  it('joins a fight a sworn ally is in with them just now, whatever the pair cooldown; not one that is not going on', () => {
+    const e = evaluator(tyrant);
+    e.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 3), ent('Bo', 3)] }));
+    e.s.update('conflict', (c) => ({ ...c, rungs: { Rex: 3 }, pairCooldownUntil: { Rex: e.t.now + 60_000 } }));
+    e.s.update('social', (all) => ({ ...all, Rex: { ...(all.Rex ?? newSocialProfile('Rex', tyrant, 0)), gearScore: 0, estCombat: 0.2, fightsWonSeen: 0, sentiment: 0 } }));
+    for (let i = 0; i < 4; i++) e.bus.emit({ type: 'attacked', by: 'Rex', damage: 8 });
+    expect(e.ce.mayFight('Rex', 'brawl')).toBe('fought them too recently');
+    // Sworn with Bo against Rex, but no fight going on: still held back.
+    e.s.update('commitments', () => [pact('Bo', tyrant.name, 'Rex')]);
+    expect(e.ce.allyInFightWith('Rex')).toBe(false);
+    expect(e.ce.mayFight('Rex', 'brawl', { joining: true })).toBe('fought them too recently');
+    // Bo strikes Rex: joining it isn't held back by the cooldown; nor is it when Rex strikes Bo.
+    e.s.update('perception', (p) => ({ ...p, observedActions: [{ id: 'o1', actor: 'Bo', kind: 'attack', target: 'Rex', ts: e.t.now - 1000 }] }));
+    expect(e.ce.allyInFightWith('Rex')).toBe(true);
+    expect(e.ce.mayFight('Rex', 'brawl', { joining: true })).toBeNull();
+    expect(e.ce.mayFight('Rex', 'brawl')).toBe('fought them too recently');
+    e.s.update('perception', (p) => ({ ...p, observedActions: [{ id: 'o2', actor: 'Rex', kind: 'attack', target: 'Bo', ts: e.t.now - 1000 }] }));
+    expect(e.ce.mayFight('Rex', 'brawl', { joining: true })).toBeNull();
+    // Someone not sworn with us at it with Rex is not our fight to join.
+    e.s.update('perception', (p) => ({ ...p, observedActions: [{ id: 'o3', actor: 'Cy', kind: 'attack', target: 'Rex', ts: e.t.now - 1000 }] }));
+    expect(e.ce.mayFight('Rex', 'brawl', { joining: true })).toBe('fought them too recently');
+    // A while after, it's over.
+    e.s.update('perception', (p) => ({ ...p, observedActions: [{ id: 'o1', actor: 'Bo', kind: 'attack', target: 'Rex', ts: e.t.now - 1000 }] }));
+    e.t.now += 10_000;
+    expect(e.ce.mayFight('Rex', 'brawl', { joining: true })).toBe('fought them too recently');
     e.ce.stop();
   });
 

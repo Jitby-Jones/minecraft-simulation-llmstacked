@@ -38,6 +38,8 @@ export interface PowerMoveCtx {
   resentmentOf: (name: AgentName) => number;
   mayBrawl: (name: AgentName) => boolean;
   mayKill: (name: AgentName) => boolean;
+  /** Joining a fight a sworn ally is in with them just now is allowed (§17.6 groupAttack). */
+  mayJoin?: (name: AgentName) => boolean;
   liking: (name: AgentName) => number;
   /** People in range we may start a conversation with now. */
   candidates: readonly AgentName[];
@@ -125,13 +127,15 @@ export function uprisingMove(s: AgentState, v: PowerMoveCtx): DecisionOutput | n
   const them = player(s, x);
   if (them && them.distance <= 24 && alliesNear.length > 0) {
     const lethal = v.mayKill(x);
-    if (lethal || v.mayBrawl(x)) {
+    // An ally already at it is the moment to join, whatever the pair cooldown (§17.6 groupAttack).
+    const joining = !lethal && !v.mayBrawl(x) && (v.mayJoin?.(x) ?? false);
+    if (lethal || joining || v.mayBrawl(x)) {
       const spare = spareChance(s.self.persona.temperament.mercy, v.resentmentOf(x), 4);
       return {
         option: 'fight',
         target: { agent: x },
         task: { skill: 'duel', args: { target: x, stopAtHealth: yieldHealth(s.drives.caution), seconds: 120, ...(lethal ? { lethal: true, spareChance: Math.round(spare * 100) / 100 } : {}) } },
-        fight: { target: x, intent: lethal ? 'lethal' : 'brawl', withAllies: alliesNear },
+        fight: { target: x, intent: lethal ? 'lethal' : 'brawl', withAllies: alliesNear, ...(joining ? { joining: true } : {}) },
         speechIntent: { stance: 'threaten', gist: `now! we've had enough of you, ${x}`, mayCommit: false },
         terminate: { maxSeconds: 150 },
         rationale: `code default: with ${alliesNear.join(' and ')}, taking on ${x}`,

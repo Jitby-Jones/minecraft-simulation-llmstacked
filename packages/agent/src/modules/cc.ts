@@ -55,7 +55,7 @@ export interface ValidationEnv {
   /** A person (not a mob): fighting them needs the gate. */
   isPerson?: (name: AgentName) => boolean;
   /** §17.5 code gate: null when a fight with them may happen, else why not. */
-  mayFight?: (target: AgentName, intent: 'brawl' | 'lethal') => string | null;
+  mayFight?: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => string | null;
 }
 
 /** Code checks on a schema-valid decision. Returns the reason it can't be used, or null. */
@@ -65,7 +65,7 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
   const aimedAt = d.task?.args.target;
   const victim = d.option === 'fight' ? (d.fight?.target ?? d.target?.agent) : ['attack', 'duel'].includes(getSkill(d.task?.skill ?? '')?.name ?? '') && typeof aimedAt === 'string' ? aimedAt : '';
   if (victim && env.isPerson?.(victim)) {
-    const why = env.mayFight ? env.mayFight(victim, d.fight?.intent ?? 'brawl') : 'fighting people is not possible here';
+    const why = env.mayFight ? env.mayFight(victim, d.fight?.intent ?? 'brawl', d.fight?.joining === true) : 'fighting people is not possible here';
     if (why) return `you can't fight ${victim}: ${why}`;
   }
   if (d.option === 'fight' && !victim) return 'option fight needs fight.target';
@@ -113,6 +113,8 @@ export interface ConflictView {
   rungOf: (name: AgentName) => number;
   fearOf: (name: AgentName) => number;
   mayBrawl: (name: AgentName) => boolean;
+  /** §17.6 groupAttack: joining a fight a sworn ally is in with them just now is allowed (no pair cooldown). */
+  mayJoin?: (name: AgentName) => boolean;
   /** §17.5 rung 4 through the gate: a fight to the death is allowed now. */
   mayKill?: (name: AgentName) => boolean;
   /** How much we resent someone (0..1): mercy toward a yielding foe shrinks with it. */
@@ -534,6 +536,7 @@ function powerCtx(social: SocialChance, isStuck: ValidationEnv['isStuck']): Powe
     resentmentOf: (n) => c.resentmentOf?.(n) ?? 0,
     mayBrawl: (n) => c.mayBrawl(n),
     mayKill: (n) => c.mayKill?.(n) ?? false,
+    mayJoin: (n) => c.mayJoin?.(n) ?? false,
     liking: (n) => social.liking?.(n) ?? 5,
     candidates: social.candidates,
     roll: social.roll,
@@ -685,7 +688,7 @@ export interface CCOptions {
     resentmentOf?(name: AgentName): number;
     authorityOf?(name: AgentName): number;
     fearWith?(name: AgentName, allies: readonly AgentName[]): number;
-    mayFight(target: AgentName, intent: 'brawl' | 'lethal' | 'impulse'): string | null;
+    mayFight(target: AgentName, intent: 'brawl' | 'lethal' | 'impulse', opts?: { joining?: boolean }): string | null;
   };
   /** Power structures (§17.7, §17.8): whom we follow, who resents whom, coalitions. */
   power?: Omit<PowerView, 'saidLately'>;
@@ -862,7 +865,7 @@ export class CognitiveController {
       isStuck,
       canPerceive: this.o.canPerceive,
       ...(this.o.isPerson ? { isPerson: this.o.isPerson } : {}),
-      ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal') => c.mayFight(target, impulse ? 'impulse' : intent) } : {}),
+      ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => c.mayFight(target, impulse ? 'impulse' : intent, { joining: joining === true }) } : {}),
     };
   }
 
@@ -995,6 +998,7 @@ export class CognitiveController {
         fearOf: (n) => c.fearOf(n),
         mayBrawl: (n) => c.mayFight(n, 'brawl') === null,
         mayKill: (n) => c.mayFight(n, 'lethal') === null,
+        mayJoin: (n) => c.mayFight(n, 'brawl', { joining: true }) === null,
         ...(c.resentmentOf ? { resentmentOf: (n: AgentName) => c.resentmentOf?.(n) ?? 0 } : {}),
         ...(c.authorityOf ? { authorityOf: (n: AgentName) => c.authorityOf?.(n) ?? 0 } : {}),
         ...(c.fearWith ? { fearWith: (n: AgentName, allies: readonly AgentName[]) => c.fearWith?.(n, allies) ?? c.fearOf(n) } : {}),

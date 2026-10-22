@@ -190,7 +190,7 @@ export class Agent {
           });
         },
         fearWith: (n, allies) => this.conflict.fearWith(n, allies),
-        mayFight: (t, intent) => this.conflict.mayFight(t, intent),
+        mayFight: (t, intent, opts) => this.conflict.mayFight(t, intent, opts),
       },
       power: {
         leader: () => this.power.leader(),
@@ -386,7 +386,10 @@ export class Agent {
     this.offs.push(
       this.bus.on('observedAction', (e) => {
         const a = e.action;
-        if (a.kind === 'attack' && a.target && a.actor !== username) strikeWith(a.actor, a.target);
+        if (a.kind !== 'attack' || !a.target || a.actor === username) return;
+        // An ally sworn with us striking X, or X striking an ally sworn with us.
+        strikeWith(a.actor, a.target);
+        if (a.target !== username) strikeWith(a.target, a.actor);
       }),
     );
     this.quirks = new QuirkRunner({

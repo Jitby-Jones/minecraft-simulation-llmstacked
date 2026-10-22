@@ -58,6 +58,8 @@ const NEAR_EVERY_MS = 60_000;
 const FIGHT_WINDOW_MS = 30_000;
 /** A blow this soon after a fight was settled is still that fight (§17.6), not the start of a new one. */
 const SETTLED_GRACE_MS = 8000;
+/** A sworn ally's fight with someone this recent is one to join (§17.6 groupAttack). */
+const JOIN_MS = 8000;
 /** After someone gives up, no new brawl with them starts for this long (§17.6: the yield is let stand). */
 const YIELD_STANDS_MS = 30_000;
 /** A blow this long after someone gave up ignores the yield (the first moments are the winner's reaction time). */
@@ -459,9 +461,11 @@ export class ConflictEvaluator {
   }
 
   /** §17.5 code gate for a fight we'd start: null when allowed, else why not. */
-  mayFight(target: AgentName, intent: FightIntent): string | null {
+  mayFight(target: AgentName, intent: FightIntent, opts: { joining?: boolean } = {}): string | null {
     const s = this.o.store.state;
     const t = this.now();
+    // Joining a fight a sworn ally is in with them just now isn't starting one: the pair cooldown doesn't hold it back.
+    const joining = opts.joining === true && this.allyInFightWith(target);
     if (!this.o.config.enabled) return 'fighting is off here';
     // Words come before blows: a deliberate fight needs the threats rung first (an impulse doesn't wait).
     if (intent !== 'impulse' && (s.conflict.rungs[target] ?? 0) < 2) return 'it has not come to that yet';
@@ -470,12 +474,21 @@ export class ConflictEvaluator {
       intent,
       pressure: r.pressure,
       lim: this.limits(this.o.inMob?.(target) ?? false),
-      cooldownUntil: s.conflict.pairCooldownUntil[target] ?? 0,
+      cooldownUntil: joining ? 0 : (s.conflict.pairCooldownUntil[target] ?? 0),
       graceUntil: this.o.bornAt + this.o.config.newcomerGraceSec * 1000,
       fightCapReached: this.o.fightCapReached?.() ?? false,
       justYielded: t - (this.surrenderedAt.get(target) ?? -Infinity) < YIELD_STANDS_MS,
       now: t,
     });
+  }
+
+  /** One sworn with us against them (§17.8) struck them, or was struck by them, just now (§17.6 groupAttack). */
+  allyInFightWith(target: AgentName): boolean {
+    const t = this.now();
+    const sworn = this.swornAgainst(target);
+    return this.o.store.state.perception.observedActions.some(
+      (a) => a.kind === 'attack' && t - a.ts < JOIN_MS && ((sworn.includes(a.actor) && a.target === target) || (a.actor === target && a.target !== undefined && sworn.includes(a.target))),
+    );
   }
 
   /** A single impulsive punch (§18.5): the gate at a lower bar. */
