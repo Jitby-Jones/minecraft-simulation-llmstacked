@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { type ActionRecord, type AgentState, ModelsConfigSchema, type ObservedAction, PersonaSchema, loadPersonaPool, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import { AgentBus } from '@agora/agent/bus';
+import type { Body } from '@agora/agent/body/body';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
 import { Vec3 } from '@agora/agent/body/bot';
 import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles } from '@agora/agent/body/skills/village';
@@ -14,9 +15,12 @@ import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
 import { evalCondition } from '@agora/agent/modules/conditions';
+import { Conversations } from '@agora/agent/modules/conversations';
+import { SkillExecutor } from '@agora/agent/modules/executor';
 import { codeGoal, villageFirst } from '@agora/agent/modules/goalGen';
 import { leversFor } from '@agora/agent/modules/levers';
 import { SocialGoalGen } from '@agora/agent/modules/socialGoalGen';
+import { Talking } from '@agora/agent/modules/talking';
 import { deathNoticeMove, unpostedDeath, unpostedFind, villageMove } from '@agora/agent/modules/villageMove';
 import { RoleWatch, WORK_SAYS, statedWork, weightOf, workOf } from '@agora/agent/social/roles';
 import { type VillageView, chooseWork, describeVillage, needs, preferences, roleEntropy, roleFrom, villageView, villageWorkDone, villageWorkOf } from '@agora/agent/social/village';
@@ -660,5 +664,63 @@ describe('staying alive in the village (§16.3: carry food)', () => {
     expect(codeDecision(s, {}, false, never)?.task).toEqual({ skill: 'prospect', args: { item: 'raw_iron' } });
     const village = { ...s, village: { ...s.village, chest: { pos: { x: 2, y: -60, z: 1 }, contents: null, seenAt: 0 } } };
     expect(codeDecision(village, {}, false, never)?.task).toEqual({ skill: 'prospect', args: { item: 'raw_iron', outside: 24 } });
+  });
+});
+
+describe('saying what one does for the village, at a lull (§6.8, §6.2 floor control)', () => {
+  const LULL = 40;
+  function talker() {
+    const s = new AgentStateStore(createInitialState({ persona: pip, username: 'Pip', now: 0 }));
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [{ id: 1, kind: 'player', name: 'Bram', pos: { x: 3, y: 0, z: 0 }, distance: 3, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false }] }));
+    const bus = new AgentBus();
+    const said: { text: string; at: number }[] = [];
+    const body = { say: (text: string) => Promise.resolve(said.push({ text, at: Date.now() }) > 0), skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0 });
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: 'Pip', rng: () => 0.5, lullMs: LULL });
+    conversations.start();
+    talking.start();
+    let lastHeard = 0;
+    const hear = (from: string, text: string) => {
+      lastHeard = Date.now();
+      s.update('perception', (p) => ({ ...p, heardSpeech: [...p.heardSpeech, { id: `u${p.heardSpeech.length}`, convId: '', from, to: [], text, ts: lastHeard, pos: null, volume: 'normal' as const, outOfSight: false, addressedToMe: false }] }));
+    };
+    return { said, talking, conversations, hear, lastHeard: () => lastHeard };
+  }
+  const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('waits for a quiet moment: not over a question to everyone, nor the answer to it', async () => {
+    const t = talker();
+    t.hear('Dara', 'anyone got some wood?');
+    const done = t.talking.announce(WORK_SAYS.wood);
+    await sleepMs(25);
+    t.hear('Opal', 'I have a few logs to spare');
+    expect(await done).toBe(true);
+    expect(t.said.map((x) => x.text)).toEqual([WORK_SAYS.wood]);
+    expect((t.said[0]?.at ?? 0) - t.lastHeard()).toBeGreaterThanOrEqual(LULL);
+    // Said to all around, it opens no conversation (one of two would take whatever either says next for the other).
+    expect(t.conversations.active()).toEqual([]);
+  });
+
+  it('goes in the conversation already going with them', async () => {
+    const t = talker();
+    const conv = t.conversations.open('Bram', true);
+    expect(await t.talking.announce(WORK_SAYS.build)).toBe(true);
+    expect(t.said.map((x) => x.text)).toEqual([WORK_SAYS.build]);
+    expect(t.conversations.get(conv.convId)?.transcript.map((u) => u.text)).toEqual([WORK_SAYS.build]);
+  });
+
+  it('goes unsaid if the talk never lets up, or once it stops', async () => {
+    const t = talker();
+    const busy = setInterval(() => t.hear('Dara', 'and another thing'), 10);
+    try {
+      expect(await t.talking.announce(WORK_SAYS.stone)).toBe(false);
+    } finally {
+      clearInterval(busy);
+    }
+    const later = t.talking.announce(WORK_SAYS.food);
+    t.talking.stop();
+    expect(await later).toBe(false);
+    expect(t.said).toEqual([]);
   });
 });

@@ -35,6 +35,10 @@ const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit', 'court']);
 /** A fight's threat stands this long: a decision going on with the fight doesn't say another. */
 const FIGHT_ANNOUNCED_MS = 15_000;
+/** §6.2 floor control for a line nobody asked for: said once nobody in earshot has spoken for this long. */
+const LULL_MS = 4000;
+/** Waiting for a lull this many times its length at most; then the line goes unsaid. */
+const LULL_PATIENCE = 15;
 /**
  * §19.2, §19.3: courting, starting a family, and the answers to them, said as worded so a listener's code reading
  * takes them the same way.
@@ -127,6 +131,8 @@ export interface TalkingOptions {
   rungOf?: (name: AgentName) => number;
   rng?: () => number;
   now?: () => number;
+  /** How long a lull must be before a line nobody asked for (tests shorten it). */
+  lullMs?: number;
 }
 
 interface Pending {
@@ -145,6 +151,7 @@ export class Talking {
   private readonly introduced = new Set<AgentName>();
   private readonly rng: () => number;
   private readonly now: () => number;
+  private stopped = false;
 
   constructor(private readonly o: TalkingOptions) {
     this.rng = o.rng ?? Math.random;
@@ -152,6 +159,7 @@ export class Talking {
   }
 
   start(): void {
+    this.stopped = false;
     this.offs.push(this.o.bus.on('heard', () => this.heardLines++));
     this.offs.push(this.o.bus.on('overheard', (e) => this.onOverheard(e.utterance)));
     this.offs.push(this.o.bus.on('addressed', (e) => this.onAddressed(e.utterance)));
@@ -164,6 +172,7 @@ export class Talking {
   }
 
   stop(): void {
+    this.stopped = true;
     for (const p of this.pending.values()) clearTimeout(p.timer);
     this.pending.clear();
     for (const off of this.offs.splice(0)) off();
@@ -256,10 +265,33 @@ export class Talking {
     return this.send(conv.convId, text, volume, undefined, urgent);
   }
 
-  /** Says a line to the nearest person in earshot, if anyone is (§6.8: what one is doing for the village). */
+  /**
+   * Says a line nobody asked for to those in earshot, if anyone is (§6.8: what one is doing for the village), at a
+   * lull (§6.2 floor control): not over someone's question or the answers to it, nor all at once with others who
+   * waited for the same quiet (each waits a little, at random, and looks again). Unsaid if no lull comes. It opens
+   * no conversation: one of two would take whatever either says next as meant for the other.
+   */
   async announce(text: string, range = 12): Promise<boolean> {
-    const near = this.o.store.state.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= range).sort((a, b) => a.distance - b.distance)[0];
-    return near ? this.blurt(near.name, text) : false;
+    const lull = this.o.lullMs ?? LULL_MS;
+    const giveUp = this.now() + lull * LULL_PATIENCE;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, lull * (0.5 + this.rng())));
+      if (this.stopped) return false;
+      const heard = this.o.store.state.perception.heardSpeech.filter((u) => u.from !== this.o.me);
+      if (heard.every((u) => this.now() - u.ts >= lull)) break;
+      if (this.now() >= giveUp) return false;
+    }
+    const around = this.o.store.state.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= range).sort((a, b) => a.distance - b.distance);
+    const near = around[0];
+    if (!near) return false;
+    // Already talking with them: it goes in that conversation.
+    if (this.o.conversations.withPartner(near.name)) return this.blurt(near.name, text);
+    try {
+      return await this.o.body.say(text, 'normal', around.map((e) => e.name));
+    } catch (err) {
+      this.o.logger.info({ module: 'talking', err: String(err) }, 'did not say a line');
+      return false;
+    }
   }
 
   /** Won't answer them for `ms` (sulking, refusing to talk). */

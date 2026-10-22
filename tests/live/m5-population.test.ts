@@ -33,6 +33,7 @@ import { Hub, type Launcher, Supervisor, loadRoster, nodeLauncher } from '@agora
 import { Body } from '@agora/agent/body/body';
 import { MemoryDB } from '@agora/agent/memory/db';
 import { type RunningBot, runBot } from '@agora/agent/hub/runtime';
+import { statedWork } from '@agora/agent/social/roles';
 import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
@@ -227,10 +228,13 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       expect(heard.filter((x) => x.startsWith('Rook:')).length).toBeGreaterThanOrEqual(2);
       expect(h.counters.llmGranted).toBeGreaterThan(4);
       expect(h.counters.speechGranted).toBeGreaterThanOrEqual(4);
-      // No loops: a minute later the pair cooldown holds and nobody keeps talking.
-      const before = heard.length;
+      // No loops: a minute later the pair cooldown holds and nobody keeps talking. (Saying what one does for the
+      // village, M8, is no talk with anyone: it is said at a lull, the first one often after the conversation.)
+      const at = heard.length;
       await sleep(60_000);
-      expect(heard.length - before).toBeLessThanOrEqual(2);
+      const after = heard.slice(at);
+      console.log(`[m5 talk] a minute after: ${after.join(' | ') || 'nothing'}`);
+      expect(after.filter((x) => !statedWork(x.slice(x.indexOf(': ') + 2))).length).toBeLessThanOrEqual(2);
     } finally {
       await sup.shutdown('test done', 30_000);
       await ear.disconnect();
