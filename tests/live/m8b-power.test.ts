@@ -93,9 +93,11 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
   it('J then K: a tyrant rules by fear until those he wronged rise against him when he goes out alone and hurt', async () => {
     const x = 300;
     await server.cmd(`forceload add ${x - 48} -48 ${x + 48} 48`);
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      await server.cmd(`place feature minecraft:oak ${Math.round(x + Math.cos(a) * 11)} ${Y} ${Math.round(Math.sin(a) * 11)}`);
+    // Two rings of oaks, so there is wood to work at by Rex the whole time.
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 10) * Math.PI * 2 + (i >= 10 ? Math.PI / 10 : 0);
+      const r = i < 10 ? 11 : 16;
+      await server.cmd(`place feature minecraft:oak ${Math.round(x + Math.cos(a) * r)} ${Y} ${Math.round(Math.sin(a) * r)}`);
     }
     const names = ['Rex', 'Tib', 'Pia', 'Ann', 'Bo', 'Cyd'] as const;
     const personas: Record<(typeof names)[number], Persona> = {

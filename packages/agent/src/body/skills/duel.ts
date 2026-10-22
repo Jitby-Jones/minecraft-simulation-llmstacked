@@ -42,7 +42,7 @@ const FLED_MS = 1500;
 /** How far they get in a second to be running (a knockback is well under this). */
 const RUN_BLOCKS_PER_S = 2.5;
 /** A fed fighter heals about this much a second (fast regeneration, then slow). */
-const REGEN_PER_S = 0.4;
+export const REGEN_PER_S = 0.4;
 /** No blow from them this long while ours still land: they've stopped fighting (a yield in deeds). */
 const QUIET_MS = 5000;
 /** No blow either way this long (out of reach, or both lost the thread): the fight fizzled out, nobody won. */
@@ -235,7 +235,7 @@ export const duel = defineSkill({
       // over to run (low health): the yield still stands and is what this fight's record says.
       bot.setControlState('back', true);
       try {
-        await ctx.say('ok ok, I yield!');
+        await ctx.say('ok ok, I yield!', 'normal', true);
         await waitMs(ctx, 600);
       } catch {
         // interrupted while backing off
@@ -246,7 +246,7 @@ export const duel = defineSkill({
     }
     if (outcome === 'won') {
       // Done with them: a word, and room to walk away.
-      if (!theyGaveUp) await ctx.say("that's enough. stay out of my way.");
+      if (!theyGaveUp) await ctx.say("that's enough. stay out of my way.", 'normal', true);
       return { ok: true, observed: `${args.target} ${why}`, data: { outcome, why, landed } };
     }
     if (outcome === 'gone') return { ok: true, observed: `${args.target} is gone`, data: { outcome } };

@@ -123,7 +123,8 @@ export interface ConflictView {
   tributeDue?: (name: AgentName) => boolean;
   /** §17.7: we demanded something of them just now, or they are paying it or paid lately: no blows for that. */
   demandPending?: (name: AgentName) => boolean;
-  /** §17.7: we have said a demand to them in the last few minutes (a tyrant asks before he beats). */
+  /** §17.7: we have said a demand to them in the last few minutes, since we last fought them (a tyrant asks before he
+   *  beats). */
   demandedLately?: (name: AgentName) => boolean;
   warnedLately: (name: AgentName) => boolean;
 }
@@ -172,7 +173,7 @@ const ASKED_FRESH_MS = 30_000;
 const DEMAND_ANSWER_MS = 60_000;
 /** One who refused a demand of ours is gone after if seen this close (§17.7 "or else"). */
 const REFUSER_SIGHT = 24;
-/** A demand said this recently still stands: one who hasn't paid it may be beaten for it. */
+/** A demand said this recently still stands: one who hasn't paid it may be beaten for it (once: a beating answers it). */
 const DEMANDED_LATELY_MS = 10 * 60_000;
 /** Tribute is asked of those who gave in this often (§17.7 "every day": a few minutes, as days go here). */
 const TRIBUTE_EVERY_MS = 5 * 60_000;
@@ -431,16 +432,7 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
     // Words and distance come now and then, not on every decision.
     if (c.warnedLately(e.name)) continue;
     // §17.7: a domineering agent's threat is a demand: tribute, or else; and who gave in pays again in time.
-    if ((rung >= 2 || c.tributeDue?.(e.name)) && s.self.persona.temperament.dominance >= 0.5) {
-      const want = demandFor(s.self.inventory.filter((x) => /^(bread|apple|cooked_\w+|baked_potato|carrot)$/.test(x.item)).reduce((a, x) => a + x.qty, 0));
-      return {
-        option: 'demand',
-        target: { agent: e.name },
-        speechIntent: { stance: 'threaten', gist: `give me ${amountOf(want.item, want.qty)}, or else`, mayCommit: false },
-        terminate: { maxSeconds: 40 },
-        rationale: `code default: ${e.name} will pay up`,
-      };
-    }
+    if ((rung >= 2 || c.tributeDue?.(e.name)) && tyrant) return demandOf(s, e.name);
     if (rung >= 1) {
       return {
         option: 'talk',
@@ -465,7 +457,21 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
       };
     }
   }
-  return null;
+  // Tribute due from one in sight further off: gone over to and asked for.
+  const payer = tyrant ? s.perception.nearbyEntities.find((e) => e.kind === 'player' && e.visible && e.distance <= REFUSER_SIGHT && (c.tributeDue?.(e.name) ?? false) && !c.warnedLately(e.name)) : undefined;
+  return payer ? demandOf(s, payer.name) : null;
+}
+
+/** §17.7: "give me 3 bread, or else" (logs when we have food enough), promising nothing. */
+function demandOf(s: AgentStateStore['state'], name: AgentName): DecisionOutput {
+  const want = demandFor(s.self.inventory.filter((x) => /^(bread|apple|cooked_\w+|baked_potato|carrot)$/.test(x.item)).reduce((a, x) => a + x.qty, 0));
+  return {
+    option: 'demand',
+    target: { agent: name },
+    speechIntent: { stance: 'threaten', gist: `give me ${amountOf(want.item, want.qty)}, or else`, mayCommit: false },
+    terminate: { maxSeconds: 40 },
+    rationale: `code default: ${name} will pay up`,
+  };
 }
 
 /**
@@ -985,7 +991,11 @@ export class CognitiveController {
         ...(c.fearWith ? { fearWith: (n: AgentName, allies: readonly AgentName[]) => c.fearWith?.(n, allies) ?? c.fearOf(n) } : {}),
         tributeDue: (n) => tributeDue(store.state.commitments, this.o.me, n, t),
         demandPending: (n) => t - lastDemandSaid(store.state, n) < DEMAND_ANSWER_MS || paying(store.state.commitments, this.o.me, n, t),
-        demandedLately: (n) => t - lastDemandSaid(store.state, n) < DEMANDED_LATELY_MS,
+        demandedLately: (n) => {
+          // A fight with them since answers that demand: another beating takes another demand first.
+          const said = lastDemandSaid(store.state, n);
+          return t - said < DEMANDED_LATELY_MS && said > (store.state.social[n]?.lastFight?.ts ?? -Infinity);
+        },
         warnedLately: (n) => {
           const w = this.warned.get(n);
           if (!w || t - w.at >= WARN_EVERY_MS || c.rungOf(n) > w.rung) return false;

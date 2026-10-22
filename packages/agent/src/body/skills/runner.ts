@@ -127,7 +127,8 @@ export interface RunSkillDeps {
   signal: AbortSignal;
   movements: () => Movements;
   knowsRecipe: (item: string) => boolean;
-  say: (text: string, volume?: Volume) => Promise<void>;
+  /** `urgent`: at once, ahead of anything waiting to be said (giving up a fight, calling one off). */
+  say: (text: string, volume?: Volume, urgent?: boolean) => Promise<void>;
   /** Probability of an execution slip for this run (§21.1: ~8 % at low intelligence, ~1 % at high). */
   slipChance: number;
   progress?: (note: string) => void;

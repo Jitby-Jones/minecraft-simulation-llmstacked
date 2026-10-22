@@ -26,6 +26,8 @@ export interface SayResult {
 export class ChatOut {
   private lastSentAt = 0;
   private queue: Promise<unknown> = Promise.resolve();
+  /** Urgent lines said so far: one goes out ahead of the queue, and what was waiting is dropped. */
+  private urgentSaid = 0;
   private readonly pairLog = new Map<string, number[]>();
   private guardHits = 0;
 
@@ -44,10 +46,18 @@ export class ChatOut {
 
   /**
    * Serializes all speech so the rate guard holds across modules. `stillWanted` is asked right before the line goes
-   * out, after the typing delay (group floor control: someone else may have answered meanwhile).
+   * out, after the typing delay (group floor control: someone else may have answered meanwhile). An urgent line
+   * (giving up a fight, calling one off) goes out at once, ahead of anything waiting: blows land while one types.
+   * What was waiting then is dropped ("back off, or else" after "I yield" would be a lie).
    */
-  say(text: string, volume: Volume = 'normal', listeners: readonly string[] = [], stillWanted?: () => boolean): Promise<SayResult> {
-    const run = async (): Promise<SayResult> => this.sendNow(text, volume, listeners, stillWanted);
+  say(text: string, volume: Volume = 'normal', listeners: readonly string[] = [], stillWanted?: () => boolean, urgent = false): Promise<SayResult> {
+    if (urgent) {
+      this.urgentSaid++;
+      return this.sendNow(text, volume, listeners, stillWanted, true);
+    }
+    const before = this.urgentSaid;
+    const wanted = (): boolean => this.urgentSaid === before && (!stillWanted || stillWanted());
+    const run = async (): Promise<SayResult> => this.sendNow(text, volume, listeners, wanted);
     const p = this.queue.then(run, run);
     this.queue = p.catch(() => undefined);
     return p;
@@ -64,7 +74,7 @@ export class ChatOut {
     return true;
   }
 
-  private async sendNow(text: string, volume: Volume, listeners: readonly string[], stillWanted?: () => boolean): Promise<SayResult> {
+  private async sendNow(text: string, volume: Volume, listeners: readonly string[], stillWanted?: () => boolean, urgent = false): Promise<SayResult> {
     const clean = text.replace(/[\r\n]+/g, ' ').trim();
     if (!clean) return { sent: false, reason: 'empty', parts: 0 };
     // Never type commands: a leading slash would run a server command.
@@ -80,9 +90,9 @@ export class ChatOut {
     for (const part of parts) {
       const minInterval = this.opts.minIntervalMs ?? 2000;
       const typing = Math.min(this.opts.maxTypingMs ?? 3000, part.length * (this.opts.msPerChar ?? 40));
-      const wait = Math.max(typing, this.lastSentAt + minInterval - this.now());
+      const wait = urgent ? 0 : Math.max(typing, this.lastSentAt + minInterval - this.now());
       if (wait > 0) await sleep(wait);
-      if (this.opts.acquireGlobalToken && !(await this.opts.acquireGlobalToken())) {
+      if (!urgent && this.opts.acquireGlobalToken && !(await this.opts.acquireGlobalToken())) {
         this.guardHits++;
         this.opts.logger?.warn({ module: 'chat' }, 'global speech guard hit; staying silent');
         return { sent: sentParts > 0, reason: 'global', parts: sentParts };

@@ -54,7 +54,8 @@ export interface SkillContext {
   /** Recipe knowledge gate (§21.2): false = "I don't know how to make that". */
   knowsRecipe: (item: string) => boolean;
   /** Rate-limited speech port (§6.2). */
-  say: (text: string, volume?: Volume) => Promise<void>;
+  /** `urgent`: at once, ahead of anything waiting to be said (giving up a fight, calling one off). */
+  say: (text: string, volume?: Volume, urgent?: boolean) => Promise<void>;
   /** The slip rolled for this run, if any (§21.1). Skills apply it where it makes sense. */
   slip: SlipKind | null;
   /** Where the body first appeared (explore stays within reach of it). */

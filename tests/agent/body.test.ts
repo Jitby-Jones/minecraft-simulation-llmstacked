@@ -116,6 +116,19 @@ describe('chat output guards (§6.2, §15.3, §16.1)', () => {
     expect((await denied.say('hi')).reason).toBe('global');
   });
 
+  it('says an urgent line at once, ahead of what waits, and drops what waited', async () => {
+    const { bot, sent } = fakeChatBot();
+    const out = new ChatOut(bot, { minIntervalMs: 2000, msPerChar: 40 });
+    const t0 = Date.now();
+    const threat = out.say('back off, or else.');
+    const giveUp = out.say('ok ok, I yield!', 'normal', [], undefined, true);
+    expect((await giveUp).sent).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(100);
+    // "back off, or else" after "I yield" would be a lie.
+    expect((await threat).reason).toBe('superseded');
+    expect(sent.map((s) => s.text)).toEqual(['ok ok, I yield!']);
+  });
+
   it('applies a typing delay of ~40 ms/char capped at 3 s', async () => {
     const { bot, sent } = fakeChatBot();
     const out = new ChatOut(bot, { minIntervalMs: 0, msPerChar: 10, maxTypingMs: 150 });
@@ -370,5 +383,33 @@ describe('fight or flight with archers (§4.5)', () => {
     expect(spot).not.toBeNull();
     expect(spot?.z).toBeGreaterThan(3);
     expect(spot?.distanceTo(archer.position)).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('fighting back a person (§17.6)', () => {
+  it('reckons the blows that land, stops once one more could kill, and fights on if they come back for more', () => {
+    const bot = Object.assign(new EventEmitter(), { entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 }, entities: {}, health: 20, heldItem: { name: 'iron_sword' } });
+    const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
+    const r = new ReflexController(bot as unknown as Bot, hooks as never, nullLogger()) as unknown as {
+      reckon(e: unknown): void;
+      beatenFoe(e: unknown): boolean;
+      dealt: Map<number, { calledOffAt?: number }>;
+    };
+    const bo = { id: 5, type: 'player', username: 'Bo', position: new Vec3(2, 64, 0), equipment: [] };
+    // An iron sword: 6 a blow. One landed: a crit more (9) would still leave them standing.
+    r.reckon(bo);
+    expect(r.beatenFoe(bo)).toBe(false);
+    // Two: one more, a critical one, could finish them.
+    r.reckon(bo);
+    expect(r.beatenFoe(bo)).toBe(true);
+    // Called off, and they came back for more: we fight on.
+    const d = r.dealt.get(5);
+    if (d) d.calledOffAt = Date.now();
+    expect(r.beatenFoe(bo)).toBe(false);
+    // Armor they visibly wear softens the reckoning.
+    const ann = { id: 6, type: 'player', username: 'Ann', position: new Vec3(2, 64, 0), equipment: [null, null, { name: 'iron_boots' }, { name: 'iron_leggings' }, { name: 'iron_chestplate' }, { name: 'iron_helmet' }] };
+    r.reckon(ann);
+    r.reckon(ann);
+    expect(r.beatenFoe(ann)).toBe(false);
   });
 });

@@ -23,7 +23,7 @@ export const PROMISE_RE =
   /\b(i'?ll|i will|i can do (that|it)|sure,? i can|deal\b(?!\s+with)|i promise|you got it|i'?m on it|on it\b|consider it done|will do\b|count me in|leave it to me|i'?ll (bring|get|give|grab|fetch|help|build|make|meet))\b/i;
 export const GIVEAWAY_RE = /\b(as an ai|an ai\b|ai model|a bot\b|language model|chatbot|virtual assistant|openai|anthropic|llm\b|i am an? (ai|bot|program))\b/i;
 export const REQUEST_RE =
-  /\b(can|could|would|will) you\b|\b(give|bring|lend|show|teach|help) me\b|\bwanna\b|\bwant to\b|\blet'?s\b|\btrade\b|\bfollow me\b|\bcome (here|with|over)\b|\bdo you have\b|\bi need (some|a|an|any)\b/i;
+  /\b(can|could|would|will) you\b|\b(give|bring|lend|show|teach|help) me\b(?! a (sec|second|minute|moment)\b)|\bwanna\b|\bwant to\b|\blet'?s\b|\btrade\b|\bfollow me\b|\bcome (here|with|over)\b|\bdo you have\b|\bi need (some|a|an|any)\b/i;
 
 const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 
@@ -213,14 +213,14 @@ export class Talking {
   private readonly refusing = new Map<AgentName, number>();
 
   /** Says something right away to them, no model and no waiting (§18.5 outbursts); replaces a reply in the making. */
-  async blurt(to: AgentName, text: string, volume: SpeechIntent['volume'] = 'normal'): Promise<boolean> {
+  async blurt(to: AgentName, text: string, volume: SpeechIntent['volume'] = 'normal', urgent = false): Promise<boolean> {
     const conv = this.o.conversations.withPartner(to) ?? this.o.conversations.open(to, true);
     const p = this.pending.get(conv.convId);
     if (p) {
       clearTimeout(p.timer);
       this.pending.delete(conv.convId);
     }
-    return this.send(conv.convId, text, volume);
+    return this.send(conv.convId, text, volume, undefined, urgent);
   }
 
   /** Says a line to the nearest person in earshot, if anyone is (§6.8: what one is doing for the village). */
@@ -348,10 +348,10 @@ export class Talking {
     return text.length > 0 && !GIVEAWAY_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
   }
 
-  private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean): Promise<boolean> {
+  private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean, urgent = false): Promise<boolean> {
     const conv = this.o.conversations.get(convId);
     try {
-      const sent = await this.o.body.say(text, volume ?? 'normal', conv?.participants.filter((p) => p !== this.o.me) ?? [], stillWanted);
+      const sent = await this.o.body.say(text, volume ?? 'normal', conv?.participants.filter((p) => p !== this.o.me) ?? [], stillWanted, urgent);
       if (!sent) return false;
     } catch (err) {
       this.o.logger.info({ module: 'talking', err: String(err) }, 'did not say a line');

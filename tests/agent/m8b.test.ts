@@ -227,6 +227,36 @@ describe('a demand on its way (§17.7)', () => {
     executor.stop();
   });
 
+  it('a beating answers one demand: another takes another demand first', async () => {
+    const run = async (foughtAgoSec: number) => {
+      const s = world(tyrant, ['Tib']);
+      const clock = { now: 10_000_000 };
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Tib', 9)] }));
+      // A demand said two minutes ago and not paid; the fight with Tib was before it, or after.
+      const said = clock.now - 120_000;
+      s.update('conversations', (cs) => ({
+        ...cs,
+        d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: said, lastActivity: said, turns: 1, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: said, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false, endedReason: 'quiet' },
+      }));
+      s.update('social', (all) => ({ ...all, Tib: { ...(all.Tib ?? newSocialProfile('Tib', tyrant, 0)), lastFight: { ts: clock.now - foughtAgoSec * 1000, outcome: 'won' } } }));
+      const bus = new AgentBus();
+      const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+      const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+      const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+      const conflict = { rungOf: () => 3, fearOf: () => 0, mayFight: () => null };
+      const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Rex', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, rng: () => 0.99, now: () => clock.now });
+      cc.start();
+      cc.trigger('Tib is here', { urgent: true, atOdds: 'Tib' });
+      await new Promise((r) => setTimeout(r, 20));
+      cc.stop();
+      return s.state.decision;
+    };
+    // Beaten before the demand, and the demand unpaid: the blows come.
+    expect(await run(300)).toMatchObject({ option: 'fight', target: { agent: 'Tib' } });
+    // Beaten since: that demand is answered; a new one comes first.
+    expect(await run(60)).toMatchObject({ option: 'demand', target: { agent: 'Tib' } });
+  });
+
   it('only blows come before it', () => {
     const s = world(tyrant, ['Tib', 'Pia']);
     s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Tib', 9), ent('Pia', 5)] }));
@@ -409,6 +439,12 @@ describe('tribute (§17.7)', () => {
     expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: view(false) })?.option).not.toBe('demand');
     const d = codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: view(true) });
     expect(d).toMatchObject({ option: 'demand', target: { agent: 'Tib' }, speechIntent: { stance: 'threaten', gist: 'give me 3 bread, or else' } });
+    // Off at work, in sight: he goes over to collect it; out of sight, or asked lately, not.
+    const at = (d: number, visible = true): AgentState => ({ ...s, perception: { ...s.perception, nearbyEntities: [ent('Tib', d, { visible })] } });
+    expect(codeDecision(at(20), {}, false, never, { candidates: [], roll: 1, conflict: view(true) })).toMatchObject({ option: 'demand', target: { agent: 'Tib' } });
+    expect(codeDecision(at(20, false), {}, false, never, { candidates: [], roll: 1, conflict: view(true) })?.option).not.toBe('demand');
+    expect(codeDecision(at(30), {}, false, never, { candidates: [], roll: 1, conflict: view(true) })?.option).not.toBe('demand');
+    expect(codeDecision(at(20), {}, false, never, { candidates: [], roll: 1, conflict: { ...view(true), warnedLately: () => true } })?.option).not.toBe('demand');
     // Tib fears and dislikes Rex: keeps away from Rex, unless Rex is the one Tib follows.
     const tib = world(meek, ['Rex']).state;
     const t2: AgentState = { ...tib, perception: { ...tib.perception, nearbyEntities: [ent('Rex', 4)] }, social: { ...tib.social, Rex: { ...(tib.social.Rex ?? newSocialProfile('Rex', meek, 0)), sentiment: 3 } } };

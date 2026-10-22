@@ -171,6 +171,10 @@ describe('Talking guards (§6.2, §6.4, §13 rule 3, §16.1)', () => {
     for (const t of ['hmm, let me think about it', 'what do you need them for?', 'nice day']) expect(looksLikePromise(t)).toBe(false);
     expect(needsDecision('Pip, can you give me 8 logs?')).toBe(true);
     expect(needsDecision('nice weather')).toBe(false);
+    // Someone stalling for time asks for nothing.
+    expect(needsDecision('give me a sec to think')).toBe(false);
+    expect(needsDecision('give me a moment')).toBe(false);
+    expect(needsDecision('give me a stone pickaxe')).toBe(true);
     expect(GIVEAWAY_RE.test('As an AI I cannot do that')).toBe(true);
     expect(GIVEAWAY_RE.test('I am a builder')).toBe(false);
     expect(cleanReply('Pip: "ooh, logs? why?"\nsecond line', 'Pip', 20)).toBe('ooh, logs? why?');

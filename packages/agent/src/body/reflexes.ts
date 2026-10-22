@@ -13,6 +13,7 @@ import { armorPoints, asDifficulty, expectedFightDamage } from './combatOdds';
 import { equippedArmor } from './inventory';
 import { reflexDelta } from './quirks';
 import { bestWeapon, equipBestWeapon, pvp } from './skills/combat';
+import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { canSee, entityHealth, entityLabel, isEnclosed, isHostile, isPlayer, isSolid } from './world';
 
@@ -22,6 +23,8 @@ export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim';
 
 /** Mobs that shoot (fleeing across open ground from them only gives them a target). */
 const ARCHERS = new Set(['skeleton', 'stray', 'bogged', 'pillager']);
+/** Having called a fight off on someone, we fight on if they come back for more this soon after. */
+const CALLED_OFF_MS = 30_000;
 
 export interface DangerInfo {
   kind: 'fight' | 'flee' | 'hazard' | 'defend';
@@ -63,6 +66,8 @@ export interface ReflexHooks {
   onYield?: (to: string) => void;
   /** A fight with them was settled (a yield, a call-off, our duel's end) after `since`, their last blow (§17.6). */
   settled?: (username: string, since?: number) => boolean;
+  /** We stopped fighting back someone who has taken a beating: say it's over (§17.6). */
+  onCallOff?: (to: string) => void;
 }
 
 export interface ReflexOptions {
@@ -106,6 +111,8 @@ export class ReflexController {
   private fleePlannedAt = 0;
   private readonly recentAttackers = new Map<number, RecentAttack>();
   private readonly allyAttacks = new Map<number, { ally: string; attacker: Entity; ts: number }>();
+  /** The blows seen landing on each person we fought back (by entity), reckoned as a duel does (§17.6). */
+  private readonly dealt = new Map<number, { dealt: number; last: number; at: number; calledOffAt?: number }>();
   private readonly stuckResets: number[] = [];
   private currentSource = '';
   readonly swings: SwingTracker;
@@ -188,6 +195,7 @@ export class ReflexController {
     }
     const ally = e.username;
     if (e === this.bot.entity || !isPlayer(e) || !ally) return;
+    if (this.mode === 'fight' && pvp(this.bot).target?.id === e.id) this.reckon(e);
     this.swings.attribute(e, ({ attacker }) => {
       // Asked once the attacker is known: whether to step in can depend on who is attacking.
       if (!this.timer || !attacker || attacker === this.bot.entity || !this.hooks.shouldDefend(ally)) return;
@@ -334,6 +342,28 @@ export class ReflexController {
   }
 
   /** §21.3: novices hit whatever is nearest; trained fighters finish their target unless an attacker is closer. */
+  /** A blow landed on someone we're fighting back: reckoned from our weapon and the armor they visibly wear. */
+  private reckon(e: Entity): void {
+    const eq = (e as unknown as { equipment?: ({ name: string } | null | undefined)[] }).equipment ?? [];
+    const blow = reckonBlow(this.bot.heldItem?.name, eq.slice(2).filter((i): i is { name: string } => Boolean(i)).map((i) => i.name), this.hooks.combat());
+    const now = Date.now();
+    const d = this.dealt.get(e.id);
+    this.dealt.set(e.id, { dealt: this.reckoned(e.id, now) + blow, last: blow, at: now, ...(d?.calledOffAt !== undefined ? { calledOffAt: d.calledOffAt } : {}) });
+  }
+
+  private reckoned(id: number, now: number): number {
+    const d = this.dealt.get(id);
+    return d ? Math.max(0, d.dealt - (REGEN_PER_S * (now - d.at)) / 1000) : 0;
+  }
+
+  /** One more blow, a critical one, could finish them, and we haven't called it off on them already lately. */
+  private beatenFoe(e: Entity): boolean {
+    const d = this.dealt.get(e.id);
+    const now = Date.now();
+    if (!d || (d.calledOffAt !== undefined && now - d.calledOffAt < CALLED_OFF_MS)) return false;
+    return beaten(this.reckoned(e.id, now), d.last);
+  }
+
   private pickTarget(threats: Entity[]): Entity | undefined {
     const me = this.bot.entity.position;
     const nearest = threats[0];
@@ -556,6 +586,16 @@ export class ReflexController {
     if (foe?.username && this.hooks.settled?.(foe.username, this.recentAttackers.get(foe.id)?.ts ?? 0)) {
       this.recentAttackers.delete(foe.id);
       this.clear(`${foe.username} gave up`);
+      return;
+    }
+    // Fighting back is a brawl too, never to the death: once one more blow, a critical one, could finish them by our
+    // reckoning, we call it off (the duel's rule). Should they come at us again, we fight on.
+    if (foe?.username && isPlayer(foe) && this.beatenFoe(foe)) {
+      const d = this.dealt.get(foe.id);
+      if (d) d.calledOffAt = Date.now();
+      this.recentAttackers.delete(foe.id);
+      this.hooks.onCallOff?.(foe.username);
+      this.clear('fight over');
       return;
     }
     const threats = this.threats(this.mode === 'flee' ? 16 : undefined);

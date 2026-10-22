@@ -101,6 +101,8 @@ export class Agent {
   private dangerIsPerson = false;
   private yieldSaidAt = -Infinity;
   private yieldPending = false;
+  /** When we last called a fight off on each person (the reflexes, once they've taken a beating). */
+  private readonly calledOffAt = new Map<AgentName, number>();
   private readonly fightCapReached: () => boolean;
   private readonly offs: (() => void)[] = [];
 
@@ -391,6 +393,12 @@ export class Agent {
         return opt?.skill === 'duel' ? Math.max(1, Number(opt.args?.stopAtHealth ?? 8) - 1) : null;
       },
       onYield: (to) => this.sayYield(to),
+      onCallOff: (to) => {
+        const t = now();
+        if (t - (this.calledOffAt.get(to) ?? -Infinity) < 20_000) return;
+        this.calledOffAt.set(to, t);
+        void this.talking.blurt(to, "that's enough. stay out of my way.", 'normal', true);
+      },
       settled: (name, since) => this.conflict.settled(name, since),
       isIdle: () => this.executor.idleBody,
       mayPickUp: (item) => this.perception.mayPickUp(item.id),
@@ -537,16 +545,22 @@ export class Agent {
     this.o.logger.info({ module: 'agent', shift, until }, 'extinction brake: more careful for a while');
   }
 
+  /**
+   * §17.6: running from a person, say we give up so they stop, at once: blows land while one waits. A duel that is
+   * giving up says so itself, so then wait a moment to hear it first; and say it only once.
+   */
   private sayYield(to: AgentName): void {
     const now = this.o.now ?? Date.now;
     if (now() - this.yieldSaidAt < 20_000 || this.yieldPending) return;
-    this.yieldPending = true;
-    setTimeout(() => {
+    const say = (): void => {
       this.yieldPending = false;
       if (now() - this.yieldSaidAt < 20_000) return;
       this.yieldSaidAt = now();
-      void this.talking.blurt(to, 'ok ok, I give up!');
-    }, 1500).unref();
+      void this.talking.blurt(to, 'ok ok, I give up!', 'normal', true);
+    };
+    if (this.store.state.option?.skill !== 'duel') return say();
+    this.yieldPending = true;
+    setTimeout(say, 600).unref();
   }
 
   /**
