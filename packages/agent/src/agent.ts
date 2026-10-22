@@ -25,6 +25,14 @@ import { CommitmentTracker } from './social/commitments';
 import { DeathWatch } from './social/deaths';
 import { DeedWatch } from './social/deeds';
 import { TradeTracker } from './social/trades';
+import { gearScore } from './body/items';
+import { BiasWatch } from './mind/biasWatch';
+import { Crowd } from './mind/crowd';
+import { Feelings } from './mind/feelings';
+import { Impulses } from './mind/impulses';
+import { Mind } from './mind/mind';
+import { feelingText } from './modules/talking';
+import { Impressions } from './social/impressions';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
@@ -42,6 +50,8 @@ export interface AgentOptions {
   memory?: { db: MemoryDB; embedder: Embedder };
   /** Goal Generation picks goals (M4). Off when a test or the runner drives goals by hand. */
   goalGen?: boolean;
+  /** Dice for impulses and first impressions (tests pin them). */
+  rng?: () => number;
   now?: () => number;
 }
 
@@ -64,6 +74,12 @@ export class Agent {
   readonly claims: ClaimChecker;
   readonly deeds: DeedWatch;
   readonly trades: TradeTracker;
+  readonly feelings: Feelings;
+  readonly mind: Mind;
+  readonly impressions: Impressions;
+  readonly impulses: Impulses;
+  readonly crowd: Crowd;
+  readonly biases: BiasWatch;
   private dangerSource = '';
   private readonly offs: (() => void)[] = [];
 
@@ -107,6 +123,16 @@ export class Agent {
       ...(memories ? { memories } : {}),
       refreshSelf: () => this.perception.refreshSelf(),
       socialCandidates: () => this.perception.peopleInRange().filter((n) => this.conversations.mayInitiate(n)),
+      liking: (name) => this.mind.liking(name),
+      mindLines: () => {
+        const s = this.store.state;
+        const lines: string[] = [];
+        const f = feelingText(s.emotions);
+        const g = this.feelings.grudges()[0];
+        if (f) lines.push(`You feel ${f}${g ? ` (angry at ${g.name})` : ''}.`);
+        lines.push(...this.mind.packetLines(s.perception.nearbyEntities.filter((e) => e.kind === 'player').map((e) => e.name).slice(0, 3)));
+        return lines;
+      },
       claimToCheck: () => {
         const c = this.claims.open()[0];
         const me = this.store.state.self.pos;
@@ -118,10 +144,50 @@ export class Agent {
       o.goalGen === false
         ? null
         : new GoalGen({ store: this.store, bus: this.bus, logger, llm, me: username, setGoal: (t, d) => this.cc.setGoal(t, d), ...(memories ? { memories } : {}), now });
-    this.social = new SocialAwareness({ store: this.store, bus: this.bus, logger, llm, me: username, now });
+    const rng = o.rng ? { rng: o.rng } : {};
+    this.feelings = new Feelings({ store: this.store, bus: this.bus, logger, me: username, contagionScale: () => (this.crowd.inMob() ? 1.5 : 1), ...rng, now });
+    const myGear = () => {
+      const inv = body.bot.inventory;
+      const armor = [5, 6, 7, 8].map((i) => inv.slots[i]?.name).filter((n): n is string => Boolean(n));
+      return gearScore(armor, body.bot.heldItem?.name ?? null);
+    };
+    this.mind = new Mind(() => this.store.state, {
+      secondsSinceTrigger: () => this.feelings.secondsSinceTrigger(),
+      angerToward: (n) => this.feelings.angerToward(n),
+      inCrowd: () => this.crowd.inMob(),
+      myGear,
+      now,
+    });
+    this.social = new SocialAwareness({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      llm,
+      me: username,
+      mind: {
+        override: () => this.mind.override(),
+        // §18.4.1 fearLevel = max(fear, caution above its baseline); a feared leader joins in with M8b.
+        fearLevel: () => Math.max(this.store.state.emotions.fear, this.store.state.drives.caution - this.store.state.drives.cautionBaseline),
+      },
+      now,
+    });
     this.commitments = new CommitmentTracker({ store: this.store, bus: this.bus, logger, llm, me: username, social: this.social, now });
     this.deaths = new DeathWatch({ store: this.store, bus: this.bus, logger, me: username, sawDeath: (name, ms) => this.perception.saw(name, 'death', ms), now });
     this.claims = new ClaimChecker({ store: this.store, bus: this.bus, logger, bot: body.bot, social: this.social, ...(mem ? { markFalse: (t: string) => void mem.markFalseMatching(t) } : {}), now });
+    this.impressions = new Impressions({ store: this.store, bus: this.bus, logger, me: username, myGear, ...rng, now });
+    this.impulses = new Impulses({ store: this.store, bus: this.bus, logger, me: username, cc: this.cc, talking: this.talking, conversations: this.conversations, ...rng, now });
+    this.crowd = new Crowd({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      angerToward: (n) => this.feelings.angerToward(n),
+      override: () => this.mind.override(),
+      liking: (n) => this.mind.liking(n),
+      say: (to, text) => this.talking.blurt(to, text),
+      now,
+    });
+    this.biases = new BiasWatch({ store: this.store, bus: this.bus, logger, me: username, override: () => this.mind.override(), nudge: (n, d, note) => this.social.nudge(n, d, note), ...rng, now });
     this.trades = new TradeTracker({ store: this.store, bus: this.bus, logger, me: username, onDeal: (w, ours, theirs) => this.cc.recordDeal(w, ours, theirs), now });
     // Notable deeds move sentiment by code (§6.3 rule 2).
     this.deeds = new DeedWatch({ bot: body.bot, store: this.store, social: this.social, me: username, placed: body.placed, now });
@@ -146,13 +212,17 @@ export class Agent {
     body.reflexes.setHooks({
       caution: () => this.store.state.drives.caution,
       combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
-      shouldDefend: (name) => (this.store.state.social[name]?.sentiment ?? 0) >= 7,
+      shouldDefend: (name) => Boolean(this.store.state.social[name]) && this.mind.liking(name) >= 7,
       // Self-defense is always allowed; deliberate fights are code-gated in the conflict core (M6b).
       mayFightBack: () => true,
       deliberateFight: () => this.store.state.option?.skill === 'attack',
       isIdle: () => this.executor.idleBody,
       mayPickUp: (item) => this.perception.mayPickUp(item.id),
-      onAllyAttacked: (ally, by) => this.deeds.allyAttacked(ally, by),
+      fearBoost: (source) => this.biases.fearBoost(source),
+      onAllyAttacked: (ally, by) => {
+        this.deeds.allyAttacked(ally, by);
+        if (by && body.bot.players[by]) this.impressions.wronged(by, `they attacked ${ally}`);
+      },
       onHelpedFight: (helper) => this.deeds.helpedFight(helper),
       onDanger: (info) => {
         this.dangerSource = info.source;
@@ -168,7 +238,10 @@ export class Agent {
       onAttacked: (by, damage) => {
         this.bus.emit({ type: 'attacked', by, damage });
         // Players are people: being hit by one counts against them (§6.3); mobs are just danger.
-        if (by && body.bot.players[by]) this.social.deed(by, 'attackedMe', `${by} hit me`);
+        if (by && body.bot.players[by]) {
+          this.social.deed(by, 'attackedMe', `${by} hit me`);
+          this.impressions.wronged(by, 'they hit me');
+        }
       },
     });
     if (o.governor) {
@@ -205,11 +278,21 @@ export class Agent {
     this.claims.start();
     this.deeds.start();
     this.trades.start();
+    this.feelings.start();
+    this.impressions.start();
+    this.impulses.start();
+    this.crowd.start();
+    this.biases.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.biases.stop();
+    this.crowd.stop();
+    this.impulses.stop();
+    this.impressions.stop();
+    this.feelings.stop();
     this.trades.stop();
     this.deeds.stop();
     this.claims.stop();

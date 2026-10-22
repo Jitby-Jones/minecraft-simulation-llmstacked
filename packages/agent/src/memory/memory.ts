@@ -128,7 +128,9 @@ export class Memory {
       const dupes = recent.filter((r) => r.embedding && cosine(r.embedding, v) > (this.o.dedupAt ?? 0.9)).map((r) => r.id);
       if (dupes.length > 0) this.o.db.delete(dupes);
       const told = w.source.startsWith('told_by:') ? w.source.slice('told_by:'.length) : null;
-      const trust = told ? (this.o.store.state.social[told]?.trust ?? 0.5) : 1;
+      // Hearsay is as good as its teller; an admired one's word counts for more (§18.3 halo).
+      const teller = told ? this.o.store.state.social[told] : undefined;
+      const trust = told ? Math.min(1, (teller?.trust ?? 0.5) + 0.2 * (teller?.admiration ?? 0) * this.o.store.state.self.persona.mind.biasProfile.halo) : 1;
       this.o.db.insert({
         id: `m${this.now().toString(36)}${(seq++).toString(36)}`,
         tier: 'recent',

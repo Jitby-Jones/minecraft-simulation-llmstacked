@@ -18,7 +18,8 @@ import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
 import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
 
-const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['generous'], social: { baselineSentiment: 5, grudge: 0 }, mind: { biasProfile: { negativity: 0 } } });
+// No rationality: the M6 rules alone, without System 2 pulling feelings toward the facts (M6a, tests/agent/m6a.test.ts).
+const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['generous'], social: { baselineSentiment: 5, grudge: 0 }, mind: { rationality: 0, biasProfile: { negativity: 0, confirmation: 0 } } });
 const store = () => new AgentStateStore(createInitialState({ persona, username: 'Pip', now: 0 }));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const newProfile = (name: string) => newSocialProfile(name, persona, 0);

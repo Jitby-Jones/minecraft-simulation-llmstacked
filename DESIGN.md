@@ -37,6 +37,7 @@
 | **M4** memory (Summarize-and-Forget over SQLite + local embeddings), Goal Gen, personas with quirks | **done** (goal choice by a real model pending a key) | `pnpm run check` + `pnpm test:live` exit test `m4-agent` on Paper 26.1.2: a code-only bot runs its own goal chain (wooden pickaxe → stone tools → furnace → iron pickaxe, the iron hidden in the ground and found by digging) with its quirks visible (picks poppies, hums for company); a told fact drops out of working memory into SQLite and is repeated with attribution, in a later conversation, through the real local embedder; hidden ore isn't a target until seen |
 | **M5** Hub (rate tokens, budgets, shared embedder, speech guard), supervisor, proximity-chat conversations among several agents, graceful shutdown and resume | **done** | `pnpm run check` (Hub protocol over a real socket, supervisor with stand-in bots, floor control, snapshots, persona calibration) + `pnpm test:live` exit test `m5-population`: real bot processes join through the Hub, shut down gracefully and resume as the same agents; two agents meet and talk until their conversation ends by itself, with nothing looping afterwards; scenario C with four people. `pnpm start` run twice on a fresh normal world: two agents, a death (lava) archived and replaced, resume after Ctrl+C |
 | **M6** Social Awareness, commitments, trades, the help option, claims; deaths matter to the living | **done** | `pnpm run check` (social updates with and without a model, commitments, trades, help, deeds, rumors, deaths) + `pnpm test:live` exit test `m6-social` on Paper 26.1.2, 8/8: **A** a scripted-model Bram asks code-only Pip for 8 logs; she promises, gathers and hands them over, both sides record the promise as kept, and Bram's sentiment goes 5.6 → 8.1 (trust 0.6); **B** a promise past its deadline drops trust to 0.3 and comes up when Bram talks later; **D** a false diamond claim is checked and the teller's trust drops; **E** a zombie ends a conversation cleanly, with a canned line, and talk resumes; **G** a plain client gets bread through the same code paths; **T** an offer made in chat is accepted and both halves are handed over; **K** help gathering wood ends with the logs handed over; **H** a killed agent is replaced in 6 s and the survivors grow more cautious |
+| **M6a** emotions and biases core: feelings, impulses, first impressions, gut against facts, conformity, mobs | **done** | `pnpm run check` (appraisal, decay and contagion; gossip read in code; impulses and regret; first impressions fading into the facts for the rational; conformity, confirmation, availability, scapegoat; mobs) + `pnpm test:live` exit test `m6a-minds` on Paper 26.1.2, 3/3: **Q** an insulted hothead shouts back within 0.5 s while a stoic answers calmly; **M** diamond armor impresses a vain agent at first sight (7.0 vs 5.4 for leather) and a rational one hardly at all; **N** three people turn on Rex: an impulsive conformist joins in and a rational onlooker who knows him speaks up |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -1569,3 +1570,44 @@ Findings from building the system, with reasons. Where this section conflicts wi
     - Placement spots avoid cells overlapping anyone's hitbox, which the server refuses (M4's furnace in a mining hole).
     - Stuck on a goal, the code default looks around twice and then rests a minute before trying again, instead of exploring for the whole five-minute stuck mark.
 13. **Live exit test** (`tests/live/m6-social.test.ts`, 8/8; code-only agents and plain clients, one scripted model): see the M6 row above. Along the way the runs showed a give timing out after Pip came down from a tree, items flying past a receiver, a resting agent taking another's logs, flowers that were never "seen" and a furnace that couldn't be placed in a mining hole; each is fixed above (items 10–12).
+
+### M6a (2026-10-22)
+1. **Feelings (§18.2), all code.** Each event is appraised into emotion deltas, × (0.5 + neuroticism): being attacked, insulted, threatened, praised or turned down after asking; a gift; a peer's death; a goal reached; repeated failure; a disliked rival's advancement.
+   - An insult lands by temper: anger = (0.3 + 0.3·(1 − agreeableness)) × (0.5 + aggression). A hothead goes straight to fury and a stoic hardly notices. One that hits a known insecurity ("being called lazy") brings shame too.
+   - Gossip is told apart from insults: an insulting word next to someone else's name is an opinion about them.
+   - Decay: half-lives of 60–180 s for the intense emotions and 10–15 min for sadness and affection, longer for the neurotic. Mood is a two-hour moving average.
+   - Anger is also kept per person ("heat", a 90 s half-life scaled by neuroticism). A gift or praise cools it, and an apology may (vengefulness lowers the odds).
+2. **Contagion from the tone of speech, read in code** (anger, fear, joy and sadness words), ×1.5 for anger inside a mob. This replaces the batched L1 sentiment classifier §18.2 mentions: it costs nothing, and the L2 read of the conversation covers the rest. Seeing someone get hurt nearby counts as witnessing a fight (fear).
+3. **Expression:**
+   - The strongest feeling goes into Talking's prompt ("You feel very angry; let it show in how you talk.").
+   - Code-only small talk uses feeling lines ("what now?", "*sighs*", "haha, yes!").
+   - The CC packet says how the agent feels and whom it's angry at.
+4. **Impulses (§18.5)** use canned code actions for the common cases (the design's "or a canned code action" branch) rather than an L1 call, which keeps the reaction under 2 s. The impulses are: an outburst (shouted), storming off (walking 10 blocks away and ending the conversation), refusing to talk (ignoring them for a minute), fleeing, and an impulsive gift. The single punch waits for the conflict core's gate (M6b). At most one impulse a minute. Regret: once calm (arousal < 0.3), if the target is someone the agent likes, shame follows and the agent goes to apologize (a talk option with the `apologize` stance).
+5. **Gut and facts (§18.5), two tracks per person.**
+   - `sentiment` is the gut: first impression, halo, envy, hearsay, anchoring, negativity.
+   - The new `evidence` field is the facts: deeds and kept or broken promises, taken plainly, half of each conversation's read, and false claims.
+   - Code acts on `lerp(gut, facts, override)` (`Mind.liking`) when sharing, trading, helping and defending.
+   - The CC packet shows "GUT about X … / FACTS about X …" when the two differ by 1.5 or more, or a bias is at play. The CC prompt says the agent may follow its gut or reason past it.
+   - After each interaction, a rational mind's sentiment moves toward the evidence (× rationality × 0.15). A first impression fades after a few meetings for the rational and lingers for the rest (§18.9 M).
+   - Snapshots saved before this get the new field from the profile defaults.
+6. **First impressions and admiration (§18.3).**
+   - On first sight a stranger's visible gear sets the impression: `gear × 2 × vanity × (0.5 + halo/2)`. Bare hands are neutral, since everyone starts with nothing; a negative impression for no armor would have put a generous agent just below the sharing line.
+   - How their first two lines come across (funny, confident) adds to it. Both count as the first anchoring interaction, and admiration comes from the same cues.
+   - Someone admired (> 0.75) is imitated (a Goal Gen hint), and their word counts for more: hearsay confidence + 0.2·admiration·halo.
+   - Disillusionment: an admired person who hits us or a friend may fall (probability = rationality), leaving a resentful ex-fan.
+   - Visibly better gear than ours stirs envy (envy bias × (1 − agreeableness)), at most every 5 minutes per person.
+7. **Biases (§18.4), in code:**
+   - **Confirmation:** applied to the L2 read of a conversation.
+   - **Conformity:** opinions are read from every line ("Bram is a thief", "never trust Mira", "Tobin's great"), clause by clause with negations handled. They pull sentiment toward the heard consensus by `conformity × (1 + 1.5·fear) × (1 − override) × 0.3`, weighting speakers by trust and admiration.
+   - **Availability:** after a death to a creeper, lava, a fall and so on, that cause adds up to 4 health points to the flee threshold for 30 minutes.
+   - **Self-serving:** a repeated failure is put down to bad luck, or to a disliked person nearby.
+   - **Scapegoat:** a death with no known killer, while the agent is afraid, is pinned on the most disliked person.
+   - In-group, attribution, authority and sunk cost wait for the groups, grievances and leaders of M6b and M8b.
+8. **Mobs (§18.4.2):** three or more people within 16 blocks turning on the same person (hostile opinions in the last two minutes; our own anger counts too).
+   - An onlooker joins in ("yeah, Rex is no good!") when its gut-and-facts view of the target is below 4.5.
+   - If reason wins (override ≥ 0.45) and what it has seen of the target is good (evidence ≥ 6), it speaks up instead ("hold on, Rex has always been fair with me.").
+   - Inside a mob, reason is suppressed (the override's crowdSuppression) and anger spreads ×1.5.
+9. **Live exit test** (`tests/live/m6a-minds.test.ts`, 3/3, code-only agents and plain clients):
+   - **Q:** "Kai, you are so lazy" made the hothead shout "excuse me?!" 0.5 s later (anger 1.0), while the stoic said "hey" (anger 0).
+   - **M:** at first sight the vain agent rated a stranger in diamond armor 7.0 (admiration 0.84) and one in leather 5.4; the rational one 5.1 and 5.0.
+   - **N:** three people turned on Rex. The impulsive conformist said "yeah, Rex is no good!" (3.4 about Rex), and the rational onlooker who knew Rex to be fair said "hold on, Rex has always been fair with me." (7.0).

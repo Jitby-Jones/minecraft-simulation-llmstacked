@@ -52,6 +52,8 @@ export interface ReflexHooks {
   mayPickUp?: (item: Entity) => boolean;
   /** Someone else hit a mob that was after us. */
   onHelpedFight?: (helper: string) => void;
+  /** Extra health points of fear toward a threat (availability bias after a death to it, §18.4). */
+  fearBoost?: (source: string) => number;
 }
 
 export interface ReflexOptions {
@@ -290,7 +292,7 @@ export class ReflexController {
   private shouldFlee(threats: Entity[]): boolean {
     const me = this.bot.entity.position;
     const health = this.bot.health;
-    const fleeAt = this.fleeThreshold();
+    const fleeAt = this.fleeThreshold() + Math.max(0, ...threats.map((t) => this.hooks.fearBoost?.(entityLabel(t)) ?? 0));
     if (health <= fleeAt) return true;
     if (threats.some((e) => e.name === 'creeper' && e.position.distanceTo(me) <= 5)) return true;
     if (threats.some((e) => e.name === 'warden')) return true;

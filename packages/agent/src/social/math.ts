@@ -45,6 +45,11 @@ export function withSentiment(p: SocialProfile, delta: number, persona: Persona,
   return { ...p, sentiment: clamp(p.sentiment + d, 0, 10), anchorCount: Math.min(2, p.anchorCount + 1), interactions: p.interactions + 1, lastSeen: Math.max(p.lastSeen, now) };
 }
 
+/** §18.5 FACTS: what they did moves the evidence plainly: no anchoring, negativity or grudges, ±2 per step. */
+export function withEvidence(p: SocialProfile, delta: number): SocialProfile {
+  return { ...p, evidence: clamp(p.evidence + clamp(delta, -MAX_SENTIMENT_STEP, MAX_SENTIMENT_STEP), 0, 10) };
+}
+
 export function withTrust(p: SocialProfile, delta: number): SocialProfile {
   return { ...p, trust: clamp(p.trust + delta, 0, 1) };
 }

@@ -13,10 +13,13 @@ import { withSentiment } from './math';
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-/** §18.3: what gear alone does to a first impression, weighted by vanity and the halo bias. */
+/**
+ * §18.3: what gear alone does to a first impression, weighted by vanity and the halo bias. Everyone starts with
+ * nothing, so bare hands are neutral and only gear impresses.
+ */
 export function firstImpression(gear: number, persona: Persona): { sentimentDelta: number; admiration: number } {
   const k = persona.mind.vanity * (0.5 + persona.mind.biasProfile.halo * 0.5);
-  return { sentimentDelta: (gear - 0.25) * 2.5 * k, admiration: clamp01(gear * k * 1.2) };
+  return { sentimentDelta: gear * 2 * k, admiration: clamp01(gear * k * 1.2) };
 }
 
 const FUNNY = /\b(haha+|lol|lmao|hehe|joke|kidding)\b/i;

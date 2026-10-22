@@ -458,6 +458,8 @@ export type AgentEvent =
   | { type: 'insulted'; by: AgentName }
   /** Something stirred a feeling (§18.2): the impulse path (§18.5) looks at it. */
   | { type: 'felt'; cause: string; by?: AgentName; arousal: number }
+  /** The escalation rung toward someone moved (§17.5). */
+  | { type: 'rungChanged'; name: AgentName; from: number; to: number }
   | { type: 'needsDecision'; reason: string; convId?: ConvId; from?: AgentName }
   | { type: 'optionTerminated'; reason: string; ok: boolean; option?: OptionName; targetAgent?: AgentName }
   | { type: 'decision'; decision: Decision }

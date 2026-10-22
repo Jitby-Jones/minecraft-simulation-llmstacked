@@ -113,6 +113,11 @@ export class GoalGen {
           .slice(0, 6)
           .map((p) => `${p.name} (you feel ${Math.round(p.sentiment)}/10)`);
         const history = s.goals.history.slice(-5).map((g) => `${g.text} (${g.status})`);
+        // §18.3 idolization: the agent imitates someone it admires.
+        const idols = Object.values(s.social)
+          .filter((p) => p.admiration > 0.75)
+          .slice(0, 2)
+          .map((p) => `You admire ${p.name}${p.perceivedRole ? `, a ${p.perceivedRole}` : ''}${p.perceivedGoals[0] ? `; they seem to want ${p.perceivedGoals[0]}` : ''}. You'd like to be more like them.`);
         const r = await this.o.llm.call<GoalOutput>({
           tier: 'L3',
           module: 'goal',
@@ -136,6 +141,7 @@ export class GoalGen {
                 `Recent goals: ${history.join('; ') || 'none'}`,
                 `Carrying: ${inv}. It is ${s.self.isDay ? 'day' : 'night'}.`,
                 `People you know: ${people.join(', ') || 'nobody yet'}`,
+                ...idols,
                 memories.length > 0 ? `You remember:\n${memories.map((m) => `- ${m}`).join('\n')}` : '',
               ]
                 .filter(Boolean)

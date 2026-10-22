@@ -78,6 +78,8 @@ export interface SocialChance {
   roll: number;
   /** A place someone claimed holds something, not yet checked (§6.5). */
   claim?: { pos: { x: number; y: number; z: number }; by: AgentName; item: string };
+  /** How much we like someone, gut and facts mixed by the override (§18.5); sentiment without it. */
+  liking?: (name: AgentName) => number;
 }
 
 /** "can you give me 8 logs?", "bring me some bread", "I need some wood" → what and how many (default 1). */
@@ -125,13 +127,20 @@ export function readAsk(text: string): Ask | null {
  * follow-up ("so, can you?") refers back to what they asked earlier in this conversation; what we already promised
  * them is restated, never promised twice.
  */
-function answerRequest(s: AgentStateStore['state'], from: AgentName, convId: ConvId | undefined, busy: boolean, isStuck: ValidationEnv['isStuck']): DecisionOutput {
+function answerRequest(
+  s: AgentStateStore['state'],
+  from: AgentName,
+  convId: ConvId | undefined,
+  busy: boolean,
+  isStuck: ValidationEnv['isStuck'],
+  judge?: (name: AgentName) => number,
+): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
   const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
   const theirs = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId)).slice(-4);
   const ask = theirs.map((u) => readAsk(u.text)).filter((a) => a !== null).at(-1) ?? null;
-  const liking = s.social[from]?.sentiment ?? persona.social.baselineSentiment;
+  const liking = judge?.(from) ?? s.social[from]?.sentiment ?? persona.social.baselineSentiment;
   const owing = s.commitments.filter((c) => c.debtor === me && c.status === 'accepted').length;
   const have = (item: string) => {
     const m = itemMatcher(item);
@@ -225,7 +234,7 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck);
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking);
   if (busy) return null;
   // Survive the night (M1 shelter).
   if (!s.self.isDay && !s.flags.inDanger && !isStuck('shelter', { untilMorning: true })) {
@@ -303,6 +312,9 @@ export interface CCOptions {
   socialCandidates?: () => AgentName[];
   /** The nearest unchecked claim worth a look (§6.5). */
   claimToCheck?: () => SocialChance['claim'] | undefined;
+  /** Gut/facts mix about someone (§18.5) and the packet's lines on feelings and people (§18.2). */
+  liking?: (name: AgentName) => number;
+  mindLines?: () => string[];
   rng?: () => number;
   heartbeatMs?: number;
   now?: () => number;
@@ -501,7 +513,7 @@ export class CognitiveController {
       const tier = reason.startsWith('new goal') && L.planningBurst ? 'L3' : L.ccTier;
       const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}\n\n${DECISION_FORMAT}`;
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
-      const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, now: this.now() });
+      const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], now: this.now() });
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         { role: 'user', content: packet },
@@ -544,7 +556,7 @@ export class CognitiveController {
     if (!out) {
       const candidates = this.o.socialCandidates?.() ?? [];
       const claim = this.o.claimToCheck?.();
-      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng(), ...(claim ? { claim } : {}) });
+      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng(), ...(claim ? { claim } : {}), ...(this.o.liking ? { liking: this.o.liking } : {}) });
       source = 'default';
       if (out && validateDecision(out, env)) out = null;
     }

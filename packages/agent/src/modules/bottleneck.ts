@@ -14,6 +14,8 @@ export interface PacketInput {
   memories?: readonly string[];
   /** Skill+args the agent is stuck on (Action Awareness). */
   stuck?: readonly string[];
+  /** How the agent feels and how it sees the people at hand, gut and facts (§18.2, §18.5). */
+  mind?: readonly string[];
   now: number;
 }
 
@@ -86,6 +88,7 @@ export function buildPacket(i: PacketInput): string {
   const notes = [...(i.memories ?? []), ...[...s.workmem].sort((a, b) => b.salience - a.salience).map((w) => w.text)].slice(0, L.memories);
   if (notes.length > 0) out.push(`On your mind:\n${notes.map((n) => `  - ${n}`).join('\n')}`);
 
+  if (i.mind && i.mind.length > 0) out.push(i.mind.join('\n'));
   out.push(`Why you are deciding now: ${i.reason}.`);
   out.push(`Weigh ${L.candidates} different options before you choose.`);
   return out.join('\n');

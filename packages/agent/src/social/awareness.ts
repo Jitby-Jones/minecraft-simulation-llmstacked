@@ -21,7 +21,9 @@ import { looksLikePromise } from '../modules/talking';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
-import { DEED_DELTAS, type Deed, TRUST_DELTAS, driftSentiment, withSentiment, withTrust } from './math';
+import { confirmationScaled, conformityPull, heardConsensus, pulledSentiment } from '../mind/biases';
+import { DEED_DELTAS, type Deed, TRUST_DELTAS, driftSentiment, withEvidence, withSentiment, withTrust } from './math';
+import { readOpinions } from './opinions';
 
 export const SocialUpdateSchema = z.object({
   sentimentDelta: z.number().min(-2).max(2).default(0),
@@ -93,6 +95,8 @@ export interface SocialAwarenessOptions {
   me: AgentName;
   /** How long after a conversation ends to read it, so a last reply heard after the end is included. */
   settleMs?: number;
+  /** System 2 and fear (§18.4, §18.5): biases weaken as the override grows; fear makes people conform. */
+  mind?: { override(): number; fearLevel(): number };
   now?: () => number;
 }
 
@@ -125,6 +129,17 @@ export class SocialAwareness {
         this.settling.add(t);
       }),
     );
+    // §18.4.1: what people say about each other, from every line heard (the L2 read adds more at the end).
+    this.offs.push(
+      this.o.bus.on('heard', (e) => {
+        const u = e.utterance;
+        if (u.from === this.o.me) return;
+        const s = this.o.store.state;
+        const known = [...new Set([...Object.keys(s.social), ...s.perception.nearbyEntities.filter((x) => x.kind === 'player').map((x) => x.name)])];
+        const ops = readOpinions(u.text, u.from, known, this.now());
+        if (ops.length > 0) this.heard(ops);
+      }),
+    );
     // §6.3 decay toward the baseline, checked once a minute.
     this.timer = setInterval(() => this.drift(), 60_000);
     this.timer.unref();
@@ -147,12 +162,47 @@ export class SocialAwareness {
     this.o.store.update('social', (all) => ({ ...all, [p.name]: p }), reason);
   }
 
+  private override(): number {
+    return this.o.mind?.override() ?? 0;
+  }
+
+  /**
+   * §18.5: a rational mind's feeling about someone drifts toward what they have actually done (the gap between a
+   * first impression and the facts closes after a few interactions for the rational, hardly at all for the rest).
+   */
+  private aligned(p: SocialProfile): SocialProfile {
+    const r = this.persona.mind.rationality;
+    return { ...p, sentiment: Math.min(10, Math.max(0, p.sentiment + (p.evidence - p.sentiment) * r * 0.15)) };
+  }
+
+  /** Heard opinions (§18.4.1): recorded, and our view of each target pulled toward what people say. */
+  private heard(ops: readonly HeardOpinion[]): void {
+    this.o.store.update('heardOpinions', (all) => [...all, ...ops].slice(-60), 'heard opinions');
+    const s = this.o.store.state;
+    const pull = conformityPull(this.persona.mind.conformity, this.o.mind?.fearLevel() ?? 0, this.override());
+    for (const target of new Set(ops.map((o) => o.target))) {
+      if (target === this.o.me) continue;
+      const p = this.profile(target);
+      const consensus = heardConsensus(s.heardOpinions, target, (spk) => (s.social[spk]?.trust ?? 0.5) + (s.social[spk]?.admiration ?? 0), this.now());
+      if (consensus === null) continue;
+      const next = pulledSentiment(p.sentiment, consensus, pull);
+      if (Math.abs(next - p.sentiment) >= 0.05) this.write({ ...p, sentiment: next }, `what people say about ${target}`);
+    }
+  }
+
   /** A notable deed with a code-only delta (§6.3 rule 2). */
   deed(name: AgentName, deed: Deed, note?: string): void {
     if (name === this.o.me) return;
-    const p = withSentiment(this.profile(name), DEED_DELTAS[deed], this.persona, this.now());
+    const p = this.aligned(withEvidence(withSentiment(this.profile(name), DEED_DELTAS[deed], this.persona, this.now()), DEED_DELTAS[deed]));
     this.write(p, `deed ${deed}`);
     if (note) pushWorkmem(this.o.store, note, deed === 'attackedMe' ? 0.85 : 0.5, 'self_observed', { aboutAgent: name, now: this.now() });
+  }
+
+  /** A gut feeling about someone shifts (a bias at work, §18.4): sentiment only, never the evidence. */
+  nudge(name: AgentName, delta: number, note: string): void {
+    if (name === this.o.me) return;
+    this.write(withSentiment(this.profile(name), delta, this.persona, this.now()), 'a gut feeling');
+    pushWorkmem(this.o.store, note, 0.5, 'self_observed', { aboutAgent: name, now: this.now() });
   }
 
   /** A commitment was resolved (§6.3 rule 3): kept → trust +0.1, sentiment +0.5; broken → trust −0.2, sentiment −1. */
@@ -162,6 +212,7 @@ export class SocialAwareness {
     let p = this.profile(other);
     p = withTrust(p, kept ? TRUST_DELTAS.keptPromise : TRUST_DELTAS.brokePromise);
     p = withSentiment(p, kept ? DEED_DELTAS.keptPromise : DEED_DELTAS.brokePromise, this.persona, this.now());
+    p = this.aligned(withEvidence(p, kept ? DEED_DELTAS.keptPromise : DEED_DELTAS.brokePromise));
     p = { ...p, promisesKept: p.promisesKept + (kept ? 1 : 0), promisesBroken: p.promisesBroken + (kept ? 0 : 1) };
     this.write(p, kept ? 'promise kept' : 'promise broken');
     pushWorkmem(this.o.store, kept ? `${other} kept their promise: ${c.what.text}` : `${other} broke their promise: ${c.what.text}`, kept ? 0.55 : 0.75, 'self_observed', { aboutAgent: other, now: this.now() });
@@ -169,7 +220,7 @@ export class SocialAwareness {
 
   /** A claim they made turned out false (§6.5): trust drops. */
   claimFailed(name: AgentName): void {
-    this.write(withTrust(this.profile(name), TRUST_DELTAS.falseClaim), 'false claim');
+    this.write(withEvidence(withTrust(this.profile(name), TRUST_DELTAS.falseClaim), -0.5), 'false claim');
   }
 
   private drift(): void {
@@ -234,7 +285,10 @@ export class SocialAwareness {
 
   private apply(partner: AgentName, u: SocialUpdate): void {
     const now = this.now();
-    let p = withSentiment(this.profile(partner), u.sentimentDelta, this.persona, now);
+    const before = this.profile(partner);
+    // §18.4 confirmation: what fits how we already feel counts more, what goes against it less.
+    const delta = confirmationScaled(u.sentimentDelta, before.sentiment, this.persona.mind.biasProfile.confirmation, this.override());
+    let p = withEvidence(withSentiment(before, delta, this.persona, now), u.sentimentDelta * 0.5);
     const facts = [...p.facts, ...u.facts.map((text) => ({ text, source: 'told' as const, ts: now }))].slice(-10);
     p = {
       ...p,
@@ -246,11 +300,11 @@ export class SocialAwareness {
     };
     // §17.3: lasting friction wears sentiment down slowly.
     if (p.friction > 0.5) p = { ...p, sentiment: Math.max(0, p.sentiment - 0.2) };
-    this.write(p, `talked with ${partner}`);
+    this.write(this.aligned(p), `talked with ${partner}`);
     const opinions: HeardOpinion[] = u.opinions
       .filter((o) => o.target !== partner)
       .map((o) => ({ speaker: partner, target: o.target === 'you' || o.target === 'me' ? this.o.me : o.target, valence: o.valence, ts: now }));
-    if (opinions.length > 0) this.o.store.update('heardOpinions', (all) => [...all, ...opinions].slice(-60), 'heard opinions');
+    if (opinions.length > 0) this.heard(opinions);
     if (u.insultedMe) this.o.bus.emit({ type: 'insulted', by: partner });
     this.o.logger.info({ module: 'social', partner, delta: u.sentimentDelta, sentiment: p.sentiment, friction: p.friction }, 'social update');
   }
