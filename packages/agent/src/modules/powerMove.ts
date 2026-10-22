@@ -4,12 +4,22 @@
 // vengeful or the loyal rally those who share the grudge; and those sworn to take someone on meet up and go after
 // them together. The fight itself still goes through the conflict gate (§17.5): rung 3 a brawl, rung 4 to the death.
 
-import type { AgentName, AgentState, DecisionOutput } from '@agora/shared';
+import type { AgentName, AgentState, Commitment, DecisionOutput } from '@agora/shared';
 import { mayRally } from '../conflict/coercion';
 import { spareChance, yieldHealth } from '../conflict/pressure';
 
 /** At a moment like that (alone or hurt), a call to rise may be made again this soon. */
 const RALLY_AGAIN_MS = 2 * 60_000;
+
+/** §17.6 groupAttack: the signal to strike together ("now! we've had enough of you, Rex"), and whom it is against. */
+export const NOW_RE = /^now!.*?,\s*([A-Za-z0-9_]{1,16})\W*$/i;
+
+/** We and `ally` are sworn to take on `x` together (an open fight promise, either way round). */
+export function swornWith(commitments: readonly Commitment[], me: AgentName, ally: AgentName, x: AgentName): boolean {
+  return commitments.some(
+    (c) => c.what.kind === 'fight' && c.status === 'accepted' && c.what.target === x && ((c.debtor === ally && c.creditor === me) || (c.debtor === me && c.creditor === ally)),
+  );
+}
 
 export interface PowerView {
   /** Whom we follow (§17.7), or null. */

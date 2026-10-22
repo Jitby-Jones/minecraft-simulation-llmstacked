@@ -204,7 +204,8 @@ export function readAsk(text: string, isItem: (word: string) => boolean = () => 
 function keepDoing(s: AgentStateStore['state'], busy: boolean, isStuck: ValidationEnv['isStuck']): Pick<DecisionOutput, 'option' | 'task'> {
   const o = s.option;
   if (!busy || !o) return { option: 'rest' };
-  if (o.option === 'work' && o.skill && !isStuck(o.skill, o.args ?? {})) return { option: 'work', task: { skill: o.skill, args: o.args ?? {} } };
+  // A fight goes on too: a demand put to someone mid-fight is answered with the blows still coming.
+  if ((o.option === 'work' || o.option === 'fight') && o.skill && !isStuck(o.skill, o.args ?? {})) return { option: o.option, task: { skill: o.skill, args: o.args ?? {} } };
   return { option: o.option === 'explore' ? 'explore' : 'rest' };
 }
 
@@ -1014,7 +1015,10 @@ export class CognitiveController {
         ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
       });
       source = 'default';
-      const why = out ? validateDecision(out, env) : null;
+      // Going on with what is under way needs no new checks: a fight went through the gate when it began.
+      const cur = store.state.option;
+      const goesOn = Boolean(out?.task && cur?.status === 'running' && cur.option === out.option && cur.skill && taskKey(cur.skill, cur.args ?? {}) === taskKey(out.task.skill, out.task.args));
+      const why = out && !goesOn ? validateDecision(out, env) : null;
       if (out && why) {
         // An answer is said even when what it would have us go on with no longer holds: it goes out over a rest.
         const { task: _task, ...answer } = out;

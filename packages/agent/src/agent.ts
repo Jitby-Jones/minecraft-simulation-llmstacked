@@ -20,6 +20,7 @@ import { CognitiveController } from './modules/cc';
 import { Conversations } from './modules/conversations';
 import { SkillExecutor } from './modules/executor';
 import { type MindLevers, leversFor } from './modules/levers';
+import { NOW_RE, swornWith } from './modules/powerMove';
 import { SelfMonitor } from './modules/selfMonitor';
 import { Talking } from './modules/talking';
 import { Perception } from './perception/perception';
@@ -367,6 +368,27 @@ export class Agent {
       }),
     );
     this.offs.push(this.bus.on('signRead', (e) => this.readSign(e.sign.text, e.sign.pos, e.board)));
+    // §17.6 groupAttack, coordinated by chat and by watching each other: one sworn with us against X crying "now!",
+    // or seen hitting X, is the moment for us too (once every few seconds is enough).
+    const cuedAt = new Map<string, number>();
+    const strikeWith = (ally: AgentName, x: AgentName): void => {
+      const t = now();
+      if (x === username || !swornWith(this.store.state.commitments, username, ally, x) || t - (cuedAt.get(`${ally}>${x}`) ?? -Infinity) < 3000) return;
+      cuedAt.set(`${ally}>${x}`, t);
+      this.cc.trigger(`${ally} is taking on ${x} now`, { urgent: true, atOdds: x });
+    };
+    this.offs.push(
+      this.bus.on('heard', (e) => {
+        const x = NOW_RE.exec(e.utterance.text)?.[1];
+        if (x && e.utterance.from !== username) strikeWith(e.utterance.from, x);
+      }),
+    );
+    this.offs.push(
+      this.bus.on('observedAction', (e) => {
+        const a = e.action;
+        if (a.kind === 'attack' && a.target && a.actor !== username) strikeWith(a.actor, a.target);
+      }),
+    );
     this.quirks = new QuirkRunner({
       store: this.store,
       bus: this.bus,

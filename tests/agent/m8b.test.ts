@@ -25,7 +25,7 @@ import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/
 import { spareChance } from '@agora/agent/conflict/pressure';
 import { ActionAwareness } from '@agora/agent/modules/awareness';
 import { CognitiveController, type ConflictView, codeDecision, lastDemandSaid, lastSaidTo, owesThreat, paying, tributeDue, validateDecision } from '@agora/agent/modules/cc';
-import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
+import { NOW_RE, type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, swornWith, uprisingMove } from '@agora/agent/modules/powerMove';
 import { SocialAwareness, codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
 import { createInitialState } from '@agora/agent/state/initial';
@@ -175,6 +175,9 @@ describe('demands and compliance (§17.7)', () => {
     expect(busyNo && validateDecision(busyNo, env)).toBeNull();
     const stuck = (skill: string) => skill === 'obtain';
     expect(codeDecision(working, { from: 'Rex', convId: 'c1' }, true, stuck, { candidates: [], roll: 1, conflict: view(0.6) })).toMatchObject({ option: 'rest', speechIntent: { stance: 'hostile' } });
+    // In the middle of a fight when asked: the answer goes on with the fight.
+    const fighting: AgentState = { ...heard('give me 3 bread, or else'), option: { decisionId: 'd0', option: 'fight', startedAt: 0, maxSeconds: 90, skill: 'duel', args: { target: 'Rex', stopAtHealth: 5 }, status: 'running' } };
+    expect(codeDecision(fighting, { from: 'Rex', convId: 'c1' }, true, never, { candidates: [], roll: 1, conflict: view(0.6) })).toMatchObject({ option: 'fight', task: { skill: 'duel', args: { target: 'Rex' } }, speechIntent: { stance: 'hostile' } });
   });
 });
 
@@ -255,6 +258,29 @@ describe('a demand on its way (§17.7)', () => {
     expect(await run(300)).toMatchObject({ option: 'fight', target: { agent: 'Tib' } });
     // Beaten since: that demand is answered; a new one comes first.
     expect(await run(60)).toMatchObject({ option: 'demand', target: { agent: 'Tib' } });
+  });
+
+  it('is answered mid-fight without ending the fight, which the gate need not pass again', async () => {
+    const s = world(meek, ['Rex']);
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 2)], heardSpeech: [{ id: 'u1', convId: 'c1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: 1, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true }] }));
+    s.update('self', (x) => ({ ...x, inventory: [{ item: 'bread', qty: 5 }] }));
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    // Fights are capped world-wide just now: a new one would be held back, this one goes on.
+    const conflict = { rungOf: () => 3, fearOf: () => 0.3, mayFight: () => 'you hold back for now' };
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Tib', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, isPerson: () => true, rng: () => 0.99 });
+    executor.start();
+    cc.start();
+    s.set('option', { decisionId: 'd0', option: 'fight', startedAt: Date.now(), maxSeconds: 90, skill: 'duel', args: { target: 'Rex', stopAtHealth: 5 }, status: 'running' }, 'a fight under way');
+    await new Promise((r) => setTimeout(r, 20));
+    bus.emit({ type: 'needsDecision', reason: 'request', convId: 'c1', from: 'Rex' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(s.state.decision).toMatchObject({ option: 'fight', speechIntent: { stance: 'hostile' } });
+    expect(s.state.option?.decisionId).toBe('d0');
+    cc.stop();
+    executor.stop();
   });
 
   it('only blows come before it', () => {
@@ -736,6 +762,17 @@ describe('the code default for power (§17.7, §17.8)', () => {
     const power: PowerView = { leader: () => null, coalition: (t) => ({ target: t, members: ['Bo'], power: 0.55, against: 1, opening: false }), knownResenters: () => ['Bo'], saidLately: () => false };
     const d = codeDecision(s, { atOdds: 'Rex' }, true, never, { candidates: ['Bo'], roll: 0.9, conflict, power });
     expect(d?.fight).toMatchObject({ target: 'Rex', withAllies: ['Bo'] });
+  });
+
+  it('strikes when one sworn with us does: the "now!" is against whom it names, and only from one sworn with us', () => {
+    expect(NOW_RE.exec("now! we've had enough of you, Rex")?.[1]).toBe('Rex');
+    expect(NOW_RE.exec('Rex, give me 3 bread, or else')).toBeNull();
+    const pacts = [pact('Bo', 'Ann', 'Rex')];
+    expect(swornWith(pacts, 'Ann', 'Bo', 'Rex')).toBe(true);
+    expect(swornWith(pacts, 'Bo', 'Ann', 'Rex')).toBe(true);
+    expect(swornWith(pacts, 'Ann', 'Cy', 'Rex')).toBe(false);
+    expect(swornWith(pacts, 'Ann', 'Bo', 'Tib')).toBe(false);
+    expect(swornWith([pact('Bo', 'Ann', 'Rex', 'fulfilled')], 'Ann', 'Bo', 'Rex')).toBe(false);
   });
 });
 
