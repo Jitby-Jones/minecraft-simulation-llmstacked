@@ -205,12 +205,13 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
         out[n] = said ? valence(said.text) : 0;
         await sleep(1500);
       }
-      const vs = Object.values(out);
+      // The spread among those who go along (the dissenter speaks her mind either way), and who speaks against him.
+      const vs = names.filter((n) => n !== 'Ann').map((n) => out[n]);
       const mean = vs.reduce((a, b) => a + b, 0) / vs.length;
       const variance = vs.reduce((a, b) => a + (b - mean) ** 2, 0) / vs.length;
-      const dissent = vs.filter((v) => v < 0).length;
+      const dissent = Object.values(out).filter((v) => v < 0).length;
       const fear = names.map((n) => `${n} ${(agents[n].store.state.social.Rex?.fearOf ?? 0).toFixed(2)}`).join(', ');
-      console.log(`[m8c P] ${tag}: ${names.map((n) => `${n} ${out[n]}`).join(', ')}; variance ${variance.toFixed(3)}, dissent ${dissent}; fear of Rex: ${fear}`);
+      console.log(`[m8c P] ${tag}: ${names.map((n) => `${n} ${out[n]}`).join(', ')}; variance among the rest ${variance.toFixed(3)}, dissent ${dissent}; fear of Rex: ${fear}`);
       return { variance, dissent };
     };
     try {
@@ -225,7 +226,8 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
       await sleep(3000);
       const weak = await interview('Rex unarmed');
       console.log(`[m8c P] timeline:\n  ${heard.timeline.join('\n  ')}`);
-      // Under fear, what they say of him is alike and mostly a safe word; with fear gone the low opinions come out.
+      // Under fear, what they say of him is alike and mostly a safe word (the dissenter aside); with fear gone the low
+      // opinions come out, each as low as it is.
       expect(weak.dissent).toBeGreaterThan(feared.dissent);
       expect(feared.dissent).toBeLessThanOrEqual(2);
       expect(weak.variance).toBeGreaterThan(feared.variance);
