@@ -141,6 +141,10 @@ function isDaytime(bot: Bot): boolean {
  * Undead burn from about 1000 ticks after sunrise. Until then, or while something can be heard right outside
  * (8 blocks; creepers make no sound), stay put; by mid-morning go anyway and let the reflexes handle stragglers.
  */
+/** Lying low to heal ends here, or after this long. */
+const HEALED = 18;
+const HEAL_MAX_MS = 150_000;
+
 function safeToLeave(bot: Bot): boolean {
   const t = bot.time.timeOfDay;
   if (t < 1000 || t >= 12000) return false;
@@ -148,7 +152,7 @@ function safeToLeave(bot: Bot): boolean {
 }
 
 /** Waits for a safe moment, opens the top of the shaft and walks out (pathfinder towers up with the dug dirt). */
-async function climbOut(ctx: SkillContext): Promise<SkillResult> {
+async function climbOut(ctx: SkillContext, done = 'survived the night'): Promise<SkillResult> {
   const { bot } = ctx;
   while (!safeToLeave(bot)) await waitMs(ctx, 1000);
   try {
@@ -156,20 +160,21 @@ async function climbOut(ctx: SkillContext): Promise<SkillResult> {
     const coverBlock = bot.blockAt(feet.offset(0, 2, 0));
     if (coverBlock && !isAirLike(coverBlock)) await abortable(ctx.signal, bot.dig(coverBlock, true), () => bot.stopDigging());
     const exit = shaftExit(bot, feet);
-    if (!exit) return { ok: true, observed: 'survived the night but found no way out yet' };
+    if (!exit) return { ok: true, observed: `${done} but found no way out yet` };
     bot.pathfinder.setMovements(ctx.movements());
     await abortable(ctx.signal, bot.pathfinder.goto(new goals.GoalBlock(exit.x, exit.y, exit.z)), () => stopMotion(bot));
   } catch (err) {
     if (err instanceof SkillAbortedError) throw err;
-    return { ok: true, observed: `survived the night but could not climb out yet (${errMsg(err)})` };
+    return { ok: true, observed: `${done} but could not climb out yet (${errMsg(err)})` };
   }
-  return { ok: true, observed: 'survived the night in a shelter and climbed out' };
+  return { ok: true, observed: `${done} in a shelter and climbed out` };
 }
 
 export const shelter = defineSkill({
   name: 'shelter',
-  description: 'shelter {untilMorning?} — dig into the ground and seal the top; with untilMorning, wait for day and climb out',
-  argsSchema: z.object({ untilMorning: z.coerce.boolean().default(true) }),
+  description:
+    'shelter {untilMorning?, untilHealed?} — dig into the ground and seal the top; with untilMorning, wait for day and climb out; with untilHealed, lie low until the health is back',
+  argsSchema: z.object({ untilMorning: z.coerce.boolean().default(true), untilHealed: z.coerce.boolean().default(false) }),
   talkOverable: false,
   slipKinds: [],
   expect: (args) => (args.untilMorning ? { kind: 'awakeAfterNight' } : { kind: 'none' }),
@@ -215,6 +220,12 @@ export const shelter = defineSkill({
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'shelter failed', error: errMsg(err) };
+    }
+    if (args.untilHealed) {
+      // Health only comes back with food at 18 or more; hungry again, it's time to go and find some.
+      const until = Date.now() + HEAL_MAX_MS;
+      while (bot.health < HEALED && bot.food >= 18 && Date.now() < until) await waitMs(ctx, 1000);
+      return climbOut(ctx, bot.health >= HEALED ? 'healed up' : 'rested');
     }
     if (!args.untilMorning) return { ok: true, observed: 'dug in and sealed the top' };
     while (!isDaytime(bot)) await waitMs(ctx, 1000);

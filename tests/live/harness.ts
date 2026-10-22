@@ -21,6 +21,11 @@ export interface LiveServerOptions {
   port?: number;
   rconPort?: number;
   flat?: boolean;
+  /**
+   * A flat world whose ground stands at DEEP_GROUND_Y, above the slime-chunk depth (slimes spawn below Y 40 at any
+   * light level), as on ordinary terrain: plain superflat ground is at Y −60, where slimes come out in daylight.
+   */
+  deepGround?: boolean;
   /** Extra server.properties overrides. */
   props?: Record<string, string>;
   /** Extra plugin jars to install (debug tooling). */
@@ -28,6 +33,18 @@ export interface LiveServerOptions {
   /** Natural monster spawning (off by default so scenarios stay deterministic). */
   monsters?: boolean;
 }
+
+/** Where one stands on a `deepGround` world: grass at Y 40 over 100 layers of stone. */
+export const DEEP_GROUND_Y = 41;
+const DEEP_FLAT = JSON.stringify({
+  layers: [
+    { block: 'minecraft:bedrock', height: 1 },
+    { block: 'minecraft:stone', height: 100 },
+    { block: 'minecraft:dirt', height: 3 },
+    { block: 'minecraft:grass_block', height: 1 },
+  ],
+  biome: 'minecraft:plains',
+});
 
 export interface LiveServer {
   dir: string;
@@ -86,6 +103,7 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
   if (opts.flat ?? true) {
     props.set('level-type', 'minecraft\\:flat');
     props.set('generate-structures', 'false');
+    if (opts.deepGround) props.set('generator-settings', DEEP_FLAT);
   }
   props.set('max-players', '20');
   for (const [k, v] of Object.entries(opts.props ?? {})) props.set(k, v);

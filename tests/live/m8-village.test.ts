@@ -2,9 +2,10 @@
 //   NB  the notice board (§6.8, §16.3): Ann sees Bodo die in lava by the village and posts it on a sign at the board;
 //       Cyrus, who arrives later and never heard of it, reads the sign: it goes on his mind, and he grows more careful.
 //   V   the village: five code-only agents (real bot processes, as in production) live together at the world spawn
-//       with trees, a stone outcrop, animals and ore farther out; days and nights pass, with monsters at night. What
-//       each one takes on for the village comes from what it sees: the village's needs, its own likings and who is
-//       already doing what. The roles, read from each agent's last five social goals, must diverge: at least three
+//       with trees (and a wood farther out), a stone outcrop, animals and ore farther out, on ground above the
+//       slime-chunk depth as on ordinary terrain; days and nights pass, with monsters at night. What each one takes
+//       on for the village comes from what it sees: the village's needs, its own likings and who is already doing
+//       what. The roles, read from each agent's last five social goals, must diverge: at least three
 //       different roles among those with one, and the village shows the work. The run is 60 minutes
 //       (AGORA_M8_MINUTES shortens it for a quick look); the timeline prints at the end.
 
@@ -30,11 +31,12 @@ import { Hub, Supervisor, nodeLauncher } from '@agora/hub';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
 import { roleEntropy } from '@agora/agent/social/village';
-import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
+import { DEEP_GROUND_Y, type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
 const PORT = 25590;
-const Y = -60;
+// The ground stands above the slime-chunk depth, as on ordinary terrain (no slimes by day).
+const Y = DEEP_GROUND_Y;
 const MINUTES = Number(process.env.AGORA_M8_MINUTES ?? 60);
 const pool = loadPersonaPool();
 const persona = (id: string) => {
@@ -49,7 +51,7 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
   let embedder: Embedder;
 
   beforeAll(async () => {
-    server = await startLiveServer({ name: 'm8', port: PORT, rconPort: 25591 });
+    server = await startLiveServer({ name: 'm8', port: PORT, rconPort: 25591, deepGround: true });
     logger = createLogger({ name: 'm8-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false });
     // The bots' memories embed through the Hub, as in production.
     embedder = await createEmbedder({ modelDir: path.join(dataPaths().cache, 'models'), modelId: versions.embeddingModel.id, dims: versions.embeddingModel.dims, logger });
@@ -117,6 +119,12 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     for (let i = 0; i < 14; i++) {
       const a = (i / 14) * Math.PI * 2;
       const d = 9 + (i % 4) * 5;
+      await server.cmd(`place feature minecraft:oak ${r(x + Math.cos(a) * d)} ${Y} ${r(Math.sin(a) * d)}`);
+    }
+    // And a wood farther out, for when those are gone.
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2 + 0.13;
+      const d = 36 + (i % 5) * 6;
       await server.cmd(`place feature minecraft:oak ${r(x + Math.cos(a) * d)} ${Y} ${r(Math.sin(a) * d)}`);
     }
     await server.cmd(`fill ${x - 30} ${Y} -6 ${x - 22} ${Y + 2} 2 minecraft:stone`);

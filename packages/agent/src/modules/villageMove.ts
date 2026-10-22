@@ -44,8 +44,12 @@ export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx)
     return work('place', { block: 'chest' }, 60, 'a chest for the village');
   };
   switch (kind) {
-    case 'wood':
-      return held(s, /_(log|stem)$/) >= 16 ? handIn('log', 16, 'logs') : obtain('log', 16, 'logs for the village');
+    case 'wood': {
+      if (held(s, /_(log|stem)$/) >= 16) return handIn('log', 16, 'logs');
+      // The trees near the village are gone: look for more farther out.
+      const logs = obtain('log', 16, 'logs for the village');
+      return logs ?? (v.isStuck('explore', { distance: 32 }) ? null : { option: 'explore', terminate: { maxSeconds: 90 }, rationale: 'code default: looking for trees' });
+    }
     case 'stone':
       return held(s, /^cobblestone$/) >= 16 ? handIn('cobblestone', 16, 'stone') : obtain('cobblestone', 16, 'stone for the village');
     case 'food': {
@@ -66,8 +70,10 @@ export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx)
       return obtain('dirt', HUT_BLOCKS - blocks, 'blocks for a hut');
     }
     case 'guard': {
+      // A guard who can't take a hit stays off duty until healed.
+      if (s.self.health < 10) return null;
       const mob = s.perception.nearbyEntities.find((e) => e.kind === 'hostile' && e.visible && e.distance <= 16 && (!home || dist(e.pos, home) <= 40));
-      if (mob && s.self.health >= 10 && !v.isStuck('attack', { target: mob.name })) return work('attack', { target: mob.name, seconds: 30 }, 45, `a ${mob.name} near the village`);
+      if (mob && !v.isStuck('attack', { target: mob.name })) return work('attack', { target: mob.name, seconds: 30 }, 45, `a ${mob.name} near the village`);
       return v.isStuck('patrol', { radius: 10 }) ? null : work('patrol', { radius: 10 }, 180, 'walking the edge of the village');
     }
     case 'tools': {
@@ -87,15 +93,34 @@ export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx)
   }
 }
 
+/** At or below this health an agent is badly hurt: food and safety before any work. */
+export const HURT = 8;
+
+/**
+ * Badly hurt (§16.3: death is permanent): food first, since no health comes back below 18 food; then lie low until
+ * healed, in a sealed hole if a hostile mob is about, else resting where we are. The eat reflex does the eating.
+ */
+export function hurtMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | null {
+  if (s.self.health > HURT) return null;
+  const food = hungerMove(s, v);
+  if (food) return food;
+  const mob = s.perception.nearbyEntities.some((e) => e.kind === 'hostile' && e.distance <= 24);
+  const hide = { untilMorning: false, untilHealed: true };
+  if (mob && s.self.food >= 18 && !v.isStuck('shelter', hide)) return work('shelter', hide, 200, 'badly hurt, lying low until I heal');
+  return v.isStuck('wait', { seconds: 30 }) ? null : { option: 'rest', terminate: { maxSeconds: 30 }, rationale: 'code default: badly hurt, resting until I heal' };
+}
+
 /** What can be eaten, raw or cooked. */
 export const EDIBLE = /^(bread|apple|golden_apple|cooked_\w+|beef|porkchop|mutton|chicken|rabbit|cod|salmon|carrot|golden_carrot|baked_potato|potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie|pumpkin_pie|mushroom_stew|rabbit_stew|beetroot_soup|dried_kelp)$/;
 
 /**
- * Hungry (food ≤ 12) with nothing to eat (§16.3: always carry food): food from the village chest if it had some when
- * we last looked, else an animal in sight, else a look around for one.
+ * Hungry (food ≤ 12; badly hurt, below 18, since no health comes back under that) with nothing to eat (§16.3: always
+ * carry food): food from the village chest if it had some when we last looked, else an animal in sight, else a look
+ * around for one.
  */
 export function hungerMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | null {
-  if (s.self.food > 12 || s.self.inventory.some((i) => EDIBLE.test(i.item))) return null;
+  const hungry = s.self.health <= HURT ? 17 : 12;
+  if (s.self.food > hungry || s.self.inventory.some((i) => EDIBLE.test(i.item))) return null;
   const chest = s.village.chest;
   const stocked = chest?.contents ? Object.entries(chest.contents).filter(([k, n]) => EDIBLE.test(k) && n > 0).sort((a, b) => b[1] - a[1])[0] : undefined;
   if (chest && stocked) {

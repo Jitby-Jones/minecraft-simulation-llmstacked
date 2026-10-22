@@ -35,7 +35,7 @@ import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 import { villageWorkOf } from '../social/village';
-import { deathNoticeMove, hungerMove, villageMove } from './villageMove';
+import { deathNoticeMove, hungerMove, hurtMove, villageMove } from './villageMove';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -328,15 +328,15 @@ export function codeDecision(
   if (!s.self.isDay && !s.flags.inDanger && !onGuard && !isStuck('shelter', { untilMorning: true })) {
     return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, dig in' };
   }
+  // Badly hurt: food, then lie low until healed; no work, no quarrels.
+  const hurt = hurtMove(s, { isStuck });
+  if (hurt) return hurt;
   // §17.5: someone we're at odds with nearby comes first: the brawl the gate allows, a warning, or keeping away.
   const odds = social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
   if (odds) return odds;
-  // Hungry with nothing to eat: food first. Badly hurt and well fed: rest until the health comes back.
+  // Hungry with nothing to eat: food first.
   const hungry = hungerMove(s, { isStuck });
   if (hungry) return hungry;
-  if (s.self.health <= 8 && s.self.food >= 18 && !isStuck('wait', { seconds: 30 })) {
-    return { option: 'rest', terminate: { maxSeconds: 30 }, rationale: 'code default: hurt, resting until I heal' };
-  }
   const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
   if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };

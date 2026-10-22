@@ -279,6 +279,8 @@ describe('village work as goals (§6.8)', () => {
     let s = atHome(base());
     const v = { isStuck: never };
     expect(villageMove(s, 'wood', v)?.task).toEqual({ skill: 'obtain', args: { item: 'log', qty: 16 } });
+    // No trees left nearby (getting logs is stuck): go and look for more.
+    expect(villageMove(s, 'wood', { isStuck: (k) => k === 'obtain' })).toMatchObject({ option: 'explore', rationale: 'code default: looking for trees' });
     s = withInv(s, { oak_log: 16 });
     expect(villageMove(s, 'wood', v)?.task).toEqual({ skill: 'obtain', args: { item: 'chest', qty: 1 } });
     s = withInv(s, { oak_log: 16, chest: 1 });
@@ -301,8 +303,8 @@ describe('village work as goals (§6.8)', () => {
     expect(villageMove(s, 'guard', v)?.task).toEqual({ skill: 'patrol', args: { radius: 10 } });
     const mob = { ...s, perception: { ...s.perception, nearbyEntities: [{ id: 2, kind: 'hostile' as const, name: 'zombie', pos: { x: 8, y: -60, z: 0 }, distance: 8, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false }] } };
     expect(villageMove(mob, 'guard', v)?.task).toEqual({ skill: 'attack', args: { target: 'zombie', seconds: 30 } });
-    // Hurt, a guard walks the round instead of picking a fight.
-    expect(villageMove({ ...mob, self: { ...mob.self, health: 6 } }, 'guard', v)?.task?.skill).toBe('patrol');
+    // Hurt, a guard is off duty until healed (neither the fight nor the round).
+    expect(villageMove({ ...mob, self: { ...mob.self, health: 6 } }, 'guard', v)).toBeNull();
   });
 
   it('build: blocks for a hut first, a door if there are planks for it, then the hut', () => {
@@ -466,7 +468,28 @@ describe('staying alive in the village (§16.3: carry food)', () => {
     expect(codeDecision(s, {}, true, never)?.option).toBe('explore');
     expect(codeDecision({ ...s, self: { ...s.self, food: 9 } }, {}, true, never)).toBeNull();
     const hurt = { ...s, self: { ...s.self, food: 20, health: 6, isDay: true } };
-    expect(codeDecision(hurt, {}, false, never)).toMatchObject({ option: 'rest', rationale: 'code default: hurt, resting until I heal' });
+    expect(codeDecision(hurt, {}, false, never)).toMatchObject({ option: 'rest', rationale: 'code default: badly hurt, resting until I heal' });
+  });
+
+  it('badly hurt: food until it can heal, then lie low (in a sealed hole with a mob about); a hurt guard is off duty', async () => {
+    const { hurtMove } = await import('@agora/agent/modules/villageMove');
+    const v = { isStuck: never };
+    const slime = { id: 2, kind: 'hostile' as const, name: 'slime', pos: { x: 9, y: -60, z: 0 }, distance: 9, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
+    let s = atHome(base());
+    // Food 15 is no hunger for the healthy; for the badly hurt it is, since health comes back only from 18.
+    s = { ...s, self: { ...s.self, food: 15, health: 1, isDay: true } };
+    expect(hurtMove({ ...s, self: { ...s.self, health: 15 } }, v)).toBeNull();
+    expect(hurtMove(s, v)?.option).toBe('explore');
+    // Something to eat: the eat reflex eats it, and meanwhile we rest.
+    expect(hurtMove(withInv(s, { porkchop: 2 }), v)?.option).toBe('rest');
+    const fed = { ...s, self: { ...s.self, food: 19 }, perception: { ...s.perception, nearbyEntities: [slime] } };
+    expect(hurtMove(fed, v)?.task).toEqual({ skill: 'shelter', args: { untilMorning: false, untilHealed: true } });
+    // A guard at one heart doesn't walk the edge of the village among the slimes.
+    const guard = { ...fed, goals: { ...fed.goals, current: { id: 'g', text: 'keep the village safe', kind: 'current' as const, createdAt: 0, status: 'active' as const, doneWhen: 'villageWork:guard' } } };
+    expect(codeDecision(guard, {}, false, never)?.task?.skill).toBe('shelter');
+    const { villageMove } = await import('@agora/agent/modules/villageMove');
+    expect(villageMove({ ...guard, self: { ...guard.self, health: 9 } }, 'guard', v)).toBeNull();
+    expect(villageMove({ ...guard, self: { ...guard.self, health: 14 } }, 'guard', v)?.task?.skill).toBe('attack');
   });
 
   it('in a village, mines go outside it', () => {
