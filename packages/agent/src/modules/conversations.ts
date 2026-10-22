@@ -19,10 +19,17 @@ export interface AddresseeInput {
   inConversationWith: boolean;
 }
 
-/** §6.2/§16.1 addressee detection: `@name` or a name mention, an ongoing one-on-one, or being the only one in range. */
+/** A line that opens with a name ("Tib, give me..." or "@Tib ...") is said to that one, whoever else it names. */
+const VOCATIVE = /^\s*(?:@([A-Za-z0-9_]{1,16})\b|([A-Za-z0-9_]{1,16})\s*[,:])/;
+
+/** §6.2/§16.1 addressee detection: an opening name, `@name` or a name mention, an ongoing one-on-one, or being the only one in range. */
 export function detectAddressee(i: AddresseeInput): Addressee {
-  if (mentionsName(i.text, i.me)) return 'me';
   const others = i.inRange.filter((n) => n !== i.speaker && n !== i.me);
+  const m = VOCATIVE.exec(i.text);
+  const named = (m?.[1] ?? m?.[2])?.toLowerCase();
+  if (named === i.me.toLowerCase()) return 'me';
+  if (named && others.some((n) => n.toLowerCase() === named)) return 'other';
+  if (mentionsName(i.text, i.me)) return 'me';
   if (others.some((n) => mentionsName(i.text, n))) return 'other';
   if (i.inConversationWith) return 'me';
   return others.length === 0 ? 'me' : 'unsure';

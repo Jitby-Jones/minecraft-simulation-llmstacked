@@ -23,7 +23,7 @@ import {
 import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
 import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/power';
 import { spareChance } from '@agora/agent/conflict/pressure';
-import { type ConflictView, codeDecision, tributeDue } from '@agora/agent/modules/cc';
+import { type ConflictView, codeDecision, paying, tributeDue } from '@agora/agent/modules/cc';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
 import { SocialAwareness, codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
@@ -31,10 +31,10 @@ import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
 import type { Body } from '@agora/agent/body/body';
-import { Conversations } from '@agora/agent/modules/conversations';
+import { Conversations, detectAddressee } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
-import { Talking } from '@agora/agent/modules/talking';
+import { PROMISE_RE, Talking } from '@agora/agent/modules/talking';
 
 const tyrant = PersonaSchema.parse({
   name: 'Rex',
@@ -154,7 +154,7 @@ describe('demands and compliance (§17.7)', () => {
 });
 
 describe('saying it (§17.7, §17.8)', () => {
-  it('a demand and a call to rise are said, as worded, once the person is in range', async () => {
+  it('a demand and a call to rise are said, as worded, to the one they are for, once that one is in range', async () => {
     const s = world(tyrant, ['Tib', 'Bo']);
     s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Tib', 3), ent('Bo', 4)] }));
     const bus = new AgentBus();
@@ -174,7 +174,7 @@ describe('saying it (§17.7, §17.8)', () => {
     for (let i = 0; i < 40 && said.length < 1; i++) await new Promise((r) => setTimeout(r, 50));
     decide('d2', 'recruit', 'Bo', 'rally', "Tib has pushed us around long enough. let's deal with Tib together.");
     for (let i = 0; i < 40 && said.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
-    expect(said).toEqual(['give me 3 bread, or else', "Tib has pushed us around long enough. let's deal with Tib together."]);
+    expect(said).toEqual(['Tib, give me 3 bread, or else', "Bo, Tib has pushed us around long enough. let's deal with Tib together."]);
     // Bo answers in that conversation: the call isn't said again, word for word, on every turn.
     const conv = Object.values(s.state.conversations).find((c) => c.participants.includes('Bo'));
     bus.emit({ type: 'heard', utterance: { id: 'b1', convId: conv?.convId ?? '', from: 'Bo', to: ['Rex'], text: 'hmm, really?', ts: Date.now(), pos: null, volume: 'normal', outOfSight: false, addressedToMe: true, heardAs: 'me' } });
@@ -184,6 +184,25 @@ describe('saying it (§17.7, §17.8)', () => {
     talking.stop();
     conversations.stop();
   }, 10_000);
+});
+
+describe('who a line is for (§6.2)', () => {
+  it('the name a line opens with decides it, whoever else the line names', () => {
+    const base = { speaker: 'Rex', inConversationWith: false };
+    expect(detectAddressee({ ...base, me: 'Tib', text: 'Tib, give me 3 bread, or else', inRange: ['Rex', 'Pia'] })).toBe('me');
+    expect(detectAddressee({ ...base, me: 'Pia', text: 'Tib, give me 3 bread, or else', inRange: ['Rex', 'Tib'] })).toBe('other');
+    // A call to rise against Tib, said to Bo, isn't said to Tib, though it names Tib.
+    expect(detectAddressee({ ...base, me: 'Tib', text: "Bo, Tib has pushed us around long enough. let's deal with Tib together.", inRange: ['Rex', 'Bo'] })).toBe('other');
+    expect(detectAddressee({ ...base, me: 'Tib', text: '@Bo come here', inRange: ['Rex', 'Bo'] })).toBe('other');
+    // A word that isn't anyone around is no name.
+    expect(detectAddressee({ ...base, me: 'Tib', text: "fine, I'll give you 3 bread", inRange: ['Rex'] })).toBe('me');
+  });
+
+  it("dealing with someone together is no promise; a deal is", () => {
+    expect(PROMISE_RE.test("Rex has pushed us around long enough. let's deal with Rex together.")).toBe(false);
+    expect(PROMISE_RE.test('deal! two logs for a bread')).toBe(true);
+    expect(PROMISE_RE.test("ok, it's a deal")).toBe(true);
+  });
 });
 
 describe('promises in a group', () => {
@@ -232,6 +251,22 @@ describe('tribute (§17.7)', () => {
     expect(tributeDue([paid(t - 61 * 60_000)], 'Rex', 'Tib', t)).toBe(false);
     // Only what was paid to us under threat.
     expect(tributeDue([{ ...paid(t - 6 * 60_000), coerced: false }], 'Rex', 'Tib', t)).toBe(false);
+  });
+
+  it('who is paying, or paid lately, is left alone: no blows over it', () => {
+    const t = 10_000_000;
+    const paid = (at: number, status: Commitment['status'] = 'fulfilled'): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${at}${status}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status, resolvedAt: at });
+    expect(paying([paid(t - 1000, 'accepted')], 'Rex', 'Tib', t)).toBe(true);
+    expect(paying([paid(t - 9 * 60_000)], 'Rex', 'Tib', t)).toBe(true);
+    expect(paying([paid(t - 11 * 60_000)], 'Rex', 'Tib', t)).toBe(false);
+    expect(paying([paid(t - 1000, 'broken')], 'Rex', 'Tib', t)).toBe(false);
+    expect(paying([{ ...paid(t - 1000), coerced: false }], 'Rex', 'Tib', t)).toBe(false);
+    // The tyrant at rung 3 with Tib: a beating, unless Tib is paying.
+    const s = world(tyrant, ['Tib']).state;
+    const near: AgentState = { ...s, perception: { ...s.perception, nearbyEntities: [ent('Tib', 4)] } };
+    const angry = (pending: boolean): ConflictView => ({ rungOf: () => 3, fearOf: () => 0, mayBrawl: () => true, demandPending: () => pending, warnedLately: () => true });
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: angry(false) })?.option).toBe('fight');
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: angry(true) })?.option).not.toBe('fight');
   });
 
   it('a domineering agent asks it of them even when not angry; a follower stays near the leader it fears', () => {

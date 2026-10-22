@@ -29,7 +29,7 @@ const lethalWorld = WorldConfigSchema.parse({ conflict: { maxRung: 4, newcomerGr
 const RALLY_RE = /let'?s deal with (\w+) together/i;
 const JOIN_RE = /i'?ll fight (\w+) with you/i;
 const GRUMBLE_RE = /is a bully|can'?t stand/i;
-const DEMAND_RE = /^give me .*, or else$/i;
+const DEMAND_RE = /^(\w+, )?give me .*, or else$/i;
 
 const person = (o: { name: string; sex: 'male' | 'female'; traits: string[]; temperament: Record<string, number>; caution: number; combat: number }): Persona =>
   PersonaSchema.parse({

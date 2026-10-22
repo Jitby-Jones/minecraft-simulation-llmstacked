@@ -121,7 +121,7 @@ export interface ConflictView {
   fearWith?: (name: AgentName, allies: readonly AgentName[]) => number;
   /** §17.7 tribute: they gave in to us before, and it's time they paid again. */
   tributeDue?: (name: AgentName) => boolean;
-  /** §17.7: we demanded something of them just now, or they are paying it: they get the chance before any blows. */
+  /** §17.7: we demanded something of them just now, or they are paying it or paid lately: no blows for that. */
   demandPending?: (name: AgentName) => boolean;
   warnedLately: (name: AgentName) => boolean;
 }
@@ -165,6 +165,8 @@ const SPOKE_EVERY_MS = 10 * 60_000;
 const DEMAND_ANSWER_MS = 60_000;
 /** Tribute is asked of those who gave in this often (§17.7 "every day": a few minutes, as days go here). */
 const TRIBUTE_EVERY_MS = 5 * 60_000;
+/** Someone who paid up lately isn't beaten for it: they are worth more paying (§17.7). */
+const PAID_SPARES_MS = 10 * 60_000;
 
 type Ask = { kind: 'trade'; offer: Offer } | { kind: 'help'; item: string; qty: number } | { kind: 'item'; item: string; qty: number };
 
@@ -434,6 +436,13 @@ export function tributeDue(commitments: readonly Commitment[], me: AgentName, na
   if (theirs.some((k) => k.status === 'accepted' || k.status === 'proposed')) return false;
   const last = Math.max(...theirs.filter((k) => k.status === 'fulfilled').map((k) => k.resolvedAt ?? 0), -Infinity);
   return now - last < 60 * 60_000 && now - last >= TRIBUTE_EVERY_MS;
+}
+
+/** §17.7: they owe us under threat, or paid up lately; either way a demand of ours is working on them. */
+export function paying(commitments: readonly Commitment[], me: AgentName, name: AgentName, now: number): boolean {
+  return commitments.some(
+    (k) => k.coerced && k.debtor === name && k.creditor === me && (k.status === 'accepted' || (k.status === 'fulfilled' && now - (k.resolvedAt ?? 0) < PAID_SPARES_MS)),
+  );
 }
 
 /** What the power moves need (§17.7, §17.8), when the conflict core and the power watch are there. */
@@ -896,9 +905,7 @@ export class CognitiveController {
         ...(c.authorityOf ? { authorityOf: (n: AgentName) => c.authorityOf?.(n) ?? 0 } : {}),
         ...(c.fearWith ? { fearWith: (n: AgentName, allies: readonly AgentName[]) => c.fearWith?.(n, allies) ?? c.fearOf(n) } : {}),
         tributeDue: (n) => tributeDue(store.state.commitments, this.o.me, n, t),
-        demandPending: (n) =>
-          t - (this.demanded.get(n) ?? -Infinity) < DEMAND_ANSWER_MS ||
-          store.state.commitments.some((k) => k.coerced && k.debtor === n && k.creditor === this.o.me && k.status === 'accepted'),
+        demandPending: (n) => t - (this.demanded.get(n) ?? -Infinity) < DEMAND_ANSWER_MS || paying(store.state.commitments, this.o.me, n, t),
         warnedLately: (n) => {
           const w = this.warned.get(n);
           return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);

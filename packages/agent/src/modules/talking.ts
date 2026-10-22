@@ -4,7 +4,7 @@
 // `needsDecision`; the CC's speechIntent then drives the real answer. Reply timing follows the busy matrix; lines
 // that arrive while a reply is pending are answered together (batching).
 
-import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, capWords } from '@agora/shared';
+import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, capWords, mentionsName } from '@agora/shared';
 import type { ChatMessage, LlmClient } from '@agora/llm';
 import { SingleFlight } from '@agora/llm';
 import { z } from 'zod';
@@ -20,7 +20,7 @@ import { parseTradeOffer } from '../social/trades';
 import { NO_PROMISE_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
 
 export const PROMISE_RE =
-  /\b(i'?ll|i will|i can do (that|it)|sure,? i can|deal\b|i promise|you got it|i'?m on it|on it\b|consider it done|will do\b|count me in|leave it to me|i'?ll (bring|get|give|grab|fetch|help|build|make|meet))\b/i;
+  /\b(i'?ll|i will|i can do (that|it)|sure,? i can|deal\b(?!\s+with)|i promise|you got it|i'?m on it|on it\b|consider it done|will do\b|count me in|leave it to me|i'?ll (bring|get|give|grab|fetch|help|build|make|meet))\b/i;
 export const GIVEAWAY_RE = /\b(as an ai|an ai\b|ai model|a bot\b|language model|chatbot|virtual assistant|openai|anthropic|llm\b|i am an? (ai|bot|program))\b/i;
 export const REQUEST_RE =
   /\b(can|could|would|will) you\b|\b(give|bring|lend|show|teach|help) me\b|\bwanna\b|\bwant to\b|\blet'?s\b|\btrade\b|\bfollow me\b|\bcome (here|with|over)\b|\bdo you have\b|\bi need (some|a|an|any)\b/i;
@@ -284,7 +284,7 @@ export class Talking {
     } else {
       intent = this.currentIntent(from) ?? { stance: 'chat', gist: 'friendly and short', mayCommit: false };
     }
-    await this.say(convId, p.lines, intent);
+    await this.say(convId, p.lines, intent, from);
   }
 
   /** A fresh CC speech intent aimed at this person (or at whoever we're talking to). */
@@ -303,7 +303,7 @@ export class Talking {
     const waiting = [...this.awaiting.keys()].find((id) => !person || this.o.conversations.get(id)?.participants.includes(person));
     if (waiting) {
       this.awaiting.delete(waiting);
-      void this.say(waiting, [], intent);
+      void this.say(waiting, [], intent, person ?? this.o.conversations.get(waiting)?.participants.find((n) => n !== this.o.me));
       return;
     }
     // A talk option opens with its line; so does a fight (a threat, then blows), a demand (§17.7) and a call to
@@ -320,21 +320,22 @@ export class Talking {
         const sharp = intent.stance === 'hostile' || intent.stance === 'threaten';
         if (!sharp && !this.o.conversations.mayInitiate(person) && !this.o.conversations.withPartner(person)) return;
         const conv = this.o.conversations.open(person, true);
-        await this.say(conv.convId, [], intent);
+        await this.say(conv.convId, [], intent, person);
         return;
       }
       await new Promise((r) => setTimeout(r, 750));
     }
   }
 
-  private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent): Promise<void> {
+  /** Says the line for this intent in the conversation; `to` is whom it is meant for, named in a worded line. */
+  private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName): Promise<void> {
     await this.flight.run(convId, async () => {
       const conv = this.o.conversations.get(convId);
       if (!conv || conv.status === 'ended') return;
       // Chiming in (floor control): someone else may have answered while we were thinking or typing.
       const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
       const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) : undefined;
-      const text = await this.compose(convId, incoming, intent);
+      const text = await this.compose(convId, incoming, intent, to);
       const sent = !text || (stillWanted && !stillWanted()) ? false : await this.send(convId, text, intent.volume, stillWanted);
       if (!sent && chimingIn) {
         this.o.logger.info({ module: 'talking' }, 'someone else answered first; staying quiet');
@@ -362,12 +363,14 @@ export class Talking {
 
   /**
    * A line without a model. What the CC worded (a promise, a counter-offer, a demand, a call to rise, news) is said
-   * as worded, once per conversation (`said` tells what we already said there); after that the stance's own lines.
+   * as worded, once per conversation (`said` tells what we already said there), and opens with the name of whom it
+   * is for (`to`), so that one answers it and not whoever else is around (§6.2); after that the stance's own lines.
    */
-  private canned(intent: SpeechIntent, opening = false, said: (line: string) => boolean = () => false): string {
+  private canned(intent: SpeechIntent, opening = false, said: (line: string) => boolean = () => false, to?: AgentName): string {
     const persona = this.o.store.state.self.persona;
     const worded = this.worded(intent);
-    if (worded && !said(worded)) return worded;
+    const line = worded && to && !mentionsName(worded, to) ? `${to}, ${worded}` : worded;
+    if (line && !said(line)) return line;
     // §18.2 expression: a strong feeling colors small talk.
     const felt = topEmotion(this.o.store.state.emotions);
     if (intent.stance === 'chat' && felt && felt.intensity > 0.55) {
@@ -397,13 +400,13 @@ export class Talking {
   }
 
   /** The line to say, with the commitment and giveaway guards applied. */
-  private async compose(convId: ConvId, incoming: Utterance[], intent: SpeechIntent): Promise<string> {
+  private async compose(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName): Promise<string> {
     const s = this.o.store.state;
     const persona = s.self.persona;
     const llm = this.o.llm;
     if (!llm) {
       const transcript = s.conversations[convId]?.transcript ?? [];
-      return this.canned(intent, incoming.length === 0 && transcript.length === 0, (line) => transcript.some((u) => u.from === this.o.me && u.text === line));
+      return this.canned(intent, incoming.length === 0 && transcript.length === 0, (line) => transcript.some((u) => u.from === this.o.me && u.text === line), to);
     }
     const conv = s.conversations[convId];
     const transcript = (conv?.transcript ?? []).slice(-8).map((u) => `${u.from === this.o.me ? 'You' : u.from}: ${u.text}`);
@@ -457,7 +460,7 @@ export class Talking {
           module: 'talking',
           agent: this.o.me,
           messages,
-          fallback: () => this.canned(intent),
+          fallback: () => this.canned(intent, false, undefined, to),
           signal: guard.signal,
           isStale: guard.isStale,
           temperature: 0.8,
@@ -483,7 +486,7 @@ export class Talking {
         if (this.passes(text, intent)) return text;
         if (!intent.mayCommit && looksLikePromise(text)) this.o.logger.info({ module: 'talking', text }, 'draft sounded like a promise without mayCommit');
       }
-      return intent.mayCommit ? this.canned(intent) : 'let me think about it.';
+      return intent.mayCommit ? this.canned(intent, false, undefined, to) : 'let me think about it.';
     } finally {
       guard.dispose();
     }
