@@ -17,8 +17,10 @@ import type { Conversations } from './conversations';
 import type { SkillExecutor } from './executor';
 import { topEmotion } from '../mind/emotions';
 import { OPINION_ASK_RE } from '../social/opinions';
+import { NOT_PG_RE } from '../social/romance';
+import { ACCEPTANCE, BREAKUP_LINE, COMPLIMENTS, DECLINE_LINES, FLIRT_BACK, GIFT_LINE, PROPOSAL, REJECTION_LINES, isAdvance } from '../social/romanceWatch';
 import { parseTradeOffer } from '../social/trades';
-import { NO_PROMISE_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
+import { NO_PROMISE_RULE, PG_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
 
 export const PROMISE_RE =
   /\b(i'?ll|i will|i can do (that|it)|sure,? i can|deal\b(?!\s+with)|i promise|you got it|i'?m on it|on it\b|consider it done|will do\b|count me in|leave it to me|i'?ll (bring|get|give|grab|fetch|help|build|make|meet))\b/i;
@@ -29,16 +31,30 @@ export const REQUEST_RE =
 const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 
 /** Options whose speech intent is said first, once the person is in range. */
-const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit']);
+const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit', 'court']);
 /** A fight's threat stands this long: a decision going on with the fight doesn't say another. */
 const FIGHT_ANNOUNCED_MS = 15_000;
+/** §19.2: courting and the answers to it, said as worded so a listener's code reading takes them the same way. */
+const ROMANCE_LINES: ReadonlySet<string> = new Set([...COMPLIMENTS, PROPOSAL, ACCEPTANCE, FLIRT_BACK, GIFT_LINE, BREAKUP_LINE, ...Object.values(DECLINE_LINES), ...Object.values(REJECTION_LINES)].filter(Boolean));
+
+/** §19.1: what one loves, as a first hello puts it ("I'm a guy who loves exploring"), from what one values. */
+const LOVES: Readonly<Record<string, string>> = {
+  exploration: 'exploring',
+  friendship: 'meeting people',
+  'hard work': 'building things',
+  success: 'getting things done',
+  safety: 'a safe, cozy home',
+  loyalty: 'good friends',
+  independence: 'doing things my own way',
+  fun: 'a good laugh',
+};
 
 export function looksLikePromise(text: string): boolean {
   return PROMISE_RE.test(text);
 }
 
 export function needsDecision(text: string): boolean {
-  return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null;
+  return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null || isAdvance(text);
 }
 
 /** One clean chat line from a model reply: no "Name:" prefix, no quotes, no commands, capped. */
@@ -115,6 +131,8 @@ export class Talking {
   private readonly flight = new SingleFlight<void>();
   private readonly offs: (() => void)[] = [];
   private lastCanned = 0;
+  /** People we've said who we are to (§19.1). */
+  private readonly introduced = new Set<AgentName>();
   private readonly rng: () => number;
   private readonly now: () => number;
 
@@ -371,7 +389,7 @@ export class Talking {
   }
 
   private passes(text: string, intent: SpeechIntent): boolean {
-    return text.length > 0 && !GIVEAWAY_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
+    return text.length > 0 && !GIVEAWAY_RE.test(text) && !NOT_PG_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
   }
 
   private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean, urgent = false): Promise<boolean> {
@@ -403,6 +421,12 @@ export class Talking {
       const moodLines = FEELING_LINES[felt.name];
       if (moodLines) return moodLines[Math.floor(this.rng() * moodLines.length)] ?? '';
     }
+    // §19.1: a first hello to someone says who one is, as people do ("hey! I'm a gal who loves exploring").
+    if (opening && intent.stance === 'chat' && to && !this.introduced.has(to)) {
+      this.introduced.add(to);
+      const hello = GREETINGS[Math.floor(this.rng() * GREETINGS.length)] ?? 'hey!';
+      return `${hello} I'm a ${persona.sex === 'male' ? 'guy' : 'gal'} who loves ${LOVES[persona.values[0] ?? ''] ?? 'mining'}.`;
+    }
     const pool = opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
     if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
       return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
@@ -412,6 +436,7 @@ export class Talking {
 
   /** What the CC worded to be said as it is, if anything. */
   private worded(intent: SpeechIntent): string | null {
+    if (ROMANCE_LINES.has(intent.gist)) return intent.gist;
     // A promise the CC allowed is said plainly, so the other side knows what was agreed (§6.4).
     if (intent.stance === 'agree' && intent.mayCommit && /^I('ll|'m) /.test(intent.gist) && intent.gist.length <= 80) return `sure! ${intent.gist}`;
     // A counter-offer is said as it is, so the other side can take it or leave it (§6.6).
@@ -472,9 +497,11 @@ export class Talking {
     const system = (extra: string) => `${personaCore(persona, s.traitAnnotations)}\n\n${talkRules(persona.speech.maxWords)}\n${rule}${extra ? `\n${extra}` : ''}`;
     const guard = this.o.store.guard(talkPolicy(convId));
     try {
+      // §19.6: a draft that isn't PG is written again once, told so; then a neutral line.
+      let notPg = false;
       for (let attempt = 0; attempt < 2; attempt++) {
         const messages: ChatMessage[] = [
-          { role: 'system', content: system(attempt === 0 ? '' : STRICT_NO_PROMISE_RULE) },
+          { role: 'system', content: system(attempt === 0 ? '' : notPg ? PG_RULE : STRICT_NO_PROMISE_RULE) },
           { role: 'user', content: user },
         ];
         // §5: stream, and send the first sentence as soon as it is complete (if it passes the guards). When chiming
@@ -511,6 +538,8 @@ export class Talking {
           return rest && this.passes(rest, intent) && /[a-z]/i.test(rest) ? rest : '';
         }
         if (this.passes(text, intent)) return text;
+        notPg = NOT_PG_RE.test(text);
+        if (notPg) this.o.logger.info({ module: 'talking' }, 'draft was not PG; writing it again');
         if (!intent.mayCommit && looksLikePromise(text)) this.o.logger.info({ module: 'talking', text }, 'draft sounded like a promise without mayCommit');
       }
       return intent.mayCommit ? this.canned(intent, false, undefined, to) : 'let me think about it.';

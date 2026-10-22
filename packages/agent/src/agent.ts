@@ -44,6 +44,7 @@ import { Impulses } from './mind/impulses';
 import { Mind } from './mind/mind';
 import { feelingText } from './modules/talking';
 import { Impressions } from './social/impressions';
+import { RomanceWatch } from './social/romanceWatch';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
@@ -100,6 +101,7 @@ export class Agent {
   readonly biases: BiasWatch;
   readonly conflict: ConflictEvaluator;
   readonly power: PowerWatch;
+  readonly romance: RomanceWatch;
   private dangerSource = '';
   /** The danger was a person (by name, or "someone"): no article. */
   private dangerIsPerson = false;
@@ -206,6 +208,14 @@ export class Agent {
         knownResenters: (t) => this.power.knownResenters(t),
         quiet: (x) => this.pull(x),
       },
+      romance: {
+        partner: () => this.romance.partner(),
+        relationshipWith: (n) => this.romance.relationshipWith(n),
+        courtship: () => this.romance.courtship(),
+        reactionTo: (n) => this.romance.reactionTo(n),
+        wouldAccept: (n) => this.romance.wouldAccept(n),
+        mayCourt: (n) => this.romance.mayCourt(n),
+      },
       isPerson: (n) => Boolean(body.bot.players[n]) || Boolean(this.store.state.social[n]),
       mindLines: () => {
         const s = this.store.state;
@@ -224,6 +234,7 @@ export class Agent {
           lines.push(`${n}: resentment ${r.resentment.toFixed(1)}, fear ${r.fear.toFixed(1)}, ${['keep away', 'hostile talk', 'threats', 'ready to fight', 'deadly'][rung] ?? 'calm'}${g ? `; worst: ${g.note ?? g.kind}` : ''}`);
         }
         lines.push(...this.powerLines(people));
+        lines.push(...this.romance.mindLines());
         return lines;
       },
       claimToCheck: () => {
@@ -324,6 +335,24 @@ export class Agent {
       fightCapReached: this.fightCapReached,
       grievanceScale: (n) => this.grievanceScale(n),
       bornAt: now(),
+      ...rng,
+      now,
+    });
+    this.romance = new RomanceWatch({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      enabled: world.romance.enabled,
+      liking: (n) => this.mind.liking(n),
+      powerOf: (n) => this.conflict.powerOfName(n),
+      resentmentOf: (n) => this.conflict.resentmentOf(n),
+      grieve: (n, kind, note, weight) => this.conflict.grieve(n, kind, true, note, weight),
+      feel: (ev, who) => this.feelings.appraise(ev, who),
+      say: (to, text) => void this.talking.blurt(to, text),
+      impulse: (out) => this.cc.impulse(out),
+      override: () => this.mind.override(),
+      combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
       ...rng,
       now,
     });
@@ -434,7 +463,9 @@ export class Agent {
       caution: () => this.store.state.drives.caution,
       combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
       // Friends, and the leader we follow unless a group sets upon them and we walk away (§17.7, §17.8).
+      // §19.2: a partner, always (the strong defend reflex); anyone else as §4.5 has it.
       shouldDefend: (name, attacker) =>
+        this.romance.partner() === name ||
         defendsAlly({
           leader: this.power.standsBy(name),
           liking: this.store.state.social[name] ? this.mind.liking(name) : 0,
@@ -592,11 +623,13 @@ export class Agent {
     this.biases.start();
     this.conflict.start();
     this.power.start();
+    this.romance.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.romance.stop();
     this.power.stop();
     this.conflict.stop();
     this.biases.stop();

@@ -15,7 +15,15 @@ export type AppraisalEvent =
   | { kind: 'repeatedFailure' }
   | { kind: 'threatened' }
   | { kind: 'praised' }
-  | { kind: 'witnessedFight' };
+  | { kind: 'witnessedFight' }
+  // §19.2 romance: nerves near a crush, an advance welcomed (or ours returned), one unwanted, turned down,
+  // jealousy, and a partner's death.
+  | { kind: 'nearCrush' }
+  | { kind: 'welcomeAdvance' }
+  | { kind: 'unwantedAdvance'; disgust: boolean }
+  | { kind: 'turnedDown'; inPublic: boolean }
+  | { kind: 'jealous' }
+  | { kind: 'grief'; fresh: boolean };
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -80,6 +88,32 @@ export function appraise(e: EmotionState, ev: AppraisalEvent, p: Persona, combat
       break;
     case 'witnessedFight':
       d.fear = 0.15;
+      break;
+    case 'nearCrush':
+      d.joy = 0.12;
+      d.shame = 0.08;
+      d.affection = 0.1;
+      break;
+    case 'welcomeAdvance':
+      d.joy = 0.3;
+      d.affection = 0.3;
+      break;
+    case 'unwantedAdvance':
+      if (ev.disgust) d.disgust = 0.4;
+      d.fear = 0.1;
+      break;
+    case 'turnedDown':
+      d.sadness = 0.35;
+      d.shame = ev.inPublic ? 0.45 : 0.2;
+      break;
+    case 'jealous':
+      d.envy = 0.4;
+      d.anger = 0.25 * (0.5 + p.temperament.aggression);
+      break;
+    case 'grief':
+      // As sad as one gets; then a pang now and then.
+      d.sadness = ev.fresh ? 2 : 0.2;
+      if (ev.fresh) d.joy = -1;
       break;
   }
   if (d.fear !== undefined && (ev.kind === 'attacked' || ev.kind === 'threatened' || ev.kind === 'witnessedFight')) d.fear *= 1 - 0.6 * combat;

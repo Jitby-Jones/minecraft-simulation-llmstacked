@@ -21,13 +21,14 @@ export function personaCore(p: Persona, traitAnnotations: readonly string[] = []
 export const DEATH_RULE = 'Death is permanent. If you die, you are gone forever.';
 
 export const DECISION_FORMAT = `Reply with one JSON object:
-{"option": "work|talk|move|follow|explore|rest|flee|help|trade|fight",
+{"option": "work|talk|move|follow|explore|rest|flee|help|trade|fight|court",
  "target": {"agent": "name", "pos": {"x":0,"y":0,"z":0}, "item": "name"},   (only what the option needs)
  "task": {"skill": "skill name", "args": {...}},                          (required for work and help)
- "speechIntent": {"stance": "agree|decline|negotiate|inform|ask|chat|apologize|hostile|threaten|none", "gist": "what you are willing to say", "mayCommit": false},
+ "speechIntent": {"stance": "agree|decline|negotiate|inform|ask|chat|apologize|hostile|threaten|flirt|propose|none", "gist": "what you are willing to say", "mayCommit": false},
  "commitmentsToCreate": [{"debtor": "you or them", "creditor": "...", "what": {"kind": "give|gather|meet|help|build|follow|custom", "item": "...", "qty": 1, "text": "..."}}],
  "trade": {"with": "name", "phase": "offer|accept|counter|decline", "give": [{"item": "...", "qty": 1}], "want": [{"item": "...", "qty": 1}]},   (only when trading; give is yours, want is theirs)
  "fight": {"target": "name", "intent": "brawl"},   (only with option fight: a brawl until someone yields)
+ "romance": {"with": "name", "phase": "flirt|propose|accept|decline|breakup"},   (only when courting someone, or answering their advance)
  "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"},
  "rationale": "one sentence"}`;
 
@@ -37,6 +38,7 @@ export const DECISION_RULES = `Rules:
 - If you keep failing at something, do something different.
 - Trades are talked through: offer what you give for what you want; accepting (with mayCommit) binds both of you, and each hands their part over in person.
 - Fighting a person is serious: propose it only when you truly mean it. Code may refuse it; then you didn't fight.
+- Romance is PG: kind words, compliments, a small gift, time together. Court (option court) only someone you're drawn to; ask them to be your partner (phase propose) only once you're close. Each person decides for themselves: take no for an answer.
 - GUT is your first reaction to someone; FACTS is what they have actually done. You may follow your gut, as people do, or reason past it. Stay in character.
 - Use only the skills listed. "until" may be: inventoryHas:<item>>=<n>, agentInRange:<name>, agentLeftRange:<name>, timeIs:day|night, healthAbove:<n>, foodAbove:<n>, near:<x>,<y>,<z>.`;
 
@@ -46,8 +48,12 @@ export function talkRules(maxWords: number): string {
     `Write only your next line: plain text, one line, at most ${maxWords} words. No quotes, no name prefix, no commands.`,
     'Stay in character. Talk like a person in this world, about this world.',
     'Don\'t make up facts about places, people or things you haven\'t seen or been told about. When you pass on something you heard from someone, say who told you ("Bram says...") and don\'t present it as certain.',
+    'Romance stays PG: kind words, compliments, holding hands or a hug as an emote at most. Nothing sexual or suggestive, ever.',
   ].join('\n');
 }
+
+/** §19.6: said when a draft wasn't PG. */
+export const PG_RULE = 'IMPORTANT: your last draft was not PG. Write a friendly, wholesome line: nothing sexual or suggestive at all.';
 
 export const NO_PROMISE_RULE =
   'Do not promise, agree to or offer to do anything right now. You may chat, ask a question, or say you will think about it.';

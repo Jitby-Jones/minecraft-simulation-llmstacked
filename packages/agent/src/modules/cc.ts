@@ -39,6 +39,7 @@ import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prom
 import { villageWorkOf } from '../social/village';
 import { deathNoticeMove, hungerMove, hurtMove, villageMove } from './villageMove';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from './powerMove';
+import { ACCEPTANCE, DECLINE_LINES, FLIRT_BACK, GIFT_LINE, PROPOSAL, PROPOSE_RE, type RomanceView, isAdvance } from '../social/romanceWatch';
 
 export interface DecideContext {
   /** A request from someone that needs an answer (wakes the CC even mid-option). */
@@ -59,6 +60,8 @@ export interface ValidationEnv {
   isPerson?: (name: AgentName) => boolean;
   /** §17.5 code gate: null when a fight with them may happen, else why not. */
   mayFight?: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => string | null;
+  /** §19.2, §19.6: null when courting them may happen (not family, not the young, within the soft cap), else why not. */
+  mayCourt?: (name: AgentName) => string | null;
 }
 
 /** Code checks on a schema-valid decision. Returns the reason it can't be used, or null. */
@@ -79,10 +82,16 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
     if (!parsed.ok) return `bad arguments for ${skill.name}: ${parsed.error}`;
     if (env.isStuck(skill.name, d.task.args)) return `you are stuck on ${skill.name} ${JSON.stringify(d.task.args)}; choose something else`;
   }
-  if ((d.option === 'talk' || d.option === 'follow') && !d.target?.agent) return `option ${d.option} needs target.agent`;
+  if ((d.option === 'talk' || d.option === 'follow' || d.option === 'court') && !d.target?.agent) return `option ${d.option} needs target.agent`;
+  // §19.2: courting only whom one may court; a step in romance is with someone, by name.
+  const wooed = d.option === 'court' ? d.target?.agent : d.romance && (d.romance.phase === 'flirt' || d.romance.phase === 'propose') ? d.romance.with : undefined;
+  if (wooed && env.mayCourt) {
+    const why = env.mayCourt(wooed);
+    if (why) return `you can't court ${wooed}: ${why}`;
+  }
   if (d.option === 'move' && !d.target?.pos && !d.target?.agent) return 'option move needs target.pos or target.agent';
   const who = d.target?.agent;
-  if (who && who !== env.me && ['talk', 'follow', 'help', 'trade', 'move', 'demand', 'recruit'].includes(d.option) && !env.canPerceive(who)) {
+  if (who && who !== env.me && ['talk', 'follow', 'help', 'trade', 'move', 'demand', 'recruit', 'court'].includes(d.option) && !env.canPerceive(who)) {
     return `you can't see or hear ${who} right now`;
   }
   return null;
@@ -110,6 +119,8 @@ export interface SocialChance {
   power?: PowerView;
   /** Lines already answered (by utterance id): a later reason to decide doesn't answer them again. */
   answered?: ReadonlySet<string>;
+  /** Romance (§19.2): whom we're drawn to and how far it has gone, how we take an advance. */
+  romance?: RomanceView;
 }
 
 export interface ConflictView {
@@ -237,6 +248,7 @@ function answerRequest(
   conflict?: ConflictView,
   power?: PowerView,
   answered?: ReadonlySet<string>,
+  romance?: RomanceView,
 ): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
@@ -245,6 +257,9 @@ function answerRequest(
   const said = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId));
   const theirs = said.filter((u) => !answered?.has(u.id)).slice(-4);
   if (said.length > 0 && theirs.length === 0) return { ...keep, terminate: { maxSeconds: 20 }, rationale: `code default: nothing new from ${from} to answer` };
+  // §19.2, §19.10 A: an advance (a compliment, a gift, "will you be my partner?"), taken as the roll has it.
+  const advance = romance ? theirs.filter((u) => isAdvance(u.text)).at(-1) : undefined;
+  if (romance && advance) return answerAdvance(from, PROPOSE_RE.test(advance.text), romance, keep);
   // §17.8: a call to rise against someone is weighed by resentment of them, trust in who asks, and fear.
   const known = Object.keys(s.social);
   const foe = theirs.map((u) => parseRally(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
@@ -359,6 +374,53 @@ const FIGHT_DUE_SEC = 30 * 60;
  * §17.8: join an uprising against X when we resent X enough, trust the one who asks, and fear of X is in check; one
  * of X's own followers won't. Joining is a promise to fight X together (commitment kind `fight`).
  */
+/**
+ * §19.2, §19.10 A: an advance answered. Returned (a flirt back, or yes to "will you be my partner?" when we're drawn
+ * to them, fond of them and free); otherwise turned down as the roll has it: kindly, coldly, with disgust, or
+ * hostile. An ignored one gets no answer at all. Each side decides for itself.
+ */
+function answerAdvance(from: AgentName, proposal: boolean, romance: RomanceView, keep: Pick<DecisionOutput, 'option' | 'task'>): DecisionOutput {
+  const how = romance.reactionTo(from);
+  if (how === 'reciprocate' && (!proposal || romance.wouldAccept(from))) {
+    return proposal
+      ? { ...keep, target: { agent: from }, speechIntent: { stance: 'agree', gist: ACCEPTANCE, mayCommit: true }, romance: { with: from, phase: 'accept' }, terminate: { maxSeconds: 20 }, rationale: `code default: yes to ${from}` }
+      : { ...keep, target: { agent: from }, speechIntent: { stance: 'flirt', gist: FLIRT_BACK, mayCommit: false }, romance: { with: from, phase: 'flirt' }, terminate: { maxSeconds: 20 }, rationale: `code default: returned ${from}'s affection` };
+  }
+  // Drawn to them, but not ready to be partners: a kind no.
+  const reaction = how === 'reciprocate' ? 'politeDecline' : how;
+  const line = DECLINE_LINES[reaction];
+  return {
+    ...keep,
+    target: { agent: from },
+    speechIntent: line ? { stance: reaction === 'hostile' ? 'hostile' : 'decline', gist: line, mayCommit: false } : { stance: 'none', gist: '', mayCommit: false },
+    romance: { with: from, phase: 'decline', reaction },
+    terminate: { maxSeconds: 20 },
+    rationale: `code default: ${from}'s advance taken: ${reaction}`,
+  };
+}
+
+/** §19.2: the next step in courting someone (a compliment, a small gift, the question), when it's time for one. */
+function courtMove(romance: RomanceView): DecisionOutput | null {
+  const step = romance.courtship();
+  if (!step) return null;
+  const to = step.with;
+  if (step.kind === 'propose') {
+    return { option: 'court', target: { agent: to }, speechIntent: { stance: 'propose', gist: PROPOSAL, mayCommit: false }, romance: { with: to, phase: 'propose' }, terminate: { maxSeconds: 40 }, rationale: `code default: asking ${to} to be my partner` };
+  }
+  if (step.kind === 'gift') {
+    return {
+      option: 'court',
+      target: { agent: to },
+      task: { skill: 'give', args: { to, item: step.item, qty: 1 } },
+      speechIntent: { stance: 'flirt', gist: GIFT_LINE, mayCommit: false },
+      romance: { with: to, phase: 'flirt' },
+      terminate: { maxSeconds: 60 },
+      rationale: `code default: a little gift for ${to}`,
+    };
+  }
+  return { option: 'court', target: { agent: to }, speechIntent: { stance: 'flirt', gist: step.line, mayCommit: false }, romance: { with: to, phase: 'flirt' }, terminate: { maxSeconds: 40 }, rationale: `code default: courting ${to}` };
+}
+
 function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName, busy: boolean, isStuck: ValidationEnv['isStuck'], c?: ConflictView, power?: PowerView): DecisionOutput {
   const keep = keepDoing(s, busy, isStuck);
   const resentment = c?.resentmentOf?.(x) ?? 0;
@@ -583,7 +645,7 @@ export function codeDecision(
   isStuck: ValidationEnv['isStuck'],
   social?: SocialChance,
 ): DecisionOutput | null {
-  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power, social?.answered);
+  if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking, social?.isItem, social?.conflict, social?.power, social?.answered, social?.romance);
   const pv = social ? powerCtx(social, isStuck) : null;
   if (busy) {
     // Starving with nothing to eat: food before whatever we are doing.
@@ -626,6 +688,9 @@ export function codeDecision(
   // §17.7, §17.8: the moment to rally others against someone; a follower's place by its leader; a grudge shared.
   const power = pv ? (rallyMove(s, pv) ?? escortMove(s, pv) ?? gossipMove(s, pv)) : null;
   if (power) return power;
+  // §19.2: courting someone we're drawn to: a compliment, a small gift, the question.
+  const court = social?.romance ? courtMove(social.romance) : null;
+  if (court) return court;
   const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
   if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };
@@ -725,6 +790,8 @@ export interface CCOptions {
   };
   /** Power structures (§17.7, §17.8): whom we follow, who resents whom, coalitions. */
   power?: Omit<PowerView, 'saidLately'>;
+  /** Romance (§19.2): whom we're drawn to, how far it has gone, how we take an advance; and the gate on courting. */
+  romance?: RomanceView;
   /** A person (fights with them are gated) rather than a mob. */
   isPerson?: (name: AgentName) => boolean;
   rng?: () => number;
@@ -900,6 +967,7 @@ export class CognitiveController {
       canPerceive: this.o.canPerceive,
       ...(this.o.isPerson ? { isPerson: this.o.isPerson } : {}),
       ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => c.mayFight(target, impulse ? 'impulse' : intent, { joining: joining === true }) } : {}),
+      ...(this.o.romance ? { mayCourt: (name: AgentName) => this.o.romance?.mayCourt(name) ?? null } : {}),
     };
   }
 
@@ -1060,6 +1128,7 @@ export class CognitiveController {
         ...(conflict ? { conflict } : {}),
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
         answered: this.answered,
+        ...(this.o.romance ? { romance: this.o.romance } : {}),
         ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
       });
       source = 'default';

@@ -88,6 +88,16 @@ export const TradeStepSchema = z.object({
 });
 export type TradeStep = z.infer<typeof TradeStepSchema>;
 
+/** §19.2, §19.10: a step in courting someone, or in answering their advance. */
+export const RomanceStepSchema = z.object({
+  with: z.string().min(1),
+  /** flirt (a compliment, a small gift), propose (to be partners), accept or decline an advance, break up. */
+  phase: z.enum(['flirt', 'propose', 'accept', 'decline', 'breakup']),
+  /** How a declined advance was taken (§19.10 A). */
+  reaction: z.enum(['politeDecline', 'ignore', 'uncomfortable', 'disgusted', 'hostile']).optional(),
+});
+export type RomanceStep = z.infer<typeof RomanceStepSchema>;
+
 export const FightProposalSchema = z.object({
   target: z.string().min(1),
   intent: z.enum(['brawl', 'lethal']),
@@ -123,6 +133,7 @@ export const DecisionOutputSchema = z.object({
   commitmentsToCreate: z.array(CommitmentDraftSchema).max(3).optional(),
   trade: TradeStepSchema.optional(),
   fight: FightProposalSchema.optional(),
+  romance: RomanceStepSchema.optional(),
   terminate: TerminateSchema,
   /** ≤ 1 sentence, for logs/UI only. */
   rationale: z.string().max(400),

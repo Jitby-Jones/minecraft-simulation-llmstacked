@@ -65,9 +65,11 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
       // A person is fought until someone yields; a mob just until it's gone.
       if (opt.targetAgent) return { skill: nearAgent(opt.targetAgent, 32) ? 'duel' : 'attack', args: { target: opt.targetAgent } };
       return { skill: 'wait', args: { seconds: 5 } };
-    // Romance gets its own skills in M9; until then these pass time.
-    case 'yield':
+    // §19.2 courting: walk over, then the small gift (a give task) or a moment while the line is said.
     case 'court':
+      if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 3 } };
+      return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 60) } };
+    case 'yield':
     case 'apologize':
     case 'rest':
       return { skill: 'wait', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120) } };
@@ -203,11 +205,11 @@ export class SkillExecutor {
       store.update('actionLog', (log) => [...log, rec as ActionRecord].slice(-ACTION_LOG), `action ${r.skill}`);
       logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');
       bus.emit({ type: 'actionRecorded', record: rec });
-      if ((opt.option === 'talk' || opt.option === 'trade') && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
+      if ((opt.option === 'talk' || opt.option === 'trade' || (opt.option === 'court' && !opt.skill)) && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
         step = { skill: 'wait', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)) } };
         continue;
       }
-      if (opt.option === 'help' && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted && opt.skill) {
+      if ((opt.option === 'help' || opt.option === 'court') && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted && opt.skill) {
         step = { skill: opt.skill, args: opt.args ?? {} };
         continue;
       }
@@ -219,7 +221,7 @@ export class SkillExecutor {
     const reason = me.reason ?? (ok ? 'done' : (rec?.error ?? 'failed'));
     // A condition that came true or a timer counts as a normal end, not a failure.
     const success =
-      ok || reason.startsWith('until ') || reason === 'conversation over' || reason === 'they said done' || (reason === 'time is up' && ['rest', 'follow', 'talk', 'trade', 'explore'].includes(opt.option));
+      ok || reason.startsWith('until ') || reason === 'conversation over' || reason === 'they said done' || (reason === 'time is up' && ['rest', 'follow', 'talk', 'trade', 'explore', 'court'].includes(opt.option));
     if (this.current === me) this.current = null;
     store.update(
       'option',

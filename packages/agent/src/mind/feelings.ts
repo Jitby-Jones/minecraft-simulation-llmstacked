@@ -131,6 +131,13 @@ export class Feelings {
       .sort((a, b) => b.anger - a.anger);
   }
 
+  /** Something felt that another module noticed (§19.2 romance: nerves, a welcome or unwanted advance, a no). */
+  appraise(ev: AppraisalEvent, who?: AgentName): void {
+    // Jealousy and a rejection taken badly are anger at someone, as an insult is.
+    const heat = ev.kind === 'jealous' ? 0.4 : ev.kind === 'unwantedAdvance' && ev.disgust ? 0.2 : 0;
+    this.feel(ev, who ?? null, heat);
+  }
+
   /** Seconds since the last strong feeling (the override's timeFactor, §18.5). */
   secondsSinceTrigger(): number {
     return this.triggerAt === 0 ? 3600 : (this.now() - this.triggerAt) / 1000;
