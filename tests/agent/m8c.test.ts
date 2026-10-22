@@ -16,7 +16,8 @@ import { type PowerMoveCtx, gossipMove } from '@agora/agent/modules/powerMove';
 import { Reflection, acceptsCorrection, auditCandidates, corrected } from '@agora/agent/modules/reflection';
 import { SocialAwareness } from '@agora/agent/social/awareness';
 import { withGrievance } from '@agora/agent/social/math';
-import { readDeeds } from '@agora/agent/social/opinions';
+import { opinionLine, readDeeds, readOpinionAsk, readOpinions, statedOpinion } from '@agora/agent/social/opinions';
+import { needsDecision } from '@agora/agent/modules/talking';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -68,6 +69,10 @@ describe('hearsay (§17.8)', () => {
     set(s, 'Dov', (p) => ({ ...p, trust: 0.1 }));
     bus.emit({ type: 'heard', utterance: say('u3', 'Dov', 'Cass lied to everyone', true) });
     expect(s.state.social.Cass?.grievances[0]?.weight).toBeCloseTo(0.3 * 0.2); // betrayal 0.6 × ½ × credence 0.2
+    // Seen through on reflection once, the same rumor counts half when it comes round again.
+    set(s, 'Bram', (p) => corrected(p, 'hearsay'));
+    bus.emit({ type: 'heard', utterance: say('u4', 'Cass', 'Bram stole my iron', true) });
+    expect(s.state.social.Bram?.grievances[0]?.weight).toBeCloseTo(0.1);
   });
 });
 
@@ -85,6 +90,8 @@ describe('the bias audit (§18.6)', () => {
     set(s, 'Fay', (p) => ({ ...p, sentiment: 8.5, evidence: 5, interactions: 4 }));
     const found = Object.fromEntries(auditCandidates(s.state).map((x) => [x.name, x.kind]));
     expect(found).toEqual({ Bram: 'hearsay', Cass: 'scapegoat', Dov: 'idol', Eve: 'crowd' });
+    // A grudge that is only what we were told, before it has moved the feeling much, is hearsay too.
+    expect(auditCandidates({ ...s.state, social: { Bram: { ...told(newSocialProfile('Bram', sage, T)), sentiment: 5, evidence: 5 } } }).map((x) => x.kind)).toEqual(['hearsay']);
     // Four at most: the strongest gaps first (Fay's first impression waits for the next time).
     expect(auditCandidates({ ...s.state, social: { Fay: s.state.social.Fay as SocialProfile } }).map((x) => x.kind)).toEqual(['first_impression']);
   });
@@ -248,6 +255,34 @@ describe('fear and conformity (§18.4.1)', () => {
     const view = (bandwagon: number): ConflictView => ({ rungOf: () => 0, fearOf: () => 0.75, mayBrawl: () => false, resentmentOf: () => 0.1, bandwagon: () => bandwagon, warnedLately: () => false });
     expect(codeDecision(heard, { from: 'Rex', convId: 'c1' }, false, () => false, { candidates: [], roll: 1, conflict: view(0) })?.task).toBeUndefined();
     expect(codeDecision(heard, { from: 'Rex', convId: 'c1' }, false, () => false, { candidates: [], roll: 1, conflict: view(0.2) })?.task?.skill).toBe('give');
+  });
+});
+
+describe('saying what one thinks of someone (§18.4.1)', () => {
+  it('reads the question, and the answer says what is felt, pulled toward a safe word by the fear of speaking up', () => {
+    expect(readOpinionAsk('Ana, what do you think of Rex?', ['Rex', 'Bo'])).toBe('Rex');
+    expect(readOpinionAsk('how do you feel about bo', ['Rex', 'Bo'])).toBe('Bo');
+    expect(readOpinionAsk('what do you think of the weather', ['Rex'])).toBeNull();
+    expect(needsDecision('what do you make of Rex?')).toBe(true);
+    expect(statedOpinion(-0.8, 0)).toBeCloseTo(-0.8);
+    expect(statedOpinion(-0.8, 1)).toBeCloseTo(0.3);
+    expect(statedOpinion(-0.8, 0.4)).toBeCloseTo(-0.36);
+    // A good opinion has nothing to hide.
+    expect(statedOpinion(0.7, 1)).toBeCloseTo(0.7);
+    // Worded so that whoever hears it reads it the same way.
+    const read = (v: number) => readOpinions(opinionLine('Rex', v), 'Ana', ['Rex'], T)[0]?.valence ?? 0;
+    expect([0.8, 0.3, 0, -0.3, -0.8].map(read)).toEqual([0.6, 0.3, 0, -0.4, -0.7]);
+  });
+
+  it('the code default answers it: the frightened echo a safe word, the unafraid say what they feel', () => {
+    const s = world(sheep, ['Rex', 'Quill']);
+    set(s, 'Rex', (p) => ({ ...p, sentiment: 1.5 }));
+    s.update('perception', (p) => ({ ...p, heardSpeech: [{ ...say('q1', 'Quill', 'Ivo, what do you think of Rex?', true), to: ['Ivo'] }] }));
+    const view: ConflictView = { rungOf: () => 0, fearOf: () => 0.9, mayBrawl: () => false, resentmentOf: () => 0.8, warnedLately: () => true };
+    const power = (quiet: number) => ({ leader: () => null, coalition: (x: string) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false, quiet: () => quiet });
+    const answer = (quiet: number) => codeDecision(s.state, { from: 'Quill', convId: 'c1' }, false, () => false, { candidates: [], roll: 1, conflict: view, power: power(quiet) })?.speechIntent;
+    expect(answer(1)).toMatchObject({ stance: 'inform', gist: "Rex isn't mean, I suppose.", mayCommit: false });
+    expect(answer(0)).toMatchObject({ stance: 'inform', gist: "Rex is a bully. I can't stand Rex." });
   });
 });
 

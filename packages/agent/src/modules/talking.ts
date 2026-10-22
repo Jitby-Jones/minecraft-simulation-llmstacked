@@ -16,6 +16,7 @@ import type { AgentStateStore } from '../state/store';
 import type { Conversations } from './conversations';
 import type { SkillExecutor } from './executor';
 import { topEmotion } from '../mind/emotions';
+import { OPINION_ASK_RE } from '../social/opinions';
 import { parseTradeOffer } from '../social/trades';
 import { NO_PROMISE_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
 
@@ -37,7 +38,7 @@ export function looksLikePromise(text: string): boolean {
 }
 
 export function needsDecision(text: string): boolean {
-  return REQUEST_RE.test(text) || parseTradeOffer(text) !== null;
+  return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null;
 }
 
 /** One clean chat line from a model reply: no "Name:" prefix, no quotes, no commands, capped. */

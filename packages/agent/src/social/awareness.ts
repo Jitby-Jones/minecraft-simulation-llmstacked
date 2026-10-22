@@ -207,7 +207,8 @@ export class SocialAwareness {
     const p = this.profile(d.target);
     const t = this.now();
     if (p.grievances.some((g) => g.note === note && t - g.ts < 3_600_000)) return;
-    const credence = Math.min(1, Math.max(0.2, (s.social[d.speaker]?.trust ?? 0.5) * 2));
+    // A rumor about someone we already saw through on reflection (§18.6) counts half.
+    const credence = Math.min(1, Math.max(0.2, (s.social[d.speaker]?.trust ?? 0.5) * 2)) * inoculation(s, 'conformity', d.target);
     // withGrievance takes the unwitnessed down to 0.6 of the weight; together, half of a wrong seen.
     this.write(withGrievance(p, kind, this.persona, { now: t, witnessed: false, source: `told_by:${d.speaker}`, note, weight: ((GRIEVANCE_WEIGHT[kind] * 0.5) / 0.6) * credence }), `told: ${note}`);
   }

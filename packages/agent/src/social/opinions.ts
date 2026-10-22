@@ -32,6 +32,35 @@ export function readOpinions(text: string, speaker: AgentName, known: readonly A
   return [...out].map(([target, valence]) => ({ speaker, target, valence, ts: now }));
 }
 
+/** Being asked what we think of someone: "what do you think of Rex?", "how do you feel about Rex", "thoughts on Rex?". */
+export const OPINION_ASK_RE = /\b(?:what do you (?:think|make) of|how do you feel about|what'?s your (?:view|take|opinion) (?:of|on)|(?:any )?thoughts on)\s+@?([A-Za-z0-9_]{2,16})\b/i;
+
+/** Whom a line asks our opinion of, if it names someone we know. */
+export function readOpinionAsk(text: string, known: readonly AgentName[]): AgentName | null {
+  const w = OPINION_ASK_RE.exec(text)?.[1]?.toLowerCase();
+  return w ? (known.find((n) => n.toLowerCase() === w) ?? null) : null;
+}
+
+/** What it is safe to say of someone one fears: a mild good word. */
+const SAFE_WORD = 0.3;
+
+/**
+ * §18.4.1 what one says of someone when asked (−1..1): what one feels, but a low opinion is pulled toward a safe word
+ * by the pull to keep quiet (conformity, raised by fear of them or of the leader). Dissent goes quiet under fear.
+ */
+export function statedOpinion(felt: number, quiet: number): number {
+  return felt >= SAFE_WORD ? felt : felt + (SAFE_WORD - felt) * Math.min(1, Math.max(0, quiet));
+}
+
+/** The line for an opinion, worded so that a listener's code reading (readOpinions) takes it the same way. */
+export function opinionLine(name: AgentName, v: number): string {
+  if (v >= 0.45) return `${name} is good to us.`;
+  if (v >= 0.15) return `${name} isn't mean, I suppose.`;
+  if (v > -0.15) return `${name}? I couldn't say.`;
+  if (v > -0.45) return `${name} isn't nice.`;
+  return `${name} is a bully. I can't stand ${name}.`;
+}
+
 /** A wrong someone is said to have done (§17.8 hearsay grievances): "Bram stole my iron", "Rex hit Cass". */
 export interface ToldDeed {
   speaker: AgentName;

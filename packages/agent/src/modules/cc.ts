@@ -25,6 +25,7 @@ import { itemMatcher } from '../body/items';
 import { complies, spareChance, yieldHealth } from '../conflict/pressure';
 import { type Demand, demandFor, joinsRally, parseDemand, parseRally } from '../conflict/coercion';
 import { type Offer, amountOf, judgeOffer, parseHelpRequest, parseTradeOffer, stacksText } from '../social/trades';
+import { opinionLine, readOpinionAsk, statedOpinion } from '../social/opinions';
 import { getSkill, skillCatalog } from '../body/skills/registry';
 import { CC_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
@@ -248,6 +249,19 @@ function answerRequest(
   const known = Object.keys(s.social);
   const foe = theirs.map((u) => parseRally(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
   if (foe) return answerRally(s, from, foe, busy, isStuck, conflict, power);
+  // §18.4.1: asked what we think of someone, we say it, unless the fear of speaking up turns it into a safe word.
+  const about = theirs.map((u) => readOpinionAsk(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
+  if (about) {
+    const felt = Math.max(-1, Math.min(1, ((judge?.(about) ?? s.social[about]?.sentiment ?? 5) - 5) / 5 - 0.5 * (conflict?.resentmentOf?.(about) ?? 0)));
+    const said = statedOpinion(felt, power?.quiet?.(about) ?? 0);
+    return {
+      ...keep,
+      target: { agent: from },
+      speechIntent: { stance: 'inform', gist: opinionLine(about, said), mayCommit: false },
+      terminate: { maxSeconds: 20 },
+      rationale: `code default: asked about ${about} (feel ${felt.toFixed(2)}, say ${said.toFixed(2)})`,
+    };
+  }
   // §17.7: a demand ("give me 3 bread, or else") is weighed by fear, not by liking.
   const demand = theirs.map((u) => parseDemand(u.text)).filter((d): d is Demand => d !== null && (isItem?.(d.item) ?? true)).at(-1);
   if (demand) return answerDemand(s, from, demand, busy, isStuck, conflict);

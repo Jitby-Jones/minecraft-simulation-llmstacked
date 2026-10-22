@@ -74,7 +74,8 @@ export function auditCandidates(s: AgentState): Suspect[] {
     const mobbed = s.workmem.some((w) => w.aboutAgent === p.name && /^Everyone is against /.test(w.text));
     // Blame with nothing seen behind it comes first: it is the plainest of them.
     if (p.grievances.some((g) => g.kind === 'scapegoat')) out.push({ name: p.name, kind: 'scapegoat', why: `blamed ${p.name} without seeing anything`, gap: Math.abs(gap) + 3 });
-    else if (gap >= 1.5 && (hearsay > seen || (badTalk && seen === 0))) out.push({ name: p.name, kind: 'hearsay', why: `what others said, not what ${p.name} did`, gap });
+    // A dislike that drifted from the facts, or a grudge that is only what we were told: hearsay either way.
+    else if ((gap >= 1.5 || hearsay >= 0.1) && (hearsay > seen || (badTalk && seen === 0))) out.push({ name: p.name, kind: 'hearsay', why: `what others said, not what ${p.name} did`, gap: Math.max(gap, hearsay * 5) });
     else if (mobbed && p.evidence >= 6 && gap >= 1) out.push({ name: p.name, kind: 'crowd', why: `went along with a crowd against ${p.name}`, gap });
     else if (p.admiration >= 0.75 && p.evidence <= 4) out.push({ name: p.name, kind: 'idol', why: `looked up to ${p.name}, who has done wrong`, gap: Math.abs(gap) + p.admiration });
     else if (p.interactions >= 3 && Math.abs(gap) >= 2.5 && seen === 0 && hearsay === 0) out.push({ name: p.name, kind: 'first_impression', why: 'a first impression the facts never bore out', gap: Math.abs(gap) });
