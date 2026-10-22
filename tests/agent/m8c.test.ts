@@ -227,6 +227,12 @@ describe('fear and conformity (§18.4.1)', () => {
     w.t.now += 70_000;
     w.tick();
     expect(w.s.state.social.Rex?.defiedSeen).toHaveLength(1);
+    // Overheard, with no one it was said to but the name it opens with: the same.
+    w.bus.emit({ type: 'heard', utterance: { ...say('d5', 'Rex', 'Bo, give me 3 bread, or else', false), to: 'nearby' } });
+    w.bus.emit({ type: 'heard', utterance: { ...say('d6', 'Bo', 'Rex, no. you get nothing from me.', false), to: 'nearby' } });
+    w.t.now += 70_000;
+    w.tick();
+    expect(w.s.state.social.Rex?.defiedSeen).toHaveLength(2);
   });
 
   it('fear of someone seen defied with impunity falls', () => {

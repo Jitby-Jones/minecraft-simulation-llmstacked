@@ -419,7 +419,8 @@ export class Talking {
     // worded, so it is understood.
     if (intent.stance === 'threaten' && /^(give|bring|hand|now!)/i.test(intent.gist) && intent.gist.length <= 100) return intent.gist;
     if ((intent.stance === 'rally' || intent.stance === 'inform') && intent.gist.length > 0 && intent.gist.length <= 120) return intent.gist;
-    // Giving in to a demand: said grudgingly, but plainly (§17.7).
+    // Turning a demand down, and giving in to one: said plainly (§17.7), so it is understood for what it is.
+    if (intent.stance === 'hostile' && /^no\b/i.test(intent.gist) && intent.gist.length <= 80) return intent.gist;
     if (intent.stance === 'agree' && intent.mayCommit && /^fine\. I'll /.test(intent.gist) && intent.gist.length <= 80) return intent.gist;
     return null;
   }

@@ -5,7 +5,8 @@
 //      Ulf keeps it.
 //   P  fear and conformity: Quill asks each of five villagers what they think of Rex while Rex, in iron and armed,
 //      stands among them. Most of them dislike him, but what they say of him is mostly a safe word. Then Rex loses
-//      his gear (he is plainly weaker now) and Quill asks again: the low opinions come out.
+//      his gear (in plain sight: he is weaker than any of them now, with their stone swords) and Ann, the dissenter,
+//      turns down a demand of his without anything coming of it. Quill asks again: the low opinions come out.
 
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -157,11 +158,11 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
     type Name = (typeof names)[number];
     // How each feels about Rex, and how readily each goes along (Ann is the dissenter: §18.4.1 low conformity, open, rational).
     const personas: Record<Name, Persona> = {
-      Pia: person({ name: 'Pia', sex: 'female', traits: ['timid', 'obliging'], mind: { rationality: 0.4, conformity: 0.8 }, caution: 0.7 }),
-      Tib: person({ name: 'Tib', sex: 'male', traits: ['timid'], mind: { rationality: 0.4, conformity: 0.7 }, caution: 0.7 }),
+      Pia: person({ name: 'Pia', sex: 'female', traits: ['timid', 'obliging'], mind: { rationality: 0.4, conformity: 0.6 }, caution: 0.7 }),
+      Tib: person({ name: 'Tib', sex: 'male', traits: ['timid'], mind: { rationality: 0.4, conformity: 0.5 }, caution: 0.6 }),
       Ann: person({ name: 'Ann', sex: 'female', traits: ['outspoken', 'curious'], mind: { rationality: 0.85, conformity: 0.1 }, big5: { openness: 0.9 }, caution: 0.3 }),
-      Bo: person({ name: 'Bo', sex: 'male', traits: ['quiet'], mind: { rationality: 0.4, conformity: 0.7 }, caution: 0.5 }),
-      Cyd: person({ name: 'Cyd', sex: 'male', traits: ['cautious'], mind: { rationality: 0.4, conformity: 0.7 }, caution: 0.6 }),
+      Bo: person({ name: 'Bo', sex: 'male', traits: ['quiet'], mind: { rationality: 0.4, conformity: 0.5 }, caution: 0.5 }),
+      Cyd: person({ name: 'Cyd', sex: 'male', traits: ['cautious'], mind: { rationality: 0.4, conformity: 0.5 }, caution: 0.6 }),
     };
     const feel: Record<Name, number> = { Pia: 6.5, Tib: 3.5, Ann: 1.5, Bo: 2, Cyd: 2 };
     const bodies = Object.fromEntries(await Promise.all([...names, 'Rex', 'Quill'].map(async (n) => [n, await connect(n)] as const))) as Record<Name | 'Rex' | 'Quill', Body>;
@@ -171,12 +172,19 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
     await server.cmd(`tp Rex ${x} ${Y} 0`);
     await server.cmd(`tp Quill ${x} ${Y} 7`);
     for (const it of ['iron_helmet', 'iron_chestplate', 'iron_leggings', 'iron_boots', 'iron_sword']) await server.cmd(`give Rex minecraft:${it}`);
+    // Each of them has a stone sword in hand, and some bread.
+    for (const n of names) await server.cmd(`give ${n} minecraft:stone_sword`);
+    for (const n of names) await server.cmd(`give ${n} minecraft:bread 6`);
     await sleep(2500);
-    // Rex wears it: armor goes on from the inventory.
+    // Rex wears his: armor goes on from the inventory.
     const rex = bodies.Rex.bot;
     for (const it of rex.inventory.items()) {
       const dest = /helmet/.test(it.name) ? 'head' : /chestplate/.test(it.name) ? 'torso' : /leggings/.test(it.name) ? 'legs' : /boots/.test(it.name) ? 'feet' : 'hand';
       await rex.equip(it, dest).catch(() => undefined);
+    }
+    for (const n of names) {
+      const sword = bodies[n].bot.inventory.items().find((i) => i.name === 'stone_sword');
+      if (sword) await bodies[n].bot.equip(sword, 'hand').catch(() => undefined);
     }
     const t0 = Date.now();
     const heard = listen(Object.values(bodies), t0);
@@ -221,8 +229,12 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
       const feared = await interview('Rex armed');
       // Rex loses his gear in plain sight: a man in his shirt, with nothing in his hands.
       await server.cmd('clear Rex');
-      await server.cmd('effect give Rex minecraft:weakness 600 1');
-      await waitFor(() => names.filter((n) => n !== 'Ann').every((n) => (agents[n].store.state.social.Rex?.fearOf ?? 1) < 0.4), 90_000, 'fear of Rex falling', 500).catch(() => undefined);
+      // And Ann turns down a demand of his, and nothing comes of it (§18.4.1: defiance that works).
+      const asked = Date.now();
+      bodies.Rex.bot.chat('Ann, give me 3 bread, or else');
+      await waitFor(() => heard.lines.some((l) => l.who === 'Ann' && l.at > asked && /\bRex\b/.test(l.text)), 30_000, 'Ann answering Rex', 250).catch(() => undefined);
+      await waitFor(() => names.filter((n) => n !== 'Ann').every((n) => (agents[n].store.state.social.Rex?.defiedSeen ?? []).length > 0), 120_000, 'the defiance seen', 1000).catch(() => undefined);
+      await waitFor(() => names.filter((n) => n !== 'Ann').every((n) => (agents[n].store.state.social.Rex?.fearOf ?? 1) < 0.4), 60_000, 'fear of Rex falling', 500).catch(() => undefined);
       await sleep(3000);
       const weak = await interview('Rex unarmed');
       console.log(`[m8c P] timeline:\n  ${heard.timeline.join('\n  ')}`);

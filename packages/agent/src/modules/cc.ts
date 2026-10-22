@@ -399,7 +399,7 @@ function answerDemand(s: AgentStateStore['state'], from: AgentName, d: Demand, b
     return {
       ...keep,
       target: { agent: from },
-      speechIntent: { stance: 'hostile', gist: `refuse to give ${from} anything`, mayCommit: false },
+      speechIntent: { stance: 'hostile', gist: 'no. you get nothing from me.', mayCommit: false },
       terminate: { maxSeconds: 20 },
       rationale: `code default: not giving in to ${from} (fear ${fear.toFixed(2)}, resentment ${resent.toFixed(2)})`,
     };
