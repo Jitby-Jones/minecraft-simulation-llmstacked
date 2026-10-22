@@ -169,6 +169,14 @@ const WARN_EVERY_MS = 3 * 60_000;
 /** Options that are about a person: the same one with someone else is another option (an answer's person is only
  *  whom it is said to). */
 const WITH_SOMEONE: ReadonlySet<string> = new Set(['talk', 'trade', 'demand', 'recruit', 'follow', 'help']);
+
+/**
+ * A fight with the same person to the same end (a brawl, or to the death) is the fight already under way, whatever
+ * its other terms: deciding on it again goes on with it rather than breaking it off to start it anew.
+ */
+function sameFight(aSkill: string, a: Record<string, unknown>, bSkill: string, b: Record<string, unknown>): boolean {
+  return aSkill === 'duel' && bSkill === 'duel' && a.target === b.target && Boolean(a.lethal) === Boolean(b.lethal);
+}
 /** Grumbling to the same friend, or calling on the same person to rise, at most this often. */
 const SPOKE_EVERY_MS = 10 * 60_000;
 /** A question put to us is still worth answering this long after it was asked. */
@@ -1079,7 +1087,7 @@ export class CognitiveController {
       cur?.status === 'running' &&
       cur.option === decision.option &&
       (!WITH_SOMEONE.has(decision.option) || (cur.targetAgent ?? null) === (decision.target?.agent ?? null)) &&
-      (!decision.task || (cur.skill !== undefined && taskKey(cur.skill, cur.args ?? {}) === taskKey(decision.task.skill, decision.task.args)));
+      (!decision.task || (cur.skill !== undefined && (taskKey(cur.skill, cur.args ?? {}) === taskKey(decision.task.skill, decision.task.args) || sameFight(cur.skill, cur.args ?? {}, decision.task.skill, decision.task.args))));
     if (!sameTask) {
       // A queued task that is now being run leaves the queue (promise tasks only once they succeed).
       if (decision.task) {

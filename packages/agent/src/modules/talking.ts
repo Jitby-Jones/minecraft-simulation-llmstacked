@@ -29,6 +29,8 @@ const AddressedSchema = z.object({ addressedToMe: z.boolean() });
 
 /** Options whose speech intent is said first, once the person is in range. */
 const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit']);
+/** A fight's threat stands this long: a decision going on with the fight doesn't say another. */
+const FIGHT_ANNOUNCED_MS = 15_000;
 
 export function looksLikePromise(text: string): boolean {
   return PROMISE_RE.test(text);
@@ -211,6 +213,8 @@ export class Talking {
 
   /** People we won't talk to for a while (refused on impulse, §18.5): name → until. */
   private readonly refusing = new Map<AgentName, number>();
+  /** The last fight we opened with a threat: whom, and when. */
+  private fightOpened: { person: AgentName; optionId: string | undefined; at: number } | null = null;
 
   /** Says something right away to them, no model and no waiting (§18.5 outbursts); replaces a reply in the making. */
   async blurt(to: AgentName, text: string, volume: SpeechIntent['volume'] = 'normal', urgent = false): Promise<boolean> {
@@ -308,16 +312,26 @@ export class Talking {
     }
     // A talk option opens with its line; so does a fight (a threat, then blows), a demand (§17.7) and a call to
     // rise together (§17.8).
-    if (OPENS_WITH_A_LINE.has(d.option) && person) void this.openWhenInRange(person, intent, d.id);
+    if (!OPENS_WITH_A_LINE.has(d.option) || !person) return;
+    // A fight already announced (its threat on its way, or just said) isn't announced again by a decision going on
+    // with it: the same fight, still running.
+    const running = this.o.store.state.option;
+    const prior = this.fightOpened;
+    if (d.option === 'fight' && prior?.person === person && running?.status === 'running' && running.decisionId === prior.optionId && this.now() - prior.at < FIGHT_ANNOUNCED_MS) return;
+    if (d.option === 'fight') this.fightOpened = { person, optionId: running?.decisionId, at: this.now() };
+    void this.openWhenInRange(person, intent, d.id, d.option);
   }
 
-  private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string): Promise<void> {
+  private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string, option: string): Promise<void> {
     // The line opens what was decided, while it's on: no threat once the fight is over (or given up). A decision to
-    // go on with what we're doing goes on with the option already running, started by an earlier one.
+    // go on with what we're doing (the same option with them) keeps it on, as does the option already running,
+    // started by an earlier one.
     const optionId = this.o.store.state.option?.decisionId;
     const on = () => {
       const s = this.o.store.state;
-      return s.decision?.id === decisionId && (!s.option || s.option.decisionId !== optionId || s.option.status === 'running');
+      const d = s.decision;
+      const same = d?.id === decisionId || (d?.option === option && d.target?.agent === person);
+      return same && (!s.option || s.option.decisionId !== optionId || s.option.status === 'running');
     };
     for (let i = 0; i < 40; i++) {
       if (!on()) return;

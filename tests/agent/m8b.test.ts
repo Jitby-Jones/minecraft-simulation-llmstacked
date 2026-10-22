@@ -182,6 +182,42 @@ describe('demands and compliance (§17.7)', () => {
   });
 });
 
+describe('a fight decided again (§17.6)', () => {
+  it('goes on with the fight under way with that person, not broken off and begun anew; its cry is said once', async () => {
+    const s = world(rebel, ['Rex']);
+    // Within reach of a fight, not yet of the cry.
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 10)] }));
+    const bus = new AgentBus();
+    const said: string[] = [];
+    const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => ({ talkOverable: false }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: rebel.name, inRange: () => ['Rex'], rng: () => 0 });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: rebel.name, rng: () => 0, rungOf: () => 3 });
+    const conflict = { rungOf: () => 3, fearOf: () => 0, mayFight: () => null };
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: rebel.name, levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, rng: () => 0.99 });
+    const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+    for (const m of [executor, conversations, talking, cc]) m.start();
+    // An uprising's strike at Rex, still on its way: its own terms (120 s) and its cry.
+    const strike = { id: 'd0', createdAt: Date.now(), stateVersion: s.version, source: 'default' as const, option: 'fight' as const, target: { agent: 'Rex' }, task: { skill: 'duel', args: { target: 'Rex', stopAtHealth: 5, seconds: 120 } }, speechIntent: { stance: 'threaten' as const, gist: "now! we've had enough of you, Rex", mayCommit: false }, terminate: { maxSeconds: 150 }, rationale: 'test' };
+    s.set('option', { decisionId: 'd0', option: 'fight', startedAt: Date.now(), maxSeconds: 150, targetAgent: 'Rex', skill: 'duel', args: strike.task.args, status: 'running' }, 'fighting');
+    s.set('decision', strike, 'decided');
+    bus.emit({ type: 'decision', decision: strike });
+    // Struck back, we decide again: the brawl with Rex, on other terms. It is the same fight.
+    cc.trigger('Rex hit us', { urgent: true, atOdds: 'Rex' });
+    await settle();
+    expect(s.state.decision?.id).not.toBe('d0');
+    expect(s.state.decision).toMatchObject({ option: 'fight', task: { skill: 'duel', args: { target: 'Rex' } } });
+    expect(s.state.option?.decisionId).toBe('d0');
+    // Rex in reach: the cry goes out, once.
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 3)] }));
+    for (let i = 0; i < 60 && said.length === 0; i++) await settle(50);
+    await settle(800);
+    expect(said).toEqual(["now! we've had enough of you, Rex"]);
+    for (const m of [cc, talking, conversations, executor]) m.stop();
+  });
+});
+
 describe('a demand on its way (§17.7)', () => {
   it('is said before the next one; one that never got said is made again, and one said counts', async () => {
     const s = world(tyrant, ['Tib', 'Pia']);
