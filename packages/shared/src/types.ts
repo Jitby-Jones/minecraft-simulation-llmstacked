@@ -532,6 +532,8 @@ export type AgentEvent =
   /** We began or stopped following someone (§17.7). */
   | { type: 'leaderChanged'; leader: AgentName | null; before: AgentName | null }
   /** We walked away from our leader as a group set upon them (§17.8 defection). */
-  | { type: 'defected'; from: AgentName; attackers: AgentName[] };
+  | { type: 'defected'; from: AgentName; attackers: AgentName[] }
+  /** §17.8: someone we resent is alone or hurt, and others resent them too: the moment to call on them. */
+  | { type: 'opening'; name: AgentName };
 
 export type AgentEventType = AgentEvent['type'];

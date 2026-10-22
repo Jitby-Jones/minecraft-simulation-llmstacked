@@ -30,6 +30,8 @@ const ANSWER_MS = 60_000;
 const WRONG_MERGE_MS = 10_000;
 /** Seen alone or hurt: the moment to rise against them lasts this long (§17.8). */
 const OPENING_MS = 2 * 60_000;
+/** Resentment enough to rally others (§17.8, as mayRally): a moment against them is worth stopping work for. */
+const OPENING_RESENTMENT = 0.5;
 /** A blow of ours or an ally's this recent explains the target's hurt. */
 const OUR_BLOW_MS = 5000;
 /** Giving in to a demand ("Rex, fine. I'll give you 3 bread"). */
@@ -48,6 +50,8 @@ export interface PowerWatchOptions {
   powerOf: (name: AgentName) => number;
   myPower: () => number;
   fearOf: (name: AgentName) => number;
+  /** How much we resent someone (0..1): a moment against one we resent enough wakes the CC. */
+  resentmentOf?: (name: AgentName) => number;
   now?: () => number;
 }
 
@@ -85,6 +89,8 @@ export class PowerWatch {
   private readonly defied = new Map<AgentName, Map<AgentName, number>>();
   /** When someone was last seen alone or hurt. */
   private readonly openings = new Map<AgentName, number>();
+  /** When we last woke the CC for a moment against each person. */
+  private readonly toldOpening = new Map<AgentName, number>();
   private timer: NodeJS.Timeout | null = null;
   private readonly offs: (() => void)[] = [];
   private readonly now: () => number;
@@ -295,6 +301,17 @@ export class PowerWatch {
     for (const [target, per] of this.blows) {
       for (const [n, at] of per) if (t - at > SET_UPON_MS * 4) per.delete(n);
       if (per.size === 0) this.blows.delete(target);
+    }
+    // §17.8: one we resent, seen alone or hurt, with others who resent them too: the moment is told once, even mid-task.
+    const resentment = this.o.resentmentOf;
+    if (resentment) {
+      for (const p of people) {
+        if (p.name === this.following || resentment(p.name) < OPENING_RESENTMENT || t - (this.toldOpening.get(p.name) ?? -Infinity) < OPENING_MS) continue;
+        const c = this.coalition(p.name);
+        if (!c.opening || c.members.length === 0) continue;
+        this.toldOpening.set(p.name, t);
+        this.o.bus.emit({ type: 'opening', name: p.name });
+      }
     }
     this.chooseLeader(t);
   }

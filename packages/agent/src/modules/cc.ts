@@ -46,6 +46,8 @@ export interface DecideContext {
   urgent?: boolean;
   /** Things just got worse with this person (a rung went up, §17.5): the conflict moves apply even mid-task. */
   atOdds?: AgentName;
+  /** §17.8: one we resent is alone or hurt, with others who resent them too: the call to rise comes first, mid-task too. */
+  opening?: AgentName;
 }
 
 export interface ValidationEnv {
@@ -571,6 +573,9 @@ export function codeDecision(
     // Starving with nothing to eat: food before whatever we are doing.
     const food = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
     if (food) return food;
+    // §17.8: the moment against one we resent (alone or hurt) is worth stopping work for: the others are called on.
+    const moment = ctx.opening && pv ? rallyMove(s, pv) : null;
+    if (moment) return moment;
     if (!ctx.atOdds || !social?.conflict) return null;
     // Someone we're at odds with came near: the one we swore to take on (with the others at hand), or the rungs.
     const move = (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking, social.power?.leader());
@@ -593,6 +598,9 @@ export function codeDecision(
   // §17.8: an uprising we swore to: meet up, find them, set upon them together.
   const uprising = pv ? uprisingMove(s, pv) : null;
   if (uprising) return uprising;
+  // §17.8: the moment against one we resent (alone or hurt) comes before warning them off: the others are called on.
+  const moment = ctx.opening && pv ? rallyMove(s, pv) : null;
+  if (moment) return moment;
   // §17.5: someone we're at odds with nearby comes first: the brawl the gate allows, a warning, or keeping away.
   const odds = social?.conflict ? conflictMove(s, social.conflict, social.liking, social.power?.leader()) : null;
   if (odds) return odds;
@@ -760,6 +768,7 @@ export class CognitiveController {
       }),
     );
     this.offs.push(b.on('atOddsNearby', (e) => this.trigger(`${e.name} is here, and things are bad between you`, { atOdds: e.name, urgent: true })));
+    this.offs.push(b.on('opening', (e) => this.trigger(`${e.name} is alone or hurt: a chance to deal with ${e.name} together`, { opening: e.name, urgent: true })));
     this.offs.push(b.on('actionRecorded', (e) => this.onPromiseTaskResult(e.record)));
     // A promise that is settled (kept, broken or called off) has nothing left to do.
     this.offs.push(

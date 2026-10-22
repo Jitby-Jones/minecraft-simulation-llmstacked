@@ -326,6 +326,7 @@ export class Agent {
       powerOf: (n) => this.conflict.powerOfName(n),
       myPower: () => this.conflict.myPower(),
       fearOf: (n) => this.store.state.social[n]?.fearOf ?? 0,
+      resentmentOf: (n) => this.conflict.resentmentOf(n),
       now,
     });
     this.biases = new BiasWatch({ store: this.store, bus: this.bus, logger, me: username, override: () => this.mind.override(), nudge: (n, d, note) => this.social.nudge(n, d, note), ...rng, now });

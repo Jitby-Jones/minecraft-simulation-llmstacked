@@ -648,6 +648,37 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     return { s, bus, t, pw, powers };
   }
 
+  it('a moment against one we resent, with others who resent them too, is told once (the CC wakes for it, mid-task too)', () => {
+    const s = world(rebel, ['Rex', 'Bo', 'Cy']);
+    const bus = new AgentBus();
+    const t = { now: 10_000_000 };
+    const resent: Record<string, number> = { Rex: 0.7, Cy: 0.6 };
+    const pw = new PowerWatch({ store: s, bus, logger: nullLogger(), me: rebel.name, mode: 'test', powerOf: () => 0.3, myPower: () => 0.3, fearOf: () => 0, resentmentOf: (n) => resent[n] ?? 0, now: () => t.now });
+    const told: string[] = [];
+    bus.on('opening', (e) => told.push(e.name));
+    const tick = () => (pw as unknown as { tick(): void }).tick();
+    s.update('social', (all) => ({ ...all, Bo: { ...(all.Bo ?? newSocialProfile('Bo', rebel, 0)), trust: 0.7 } }));
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Cy', 30), ent('Bo', 3)] }));
+    tick();
+    expect(told).toEqual([]); // nobody we know of resents Rex too
+    s.update('heardOpinions', () => [{ speaker: 'Bo', target: 'Rex', valence: -0.7, ts: t.now }]);
+    tick();
+    tick();
+    expect(told).toEqual(['Rex']); // once; Cy we resent, but nobody else does
+    t.now += 2 * 60_000;
+    tick();
+    expect(told).toEqual(['Rex', 'Rex']);
+    // Not one we hardly resent, nor while he has company.
+    resent.Rex = 0.3;
+    t.now += 2 * 60_000;
+    tick();
+    resent.Rex = 0.7;
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Cy', 16), ent('Bo', 3)] }));
+    t.now += 2 * 60_000;
+    tick();
+    expect(told).toEqual(['Rex', 'Rex']);
+  });
+
   it('knows who resents whom: what they said, the wrongs seen done to them, the demands overheard', () => {
     const w = setup();
     w.s.update('heardOpinions', () => [{ speaker: 'Bo', target: 'Rex', valence: -0.7, ts: w.t.now }]);
@@ -845,6 +876,16 @@ describe('the code default for power (§17.7, §17.8)', () => {
     expect(rallyMove(s, ctx({ opening: false, members: ['Bo'], saidAgo: { 'rally:Bo': 3 * 60_000 } }))).toBeNull();
     expect(rallyMove(s, ctx({ opening: true, saidAgo: { 'rally:Bo': 3 * 60_000 } }))?.target).toEqual({ agent: 'Bo' });
     expect(rallyMove(s, ctx({ opening: true, saidAgo: { 'rally:Bo': 60_000 } }))).toBeNull();
+  });
+
+  it('the moment against Rex is worth stopping work for, and comes before warning him off', () => {
+    const s = state([ent('Bo', 3), ent('Rex', 6)]);
+    const conflict: ConflictView = { rungOf: (n) => (n === 'Rex' ? 1 : 0), fearOf: () => 0.3, mayBrawl: never, resentmentOf: (n) => (n === 'Rex' ? 0.7 : 0), warnedLately: never };
+    const social = { candidates: ['Bo'], roll: 0.9, conflict, power: ctx({ opening: true }).power };
+    expect(codeDecision(s, { opening: 'Rex', urgent: true }, true, never2, social)).toMatchObject({ option: 'recruit', target: { agent: 'Bo' } });
+    expect(codeDecision(s, { urgent: true }, true, never2, social)).toBeNull();
+    expect(codeDecision(s, { opening: 'Rex' }, false, never2, social)).toMatchObject({ option: 'recruit', target: { agent: 'Bo' } });
+    expect(codeDecision(s, {}, false, never2, social)?.option).not.toBe('recruit');
   });
 
   it('answers a call to rise: joins (a promise to fight together) or stays out', () => {
