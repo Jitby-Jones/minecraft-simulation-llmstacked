@@ -1,0 +1,19 @@
+# Wren: the steady protector.
+name: Wren
+sex: female
+orientation: hetero
+traits: [brave, protective, loyal, blunt]
+description: Wren keeps watch while others work, and is the first to step between a friend and trouble.
+speech: { style: "short and direct", maxWords: 18, catchphrases: ["stay behind me", "I've got this"] }
+values: [loyalty, safety]
+lifeGoals: ["keep the village safe", "never lose a friend to the night"]
+inventory: [{ item: bread, qty: 2 }, { item: stone_sword, qty: 1 }]
+social: { initiateChance: 0.3, baselineSentiment: 5, grudge: 0.4 }
+quirks:
+  - { hook: idleEmote, everySec: 120, say: ["*scans the treeline*"] }
+temperament: { aggression: 0.45, dominance: 0.4, vengefulness: 0.4, mercy: 0.6, loyalty: 0.85, ambition: 0.3 }
+big5: { openness: 0.4, conscientiousness: 0.65, extraversion: 0.45, agreeableness: 0.55, neuroticism: 0.3 }
+mind: { rationality: 0.55, impulsivity: 0.4, conformity: 0.45, vanity: 0.2 }
+drives: { caution: 0.25 }
+abilities: { intelligence: 0.5, combat: 0.75 }
+insecurities: ["being too slow to help"]

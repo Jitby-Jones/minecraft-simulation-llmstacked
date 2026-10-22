@@ -1,0 +1,41 @@
+diff --git a/lib/aabb.js b/lib/aabb.js
+index 6b78f46bea6ff10de81749809d1b58a0ab8f2868..8c53443b9c18a849783a5b71a2ad0dd176c593a5 100644
+--- a/lib/aabb.js
++++ b/lib/aabb.js
+@@ -1,3 +1,5 @@
++const HORIZONTAL_EPSILON = 1e-7
++
+ class AABB {
+   constructor (x0, y0, z0, x1, y1, z1) {
+     this.minX = x0
+@@ -64,12 +66,16 @@ class AABB {
+     return this
+   }
+ 
++  // Horizontal collisions stop HORIZONTAL_EPSILON short of the face. Resolving to exactly touching makes the
++  // position x = minX + 0.3, and the server's rebuilt box (x + 0.3) then overlaps the block by a rounding error
++  // (2.7 + 0.3 = 3.0000000000000004): Paper rejects such moves as CLIPPED_INTO_BLOCK, e.g. every jump onto a
++  // step. Vertical collisions are left exact (block tops are exactly representable).
+   computeOffsetX (other, offsetX) {
+     if (other.maxY > this.minY && other.minY < this.maxY && other.maxZ > this.minZ && other.minZ < this.maxZ) {
+       if (offsetX > 0.0 && other.maxX <= this.minX) {
+-        offsetX = Math.min(this.minX - other.maxX, offsetX)
++        offsetX = Math.min(this.minX - other.maxX - HORIZONTAL_EPSILON, offsetX)
+       } else if (offsetX < 0.0 && other.minX >= this.maxX) {
+-        offsetX = Math.max(this.maxX - other.minX, offsetX)
++        offsetX = Math.max(this.maxX - other.minX + HORIZONTAL_EPSILON, offsetX)
+       }
+     }
+     return offsetX
+@@ -89,9 +95,9 @@ class AABB {
+   computeOffsetZ (other, offsetZ) {
+     if (other.maxX > this.minX && other.minX < this.maxX && other.maxY > this.minY && other.minY < this.maxY) {
+       if (offsetZ > 0.0 && other.maxZ <= this.minZ) {
+-        offsetZ = Math.min(this.minZ - other.maxZ, offsetZ)
++        offsetZ = Math.min(this.minZ - other.maxZ - HORIZONTAL_EPSILON, offsetZ)
+       } else if (offsetZ < 0.0 && other.minZ >= this.maxZ) {
+-        offsetZ = Math.max(this.maxZ - other.minZ, offsetZ)
++        offsetZ = Math.max(this.maxZ - other.minZ + HORIZONTAL_EPSILON, offsetZ)
+       }
+     }
+     return offsetZ

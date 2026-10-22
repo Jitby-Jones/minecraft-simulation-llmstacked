@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agora dashboard</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <h1>Agora</h1>
+        <span id="mode" class="badge"></span>
+        <span id="uptime" class="muted"></span>
+      </div>
+      <div class="controls">
+        <span id="updated" class="muted" aria-live="polite"></span>
+        <button id="theme" type="button" aria-label="Switch light and dark">Theme</button>
+      </div>
+    </header>
+    <main>
+      <div id="banner" class="banner" role="status" hidden></div>
+      <section id="kpis" class="kpis" aria-label="At a glance"></section>
+      <section class="grid">
+        <article class="card span-2">
+          <div class="card-head">
+            <h2>Agents</h2>
+            <p class="muted">What each one is doing, and why. Select a row for the details.</p>
+          </div>
+          <div class="table-wrap"><table id="agents" class="data"></table></div>
+        </article>
+        <article id="detail" class="card span-2" hidden></article>
+        <article class="card">
+          <div class="card-head">
+            <h2>Tokens in the last hour</h2>
+            <button type="button" class="toggle" data-table="cost">Table</button>
+          </div>
+          <div id="cost"></div>
+        </article>
+        <article class="card">
+          <div class="card-head"><h2>Events</h2></div>
+          <ol id="events" class="feed"></ol>
+        </article>
+        <article class="card span-2">
+          <div class="card-head">
+            <h2>Who thinks what of whom</h2>
+            <button type="button" class="toggle" data-table="social">Table</button>
+          </div>
+          <p class="muted">Rows look at columns. Sentiment runs 0 to 10 around a neutral 5; admiration 0 to 1.</p>
+          <div id="social" class="heatmaps"></div>
+        </article>
+        <article class="card">
+          <div class="card-head"><h2>Chat</h2></div>
+          <ol id="chat" class="feed chat"></ol>
+        </article>
+        <article class="card">
+          <div class="card-head"><h2>The village</h2></div>
+          <div id="village"></div>
+        </article>
+        <article class="card span-2">
+          <div class="card-head"><h2>Problems</h2></div>
+          <ol id="problems" class="feed"></ol>
+        </article>
+      </section>
+    </main>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

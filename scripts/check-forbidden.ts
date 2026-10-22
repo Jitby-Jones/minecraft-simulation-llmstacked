@@ -1,0 +1,108 @@
+// §22.2 lint rule: fail if any billing-bypass option appears in code outside the LLM guard's strip list.
+// Allowed: packages/llm/src/guard.ts (the strip list itself) and tests/llm/** (tests asserting the strip).
+// §16.1 scenario G: no human/AI distinction in agent code; "human" may appear in packages/agent only in comments.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { repoRoot } from '@agora/shared';
+
+/** Case-insensitive needles. Written as fragments so this file does not match itself. */
+const FORBIDDEN: readonly string[] = [
+  ['x-', 'provider'],
+  ['x-', 'billing-mode'],
+  ['x-nanogpt-', 'billing'],
+  ['billing', '_mode'],
+  ['billing', 'Mode'],
+  ['cache', '_control'],
+  ['service', '_tier'],
+  ['prompt', '_caching'],
+  ['prompt', 'Caching'],
+  ['sticky', 'provider'],
+  ['x-use-', 'byok'],
+  ['x-byok', '-'],
+  ['x-', 'payment'],
+  ['x-', 'x402'],
+  ['x-prompt-', 'caching'],
+  ['x-anthropic-', 'cache'],
+  ['x-cache-', 'depth'],
+  ['/api/', 'paid'],
+  ['/api/v1/chat', '/completions'],
+].map((parts) => parts.join('').toLowerCase());
+
+const ALLOWED_FILES = new Set([path.join('packages', 'llm', 'src', 'guard.ts'), path.join('scripts', 'check-forbidden.ts')]);
+const ALLOWED_DIRS = [path.join('tests', 'llm') + path.sep];
+const SCAN_DIRS = ['packages', 'scripts', 'tests', 'config', 'deploy'];
+const EXTENSIONS = new Set(['.ts', '.js', '.mjs', '.cjs', '.json', '.yaml', '.yml']);
+
+function walk(dir: string, out: string[]): void {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
+    else if (EXTENSIONS.has(path.extname(entry.name))) out.push(full);
+  }
+}
+
+const root = repoRoot();
+const files: string[] = [];
+for (const d of SCAN_DIRS) walk(path.join(root, d), files);
+
+const violations: string[] = [];
+for (const file of files) {
+  const rel = path.relative(root, file);
+  if (ALLOWED_FILES.has(rel) || ALLOWED_DIRS.some((d) => rel.startsWith(d))) continue;
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  lines.forEach((line, i) => {
+    const lower = line.toLowerCase();
+    for (const needle of FORBIDDEN) {
+      if (lower.includes(needle)) violations.push(`${rel}:${i + 1}: contains forbidden "${needle}"`);
+    }
+  });
+}
+
+/** The code on a line with comments removed (block comments tracked across lines; good enough for our style). */
+function codeOnly(lines: readonly string[]): string[] {
+  let inBlock = false;
+  return lines.map((line) => {
+    let out = '';
+    let i = 0;
+    while (i < line.length) {
+      if (inBlock) {
+        const end = line.indexOf('*/', i);
+        if (end < 0) return out;
+        inBlock = false;
+        i = end + 2;
+        continue;
+      }
+      const block = line.indexOf('/*', i);
+      const lineC = line.indexOf('//', i);
+      if (lineC >= 0 && (block < 0 || lineC < block)) return out + line.slice(i, lineC);
+      if (block < 0) return out + line.slice(i);
+      out += line.slice(i, block);
+      inBlock = true;
+      i = block + 2;
+    }
+    return out;
+  });
+}
+
+const humanViolations: string[] = [];
+for (const file of files) {
+  const rel = path.relative(root, file);
+  if (!rel.startsWith(path.join('packages', 'agent', 'src') + path.sep)) continue;
+  codeOnly(fs.readFileSync(file, 'utf8').split('\n')).forEach((line, i) => {
+    if (/human/i.test(line)) humanViolations.push(`${rel}:${i + 1}: "human" in agent code`);
+  });
+}
+
+if (violations.length > 0) {
+  console.error('Subscription lock violation (§22.2): billing-bypass options found outside the guard strip list:');
+  for (const v of violations) console.error(`  ${v}`);
+}
+if (humanViolations.length > 0) {
+  console.error('No human/AI distinction allowed in agent code (§16.1); "human" may appear only in comments:');
+  for (const v of humanViolations) console.error(`  ${v}`);
+}
+if (violations.length > 0 || humanViolations.length > 0) process.exit(1);
+console.log(`check-forbidden: OK (${files.length} files scanned; agent code has no human/AI distinction)`);

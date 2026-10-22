@@ -1,0 +1,17 @@
+# Average personality differences by sex (DESIGN.md §20). Cohen's d, positive = higher in women.
+# Sampling: clamp(N(mu, sigma)) with mu = 0.5 +/- d*sigma/2. world.yaml sexDifferences.scale multiplies every d.
+# Approximate values from widely cited meta-analyses; tunable config, not truth.
+sigma: 0.18
+d:
+  neuroticism: 0.40        # Costa et al. 2001; Weisberg et al. 2011
+  agreeableness: 0.40
+  extraversion: 0.10       # mixed facets
+  openness: 0.00
+  conscientiousness: 0.10
+  aggression: -0.50        # physical aggression (Archer 2004)
+  dominance: -0.30         # assertiveness facet
+  caution: 0.30            # risk-taking higher in men (Byrnes et al. 1999)
+  mercy: 0.20
+  impulsivity: -0.10
+  vanity: 0.00
+# envy, conformity, rationality, intelligence, combat: not shifted

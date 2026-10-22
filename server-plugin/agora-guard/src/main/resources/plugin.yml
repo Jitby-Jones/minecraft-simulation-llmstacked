@@ -1,0 +1,6 @@
+name: AgoraGuard
+version: 1.0.0
+main: agora.guard.AgoraGuard
+api-version: '1.21'
+author: agora
+description: Disables private and global chat commands for non-ops so all speech is proximity chat (DESIGN.md 15.3).

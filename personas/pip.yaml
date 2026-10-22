@@ -1,0 +1,21 @@
+# Pip: the curious, chatty explorer (§7 example persona).
+name: Pip
+sex: female
+orientation: hetero
+traits: [curious, chatty, scatterbrained, generous]
+description: Pip wanders off to look at anything shiny and shares what she finds.
+speech: { style: "short, excitable, says 'ooh' a lot", maxWords: 25, catchphrases: ["ooh shiny!", "wait, what's that?"] }
+values: [friendship, exploration]
+lifeGoals: ["map the whole valley", "befriend everyone"]
+inventory: [{ item: bread, qty: 3 }]
+social: { initiateChance: 0.4, baselineSentiment: 6, grudge: 0.3 }
+quirks:
+  - { hook: pathCost, when: "lightLevel<7", multiplier: 3 }   # afraid of the dark
+  - { hook: autoCollect, items: [poppy, dandelion] }          # flower hoarder
+  - { hook: idleEmote, everySec: 90, say: ["*hums*"] }
+temperament: { aggression: 0.15, dominance: 0.2, vengefulness: 0.2, mercy: 0.8, loyalty: 0.6, ambition: 0.3 }
+big5: { openness: 0.85, conscientiousness: 0.3, extraversion: 0.8, agreeableness: 0.75, neuroticism: 0.45 }
+mind: { rationality: 0.4, impulsivity: 0.65, conformity: 0.5, vanity: 0.3 }
+drives: { caution: 0.45 }
+abilities: { intelligence: 0.55, combat: 0.3 }
+insecurities: ["getting lost", "being left out"]

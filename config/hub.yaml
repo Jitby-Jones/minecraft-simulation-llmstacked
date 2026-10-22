@@ -1,0 +1,13 @@
+# Hub: supervisor, LLM rate limiter, logs and dashboard (DESIGN.md §3, §5, §23.3). Localhost only by default.
+hub: { host: 127.0.0.1, port: 8765 }
+dashboard: { enabled: true, host: 127.0.0.1, port: 8080 }
+rateLimit:
+  rps: 20          # NanoGPT allows 25 requests/s per account; keep headroom
+  burst: 20
+  queueTimeoutMs: 15000
+speech:
+  globalPerSec: 5  # global loop guard across all bots (§6.2)
+logs:
+  level: info
+  rotateMb: 20
+  keep: 5

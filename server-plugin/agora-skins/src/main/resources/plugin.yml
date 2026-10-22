@@ -1,0 +1,15 @@
+name: AgoraSkins
+version: 1.0.0
+main: agora.skins.AgoraSkins
+api-version: '1.21'
+author: agora
+description: Puts each agent's skin on it as it logs in, from skins.tsv written by the Hub (DESIGN.md 16.5).
+commands:
+  agoraskins:
+    description: Applies skins.tsv again, to those already online (server console only).
+    usage: /agoraskins reload
+    permission: agora.skins
+permissions:
+  agora.skins:
+    description: Reload agents' skins (the server console only, whatever the permission says).
+    default: op

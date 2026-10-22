@@ -1,0 +1,95 @@
+# World, population and behavior config (DESIGN.md §16, §17.10, §19.7, §20, §21.5).
+mode: test                 # test (hard, simulated permadeath) | live (hardcore, new world required)
+
+population:                # §19.7 — replaces agents.count. For a fixed N: initial = minAlive = maxAlive = N
+  initial: 6               # spawned at world start, 50/50 male/female
+  minAlive: 4              # supervisor spawns replacements (balanced sex) when below this
+  maxAlive: 12             # births blocked at/above this
+  spawnStaggerSec: 20      # join one at a time
+  respawnDelaySec: 60
+  spawnRadius: 24
+  starterKit: auto         # persona | none | auto (persona in test, none in live)
+
+personas: auto             # draw from personas/ pool, then generate new ones when exhausted
+namePolicy: generated      # player-like unique names; never reuse a dead name
+
+community:
+  goal: build a thriving village
+
+romance:
+  enabled: true
+  orientationDist: { hetero: 0.85, homo: 0.07, bi: 0.08 }
+  partnerMinDays: 2
+
+reproduction:
+  enabled: true
+  gestationSec: 600
+  coupleCooldownSec: 7200
+  youthSec: 1800
+  minFoodItems: 20
+
+conflict:
+  enabled: true
+  maxRung: 4                  # 3 = brawls only (no lethal), 2 = words & demands only
+  pairCooldownSec: 300
+  maxConcurrentFights: 2
+  newcomerGraceSec: 600
+  extinctionBrake:
+    deathsPerHourMax: 4       # above this, every agent's caution baseline +0.2 for 1 h
+    cautionShift: 0.2
+    durationSec: 3600
+  griefing: false
+  lethalVsAll: true
+
+abilities:
+  intelligence: { mean: 0.5, sd: 0.17, heritability: 0.5 }
+  combat:       { mean: 0.4, sd: 0.20, heritability: 0.3, growthCap: 0.25 }
+  intelligenceRoutesCCTier: true
+  knowledgeGating: true
+
+sexDifferences:
+  scale: 1.0                  # multiplies every d in config/sex-differences.yaml; 0 disables
+
+server:
+  host: 127.0.0.1             # §23.3: localhost only by default (offline mode!)
+  port: 25565
+  rconPort: 25575
+  levelName: world
+  heapMb: 3072
+  viewDistance: 8
+  simulationDistance: 6
+  motd: A quiet valley
+  seed: ""
+  extraPlayerSlots: 4
+
+chat:                         # ProximityChat! ranges (§15.2)
+  normalRange: 15
+  whisperRange: 5
+  shoutRange: 48
+  fadeStart: 0.6
+  cooldownSec: 1
+  allowPrivateMessages: false
+
+owner:
+  # username: YourName        # gets op + spy. Agents never learn who this is.
+
+skillWriter:                  # L3 skill writer (§1.4, §9, §21.1, M10): new skills, run sandboxed
+  enabled: false              # off by default; and only on a private server (server.host on loopback or a LAN)
+  privateServerAck: false     # say the server is private though server.host doesn't show it (a container's 0.0.0.0)
+  minIntelligence: 0.7        # who may write one
+  perHour: 2                  # new skills one agent may try to write in an hour
+  attempts: 3                 # tries per skill, each told what went wrong the time before
+  memoryMb: 32                # the sandbox: memory, the code's own CPU time, a run's wall time, skill calls per run
+  cpuMs: 1000
+  wallSec: 600
+  maxCalls: 60
+  offered: 5                  # learned skills offered to the CC at a time, the most relevant first
+
+skins:                        # §16.5: each new agent gets a NameMC skin by its sex, signed through MineSkin
+  enabled: true
+  source: namemc
+  tags: { male: boy, female: girl }   # namemc.com/minecraft-skins/tag/<tag>
+  pages: 2                    # pages of each listing to read (24 skins a page, the most liked first)
+  visibility: unlisted        # how MineSkin lists its signed copies: public | unlisted | private
+  waitSec: 60                 # a new agent waits this long for its skin, then logs in and gets it on the way
+  exclude: []                 # NameMC skin ids never to use
