@@ -207,6 +207,10 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
     const interview = async (tag: string) => {
       const out: Record<Name, number> = {} as never;
       for (const n of names) {
+        // Quill goes up to them first (they may have kept their distance from Rex).
+        const at = bodies[n].bot.entity.position;
+        await server.cmd(`tp Quill ${Math.round(at.x) + 2} ${Y} ${Math.round(at.z)}`);
+        await sleep(1500);
         const since = Date.now();
         bodies.Quill.bot.chat(`${n}, what do you think of Rex?`);
         await waitFor(() => heard.lines.some((l) => l.who === n && l.at > since && /\bRex\b/.test(l.text)), 30_000, `${n} answering (${tag})`, 250).catch(() => undefined);
