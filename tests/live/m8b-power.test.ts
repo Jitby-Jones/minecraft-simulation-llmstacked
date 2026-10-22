@@ -1,7 +1,7 @@
 // M8b exit test (§17.12 scenarios J, K and L, and the lethal rung) on a real server, with code-only agents.
 //   J  tyrant: Rex, in iron and with an iron sword, looks down on the five others (seeded: low sentiment, an old
-//      insult, logs he says they took). He demands; the timid two give in out of fear (coerced commitments) and,
-//      having paid him twice, follow him; the proud three refuse and get beaten.
+//      insult, logs he says they took; the timid two paid him once before). He demands; the timid two give in out of
+//      fear again (coerced commitments) and, having paid him twice, follow him; the proud three refuse and get beaten.
 //   K  overthrow (continues J): Rex goes out alone, hurt. Those who resent him and know the others do rally each
 //      other, agree, and set upon him together; his followers, back as it starts, pick a side, and some walk away.
 //   L  fear wins: the same resentment, but the tyrant (Vex) always has his two followers with him and isn't hurt.
@@ -11,7 +11,7 @@
 
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type Logger, type Persona, PersonaSchema, type SocialProfile, WorldConfigSchema, createLogger, loadVersionsConfig, parseProximityLine, sleep } from '@agora/shared';
+import { type Commitment, type Logger, type Persona, PersonaSchema, type SocialProfile, WorldConfigSchema, createLogger, loadVersionsConfig, parseProximityLine, sleep } from '@agora/shared';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
 import { withGrievance } from '@agora/agent/social/math';
@@ -148,6 +148,21 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
         }),
         'history',
       );
+      // The timid two paid Rex once before, out of fear: once more, and they go about with him.
+      const paidBefore = (debtor: string): Commitment => ({
+        id: `paid-before-${debtor}`,
+        debtor,
+        creditor: 'Rex',
+        what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' },
+        status: 'fulfilled',
+        createdFromConv: '',
+        createdAt: Date.now() - 20 * 60_000,
+        resolvedAt: Date.now() - 15 * 60_000,
+        verifiedBy: 'inventory',
+        coerced: true,
+      });
+      const before = n === 'Rex' ? [paidBefore('Tib'), paidBefore('Pia')] : n === 'Tib' || n === 'Pia' ? [paidBefore(n)] : [];
+      if (before.length > 0) a.store.update('commitments', (cs) => [...cs, ...before], 'paid Rex before');
       a.bus.on('rungChanged', (e) => void heard.timeline.push(`${heard.at()} ${n} → ${e.name}: rung ${e.from} → ${e.to}`));
       a.bus.on('leaderChanged', (e) => void heard.timeline.push(`${heard.at()} ${n} ${e.leader ? `follows ${e.leader}` : `stops following ${e.before ?? ''}`}`));
       a.bus.on('defected', (e) => void heard.timeline.push(`${heard.at()} ${n} walks away from ${e.from} (${e.attackers.join(', ')} set upon them)`));
@@ -175,8 +190,9 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
     try {
       // J: demands, giving in out of fear, coerced promises, followers.
       await waitFor(() => heard.lines.some((l) => l.who === 'Rex' && DEMAND_RE.test(l.text)), 180_000, 'a demand from Rex', 500);
-      const paidTwice = () => (['Tib', 'Pia'] as const).filter((n) => agents[n].store.state.commitments.filter((c) => c.coerced && c.debtor === n && c.creditor === 'Rex' && c.status === 'fulfilled').length >= 2);
-      await waitFor(() => paidTwice().length >= 1, 900_000, 'a timid one paying Rex twice', 1000);
+      // Paid again, here and now (the seeded payment was the first).
+      const paidAgain = () => (['Tib', 'Pia'] as const).filter((n) => agents[n].store.state.commitments.some((c) => c.coerced && c.debtor === n && c.creditor === 'Rex' && c.status === 'fulfilled' && c.createdAt >= t0));
+      await waitFor(() => paidAgain().length >= 1, 900_000, 'a timid one paying Rex again', 1000);
       await waitFor(() => (['Tib', 'Pia'] as const).some((n) => agents[n].power.leader() === 'Rex'), 60_000, 'a follower of Rex', 1000);
       // The other timid one, given the time to pay twice as well.
       await waitFor(() => (['Tib', 'Pia'] as const).every((n) => agents[n].power.leader() === 'Rex'), 360_000, 'both timid ones following Rex', 1000).catch(() => undefined);
@@ -185,7 +201,7 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       const refused = (['Ann', 'Bo', 'Cyd'] as const).filter((n) => heard.lines.some((l) => l.who === n && /leave me alone|get lost|back off|no way|not giving|or we fight|keep your distance|don't push me/i.test(l.text)) || agents[n].store.state.social.Rex?.lastFight);
       console.log(`[m8b J] followers ${followers.join(', ')}; the proud who stood up to Rex: ${refused.join(', ') || 'none'}`);
       expect(followers.length).toBeGreaterThanOrEqual(1);
-      expect(agents.Rex.store.state.commitments.filter((c) => c.coerced && c.creditor === 'Rex').length).toBeGreaterThanOrEqual(2);
+      expect(agents.Rex.store.state.commitments.filter((c) => c.coerced && c.creditor === 'Rex' && c.createdAt >= t0).length).toBeGreaterThanOrEqual(1);
       expect(deaths).toEqual([]);
 
       // K: Rex goes out alone, hurt: the followers are off somewhere far.

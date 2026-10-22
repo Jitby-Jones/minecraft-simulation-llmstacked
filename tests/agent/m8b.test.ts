@@ -648,6 +648,13 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(w.pw.coalition('Rex').opening).toBe(false);
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14, { hurtRecently: true }), ent('Di', 16)] }));
     expect(w.pw.coalition('Rex').opening).toBe(true);
+    // Hurt by one of us, in a fight he's winning, is no weakness of his; hurt by something else is.
+    w.t.now += 2 * 60_000;
+    w.bus.emit({ type: 'observedAction', action: { id: 'a9', actor: 'Bo', kind: 'attack', target: 'Rex', ts: w.t.now } });
+    expect(w.pw.coalition('Rex').members).toContain('Bo');
+    expect(w.pw.coalition('Rex').opening).toBe(false);
+    w.t.now += 6000;
+    expect(w.pw.coalition('Rex').opening).toBe(true);
     const live = setup(rebel, 'live');
     live.s.update('social', (all) => ({ ...all, Rex: { ...(all.Rex ?? newSocialProfile('Rex', rebel, 0)), followersSeen: 2 } }));
     expect(live.pw.coalition('Rex').against).toBeCloseTo((0.6 + 2 * FOLLOWER_WEIGHT) * LIVE_MARGIN);

@@ -30,6 +30,8 @@ const ANSWER_MS = 60_000;
 const WRONG_MERGE_MS = 10_000;
 /** Seen alone or hurt: the moment to rise against them lasts this long (§17.8). */
 const OPENING_MS = 2 * 60_000;
+/** A blow of ours or an ally's this recent explains the target's hurt. */
+const OUR_BLOW_MS = 5000;
 /** Giving in to a demand ("Rex, fine. I'll give you 3 bread"). */
 const GIVE_IN_RE = /\b(i'?ll give (it to )?you|here,? take (it|them)|you can have (it|them))\b/i;
 /** Standing up to one ("get lost.", "no. get your own"). */
@@ -221,8 +223,11 @@ export class PowerWatch {
     const alone = them
       ? !s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name !== target && !members.includes(e.name) && Math.hypot(e.pos.x - them.pos.x, e.pos.z - them.pos.z) <= TOGETHER)
       : false;
+    // Hurt by something other than us (one of us at them in a fight they're winning is no weakness of theirs).
+    const ourBlow = [...(this.blows.get(target) ?? new Map<AgentName, number>())].some(([n, at]) => (n === this.o.me || members.includes(n)) && t - at < OUR_BLOW_MS);
+    const hurt = Boolean(them?.hurtRecently) && !ourBlow;
     // Seen alone or hurt: the moment lasts a while (time to call on the others), not just while it's so.
-    if (them && (alone || them.hurtRecently)) this.openings.set(target, t);
+    if (them && (alone || hurt)) this.openings.set(target, t);
     return { target, members, power, against, opening: t - (this.openings.get(target) ?? -Infinity) < OPENING_MS };
   }
 
