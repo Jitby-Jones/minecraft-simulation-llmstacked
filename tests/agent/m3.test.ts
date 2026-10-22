@@ -64,6 +64,22 @@ describe('addressing and conversations (§6.2)', () => {
     expect(conv.mayInitiate('Bram')).toBe(false);
     conv.stop();
   });
+
+  it('in a conversation of two, a line plainly for someone else is not for us', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const got: string[] = [];
+    bus.on('addressed', (e) => got.push(`addressed: ${e.utterance.text}`));
+    bus.on('overheard', (e) => got.push(`overheard: ${e.utterance.text}`));
+    const conv = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram', 'Cyd'], rng: () => 0 });
+    conv.start();
+    const line = (id: string, text: string, heardAs: 'me' | 'other' | 'unsure'): Utterance => ({ id, convId: '', from: 'Bram', to: heardAs === 'me' ? ['Pip'] : 'nearby', text, ts: 0, pos: null, volume: 'normal', outOfSight: false, addressedToMe: heardAs === 'me', heardAs });
+    bus.emit({ type: 'heard', utterance: line('u1', 'Pip, what do you think of Rex?', 'me') });
+    bus.emit({ type: 'heard', utterance: line('u2', 'and then?', 'unsure') });
+    bus.emit({ type: 'heard', utterance: line('u3', 'Cyd, what do you think of Rex?', 'other') });
+    expect(got).toEqual(['addressed: Pip, what do you think of Rex?', 'addressed: and then?', 'overheard: Cyd, what do you think of Rex?']);
+    conv.stop();
+  });
 });
 
 describe('conditions, levers and the packet (§4.3, §4.4, §21.1)', () => {

@@ -211,7 +211,8 @@ export class Conversations {
     const tail = !conv && this.coolingDown(u.from) && !mentionsName(u.text, this.o.me);
     if (!conv && u.addressedToMe && !tail) conv = this.open(u.from, false);
     const inConv = Boolean(conv);
-    const addressed = !tail && (u.addressedToMe || (inConv && conv?.participants.length === 2));
+    // In a conversation of two, their lines are for us, unless one is plainly for someone else ("Cyd, what…").
+    const addressed = !tail && (u.addressedToMe || (inConv && conv?.participants.length === 2 && u.heardAs !== 'other'));
     const utter: Utterance = { ...u, convId: conv?.convId ?? '', addressedToMe: addressed };
     this.o.store.update(
       'perception',
