@@ -20,6 +20,9 @@ const { goals } = pathfinderPkg;
 
 export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim';
 
+/** Mobs that shoot (fleeing across open ground from them only gives them a target). */
+const ARCHERS = new Set(['skeleton', 'stray', 'bogged', 'pillager']);
+
 export interface DangerInfo {
   kind: 'fight' | 'flee' | 'hazard' | 'defend';
   source: string;
@@ -163,10 +166,13 @@ export class ReflexController {
   private readonly onHealth = (): void => {
     const h = this.bot.health;
     if (h < this.lastHealth) {
-      const att = this.swings.attackerOf(this.bot.entity);
-      const name = att.attacker ? entityLabel(att.attacker) : null;
-      if (att.attacker) this.recentAttackers.set(att.attacker.id, { entity: att.attacker, ts: Date.now() });
-      this.hooks.onAttacked(name, this.lastHealth - h, att.kind);
+      const damage = this.lastHealth - h;
+      this.swings.attribute(this.bot.entity, (att) => {
+        if (!this.timer) return;
+        const name = att.attacker ? entityLabel(att.attacker) : null;
+        if (att.attacker) this.recentAttackers.set(att.attacker.id, { entity: att.attacker, ts: Date.now() });
+        this.hooks.onAttacked(name, damage, att.kind);
+      });
     }
     this.lastHealth = h;
   };
@@ -175,16 +181,19 @@ export class ReflexController {
     // A mob that was after us (or that we are fighting), hit by someone else: they helped us fight (§6.3 deed).
     const fighting = this.mode === 'fight' ? pvp(this.bot).target : undefined;
     if (!isPlayer(e) && (this.recentAttackers.has(e.id) || fighting?.id === e.id)) {
-      const att = this.swings.attackerOf(e);
-      if (att.attacker && att.attacker !== this.bot.entity && isPlayer(att.attacker) && att.attacker.username) this.hooks.onHelpedFight?.(att.attacker.username);
+      this.swings.attribute(e, ({ attacker }) => {
+        if (this.timer && attacker && attacker !== this.bot.entity && isPlayer(attacker) && attacker.username) this.hooks.onHelpedFight?.(attacker.username);
+      });
       return;
     }
-    if (e === this.bot.entity || !isPlayer(e) || !e.username) return;
-    if (!this.hooks.shouldDefend(e.username)) return;
-    const att = this.swings.attackerOf(e);
-    if (!att.attacker || att.attacker === this.bot.entity) return;
-    this.allyAttacks.set(att.attacker.id, { ally: e.username, attacker: att.attacker, ts: Date.now() });
-    this.hooks.onAllyAttacked?.(e.username, entityLabel(att.attacker));
+    const ally = e.username;
+    if (e === this.bot.entity || !isPlayer(e) || !ally) return;
+    this.swings.attribute(e, ({ attacker }) => {
+      // Asked once the attacker is known: whether to step in can depend on who is attacking.
+      if (!this.timer || !attacker || attacker === this.bot.entity || !this.hooks.shouldDefend(ally)) return;
+      this.allyAttacks.set(attacker.id, { ally, attacker, ts: Date.now() });
+      this.hooks.onAllyAttacked?.(ally, entityLabel(attacker));
+    });
   };
 
   private readonly onPathReset = (reason: string): void => {
@@ -304,6 +313,8 @@ export class ReflexController {
     if (health <= fleeAt) return true;
     if (threats.some((e) => e.name === 'creeper' && e.position.distanceTo(me) <= 5)) return true;
     if (threats.some((e) => e.name === 'warden')) return true;
+    // Archers shoot whoever runs across open ground: armed and well enough, close in on them instead.
+    if (threats.every((e) => ARCHERS.has(e.name ?? '')) && bestWeapon(this.bot)) return false;
     const players = threats.filter(isPlayer);
     if (players.some((p) => !this.hooks.mayFightBack(p.username ?? ''))) return true;
     // A damage race we would lose before reaching the flee threshold: cautious people want a wider margin.
@@ -404,8 +415,38 @@ export class ReflexController {
     else this.bot.pathfinder.setGoal(new goals.GoalInvert(new goals.GoalFollow(nearest, 20)), true);
   }
 
-  /** A point 14 blocks away, roughly opposite the threats (weighted by closeness), in a loaded chunk. */
+  /**
+   * A point 14 blocks away, roughly opposite the threats (weighted by closeness), in a loaded chunk; from archers,
+   * one out of their line of fire (a tree or a wall between) if there is such a point, nearer ones first.
+   */
   private fleeSpot(threats: Entity[]): Vec3 | null {
+    const archers = threats.filter((t) => ARCHERS.has(t.name ?? ''));
+    const away = this.fleeSpotAway(threats);
+    if (archers.length === 0) return away;
+    const me = this.bot.entity.position;
+    for (const r of [6, 10, 14]) {
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        const p = new Vec3(me.x + Math.cos(a) * r, me.y, me.z + Math.sin(a) * r);
+        if (threats.some((t) => t.position.distanceTo(p) < 6) || !this.bot.blockAt(p.floored())) continue;
+        if (archers.every((t) => !this.inLineOfFire(t, p))) return p;
+      }
+    }
+    return away;
+  }
+
+  /** Whether `shooter` can see a body standing at `p` (an unbroken line from its eyes to head height there). */
+  private inLineOfFire(shooter: Entity, p: Vec3): boolean {
+    const from = shooter.position.offset(0, 1.5, 0);
+    const to = p.offset(0, 1.5, 0);
+    const delta = to.minus(from);
+    const dist = delta.norm();
+    if (dist === 0) return true;
+    const hit = (this.bot.world as unknown as { raycast(from: Vec3, dir: Vec3, range: number): { position: Vec3 } | null }).raycast(from, delta.normalize(), dist);
+    return !hit;
+  }
+
+  private fleeSpotAway(threats: Entity[]): Vec3 | null {
     const me = this.bot.entity.position;
     let dx = 0;
     let dz = 0;

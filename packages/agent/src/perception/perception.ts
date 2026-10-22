@@ -115,15 +115,18 @@ export class Perception {
     on('entityHurt', (e: Entity) => {
       this.hurtAt.set(e.id, this.now());
       // §17.6: the attacker is the nearest person who swung at them just now.
-      if (e.type === 'player' && e !== bot.entity && e.username) {
-        const att = this.swings.attackerOf(e).attacker;
-        if (att && att !== bot.entity && att.type === 'player' && att.username) this.observe(att, 'attack', { target: e.username });
+      const victim = e.username;
+      if (e.type === 'player' && e !== bot.entity && victim) {
+        this.swings.attribute(e, ({ attacker: att }) => {
+          if (this.timer && att && att !== bot.entity && att.type === 'player' && att.username) this.observe(att, 'attack', { target: victim });
+        });
       }
       if (e.type === 'player' && e !== bot.entity) this.observe(e, 'hurt');
       // A blow at a mob or an animal: what people are seen doing for the village (§6.8 roles from deeds).
       if (e.type !== 'player' && e.name !== 'item') {
-        const att = this.swings.attackerOf(e).attacker;
-        if (att && att !== bot.entity && att.type === 'player' && att.username && this.firstInAWhile(`${att.username}:attack:${e.id}`, 3000)) this.observe(att, 'attack', { item: e.name ?? 'mob' });
+        this.swings.attribute(e, ({ attacker: att }) => {
+          if (this.timer && att && att !== bot.entity && att.type === 'player' && att.username && this.firstInAWhile(`${att.username}:attack:${e.id}`, 3000)) this.observe(att, 'attack', { item: e.name ?? 'mob' });
+        });
       }
     });
     // Someone setting blocks down (building): a block appears in reach of a person who just swung.

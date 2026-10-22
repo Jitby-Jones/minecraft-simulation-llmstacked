@@ -311,6 +311,8 @@ describe('village work as goals (§6.8)', () => {
     let s = atHome(base());
     const v = { isStuck: never };
     expect(villageMove(s, 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'dirt', qty: HUT_BLOCKS } });
+    // Part of it in hand (dirt and stone): the dirt to aim for is what we hold plus what is missing.
+    expect(villageMove(withInv(s, { dirt: 59, cobblestone: 7 }), 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'dirt', qty: 59 + HUT_BLOCKS - 66 } });
     s = withInv(s, { dirt: HUT_BLOCKS, oak_planks: 6 });
     expect(villageMove(s, 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'oak_door', qty: 1 } });
     expect(villageMove(withInv(s, { dirt: HUT_BLOCKS, oak_door: 1 }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });

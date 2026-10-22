@@ -90,6 +90,32 @@ function liquidNear(bot: Bot, p: Vec3): boolean {
   return false;
 }
 
+/** A column to dig in at `feet`: two diggable blocks down, solid ground under them, no water or lava beside. */
+function goodShelterColumn(bot: Bot, feet: Vec3): boolean {
+  const b1 = bot.blockAt(feet.offset(0, -1, 0));
+  const b2 = bot.blockAt(feet.offset(0, -2, 0));
+  return diggableForShelter(bot, b1) && diggableForShelter(bot, b2) && isSolid(bot.blockAt(feet.offset(0, -3, 0))) && !liquidNear(bot, feet.offset(0, -1, 0)) && !liquidNear(bot, feet.offset(0, -2, 0));
+}
+
+/** The nearest place within 4 blocks where one can stand and dig in (`goodShelterColumn`), or null. */
+function shelterSpotNear(bot: Bot): Vec3 | null {
+  const feet = bot.entity.position.floored();
+  let best: Vec3 | null = null;
+  let bestD = Infinity;
+  for (let dx = -4; dx <= 4; dx++) {
+    for (let dz = -4; dz <= 4; dz++) {
+      for (const dy of [0, 1, -1]) {
+        const p = feet.offset(dx, dy, dz);
+        const d = Math.hypot(dx, dy, dz);
+        if (d >= bestD || !isAirLike(bot.blockAt(p)) || !isAirLike(bot.blockAt(p.offset(0, 1, 0))) || !goodShelterColumn(bot, p)) continue;
+        best = p;
+        bestD = d;
+      }
+    }
+  }
+  return best;
+}
+
 /** Sneaks to the middle of the block we stand on, so digging below drops us into the hole. */
 async function centerOnBlock(ctx: SkillContext): Promise<void> {
   const { bot } = ctx;
@@ -145,10 +171,14 @@ function isDaytime(bot: Bot): boolean {
 const HEALED = 18;
 const HEAL_MAX_MS = 150_000;
 
+/**
+ * Mobs from the night linger into the morning (skeletons in the shade, stragglers): out only once none can be heard
+ * nearby, and by midmorning in any case (a creeper is silent; a skeleton under a tree may stay all day).
+ */
 function safeToLeave(bot: Bot): boolean {
   const t = bot.time.timeOfDay;
   if (t < 1000 || t >= 12000) return false;
-  return t > 4000 || audibleHostiles(bot, 8).length === 0;
+  return t > 6000 || audibleHostiles(bot, 16).length === 0;
 }
 
 /** Waits for a safe moment, opens the top of the shaft and walks out (pathfinder towers up with the dug dirt). */
@@ -187,6 +217,14 @@ export const shelter = defineSkill({
     }
     try {
       // Dig straight down until walled in with a sealable top; a half-dug hole from an interrupted try is resumed.
+      // Where the ground won't do (a shaft below, water beside), a spot a few steps away first.
+      if (!wallsAround(bot) && !goodShelterColumn(bot, bot.entity.position.floored())) {
+        const spot = shelterSpotNear(bot);
+        if (spot) {
+          bot.pathfinder.setMovements(ctx.movements());
+          await abortable(ctx.signal, bot.pathfinder.goto(new goals.GoalBlock(spot.x, spot.y, spot.z)), () => stopMotion(bot));
+        }
+      }
       if (!wallsAround(bot)) await centerOnBlock(ctx);
       for (let i = 0; i < 5 && !readyToSeal(bot); i++) {
         throwIfAborted(ctx.signal);

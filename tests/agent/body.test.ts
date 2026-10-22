@@ -12,6 +12,7 @@ import { describeMissing } from '@agora/agent/body/skills/crafting';
 import { checkExpectation, describeExpectation, runSkill } from '@agora/agent/body/skills/runner';
 import { SkillAbortedError, defineSkill } from '@agora/agent/body/skills/types';
 import { SwingTracker } from '@agora/agent/body/attribution';
+import { ReflexController } from '@agora/agent/body/reflexes';
 import { armorPoints, asDifficulty, expectedFightDamage, weaponStats } from '@agora/agent/body/combatOdds';
 import { z } from 'zod';
 
@@ -309,6 +310,28 @@ describe('attack attribution (§17.6)', () => {
     expect(tracker.attackerOf(victim as never).attacker).toBeNull();
   });
 
+  it('waits a moment for a swing that arrives just after the hurt it caused (as 26.1 sends them)', async () => {
+    const { bot, entities, em } = fakeWorld();
+    const tracker = new SwingTracker(bot);
+    const victim = { id: 1, type: 'player', username: 'Pip', position: new Vec3(0, 64, 0), yaw: 0 };
+    const bram = { id: 2, type: 'player', username: 'Bram', position: new Vec3(0, 64, 2), yaw: 0 };
+    Object.assign(entities, { 1: victim, 2: bram });
+    // The hurt first: nobody has swung yet.
+    expect(tracker.attackerOf(victim as never).attacker).toBeNull();
+    const got = new Promise((r) => tracker.attribute(victim as never, (a) => r(a.attacker)));
+    setTimeout(() => em.emit('entitySwingArm', bram), 5);
+    expect(await got).toBe(bram);
+    // A swing long after the hurt is not that blow's.
+    const late = new Promise((r) => tracker.attribute(victim as never, (a) => r(a.attacker)));
+    await new Promise((r) => setTimeout(r, 450));
+    const t0 = Date.now();
+    const later = new Promise((r) => tracker.attribute(victim as never, (a) => r(a.attacker)));
+    setTimeout(() => em.emit('entitySwingArm', bram), 400);
+    expect(await later).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(400);
+    void late;
+  });
+
   it('falls back to a melee mob within 3 blocks', () => {
     const { bot, entities } = fakeWorld();
     const tracker = new SwingTracker(bot, () => 0);
@@ -316,5 +339,36 @@ describe('attack attribution (§17.6)', () => {
     const zombie = { id: 9, type: 'hostile', name: 'zombie', position: new Vec3(1.5, 64, 0), yaw: 0 };
     Object.assign(entities, { 1: victim, 9: zombie });
     expect(tracker.attackerOf(victim as never)).toEqual({ attacker: zombie, kind: 'mob' });
+  });
+});
+
+describe('fight or flight with archers (§4.5)', () => {
+  function rig(weapon: string | null) {
+    const archer = { id: 7, type: 'hostile', name: 'skeleton', position: new Vec3(8, 64, 0), height: 1.99 };
+    const bot = Object.assign(new EventEmitter(), {
+      entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 },
+      entities: { 7: archer },
+      health: 20,
+      game: { difficulty: 'hard' },
+      inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] },
+      blockAt: () => ({ name: 'grass_block' }),
+      // A wall along z = 3: lines from the archer to anywhere past it are blocked.
+      world: { raycast: (from: Vec3, dir: Vec3, range: number) => (from.z + dir.z * range > 3 ? { position: new Vec3(0, 64, 3) } : null) },
+    });
+    const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
+    const r = new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
+    return { r: r as unknown as { shouldFlee(t: unknown[]): boolean; fleeSpot(t: unknown[]): Vec3 | null }, archer };
+  }
+
+  it('armed and well, closes in on a skeleton rather than running across open ground', () => {
+    expect(rig('stone_sword').r.shouldFlee([rig('stone_sword').archer])).toBe(false);
+  });
+
+  it('running from one, makes for a spot out of its line of fire', () => {
+    const { r, archer } = rig(null);
+    const spot = r.fleeSpot([archer]);
+    expect(spot).not.toBeNull();
+    expect(spot?.z).toBeGreaterThan(3);
+    expect(spot?.distanceTo(archer.position)).toBeGreaterThanOrEqual(6);
   });
 });

@@ -67,7 +67,8 @@ export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx)
         if (held(s, /_door$/) === 0 && held(s, /_planks$/) + 4 * held(s, /_(log|stem)$/) >= 6 && !v.isStuck('obtain', { item: 'oak_door', qty: 1 })) return obtain('oak_door', 1, 'a door for the hut', 240);
         return v.isStuck('build', { structure: 'hut' }) ? null : work('build', { structure: 'hut' }, 900, 'building a hut for the village');
       }
-      return obtain('dirt', HUT_BLOCKS - blocks, 'blocks for a hut');
+      // Obtain counts what is held: the dirt we have plus what's still missing.
+      return obtain('dirt', held(s, /^dirt$/) + HUT_BLOCKS - blocks, 'blocks for a hut');
     }
     case 'guard': {
       // A guard who can't take a hit stays off duty until healed.
