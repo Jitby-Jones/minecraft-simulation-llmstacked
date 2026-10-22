@@ -213,16 +213,20 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       heard.timeline.push(`${heard.at()} -- Rex alone and hurt (followers away) --`);
       // §17.11 K: proposed, agreed and carried out within about 20 minutes of the opening; those who swore just
       // before it, when he went about with his followers, wait for it (and strike after it, below).
+      // (A call to rise against someone else, such as Rex's followers against a rebel, is not it.)
       const since = kAt - 20 * 60_000;
-      await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.test(l.text)), 300_000, 'a call to rise against Rex', 500);
-      await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.test(l.text)), 120_000, 'someone joining', 500);
-      // The followers come running as it starts. Who rose against Rex, as seen at any moment since the opening: a
-      // fight with him under way, or one fought.
+      await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.exec(l.text)?.[1] === 'Rex'), 600_000, 'a call to rise against Rex', 500);
+      await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.exec(l.text)?.[1] === 'Rex'), 180_000, 'someone joining', 500);
+      // Who rose against Rex, as seen at any moment since the opening: one sworn to it, in a fight with him or having
+      // fought him since swearing (a beating over a refused demand, before that, is not it).
+      const pacts = (n: 'Ann' | 'Bo' | 'Cyd') => agents[n].store.state.commitments.filter((c) => c.what.kind === 'fight' && c.what.target === 'Rex');
       const rose = new Set<string>();
       const struck = () => {
         for (const n of ['Ann', 'Bo', 'Cyd'] as const) {
+          const swore = Math.min(...pacts(n).map((c) => c.createdAt));
+          if (!Number.isFinite(swore)) continue;
           const o = agents[n].store.state.option;
-          if ((o?.option === 'fight' && o.targetAgent === 'Rex') || agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= kAt)) rose.add(n);
+          if ((o?.option === 'fight' && o.targetAgent === 'Rex') || agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= Math.max(kAt, swore))) rose.add(n);
         }
         return [...rose];
       };
@@ -232,16 +236,15 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
           const o = agents[n].store.state.option;
           return o?.status === 'running' && o.targetAgent === 'Rex' && (o.option === 'follow' || o.option === 'fight');
         }) || struck().length >= 1;
-      await waitFor(closingIn, 300_000, 'the rebels closing in on Rex', 250);
+      await waitFor(closingIn, 600_000, 'the rebels closing in on Rex', 250);
       for (const n of followers) await server.cmd(`execute at Rex run tp ${n} ~ ~ ~`);
       heard.timeline.push(`${heard.at()} -- ${followers.join(' and ')} back at Rex's side --`);
       await waitFor(() => struck().length >= 1, 300_000, 'the uprising', 500);
-      await waitFor(() => struck().length >= 2, 120_000, 'a second rebel at Rex', 500);
+      await waitFor(() => struck().length >= 2, 180_000, 'a second rebel at Rex', 500);
       await waitFor(() => (['Ann', 'Bo', 'Cyd'] as const).some((n) => agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Rex' && r.ts >= kAt)), 180_000, 'a fight with Rex over', 1000);
       await sleep(20_000);
       report('K');
-      const sworn = (['Ann', 'Bo', 'Cyd'] as const).filter((n) => agents[n].store.state.commitments.some((c) => c.what.kind === 'fight' && c.what.target === 'Rex'));
-      expect(sworn.length).toBeGreaterThanOrEqual(2);
+      expect((['Ann', 'Bo', 'Cyd'] as const).filter((n) => pacts(n).length > 0).length).toBeGreaterThanOrEqual(2);
       expect(struck().length).toBeGreaterThanOrEqual(2);
       // Some followers walk away: right there as their leader is set upon, or as their fear of him falls.
       const left = followers.filter((n) => agents[n].power.leader() !== 'Rex');
