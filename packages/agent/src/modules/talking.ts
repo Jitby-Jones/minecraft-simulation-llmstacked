@@ -10,6 +10,7 @@ import { SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
+import { SURRENDER_RE } from '../body/skills/duel';
 import { talkPolicy } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import type { Conversations } from './conversations';
@@ -70,8 +71,8 @@ const CANNED: Readonly<Record<SpeechIntent['stance'], readonly string[]>> = {
   ask: ['hmm, let me think about it', 'what for?', 'give me a sec to think'],
   chat: ['heh', 'yeah', 'hey'],
   none: [''],
-  hostile: ['back off'],
-  threaten: ['you better not'],
+  hostile: ['what do you want?', 'leave me alone.', 'keep your distance.', 'get lost.'],
+  threaten: ['back off, or else.', "don't push me.", 'leave, or we fight.'],
   yield: ['ok ok, I give up'],
   rally: ["let's go!"],
   flirt: ['heh, hi'],
@@ -90,6 +91,8 @@ export interface TalkingOptions {
   me: AgentName;
   /** Memories relevant to what was just said (M4), hearsay labeled. */
   recall?: (text: string, k: number) => Promise<string[]>;
+  /** The conflict rung toward someone (§17.5): 1 hostile talk, 2 threats. */
+  rungOf?: (name: AgentName) => number;
   rng?: () => number;
   now?: () => number;
 }
@@ -250,6 +253,8 @@ export class Talking {
       }
       return;
     }
+    // Someone giving up a fight is let stand (§17.6): no answer, least of all a threat.
+    if (p.lines.every((l) => SURRENDER_RE.test(l.text))) return;
     const request = p.lines.some((l) => needsDecision(l.text));
     const from = p.lines[p.lines.length - 1]?.from;
     let intent: SpeechIntent;
@@ -257,6 +262,14 @@ export class Talking {
       this.awaiting.set(convId, this.now());
       this.o.bus.emit({ type: 'needsDecision', reason: 'request', convId, from });
       intent = { stance: 'ask', gist: 'you need a moment to think about it; maybe ask a short question', mayCommit: false };
+    } else if (from && (this.o.rungOf?.(from) ?? 0) >= 1) {
+      // §17.5 rungs 1–2: short and sharp, or a warning, unless we just decided to say something else to them.
+      const aimed = this.o.store.state.decision?.target?.agent === from ? this.currentIntent(from) : null;
+      intent =
+        aimed ??
+        ((this.o.rungOf?.(from) ?? 0) >= 2
+          ? { stance: 'threaten', gist: "warn them off; you're close to a fight", mayCommit: false }
+          : { stance: 'hostile', gist: "you can't stand them: short and sharp", mayCommit: false });
     } else if (level === 'working' && !this.o.executor.talkOverable()) {
       intent = { stance: 'chat', gist: `you're busy with ${this.o.store.state.option?.skill ?? 'something'}; a short reply`, mayCommit: false };
     } else {
@@ -284,7 +297,8 @@ export class Talking {
       void this.say(waiting, [], intent);
       return;
     }
-    if (d.option === 'talk' && person) void this.openWhenInRange(person, intent, d.id);
+    // A talk option opens with its line; so does a fight (a threat, then blows).
+    if ((d.option === 'talk' || d.option === 'fight') && person) void this.openWhenInRange(person, intent, d.id);
   }
 
   private async openWhenInRange(person: AgentName, intent: SpeechIntent, decisionId: string): Promise<void> {
@@ -292,7 +306,9 @@ export class Talking {
       if (this.o.store.state.decision?.id !== decisionId) return;
       const near = this.o.store.state.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === person && e.distance <= 8);
       if (near) {
-        if (!this.o.conversations.mayInitiate(person) && !this.o.conversations.withPartner(person)) return;
+        // A warning or a threat doesn't wait out the pause between friendly chats.
+        const sharp = intent.stance === 'hostile' || intent.stance === 'threaten';
+        if (!sharp && !this.o.conversations.mayInitiate(person) && !this.o.conversations.withPartner(person)) return;
         const conv = this.o.conversations.open(person, true);
         await this.say(conv.convId, [], intent);
         return;

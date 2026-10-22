@@ -1,5 +1,5 @@
-// Notable deeds seen in the world (§6.3 rule 2): someone broke blocks we placed, attacked someone we care about, or
-// helped us fight. Each moves sentiment by a code-only delta, at most once a minute per person and deed, so a
+// Notable deeds seen in the world (§6.3 rule 2): someone broke blocks we placed, attacked someone we care about (or
+// anyone we didn't hate, §17.6 witnesses), or helped us fight. Each moves sentiment by a code-only delta, at most once a minute per person and deed, so a
 // long fight or a demolished wall counts as one deed, not dozens.
 
 import type { AgentName } from '@agora/shared';
@@ -55,6 +55,15 @@ export class DeedWatch {
   allyAttacked(ally: AgentName, by: string | null): void {
     if (!by || by === this.o.me || by === ally || !this.o.bot.players[by]) return;
     this.deed(by, 'attackedAlly', `${by} attacked ${ally}`);
+  }
+
+  /** We saw someone hit another person (§17.6): we think less of them, unless we hated the victim. Friends are the
+   *  reflexes' business (allyAttacked). */
+  sawAttack(by: AgentName, victim: AgentName): void {
+    if (by === this.o.me || victim === this.o.me || by === victim) return;
+    const v = this.o.store.state.social[victim]?.sentiment ?? 5;
+    if (v < 3 || v >= 7) return;
+    this.deed(by, 'attackedSomeone', `${by} attacked ${victim}`);
   }
 
   /** Someone else hit the mob that was after us. */

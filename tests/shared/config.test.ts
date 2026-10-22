@@ -167,10 +167,12 @@ describe('hub protocol', () => {
   });
 
   it('never carries world or player information to bots (§8)', () => {
+    // Grants are bare yes/no answers (a speech token, an LLM slot, a fight slot under maxConcurrentFights).
     const kinds = HubToBotSchema.options.map((o) => o.shape.t.value);
     expect(kinds.sort()).toEqual(
-      ['assign', 'budget', 'cautionShift', 'embedResult', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant'].sort(),
+      ['assign', 'budget', 'cautionShift', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant'].sort(),
     );
+    expect(parseHubToBot(JSON.stringify({ t: 'fightGrant', reqId: 'r1', ok: false, who: 'Rex' }))).toEqual({ t: 'fightGrant', reqId: 'r1', ok: false });
   });
 });
 

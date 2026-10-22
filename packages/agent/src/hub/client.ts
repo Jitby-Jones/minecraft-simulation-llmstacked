@@ -197,6 +197,21 @@ export class HubClient {
     }
   }
 
+  /** §17.10: a world-wide fight slot. Granted without a Hub (the cap only exists across a population). */
+  async fightSlot(): Promise<boolean> {
+    if (!this.connected) return true;
+    try {
+      const r = await this.request((reqId) => ({ t: 'fightStart', reqId }), 5000);
+      return r.t === 'fightGrant' ? r.ok : true;
+    } catch {
+      return true;
+    }
+  }
+
+  fightDone(): void {
+    if (this.connected) this.send({ t: 'fightEnd' });
+  }
+
   /** The Hub's shared local embedder (§23.5). */
   embedder(dims: number, model: string): Embedder {
     return {

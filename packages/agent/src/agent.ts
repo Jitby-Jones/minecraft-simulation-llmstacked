@@ -2,7 +2,7 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import type { AgentName, Logger, Persona, WorldConfig } from '@agora/shared';
+import { type AgentName, type Logger, type Persona, type WorldConfig, WorldConfigSchema, parseProximityLine } from '@agora/shared';
 import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
@@ -27,6 +27,8 @@ import { DeedWatch } from './social/deeds';
 import { TradeTracker } from './social/trades';
 import { gearScore } from './body/items';
 import { BiasWatch } from './mind/biasWatch';
+import { ConflictEvaluator } from './conflict/evaluator';
+import { SURRENDER_RE } from './body/skills/duel';
 import { Crowd } from './mind/crowd';
 import { Feelings } from './mind/feelings';
 import { Impulses } from './mind/impulses';
@@ -52,6 +54,8 @@ export interface AgentOptions {
   goalGen?: boolean;
   /** Dice for impulses and first impressions (tests pin them). */
   rng?: () => number;
+  /** A world-wide fight slot (§17.10, the Hub's fight tokens); without it every fight the gate allows may start. */
+  fightSlot?: { acquire(): Promise<boolean>; release(): void };
   now?: () => number;
 }
 
@@ -80,7 +84,13 @@ export class Agent {
   readonly impulses: Impulses;
   readonly crowd: Crowd;
   readonly biases: BiasWatch;
+  readonly conflict: ConflictEvaluator;
   private dangerSource = '';
+  /** The danger was a person (by name, or "someone"): no article. */
+  private dangerIsPerson = false;
+  private yieldSaidAt = -Infinity;
+  private yieldPending = false;
+  private readonly fightCapReached: () => boolean;
   private readonly offs: (() => void)[] = [];
 
   constructor(private readonly o: AgentOptions) {
@@ -91,7 +101,29 @@ export class Agent {
     const speechRange = o.world?.chat.normalRange ?? 15;
     this.perception = new Perception({ bot: body.bot, store: this.store, bus: this.bus, logger, speechRange, now });
     this.conversations = new Conversations({ store: this.store, bus: this.bus, logger, me: username, inRange: () => this.perception.peopleInRange(), now });
-    this.executor = new SkillExecutor({ store: this.store, bus: this.bus, body, logger, levers, now });
+    const fightSlot = o.fightSlot;
+    // A refused fight slot is remembered for a while: the gate then says so instead of the CC retrying every 2 s.
+    let slotDeniedAt = -Infinity;
+    this.fightCapReached = () => now() - slotDeniedAt < 30_000;
+    this.executor = new SkillExecutor({
+      store: this.store,
+      bus: this.bus,
+      body,
+      logger,
+      levers,
+      combat: () => Math.min(1, persona.abilities.combat + this.store.state.growth.combatGrowth),
+      ...(fightSlot
+        ? {
+            acquireFight: async () => {
+              const ok = await fightSlot.acquire();
+              if (!ok) slotDeniedAt = now();
+              return ok;
+            },
+            releaseFight: () => fightSlot.release(),
+          }
+        : {}),
+      now,
+    });
     this.awareness = new ActionAwareness({ store: this.store, bus: this.bus, logger, now });
     this.memory = o.memory ? new Memory({ store: this.store, bus: this.bus, logger, db: o.memory.db, embedder: o.memory.embedder, llm, me: username, now }) : null;
     const mem = this.memory;
@@ -106,6 +138,7 @@ export class Agent {
       executor: this.executor,
       me: username,
       ...(mem ? { recall: (text: string, k: number) => mem.relevantTo(text, k) } : {}),
+      rungOf: (name) => this.conflict.rungOf(name),
       now,
     });
     this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
@@ -124,13 +157,28 @@ export class Agent {
       refreshSelf: () => this.perception.refreshSelf(),
       socialCandidates: () => this.perception.peopleInRange().filter((n) => this.conversations.mayInitiate(n)),
       liking: (name) => this.mind.liking(name),
+      conflict: {
+        rungOf: (n) => this.conflict.rungOf(n),
+        fearOf: (n) => this.store.state.social[n]?.fearOf ?? 0,
+        mayFight: (t, intent) => this.conflict.mayFight(t, intent),
+      },
+      isPerson: (n) => Boolean(body.bot.players[n]) || Boolean(this.store.state.social[n]),
       mindLines: () => {
         const s = this.store.state;
         const lines: string[] = [];
         const f = feelingText(s.emotions);
         const g = this.feelings.grudges()[0];
         if (f) lines.push(`You feel ${f}${g ? ` (angry at ${g.name})` : ''}.`);
-        lines.push(...this.mind.packetLines(s.perception.nearbyEntities.filter((e) => e.kind === 'player').map((e) => e.name).slice(0, 3)));
+        const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player').map((e) => e.name).slice(0, 3);
+        lines.push(...this.mind.packetLines(people));
+        // §17.11: where things stand with each of them.
+        for (const n of people) {
+          const r = this.conflict.pressureOf(n);
+          const rung = this.conflict.rungOf(n);
+          if (rung === 0 && r.resentment < 0.3) continue;
+          const g = [...(s.social[n]?.grievances ?? [])].sort((a, b) => b.weight - a.weight)[0];
+          lines.push(`${n}: resentment ${r.resentment.toFixed(1)}, fear ${r.fear.toFixed(1)}, ${['keep away', 'hostile talk', 'threats', 'ready to fight', 'deadly'][rung] ?? 'calm'}${g ? `; worst: ${g.note ?? g.kind}` : ''}`);
+        }
         return lines;
       },
       claimToCheck: () => {
@@ -175,7 +223,18 @@ export class Agent {
     this.deaths = new DeathWatch({ store: this.store, bus: this.bus, logger, me: username, sawDeath: (name, ms) => this.perception.saw(name, 'death', ms), now });
     this.claims = new ClaimChecker({ store: this.store, bus: this.bus, logger, bot: body.bot, social: this.social, ...(mem ? { markFalse: (t: string) => void mem.markFalseMatching(t) } : {}), now });
     this.impressions = new Impressions({ store: this.store, bus: this.bus, logger, me: username, myGear, ...rng, now });
-    this.impulses = new Impulses({ store: this.store, bus: this.bus, logger, me: username, cc: this.cc, talking: this.talking, conversations: this.conversations, ...rng, now });
+    this.impulses = new Impulses({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      cc: this.cc,
+      talking: this.talking,
+      conversations: this.conversations,
+      mayPunch: (t) => this.conflict.mayPunch(t),
+      ...rng,
+      now,
+    });
     this.crowd = new Crowd({
       store: this.store,
       bus: this.bus,
@@ -187,14 +246,40 @@ export class Agent {
       say: (to, text) => this.talking.blurt(to, text),
       now,
     });
+    const world = o.world ?? WorldConfigSchema.parse({});
+    this.conflict = new ConflictEvaluator({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      me: username,
+      config: world.conflict,
+      mode: world.mode,
+      myGear,
+      inMob: (t) => this.crowd.isMob(t),
+      fightCapReached: this.fightCapReached,
+      bornAt: now(),
+      ...rng,
+      now,
+    });
     this.biases = new BiasWatch({ store: this.store, bus: this.bus, logger, me: username, override: () => this.mind.override(), nudge: (n, d, note) => this.social.nudge(n, d, note), ...rng, now });
     this.trades = new TradeTracker({ store: this.store, bus: this.bus, logger, me: username, onDeal: (w, ours, theirs) => this.cc.recordDeal(w, ours, theirs), now });
+    // Our own yield, as the chat echoes it back (a duel's, or the reflex's below): said once is enough.
+    const ownYield = (m: string) => {
+      const p = parseProximityLine(m);
+      if (p.kind === 'speech' && p.speaker === username && SURRENDER_RE.test(p.text)) {
+        this.yieldSaidAt = now();
+        this.conflict.ownYield();
+      }
+    };
+    body.bot.on('messagestr', ownYield);
+    this.offs.push(() => body.bot.off('messagestr', ownYield));
     // Notable deeds move sentiment by code (§6.3 rule 2).
     this.deeds = new DeedWatch({ bot: body.bot, store: this.store, social: this.social, me: username, placed: body.placed, now });
     this.offs.push(
       this.bus.on('observedAction', (e) => {
         const a = e.action;
         if (a.kind === 'gave' && a.target === username) this.social.deed(a.actor, 'gaveMeItems', `${a.actor} gave me ${a.qty ?? 1} ${a.item ?? 'things'}`);
+        if (a.kind === 'attack' && a.target) this.deeds.sawAttack(a.actor, a.target);
       }),
     );
     this.quirks = new QuirkRunner({
@@ -215,7 +300,14 @@ export class Agent {
       shouldDefend: (name) => Boolean(this.store.state.social[name]) && this.mind.liking(name) >= 7,
       // Self-defense is always allowed; deliberate fights are code-gated in the conflict core (M6b).
       mayFightBack: () => true,
-      deliberateFight: () => this.store.state.option?.skill === 'attack',
+      deliberateFight: () => ['attack', 'duel'].includes(this.store.state.option?.skill ?? ''),
+      // In a duel the duel yields first; the reflexes flee only below that (§17.6).
+      fightFloor: () => {
+        const opt = this.store.state.option;
+        return opt?.skill === 'duel' ? Math.max(1, Number(opt.args?.stopAtHealth ?? 8) - 1) : null;
+      },
+      onYield: (to) => this.sayYield(to),
+      settled: (name, since) => this.conflict.settled(name, since),
       isIdle: () => this.executor.idleBody,
       mayPickUp: (item) => this.perception.mayPickUp(item.id),
       fearBoost: (source) => this.biases.fearBoost(source),
@@ -225,13 +317,17 @@ export class Agent {
       },
       onHelpedFight: (helper) => this.deeds.helpedFight(helper),
       onDanger: (info) => {
-        this.dangerSource = info.source;
-        this.store.update('flags', (f) => ({ ...f, inDanger: true, busyLevel: 'critical', busySpeech: cannedBusyLine(info.source) }), `danger: ${info.kind} ${info.source}`);
+        // A person is someone by name (their nametag), a mob "a zombie".
+        const person = info.attacker && body.bot.players[info.attacker] ? info.attacker : info.source === 'attacker' ? 'someone' : null;
+        this.dangerSource = person ?? info.source;
+        this.dangerIsPerson = person !== null;
+        this.store.update('flags', (f) => ({ ...f, inDanger: true, busyLevel: 'critical', busySpeech: person ? 'not now!' : cannedBusyLine(info.source) }), `danger: ${info.kind} ${this.dangerSource}`);
         this.bus.emit({ type: 'danger', source: info.source, level: info.level });
       },
       onDangerCleared: (summary) => {
         this.store.update('flags', (f) => ({ ...f, inDanger: false, busySpeech: null, busyLevel: this.executor.busy ? 'working' : 'idle' }), 'danger cleared');
-        const what = summary === 'fight over' ? `fought off a ${this.dangerSource}` : summary === 'got away' ? `got away from a ${this.dangerSource}` : `escaped ${this.dangerSource}`;
+        const who = this.dangerIsPerson ? this.dangerSource : `${/^[aeiou]/i.test(this.dangerSource) ? 'an' : 'a'} ${this.dangerSource}`;
+        const what = summary === 'fight over' ? `fought off ${who}` : summary === 'got away' ? `got away from ${who}` : `escaped ${this.dangerSource}`;
         pushWorkmem(this.store, `I ${what}`, 0.6, 'self_observed', { now: now() });
         this.bus.emit({ type: 'dangerCleared' });
       },
@@ -283,11 +379,13 @@ export class Agent {
     this.impulses.start();
     this.crowd.start();
     this.biases.start();
+    this.conflict.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.conflict.stop();
     this.biases.stop();
     this.crowd.stop();
     this.impulses.stop();
@@ -312,6 +410,22 @@ export class Agent {
     this.perception.stop();
     this.o.body.reflexes.stop();
     for (const off of this.offs.splice(0)) off();
+  }
+
+  /**
+   * §17.6: running from a person, say we give up so they stop. A duel that is giving up says so itself, so wait a
+   * moment to hear it first; and say it only once.
+   */
+  private sayYield(to: AgentName): void {
+    const now = this.o.now ?? Date.now;
+    if (now() - this.yieldSaidAt < 20_000 || this.yieldPending) return;
+    this.yieldPending = true;
+    setTimeout(() => {
+      this.yieldPending = false;
+      if (now() - this.yieldSaidAt < 20_000) return;
+      this.yieldSaidAt = now();
+      void this.talking.blurt(to, 'ok ok, I give up!');
+    }, 1500).unref();
   }
 
   setGoal(text: string, doneWhen?: string): void {

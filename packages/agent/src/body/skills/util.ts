@@ -57,7 +57,10 @@ export async function waitMs(ctx: SkillContext, ms: number): Promise<void> {
 
 export function stopMotion(bot: Bot): void {
   try {
-    bot.pathfinder.stop();
+    // An idle pathfinder never acts on stop(): the flag lingers and wipes the next goal set, whose goto then fails
+    // at once ("PathStopped"). Clearing the goal stops it outright; a moving one still stops at its next step.
+    if (bot.pathfinder.isMoving()) bot.pathfinder.stop();
+    else bot.pathfinder.setGoal(null);
   } catch {
     // not moving
   }

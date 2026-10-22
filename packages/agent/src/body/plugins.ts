@@ -7,9 +7,17 @@ import pathfinderPkg, { type Movements as MovementsType } from 'mineflayer-pathf
 import { plugin as pvpPlugin } from 'mineflayer-pvp';
 import { plugin as collectBlockPlugin } from 'mineflayer-collectblock';
 import type { Block } from 'prismarine-block';
+import type { Entity } from 'prismarine-entity';
 import { type PathCostRule, pathCostRules } from './quirks';
 
-const { pathfinder, Movements } = pathfinderPkg;
+const { pathfinder, Movements, goals } = pathfinderPkg;
+
+export interface PvpTuning {
+  target?: Entity;
+  attackRange: number;
+  followRange: number;
+  movements: MovementsType;
+}
 
 export function loadBodyPlugins(bot: Bot): void {
   bot.loadPlugin(pathfinder);
@@ -18,8 +26,41 @@ export function loadBodyPlugins(bot: Bot): void {
   // Line-of-sight goals around foliage (upper tree logs) need more search than the 5 s default.
   bot.pathfinder.thinkTimeout = 10_000;
   bot.pathfinder.tickTimeout = 25;
+  const pvp = (bot as unknown as { pvp: PvpTuning }).pvp;
   // Paper checks melee reach as 3.0 from the eyes to the target's hitbox; pvp's 3.5 between feet wastes swings.
-  (bot as unknown as { pvp: { attackRange: number } }).pvp.attackRange = 3;
+  pvp.attackRange = 3;
+  // pvp follows with a GoalFollow that re-aims only once the target strays farther than the follow range from where
+  // it was last seen. At pvp's 2, two fighters could each "arrive" 3 blocks apart, out of reach, and stand there.
+  pvp.followRange = 1;
+  pvp.movements = createFightMovements(bot);
+  keepPvpInReach(bot, pvp);
+}
+
+/** A fighter with a target, out of reach and standing still, whose follow goal is gone (a stop wiped it) or aims
+ *  where the target no longer is: aim again, at most once a second. A goal that aims right but has no way there is
+ *  left alone. */
+export function keepPvpInReach(bot: Bot, pvp: PvpTuning): void {
+  let last = 0;
+  bot.on('physicsTick', () => {
+    const t = pvp.target;
+    if (!t || Date.now() - last < 1000) return;
+    last = Date.now();
+    if (bot.pathfinder.isMoving() || t.position.distanceTo(bot.entity.position) <= pvp.attackRange) return;
+    const g = bot.pathfinder.goal as { entity?: unknown; x?: number; y?: number; z?: number } | null;
+    const at = t.position.floored();
+    if (g?.entity === t && g.x === at.x && g.y === at.y && g.z === at.z) return;
+    bot.pathfinder.setGoal(new goals.GoalFollow(t, pvp.followRange), true);
+  });
+}
+
+/** Movements for going after someone in a fight: the safe defaults, but walking, jumping and sprinting only (no
+ *  digging or towering one's way there). */
+export function createFightMovements(bot: Bot): MovementsType {
+  const m = createMovements(bot);
+  m.canDig = false;
+  m.allow1by1towers = false;
+  m.scafoldingBlocks = [];
+  return m;
 }
 
 const SCAFFOLD = ['dirt', 'cobblestone', 'cobbled_deepslate', 'netherrack', 'andesite', 'diorite', 'granite'];

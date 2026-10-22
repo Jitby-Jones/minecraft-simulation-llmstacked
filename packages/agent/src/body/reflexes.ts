@@ -54,6 +54,12 @@ export interface ReflexHooks {
   onHelpedFight?: (helper: string) => void;
   /** Extra health points of fear toward a threat (availability bias after a death to it, §18.4). */
   fearBoost?: (source: string) => number;
+  /** In a duel, the health at which the duel gives up: the reflexes flee only below it (§17.6). */
+  fightFloor?: () => number | null;
+  /** We're running from a person: say we give up, so they know (§17.6 yield protocol). */
+  onYield?: (to: string) => void;
+  /** A fight with them was settled (a yield, a call-off, our duel's end) after `since`, their last blow (§17.6). */
+  settled?: (username: string, since?: number) => boolean;
 }
 
 export interface ReflexOptions {
@@ -284,6 +290,7 @@ export class ReflexController {
         continue;
       }
       if (sealed && !canSee(this.bot, cur, 17)) continue;
+      if (cur.username && this.hooks.settled?.(cur.username, a.ts)) continue;
       out.set(id, cur);
     }
     return [...out.values()].sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me));
@@ -303,7 +310,8 @@ export class ReflexController {
       threats: threats.map((e) => ({
         name: isPlayer(e) ? 'player' : (e.name ?? ''),
         heldItem: (e as unknown as { heldItem?: { name: string } | null }).heldItem?.name ?? null,
-        hp: entityHealth(this.bot, e),
+        // A person's hearts can't be seen (§17.4): reckon them at full health.
+        hp: isPlayer(e) ? undefined : entityHealth(this.bot, e),
       })),
       weapon: bestWeapon(this.bot)?.name ?? null,
       armor: armorPoints(equippedArmor(this.bot)),
@@ -339,7 +347,7 @@ export class ReflexController {
   private clear(summary: string): void {
     if (this.mode === 'idle') return;
     try {
-      pvp(this.bot).stop();
+      pvp(this.bot).forceStop();
     } catch {
       // not fighting
     }
@@ -375,13 +383,16 @@ export class ReflexController {
     if (!nearest) return;
     if (this.mode !== 'flee') {
       try {
-        pvp(this.bot).stop();
+        // At once: pvp's stop() leaves the pathfinder a stop that would wipe the flight's first goal.
+        pvp(this.bot).forceStop();
       } catch {
         // not fighting
       }
       this.mode = 'flee';
       this.fleePlannedAt = 0;
       this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);
+      const person = threats.find((t) => isPlayer(t) && t.username);
+      if (person?.username) this.hooks.onYield?.(person.username);
     }
     // Re-plan as the chasers move; a fixed spot beats GoalInvert, which stalls on open ground.
     const now = Date.now();
@@ -492,10 +503,17 @@ export class ReflexController {
     }
     // 2. Threats.
     if (this.hooks.deliberateFight()) {
-      if (bot.health <= this.fleeThreshold()) {
+      if (bot.health <= (this.hooks.fightFloor?.() ?? this.fleeThreshold())) {
         const t = this.threats();
         if (t.length > 0) this.flee(t);
       }
+      return;
+    }
+    // §17.6: a fight we're in ends the moment it's settled; no more swings at someone who yielded or stopped.
+    const foe = this.mode === 'fight' ? pvp(bot).target : undefined;
+    if (foe?.username && this.hooks.settled?.(foe.username, this.recentAttackers.get(foe.id)?.ts ?? 0)) {
+      this.recentAttackers.delete(foe.id);
+      this.clear(`${foe.username} gave up`);
       return;
     }
     const threats = this.threats(this.mode === 'flee' ? 16 : undefined);
@@ -514,7 +532,7 @@ export class ReflexController {
     const now = Date.now();
     for (const [id, a] of this.allyAttacks) {
       const cur = bot.entities[id];
-      if (!cur || now - a.ts > 6000 || cur.position.distanceTo(bot.entity.position) > 16) {
+      if (!cur || now - a.ts > 6000 || cur.position.distanceTo(bot.entity.position) > 16 || (cur.username && this.hooks.settled?.(cur.username, a.ts))) {
         this.allyAttacks.delete(id);
         continue;
       }

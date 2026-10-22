@@ -35,6 +35,7 @@ export const HubToBotSchema = z.discriminatedUnion('t', [
     reason: z.string(),
   }),
   z.object({ t: z.literal('speechGrant'), reqId: z.string(), ok: z.boolean() }),
+  z.object({ t: z.literal('fightGrant'), reqId: z.string(), ok: z.boolean() }),
   z.object({ t: z.literal('embedResult'), reqId: z.string(), vectors: z.array(z.array(z.number())).nullable() }),
   /** Extinction brake (§17.10): changes the agent's own caution baseline only, never what it perceives. */
   z.object({ t: z.literal('cautionShift'), shift: z.number().min(0).max(1), untilTs: z.number() }),
@@ -88,6 +89,9 @@ export const BotToHubSchema = z.discriminatedUnion('t', [
     ok: z.boolean(),
   }),
   z.object({ t: z.literal('speechToken'), reqId: z.string() }),
+  /** §17.10: may this bot start a fight now (world-wide cap)? Released with fightEnd. */
+  z.object({ t: z.literal('fightStart'), reqId: z.string() }),
+  z.object({ t: z.literal('fightEnd') }),
   z.object({ t: z.literal('embed'), reqId: z.string(), texts: z.array(z.string()).max(64) }),
   z.object({
     t: z.literal('died'),

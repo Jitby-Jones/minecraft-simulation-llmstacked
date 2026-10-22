@@ -7,12 +7,14 @@ import type { Entity } from 'prismarine-entity';
 import type { Item } from 'prismarine-item';
 import { weaponTier } from '../items';
 import { entityHealth, findEntity } from '../world';
+import { stopCollecting } from './gathering';
 import { abortable, waitMs } from './util';
 import { defineSkill, SkillAbortedError } from './types';
 
 interface PvpApi {
   attack(target: Entity): void;
-  stop(): void;
+  /** Stops at once. pvp's stop() waits up to 5 s for the pathfinder and then drops every 'path_stop' listener. */
+  forceStop(): void;
   target?: Entity;
 }
 
@@ -54,6 +56,7 @@ export const attack = defineSkill({
     const { bot } = ctx;
     const e = findEntity(bot, args.target, 32);
     if (!e) return { ok: false, observed: `no ${args.target} in sight`, error: `${args.target} not found` };
+    await stopCollecting(bot);
     if (ctx.slip !== 'tool') await equipBestWeapon(bot);
     const p = pvp(bot);
     p.attack(e);
@@ -64,12 +67,12 @@ export const attack = defineSkill({
         (async () => {
           while (alive(bot, e) && Date.now() < deadline) await waitMs(ctx, 250);
         })(),
-        () => p.stop(),
+        () => p.forceStop(),
       );
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
     } finally {
-      p.stop();
+      p.forceStop();
     }
     if (!alive(bot, e)) return { ok: true, observed: `${args.target} is gone` };
     return { ok: false, observed: `${args.target} still standing`, error: 'could not finish the fight in time' };

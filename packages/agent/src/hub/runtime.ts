@@ -96,7 +96,17 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     logger,
     chat: { acquireGlobalToken: () => hub.speechToken() },
   });
-  const agent = new Agent({ body, persona: a.persona, username: a.username, llm: rt?.client ?? null, logger, world: o.world, governor: rt?.governor, memory: { db, embedder } });
+  const agent = new Agent({
+    body,
+    persona: a.persona,
+    username: a.username,
+    llm: rt?.client ?? null,
+    logger,
+    world: o.world,
+    governor: rt?.governor,
+    memory: { db, embedder },
+    fightSlot: { acquire: () => hub.fightSlot(), release: () => hub.fightDone() },
+  });
   if (a.resume) {
     const offline = restoreSnapshot(db, agent.store);
     logger.info({ module: 'agent', offlineMs: offline }, offline === null ? 'no snapshot to resume from' : 'resumed');

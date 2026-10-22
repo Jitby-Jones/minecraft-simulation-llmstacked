@@ -28,8 +28,9 @@ export function arousalOf(e: EmotionState): number {
   return clamp01(Math.max(e.anger, e.fear, e.joy * 0.8, e.disgust * 0.7, e.envy * 0.6, e.shame * 0.5));
 }
 
-/** Event → emotion deltas, each scaled by (0.5 + neuroticism), with the temperament's own slant. */
-export function appraise(e: EmotionState, ev: AppraisalEvent, p: Persona): EmotionState {
+/** Event → emotion deltas, each scaled by (0.5 + neuroticism), with the temperament's own slant. A skilled fighter
+ *  fears a fight less: fear from combat events is ×(1 − 0.6·combat) (§21.3 fear damping). */
+export function appraise(e: EmotionState, ev: AppraisalEvent, p: Persona, combat = 0): EmotionState {
   const k = 0.5 + p.big5.neuroticism;
   const d: Partial<Record<EmotionName, number>> = {};
   switch (ev.kind) {
@@ -81,6 +82,7 @@ export function appraise(e: EmotionState, ev: AppraisalEvent, p: Persona): Emoti
       d.fear = 0.15;
       break;
   }
+  if (d.fear !== undefined && (ev.kind === 'attacked' || ev.kind === 'threatened' || ev.kind === 'witnessedFight')) d.fear *= 1 - 0.6 * combat;
   const out = { ...e };
   for (const [name, v] of Object.entries(d) as [EmotionName, number][]) out[name] = clamp01(out[name] + v * k);
   out.arousal = arousalOf(out);

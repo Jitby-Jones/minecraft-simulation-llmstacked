@@ -21,12 +21,13 @@ export function personaCore(p: Persona, traitAnnotations: readonly string[] = []
 export const DEATH_RULE = 'Death is permanent. If you die, you are gone forever.';
 
 export const DECISION_FORMAT = `Reply with one JSON object:
-{"option": "work|talk|move|follow|explore|rest|flee|help|trade",
+{"option": "work|talk|move|follow|explore|rest|flee|help|trade|fight",
  "target": {"agent": "name", "pos": {"x":0,"y":0,"z":0}, "item": "name"},   (only what the option needs)
  "task": {"skill": "skill name", "args": {...}},                          (required for work and help)
- "speechIntent": {"stance": "agree|decline|negotiate|inform|ask|chat|apologize|none", "gist": "what you are willing to say", "mayCommit": false},
+ "speechIntent": {"stance": "agree|decline|negotiate|inform|ask|chat|apologize|hostile|threaten|none", "gist": "what you are willing to say", "mayCommit": false},
  "commitmentsToCreate": [{"debtor": "you or them", "creditor": "...", "what": {"kind": "give|gather|meet|help|build|follow|custom", "item": "...", "qty": 1, "text": "..."}}],
  "trade": {"with": "name", "phase": "offer|accept|counter|decline", "give": [{"item": "...", "qty": 1}], "want": [{"item": "...", "qty": 1}]},   (only when trading; give is yours, want is theirs)
+ "fight": {"target": "name", "intent": "brawl"},   (only with option fight: a brawl until someone yields)
  "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"},
  "rationale": "one sentence"}`;
 
@@ -35,6 +36,7 @@ export const DECISION_RULES = `Rules:
 - Set mayCommit to true only when you really intend to do what you agree to, starting now. Otherwise talk without promising.
 - If you keep failing at something, do something different.
 - Trades are talked through: offer what you give for what you want; accepting (with mayCommit) binds both of you, and each hands their part over in person.
+- Fighting a person is serious: propose it only when you truly mean it. Code may refuse it; then you didn't fight.
 - GUT is your first reaction to someone; FACTS is what they have actually done. You may follow your gut, as people do, or reason past it. Stay in character.
 - Use only the skills listed. "until" may be: inventoryHas:<item>>=<n>, agentInRange:<name>, agentLeftRange:<name>, timeIs:day|night, healthAbove:<n>, foodAbove:<n>, near:<x>,<y>,<z>.`;
 

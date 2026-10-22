@@ -63,6 +63,8 @@ export interface SkillContext {
   progress: (note: string) => void;
   /** How many prerequisite levels `obtain` may plan through (§21.1 planning horizon). */
   planDepth: number;
+  /** Fighting ability 0..1 with growth (§21.3): technique in fights. */
+  combat?: number;
 }
 
 export interface SkillDef<A> {

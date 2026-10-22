@@ -25,13 +25,14 @@ afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
 });
 
-async function startHub(quota: QuotaStatus | null = null, speechPerSec = 5): Promise<Hub> {
+async function startHub(quota: QuotaStatus | null = null, speechPerSec = 5, maxConcurrentFights = 2): Promise<Hub> {
   const hub = new Hub({
     config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 }, speech: { globalPerSec: speechPerSec } }),
     logger: nullLogger(),
     embedder: new HashEmbedder(384),
     quota: () => quota,
     runtimeHoursPerWeek: 30,
+    maxConcurrentFights,
   });
   await hub.listen(0);
   cleanups.push(() => hub.close());
@@ -91,6 +92,31 @@ describe('Hub protocol (§8)', () => {
     hub.broadcastBudget('test');
     await until(() => levels.length > 0);
     expect(levels[0]).toBe(3);
+  });
+});
+
+describe('fight slots (§17.10 maxConcurrentFights)', () => {
+  it('lets only so many fights run at once, and frees a slot when a fight ends or its bot goes away', async () => {
+    const hub = await startHub(null, 5, 2);
+    let n = 0;
+    hub.on('hello', (s) => s.send({ t: 'assign', persona: persona(`F${n}`, 'male'), username: `Fay${n++}`, resume: false, giveStarterKit: false }));
+    const [a, b, c] = [client(hub, 'f0'), client(hub, 'f1'), client(hub, 'f2')];
+    await Promise.all([a.assigned(), b.assigned(), c.assigned()]);
+    expect(await a.fightSlot()).toBe(true);
+    expect(await a.fightSlot()).toBe(true); // the same fight asking again
+    expect(await b.fightSlot()).toBe(true);
+    expect(await c.fightSlot()).toBe(false);
+    a.fightDone();
+    await wait(50);
+    expect(await c.fightSlot()).toBe(true);
+    b.close();
+    await wait(100);
+    expect(await a.fightSlot()).toBe(true);
+  });
+
+  it('is always granted without a Hub (the cap exists only across a population)', async () => {
+    const lone = new HubClient({ url: 'ws://127.0.0.1:9', slot: 'x', logger: nullLogger(), requestTimeoutMs: 200 });
+    expect(await lone.fightSlot()).toBe(true);
   });
 });
 

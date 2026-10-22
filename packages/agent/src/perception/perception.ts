@@ -7,6 +7,7 @@ import { type AgentName, type BlockNote, type Logger, type ObservedAction, type 
 import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { AgentBus } from '../bus';
+import { SwingTracker } from '../body/attribution';
 import { inventoryDigest, inventoryStacks } from '../body/inventory';
 import { Sightings } from '../body/sightings';
 import { canSee, canSeeBlock, isHostile, isNight } from '../body/world';
@@ -73,6 +74,7 @@ export class Perception {
   private readonly digSeen = new Map<string, number>();
   private readonly recentSpeakers = new Map<AgentName, number>();
   private lastSelfKey = '';
+  private readonly swings: SwingTracker;
   /** Item entity → who it appeared next to (the likely thrower). */
   private readonly droppedBy = new Map<number, { by: AgentName; at: number }>();
   /** Item entity → whose it is: tossed or dug out by someone else, not toward us (pickup courtesy). */
@@ -84,6 +86,7 @@ export class Perception {
 
   constructor(private readonly o: PerceptionOptions) {
     this.now = o.now ?? Date.now;
+    this.swings = new SwingTracker(o.bot, this.now);
   }
 
   get me(): string {
@@ -101,6 +104,11 @@ export class Perception {
     on('entitySwingArm', (e: Entity) => this.observe(e, 'swing'));
     on('entityHurt', (e: Entity) => {
       this.hurtAt.set(e.id, this.now());
+      // §17.6: the attacker is the nearest person who swung at them just now.
+      if (e.type === 'player' && e !== bot.entity && e.username) {
+        const att = this.swings.attackerOf(e).attacker;
+        if (att && att !== bot.entity && att.type === 'player' && att.username) this.observe(att, 'attack', { target: e.username });
+      }
       if (e.type === 'player' && e !== bot.entity) this.observe(e, 'hurt');
     });
     on('entityDead', (e: Entity) => {

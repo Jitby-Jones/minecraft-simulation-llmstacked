@@ -86,7 +86,14 @@ async function main(): Promise<void> {
   }
 
   const embedder: Embedder = await createEmbedder({ modelDir: path.join(paths.cache, 'models'), modelId: versions.embeddingModel.id, dims: versions.embeddingModel.dims, logger });
-  const hub = new Hub({ config: hubCfg, logger, embedder, quota: () => governor?.status ?? null, runtimeHoursPerWeek: models.llm.expectedRuntimeHoursPerWeek });
+  const hub = new Hub({
+    config: hubCfg,
+    logger,
+    embedder,
+    quota: () => governor?.status ?? null,
+    runtimeHoursPerWeek: models.llm.expectedRuntimeHoursPerWeek,
+    maxConcurrentFights: world.conflict.maxConcurrentFights,
+  });
   await hub.listen();
   hub.start();
   governor?.on('change', () => hub.broadcastBudget('quota change'));

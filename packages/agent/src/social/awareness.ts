@@ -37,6 +37,8 @@ export const SocialUpdateSchema = z.object({
   opinions: z.array(z.object({ target: z.string().min(1).max(16), valence: z.number().min(-1).max(1) })).max(5).default([]),
   /** They insulted me (an appraisal event for emotions, §18.2). */
   insultedMe: z.boolean().default(false),
+  /** How clever they came across, 0..1 (§21.4 perceived intelligence). */
+  seemedClever: z.number().min(0).max(1).optional(),
 });
 export type SocialUpdate = z.infer<typeof SocialUpdateSchema>;
 
@@ -218,9 +220,10 @@ export class SocialAwareness {
     pushWorkmem(this.o.store, kept ? `${other} kept their promise: ${c.what.text}` : `${other} broke their promise: ${c.what.text}`, kept ? 0.55 : 0.75, 'self_observed', { aboutAgent: other, now: this.now() });
   }
 
-  /** A claim they made turned out false (§6.5): trust drops. */
+  /** A claim they made turned out false (§6.5): trust drops, and they seem more cunning than we thought (§21.4). */
   claimFailed(name: AgentName): void {
-    this.write(withEvidence(withTrust(this.profile(name), TRUST_DELTAS.falseClaim), -0.5), 'false claim');
+    const p = withEvidence(withTrust(this.profile(name), TRUST_DELTAS.falseClaim), -0.5);
+    this.write({ ...p, estIntelligence: Math.min(1, p.estIntelligence + 0.05) }, 'false claim');
   }
 
   private drift(): void {
@@ -266,7 +269,7 @@ export class SocialAwareness {
       messages: [
         {
           role: 'system',
-          content: `${personaCore(this.persona, s.traitAnnotations)}\n\nYou just finished talking with ${partner}. Update what you think of them, as yourself (your values and temper decide how their manner strikes you). JSON: {"sentimentDelta": -2..2, "frictionDelta": -0.3..0.3, "frictionReason": "...", "perceivedGoals": ["..."], "perceivedRole": "...", "facts": ["new things you learned about them or from them"], "summary": "at most 60 words about ${partner}", "opinions": [{"target": "a name they talked about", "valence": -1..1}], "insultedMe": false}`,
+          content: `${personaCore(this.persona, s.traitAnnotations)}\n\nYou just finished talking with ${partner}. Update what you think of them, as yourself (your values and temper decide how their manner strikes you). JSON: {"sentimentDelta": -2..2, "frictionDelta": -0.3..0.3, "frictionReason": "...", "perceivedGoals": ["..."], "perceivedRole": "...", "facts": ["new things you learned about them or from them"], "summary": "at most 60 words about ${partner}", "opinions": [{"target": "a name they talked about", "valence": -1..1}], "insultedMe": false, "seemedClever": 0..1}`,
         },
         {
           role: 'user',
@@ -297,6 +300,8 @@ export class SocialAwareness {
       ...(u.perceivedRole ? { perceivedRole: u.perceivedRole } : {}),
       facts,
       summary: u.summary ? u.summary.split(/\s+/).slice(0, 60).join(' ') : p.summary,
+      // §21.4: how clever they seem builds up over conversations.
+      ...(u.seemedClever !== undefined ? { estIntelligence: p.estIntelligence + (u.seemedClever - p.estIntelligence) * 0.25 } : {}),
     };
     // §17.3: lasting friction wears sentiment down slowly.
     if (p.friction > 0.5) p = { ...p, sentiment: Math.max(0, p.sentiment - 0.2) };

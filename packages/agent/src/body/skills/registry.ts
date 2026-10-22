@@ -1,6 +1,7 @@
 // The verified skill library. The CC sees `skillCatalog()`; the executor looks skills up by name.
 
 import { attack } from './combat';
+import { duel } from './duel';
 import { craft, smelt } from './crafting';
 import { deposit, withdraw } from './containers';
 import { gather, mine, pickup } from './gathering';
@@ -31,6 +32,7 @@ export const SKILLS: readonly AnySkill[] = [
   deposit,
   withdraw,
   attack,
+  duel,
   eat,
   equip,
   sleep,
@@ -58,6 +60,7 @@ const ALIASES: Readonly<Record<string, string>> = {
   store: 'deposit',
   take: 'withdraw',
   fight: 'attack',
+  brawl: 'duel',
   hit: 'attack',
   toss: 'give',
   drop: 'give',

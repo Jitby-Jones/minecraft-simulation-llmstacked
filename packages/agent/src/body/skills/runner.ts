@@ -27,6 +27,8 @@ export interface SkillRunRecord {
   durationMs: number;
   /** Something was gained on the way, even if the whole task didn't finish. */
   progressed?: boolean;
+  /** What the skill reported beyond ok/observed (a duel's outcome, …). */
+  data?: Record<string, unknown>;
 }
 
 export function snapshotBody(bot: Bot): BodySnapshot {
@@ -131,6 +133,8 @@ export interface RunSkillDeps {
   progress?: (note: string) => void;
   planDepth?: number;
   home?: Vec3 | null;
+  /** Fighting ability with growth (§21.3). */
+  combat?: number;
   /** How long to wait for trailing server updates before judging the postcondition (default 2000 ms). */
   settleMs?: number;
 }
@@ -174,16 +178,19 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     progress: deps.progress ?? (() => undefined),
     planDepth: deps.planDepth ?? 6,
     home: deps.home ?? null,
+    ...(deps.combat !== undefined ? { combat: deps.combat } : {}),
   };
   let ok = false;
   let observed: string;
   let error: string | undefined;
+  let data: Record<string, unknown> | undefined;
   let aborted = false;
   try {
     const r = await skill.run(ctx, parsed.args);
     ok = r.ok;
     observed = r.observed;
     error = r.error;
+    data = r.data;
   } catch (err) {
     if (err instanceof SkillAbortedError) {
       aborted = true;
@@ -219,6 +226,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     startedAt,
     durationMs: Date.now() - startedAt,
     progressed: [...diffInventory(before.inventory, after.inventory).values()].some((n) => n > 0),
+    ...(data ? { data } : {}),
   };
   deps.logger.debug({ module: 'skill', ...record }, `skill ${skill.name} ${record.ok ? 'ok' : 'failed'}`);
   return record;

@@ -3,10 +3,11 @@
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
+import type { Vec3 } from 'vec3';
 import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
-import { blockIdsDropping, blockIdsNamed } from '../world';
+import { blockIdsDropping, blockIdsNamed, canSee } from '../world';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -18,6 +19,19 @@ interface CollectBlockApi {
 function collector(bot: Bot): CollectBlockApi {
   return (bot as unknown as { collectBlock: CollectBlockApi }).collectBlock;
 }
+
+/** Stops the collect plugin's task, if any, and waits briefly for it: a fight must not share the pathfinder with
+ *  a collect task left over from the work it interrupted. */
+export async function stopCollecting(bot: Bot): Promise<void> {
+  const c = (bot as unknown as { collectBlock?: CollectBlockApi }).collectBlock;
+  if (c) await withTimeout(c.cancelTask(), 2000).catch(() => undefined);
+  stopMotion(bot);
+}
+
+/** A collect batch gets this long, plus a little per block: the collect plugin can stall on a path that keeps
+ *  resetting, and then the batch counts as a failure. */
+const BATCH_MS = 45_000;
+const PER_BLOCK_MS = 10_000;
 
 export function isFoodName(bot: Bot): (name: string) => boolean {
   return (name) => Boolean(bot.registry.foodsByName[name]);
@@ -66,6 +80,36 @@ async function breakAndCollect(ctx: SkillContext, b: Block, matcher: ItemMatcher
   }
 }
 
+/**
+ * Walks over drops of the item lying near where we just dug. The collect plugin only goes after a drop that lands
+ * within half a block of the block's center; one that rolls farther stays on the ground, in plain sight.
+ */
+async function pickUpDropsNear(ctx: SkillContext, dug: readonly Vec3[], matcher: ItemMatcher): Promise<number> {
+  const { bot } = ctx;
+  let walked = 0;
+  for (let i = 0; i < 3; i++) {
+    throwIfAborted(ctx.signal);
+    const drop = bot.nearestEntity((e) => {
+      if (e.name !== 'item' || !dug.some((p) => e.position.distanceTo(p.offset(0.5, 0.5, 0.5)) <= 3)) return false;
+      const it = (e as unknown as { getDroppedItem(): { name: string } | null }).getDroppedItem();
+      return Boolean(it && matcher.matches(it.name)) && canSee(bot, e, 8);
+    });
+    if (!drop) break;
+    bot.pathfinder.setMovements(ctx.movements());
+    try {
+      // Within a block is close enough to pick it up, and reachable when it lies in a pocket we can't stand in.
+      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000), () => stopMotion(bot));
+    } catch (err) {
+      if (err instanceof SkillAbortedError) throw err;
+      stopMotion(bot);
+      break;
+    }
+    await waitMs(ctx, 300);
+    walked++;
+  }
+  return walked;
+}
+
 async function collectUntil(
   ctx: SkillContext,
   matcher: ItemMatcher,
@@ -79,8 +123,13 @@ async function collectUntil(
   let failures = 0;
   let lastError = '';
   const skipped = new Set<string>();
-  while (countItem(bot, matcher) - start < qty) {
+  // Every loop has a cap (§13): enough rounds for the job and a few failures, never more.
+  const maxRounds = qty + 12;
+  for (let round = 0; countItem(bot, matcher) - start < qty; round++) {
     throwIfAborted(ctx.signal);
+    if (round >= maxRounds) {
+      return { ok: false, observed: `got ${countItem(bot, matcher) - start}/${qty} ${matcher.label}`, error: lastError || `took too many tries to gather ${label}` };
+    }
     // Prefer blocks within reach of the ground we stand on: low logs before the canopy, near before far.
     const feetY = bot.entity.position.y;
     const candidates = findKnownBlocks(bot, blockIds, maxDistance, 24)
@@ -115,20 +164,37 @@ async function collectUntil(
     const batch = harvestable.slice(0, Math.max(1, Math.min(remaining, 4)));
     ctx.progress(`digging ${batch.length} ${batch[0]?.name ?? label}`);
     bot.pathfinder.setMovements(ctx.movements());
+    const had = countItem(bot, matcher);
     try {
       // Flowers, grass and crops have no collision box, which the collect plugin can't path to: walk over,
       // break it, and pick the drop up.
       if (batch.every((b) => b.boundingBox === 'empty')) {
         for (const b of batch) await breakAndCollect(ctx, b, matcher);
       } else {
-        await abortable(ctx.signal, collector(bot).collect(batch, { ignoreNoPath: true }), () => {
+        const task = withTimeout(collector(bot).collect(batch, { ignoreNoPath: true }), BATCH_MS + PER_BLOCK_MS * batch.length, `collecting ${label} took too long`);
+        await abortable(ctx.signal, task, () => {
           void collector(bot).cancelTask();
           stopMotion(bot);
         });
       }
+      // A drop that rolled off where the plugin looks for it: go and get it.
+      if (countItem(bot, matcher) <= had) {
+        const walked = await pickUpDropsNear(ctx, batch.map((b) => b.position), matcher);
+        ctx.logger.debug(
+          { module: 'skill', item: matcher.label, dug: batch.map((b) => `${b.position.toString()}:${bot.blockAt(b.position)?.name ?? '?'}`), walked, got: countItem(bot, matcher) - had },
+          'collect batch brought nothing in',
+        );
+      }
+      // Dug, but nothing came of it (the drop wasn't picked up, or went to someone else): skip those blocks.
+      if (countItem(bot, matcher) <= had) throw new Error(`nothing came of digging ${batch[0]?.name ?? label}`);
       failures = 0;
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
+      // The plugin may still be at it after a timeout.
+      void collector(bot)
+        .cancelTask()
+        .catch(() => undefined);
+      stopMotion(bot);
       lastError = errMsg(err);
       failures++;
       for (const b of batch) skipped.add(b.position.toString());
@@ -211,11 +277,12 @@ export const pickup = defineSkill({
       const before = bot.inventory.items().reduce((a, it) => a + it.count, 0);
       bot.pathfinder.setMovements(ctx.movements());
       try {
-        await abortable(ctx.signal, bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), () =>
+        await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 10_000), () =>
           stopMotion(bot),
         );
       } catch (err) {
         if (err instanceof SkillAbortedError) throw err;
+        stopMotion(bot);
       }
       await new Promise((r) => setTimeout(r, 400));
       if (bot.inventory.items().reduce((a, it) => a + it.count, 0) > before) picked++;

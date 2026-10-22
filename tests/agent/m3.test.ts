@@ -223,6 +223,29 @@ describe('Cognitive Controller against the mocked NanoGPT', () => {
   });
 });
 
+describe('Action Awareness (§4.6)', () => {
+  it('marks a task stuck after three failures, and lifts the mark once a prospect finds what it lacked', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    awareness.start();
+    const rec = (skill: string, args: Record<string, unknown>, ok: boolean, observed: string, error?: string) =>
+      bus.emit({ type: 'actionRecorded', record: { id: 'r', skill, args, expected: '', observed, ok, ts: 0, durationMs: 3000, ...(error ? { error } : {}) } });
+    const obtain = { item: 'iron_pickaxe', qty: 1 };
+    for (let i = 0; i < 3; i++) rec('obtain', obtain, false, 'holding 0 iron_pickaxe', "haven't seen any raw_iron around here");
+    expect(awareness.isStuckOn('obtain', obtain)).toBe(true);
+    // A prospect that comes back empty changes nothing.
+    rec('prospect', { item: 'raw_iron' }, false, 'dug 48 blocks, no iron_ore seen', 'no iron_ore found in 48 blocks of tunnel');
+    expect(awareness.isStuckOn('obtain', obtain)).toBe(true);
+    // One that finds it does; a mark about something else stays.
+    for (let i = 0; i < 3; i++) rec('gather', { item: 'diamond', qty: 1 }, false, 'got 0/1 diamond', "haven't seen any diamond around here");
+    rec('prospect', { item: 'raw_iron' }, true, 'found iron_ore at (604, -62, 7) after digging 3 blocks');
+    expect(awareness.isStuckOn('obtain', obtain)).toBe(false);
+    expect(awareness.isStuckOn('gather', { item: 'diamond', qty: 1 })).toBe(true);
+    awareness.stop();
+  });
+});
+
 describe('Skill Executor termination (§4.4)', () => {
   function fakeBody(): Body {
     return {

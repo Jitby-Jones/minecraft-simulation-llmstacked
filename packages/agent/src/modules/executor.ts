@@ -17,6 +17,11 @@ export interface ExecutorOptions {
   levers: () => MindLevers;
   /** Recipe knowledge gate (§21.2, M6); everything is known until then. */
   knowsRecipe?: (item: string) => boolean;
+  /** Fighting ability with growth (§21.3), for the duel's technique. */
+  combat?: () => number;
+  /** A world-wide fight slot (§17.10 maxConcurrentFights, the Hub's fight tokens); always granted without a Hub. */
+  acquireFight?: () => Promise<boolean>;
+  releaseFight?: () => void;
   now?: () => number;
 }
 
@@ -52,8 +57,13 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     case 'trade':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
       return { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 600) } };
-    // Conflict and romance options get their own skills in M6b–M9; until then they pass time.
+    // A fight is a duel until someone yields (the conflict gate let it through, §17.5).
     case 'fight':
+      if (opt.skill) return { skill: opt.skill, args: opt.args ?? {} };
+      // A person is fought until someone yields; a mob just until it's gone.
+      if (opt.targetAgent) return { skill: nearAgent(opt.targetAgent, 32) ? 'duel' : 'attack', args: { target: opt.targetAgent } };
+      return { skill: 'wait', args: { seconds: 5 } };
+    // Romance and the power options get their own skills in M8b–M9; until then they pass time.
     case 'demand':
     case 'yield':
     case 'recruit':
@@ -160,9 +170,12 @@ export class SkillExecutor {
     store.update('flags', (f) => ({ ...f, busyLevel: f.inDanger ? 'critical' : 'working' }), 'option started');
     let ok = false;
     let rec: ActionRecord | null = null;
+    // §17.10: only so many fights at once in the whole world (the agent just holds back; it isn't told why).
+    const fighting = opt.option === 'fight';
+    if (fighting && this.o.acquireFight && !(await this.o.acquireFight())) me.reason = 'held back';
     // A talk option walks into range first, then waits while Talking does the talking.
     let step = skillForOption(opt, (n, w) => this.nearAgent(n, w));
-    for (let leg = 0; leg < 2; leg++) {
+    for (let leg = 0; leg < 2 && !me.reason; leg++) {
       me.skill = step.skill;
       store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, skill: step.skill, args: step.args } : o), `running ${step.skill}`);
       const r = await body.run(step.skill, step.args, {
@@ -170,6 +183,7 @@ export class SkillExecutor {
         slipChance: L.slipChance,
         knowsRecipe: this.o.knowsRecipe,
         planDepth: L.planDepth,
+        ...(this.o.combat ? { combat: this.o.combat() } : {}),
         progress: (note) => store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, progress: note } : o), 'progress'),
       });
       ok = r.ok && !r.mismatch;
@@ -184,6 +198,7 @@ export class SkillExecutor {
         durationMs: r.durationMs,
         ...(r.error ? { error: r.error } : r.mismatch ? { error: `expected ${r.expected}, saw ${r.observed}` } : {}),
         ...(!ok && r.progressed ? { progressed: true } : {}),
+        ...(r.data ? { data: r.data } : {}),
       };
       store.update('actionLog', (log) => [...log, rec as ActionRecord].slice(-ACTION_LOG), `action ${r.skill}`);
       logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');
@@ -200,6 +215,7 @@ export class SkillExecutor {
     }
     clearTimeout(deadline);
     clearInterval(watch);
+    if (fighting) this.o.releaseFight?.();
     const reason = me.reason ?? (ok ? 'done' : (rec?.error ?? 'failed'));
     // A condition that came true or a timer counts as a normal end, not a failure.
     const success =

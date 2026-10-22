@@ -16,6 +16,8 @@ export const DEED_DELTAS = {
   gaveMeItems: 1,
   attackedMe: -3,
   attackedAlly: -2,
+  /** Seen hitting someone (§17.6 witnesses), unless we hated the victim. */
+  attackedSomeone: -0.5,
   brokeMyBlocks: -1,
   helpedMeFight: 1.5,
   keptPromise: 0.5,

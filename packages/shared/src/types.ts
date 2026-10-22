@@ -144,6 +144,8 @@ export interface ActiveOption {
 }
 
 export interface ActionRecord {
+  /** Skill-specific results (a duel's outcome, …). */
+  data?: Record<string, unknown>;
   id: string;
   skill: string;
   args: Record<string, unknown>;
@@ -460,6 +462,8 @@ export type AgentEvent =
   | { type: 'felt'; cause: string; by?: AgentName; arousal: number }
   /** The escalation rung toward someone moved (§17.5). */
   | { type: 'rungChanged'; name: AgentName; from: number; to: number }
+  /** Someone we're at odds with (rung ≥ 1) has just come near (§17.5 "X comes into sight"). */
+  | { type: 'atOddsNearby'; name: AgentName; rung: number }
   | { type: 'needsDecision'; reason: string; convId?: ConvId; from?: AgentName }
   | { type: 'optionTerminated'; reason: string; ok: boolean; option?: OptionName; targetAgent?: AgentName }
   | { type: 'decision'; decision: Decision }

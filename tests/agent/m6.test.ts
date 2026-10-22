@@ -88,6 +88,7 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
             facts: ['Bram is building a house by the lake'],
             summary: 'Bram is friendly and busy building.',
             opinions: [{ target: 'Cass', valence: -0.8 }],
+            seemedClever: 0.9,
           }),
         };
       }
@@ -111,6 +112,10 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
     expect(p?.perceivedRole).toBe('builder');
     expect(p?.facts[0]?.text).toMatch(/house by the lake/);
     expect(p?.friction).toBeCloseTo(0.1);
+    // §21.4: he came across as clever; the estimate moves a quarter of the way there.
+    expect(p?.estIntelligence).toBeCloseTo(0.5 + (0.9 - 0.5) * 0.25, 5);
+    sa.claimFailed('Bram');
+    expect(s.state.social.Bram?.estIntelligence).toBeCloseTo(0.65, 5);
     expect(s.state.heardOpinions).toEqual([{ speaker: 'Bram', target: 'Cass', valence: -0.8, ts: 5000 }]);
     expect(s.state.commitments[0]).toMatchObject({ debtor: 'Bram', creditor: 'Pip', status: 'accepted', what: { kind: 'give', item: 'oak_log', qty: 8 }, dueBy: 5000 + 300_000 });
     sa.stop();
@@ -311,6 +316,22 @@ describe('notable deeds seen in the world (§6.3 rule 2)', () => {
     bot.emit('blockUpdate', block(5, 'stone'), block(5, 'air'));
     expect(Object.keys(s.state.social)).toEqual(['Bram']);
     dw.stop();
+  });
+
+  it('thinks less of someone seen hitting a person it does not hate (§17.6 witnesses), once a minute', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', now: () => 1000 });
+    const bot = Object.assign(new EventEmitter(), { players: {} }) as unknown as Bot;
+    const dw = new DeedWatch({ bot, store: s, social: sa, me: 'Pip', placed: new Set(), now: () => 1000 });
+    s.update('social', (all) => ({ ...all, Cass: { ...newSocialProfile('Cass', s.state.self.persona, 0), sentiment: 1 }, Dora: newSocialProfile('Dora', s.state.self.persona, 0) }));
+    dw.sawAttack('Rex', 'Dora');
+    const after = s.state.social.Rex?.sentiment ?? 5;
+    expect(after).toBeLessThan(5);
+    dw.sawAttack('Rex', 'Dora');
+    expect(s.state.social.Rex?.sentiment).toBe(after);
+    dw.sawAttack('Tobin', 'Cass'); // we hate Cass
+    expect(s.state.social.Tobin).toBeUndefined();
   });
 
   it('dislikes whoever attacks a friend and likes whoever helps us fight', () => {

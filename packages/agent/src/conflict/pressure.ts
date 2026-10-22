@@ -121,7 +121,8 @@ export function gateFight(g: GateInput): string | null {
   if (g.intent === 'lethal' && !g.lim.lethalAllowed) return 'not angry or ruthless enough to fight to the death';
   if (g.now < g.graceUntil) return 'too new here to start a fight';
   if (g.now < g.cooldownUntil) return 'fought them too recently';
-  if (g.fightCapReached) return 'too many fights going on';
+  // The world-wide cap (§17.10): the agent only holds back; it never learns that fights are going on elsewhere.
+  if (g.fightCapReached) return 'you hold back for now';
   // An impulsive single punch clears a lower bar (§18.5: threshold − 0.15).
   const threshold = (RUNG_THRESHOLDS[need] ?? 1) + (g.lim.thresholdShift ?? 0) - (g.intent === 'impulse' ? 0.15 : 0);
   if (g.pressure < threshold) return `not angry enough to fight (pressure ${g.pressure.toFixed(2)} < ${threshold.toFixed(2)})`;

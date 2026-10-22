@@ -30,6 +30,8 @@ export interface RunOptions {
   extraSkills?: readonly AnySkill[];
   /** `obtain` planning depth (§21.1). */
   planDepth?: number;
+  /** Fighting ability with growth (§21.3). */
+  combat?: number;
 }
 
 const MAX_PLACED = 4000;
@@ -146,6 +148,7 @@ export class Body {
       progress: opts.progress,
       planDepth: opts.planDepth,
       home: this.home,
+      ...(opts.combat !== undefined ? { combat: opts.combat } : {}),
     });
   }
 

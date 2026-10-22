@@ -37,6 +37,8 @@ const TONE: readonly { re: RegExp; feel: Partial<Record<EmotionName, number>> }[
 ];
 
 const HEAT_HALF_LIFE_MS = 90_000;
+/** A blow this recent means we're in a fight (§21.3 arousal cap). */
+const FIGHT_MS = 10_000;
 const STOP_WORDS = new Set(['being', 'called', 'getting', 'seen', 'as', 'the', 'and', 'that', 'with', 'from', 'about']);
 
 /** Words of a known insecurity ("being called lazy" → lazy) that an insult can hit. */
@@ -49,6 +51,7 @@ export class Feelings {
   private readonly insultedAt = new Map<AgentName, number>();
   private readonly askedAt = new Map<AgentName, number>();
   private lastFightSeen = 0;
+  private hitAt = -Infinity;
   private lastTick = 0;
   private triggerAt = 0;
   private timer: NodeJS.Timeout | null = null;
@@ -159,13 +162,13 @@ export class Feelings {
       const asked = this.askedAt.get(u.from);
       if (asked !== undefined && t - asked < 60_000 && REFUSAL_RE.test(u.text)) {
         this.askedAt.delete(u.from);
-        this.feel({ kind: 'rejected' }, null, 0);
+        this.feel({ kind: 'rejected' }, u.from, 0);
       }
     }
     // §18.2 contagion: the feel of what's said nearby rubs off.
     const crowd: Partial<Record<EmotionName, number>> = {};
     for (const { re, feel } of TONE) if (re.test(u.text)) Object.assign(crowd, feel);
-    if (Object.keys(crowd).length > 0) this.write(contagion(s.emotions, crowd, s.self.persona, this.o.contagionScale?.() ?? 1), 'mood of the room');
+    if (Object.keys(crowd).length > 0) this.write(this.capped(contagion(s.emotions, crowd, s.self.persona, this.o.contagionScale?.() ?? 1)), 'mood of the room');
   }
 
   /** An apology may cool our anger at them, less so for the vengeful (§18.5 regret and repair). */
@@ -178,7 +181,8 @@ export class Feelings {
 
   private feel(ev: AppraisalEvent, who: AgentName | null, heat: number): void {
     const s = this.o.store.state;
-    const next = appraise(s.emotions, ev, s.self.persona);
+    if (ev.kind === 'attacked') this.hitAt = this.now();
+    const next = this.capped(appraise(s.emotions, ev, s.self.persona, this.combat()));
     this.write(next, `felt: ${ev.kind}`);
     if (who && heat > 0) this.heatUp(who, heat * (0.5 + s.self.persona.big5.neuroticism));
     if (next.arousal >= 0.5) this.triggerAt = this.now();
@@ -194,6 +198,19 @@ export class Feelings {
     if (v > 0) this.heat.set(name, { v: Math.max(0, v - d), ts: this.now() });
   }
 
+  /** Fighting ability with growth (§21.3). */
+  private combat(): number {
+    const s = this.o.store.state;
+    return Math.min(1, s.self.persona.abilities.combat + s.growth.combatGrowth);
+  }
+
+  /** §21.3: in a fight, arousal stays under 1 − 0.5·combat, so a skilled fighter keeps thinking instead of panicking. */
+  private capped(e: EmotionState): EmotionState {
+    const fighting = this.o.store.state.option?.option === 'fight' || this.now() - this.hitAt < FIGHT_MS;
+    const cap = 1 - 0.5 * this.combat();
+    return fighting && e.arousal > cap ? { ...e, arousal: cap } : e;
+  }
+
   private write(e: EmotionState, reason: string): void {
     this.o.store.update('emotions', () => e, reason);
   }
@@ -203,7 +220,7 @@ export class Feelings {
     const dt = t - this.lastTick;
     this.lastTick = t;
     const s = this.o.store.state;
-    const e = decayEmotions(s.emotions, dt, s.self.persona, s.mood);
+    const e = this.capped(decayEmotions(s.emotions, dt, s.self.persona, s.mood));
     // Only write when something visibly moved: the state version stays meaningful.
     const moved = (Object.keys(e) as (keyof EmotionState)[]).some((k) => Math.abs(e[k] - s.emotions[k]) >= 0.005);
     if (moved) this.write(e, 'feelings fade');

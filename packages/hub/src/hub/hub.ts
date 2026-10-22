@@ -38,6 +38,8 @@ export interface HubOptions {
   /** Current quota status (null: no key, code-only). */
   quota: () => QuotaStatus | null;
   runtimeHoursPerWeek: number;
+  /** world.conflict.maxConcurrentFights (§17.10). */
+  maxConcurrentFights?: number;
   now?: () => number;
 }
 
@@ -62,9 +64,14 @@ class SpeechBucket {
   }
 }
 
+/** A fight slot lasts at most this long (a duel runs a minute or two). */
+const FIGHT_SLOT_MS = 5 * 60_000;
+
 export class Hub extends EventEmitter<HubEvents> {
   private wss: WebSocketServer | null = null;
   private readonly sessions = new Map<number, HubSession>();
+  /** Sessions holding a fight slot, since when (a slot a crashed fight never gave back lapses, FIGHT_SLOT_MS). */
+  private readonly fighting = new Map<number, number>();
   private nextId = 1;
   private readonly limiter: LocalRateLimiter;
   private readonly speech: SpeechBucket;
@@ -142,6 +149,7 @@ export class Hub extends EventEmitter<HubEvents> {
     });
     ws.on('close', () => {
       this.sessions.delete(session.id);
+      this.fighting.delete(session.id);
       this.emit('closed', session);
     });
     ws.on('error', (err) => this.o.logger.warn({ module: 'hub', session: session.id, err: String(err) }, 'socket error'));
@@ -181,6 +189,18 @@ export class Hub extends EventEmitter<HubEvents> {
         s.send({ t: 'speechGrant', reqId: msg.reqId, ok });
         return;
       }
+      case 'fightStart': {
+        const t = this.now();
+        for (const [id, at] of this.fighting) if (t - at > FIGHT_SLOT_MS) this.fighting.delete(id);
+        const ok = this.fighting.has(s.id) || this.fighting.size < (this.o.maxConcurrentFights ?? 2);
+        if (ok) this.fighting.set(s.id, t);
+        else this.o.logger.info({ module: 'hub', agent: s.username, fights: this.fighting.size }, 'fight cap reached');
+        s.send({ t: 'fightGrant', reqId: msg.reqId, ok });
+        return;
+      }
+      case 'fightEnd':
+        this.fighting.delete(s.id);
+        return;
       case 'embed': {
         if (!this.o.embedder) {
           s.send({ t: 'embedResult', reqId: msg.reqId, vectors: null });

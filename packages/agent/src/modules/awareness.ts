@@ -85,6 +85,15 @@ export class ActionAwareness {
       }
     }
     if (r.ok) {
+      // New information lifts a mark: once a prospect finds the ore an obtain kept missing ("haven't seen any
+      // raw_iron"), doing it again is no longer "changes nothing".
+      const found = r.skill === 'prospect' ? /^found (\S+) at /.exec(r.observed)?.[1] : undefined;
+      const item = typeof r.args.item === 'string' ? r.args.item : undefined;
+      if (found) {
+        for (const [k, s] of this.stuckUntil) {
+          if (s.why.includes(found) || (item && s.why.includes(item))) this.stuckUntil.delete(k);
+        }
+      }
       this.fails.delete(key);
       if (this.stuckUntil.delete(key) && this.stuckList().length === 0) {
         this.o.store.update('flags', (f) => (f.stuck ? { ...f, stuck: false } : f), 'unstuck');

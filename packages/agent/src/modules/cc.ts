@@ -22,6 +22,7 @@ import {
 import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
 import type { AgentBus } from '../bus';
 import { itemMatcher } from '../body/items';
+import { yieldHealth } from '../conflict/pressure';
 import { type Offer, amountOf, judgeOffer, parseHelpRequest, parseTradeOffer, stacksText } from '../social/trades';
 import { getSkill, skillCatalog } from '../body/skills/registry';
 import { CC_POLICY } from '../state/policies';
@@ -39,17 +40,31 @@ export interface DecideContext {
   convId?: ConvId;
   from?: AgentName;
   urgent?: boolean;
+  /** Things just got worse with this person (a rung went up, §17.5): the conflict moves apply even mid-task. */
+  atOdds?: AgentName;
 }
 
 export interface ValidationEnv {
   me: AgentName;
   isStuck: (skill: string, args: Record<string, unknown>) => boolean;
   canPerceive: (name: AgentName) => boolean;
+  /** A person (not a mob): fighting them needs the gate. */
+  isPerson?: (name: AgentName) => boolean;
+  /** §17.5 code gate: null when a fight with them may happen, else why not. */
+  mayFight?: (target: AgentName, intent: 'brawl' | 'lethal') => string | null;
 }
 
 /** Code checks on a schema-valid decision. Returns the reason it can't be used, or null. */
 export function validateDecision(d: DecisionOutput, env: ValidationEnv): string | null {
   if ((d.option === 'work' || d.option === 'help') && !d.task) return `option ${d.option} needs a task (skill + args)`;
+  // §17.5: fighting a person happens only through the code gate.
+  const aimedAt = d.task?.args.target;
+  const victim = d.option === 'fight' ? (d.fight?.target ?? d.target?.agent) : ['attack', 'duel'].includes(getSkill(d.task?.skill ?? '')?.name ?? '') && typeof aimedAt === 'string' ? aimedAt : '';
+  if (victim && env.isPerson?.(victim)) {
+    const why = env.mayFight ? env.mayFight(victim, d.fight?.intent ?? 'brawl') : 'fighting people is not possible here';
+    if (why) return `you can't fight ${victim}: ${why}`;
+  }
+  if (d.option === 'fight' && !victim) return 'option fight needs fight.target';
   if (d.task) {
     const skill = getSkill(d.task.skill);
     if (!skill) return `there is no skill "${d.task.skill}"`;
@@ -80,6 +95,15 @@ export interface SocialChance {
   claim?: { pos: { x: number; y: number; z: number }; by: AgentName; item: string };
   /** How much we like someone, gut and facts mixed by the override (§18.5); sentiment without it. */
   liking?: (name: AgentName) => number;
+  /** The conflict core (§17.5): rungs, fear, the gate, and whom we warned lately. */
+  conflict?: ConflictView;
+}
+
+export interface ConflictView {
+  rungOf: (name: AgentName) => number;
+  fearOf: (name: AgentName) => number;
+  mayBrawl: (name: AgentName) => boolean;
+  warnedLately: (name: AgentName) => boolean;
 }
 
 /** "can you give me 8 logs?", "bring me some bread", "I need some wood" → what and how many (default 1). */
@@ -109,6 +133,8 @@ export function dealDrafts(me: AgentName, other: AgentName, ours: readonly ItemS
 
 /** How long either side has to hand over its half of a deal. */
 const DEAL_DUE_SEC = 600;
+/** Hostile talk toward the same person at most this often. */
+const WARN_EVERY_MS = 3 * 60_000;
 
 type Ask = { kind: 'trade'; offer: Offer } | { kind: 'help'; item: string; qty: number } | { kind: 'item'; item: string; qty: number };
 
@@ -226,6 +252,51 @@ function answerRequest(
   return decline("you can't think it through right now; maybe later", 'answered a request without committing');
 }
 
+/** What the conflict rungs call for with the people nearby (§17.5), if anything. */
+function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (name: AgentName) => number): DecisionOutput | null {
+  const near = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.distance <= 12).sort((a, b) => c.rungOf(b.name) - c.rungOf(a.name));
+  for (const e of near) {
+    const rung = c.rungOf(e.name);
+    if (rung >= 3 && c.mayBrawl(e.name)) {
+      return {
+        option: 'fight',
+        target: { agent: e.name },
+        task: { skill: 'duel', args: { target: e.name, stopAtHealth: yieldHealth(s.drives.caution) } },
+        fight: { target: e.name, intent: 'brawl', withAllies: [] },
+        speechIntent: { stance: 'threaten', gist: "you've had this coming", mayCommit: false },
+        terminate: { maxSeconds: 90 },
+        rationale: `code default: I've had enough of ${e.name}`,
+      };
+    }
+    // Words and distance come now and then, not on every decision.
+    if (c.warnedLately(e.name)) continue;
+    if (rung >= 1) {
+      return {
+        option: 'talk',
+        target: { agent: e.name },
+        speechIntent: rung >= 2 ? { stance: 'threaten', gist: 'warn them off: back off, or there will be trouble', mayCommit: false } : { stance: 'hostile', gist: 'tell them to keep their distance', mayCommit: false },
+        terminate: { maxSeconds: 30 },
+        rationale: `code default: warning ${e.name} off`,
+      };
+    }
+    // Rung 0 (§17.5 avoid): someone we fear and don't like, close by: keep our distance.
+    const like = liking?.(e.name) ?? s.social[e.name]?.sentiment ?? 5;
+    if (e.distance <= 6 && like < 5 && c.fearOf(e.name) >= 0.7) {
+      const me = s.self.pos;
+      const dx = me.x - e.pos.x;
+      const dz = me.z - e.pos.z;
+      const n = Math.hypot(dx, dz) || 1;
+      return {
+        option: 'move',
+        target: { agent: e.name, pos: { x: Math.round(me.x + (dx / n) * 12), y: Math.round(me.y), z: Math.round(me.z + (dz / n) * 12) } },
+        terminate: { maxSeconds: 20 },
+        rationale: `code default: keeping away from ${e.name}`,
+      };
+    }
+  }
+  return null;
+}
+
 /** The non-LLM decision (§5 "CC default"), also the code-only brain (§22.4). Null = keep doing what you're doing. */
 export function codeDecision(
   s: AgentStateStore['state'],
@@ -235,11 +306,14 @@ export function codeDecision(
   social?: SocialChance,
 ): DecisionOutput | null {
   if (ctx.from) return answerRequest(s, ctx.from, ctx.convId, busy, isStuck, social?.liking);
-  if (busy) return null;
+  if (busy) return ctx.atOdds && social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
   // Survive the night (M1 shelter).
   if (!s.self.isDay && !s.flags.inDanger && !isStuck('shelter', { untilMorning: true })) {
     return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, dig in' };
   }
+  // §17.5: someone we're at odds with nearby comes first: the brawl the gate allows, a warning, or keeping away.
+  const odds = social?.conflict ? conflictMove(s, social.conflict, social.liking) : null;
+  if (odds) return odds;
   const next = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
   if (next) {
     return { option: 'work', task: { skill: next.skill, args: next.args }, terminate: { maxSeconds: 600 }, rationale: `code default: next planned task (${next.note ?? next.skill})` };
@@ -315,6 +389,10 @@ export interface CCOptions {
   /** Gut/facts mix about someone (§18.5) and the packet's lines on feelings and people (§18.2). */
   liking?: (name: AgentName) => number;
   mindLines?: () => string[];
+  /** The conflict core (§17.5); without it nobody fights anybody on purpose. */
+  conflict?: { rungOf(name: AgentName): number; fearOf(name: AgentName): number; mayFight(target: AgentName, intent: 'brawl' | 'lethal' | 'impulse'): string | null };
+  /** A person (fights with them are gated) rather than a mob. */
+  isPerson?: (name: AgentName) => boolean;
   rng?: () => number;
   heartbeatMs?: number;
   now?: () => number;
@@ -329,6 +407,8 @@ export class CognitiveController {
   private readonly now: () => number;
 
   private readonly rng: () => number;
+  /** When we last warned someone off, and at which rung (words come now and then, and again when it gets worse). */
+  private readonly warned = new Map<AgentName, { at: number; rung: number }>();
 
   constructor(private readonly o: CCOptions) {
     this.now = o.now ?? Date.now;
@@ -353,6 +433,14 @@ export class CognitiveController {
       }),
     );
     this.offs.push(b.on('newGoal', (e) => this.trigger(`new goal: ${e.goal.text}`, { urgent: !this.o.executor.busy })));
+    // §17.5: things getting worse with someone, or someone we're at odds with coming near, is worth a decision now,
+    // even in the middle of a task.
+    this.offs.push(
+      b.on('rungChanged', (e) => {
+        if (e.to > e.from) this.trigger(`things are getting worse with ${e.name}`, { atOdds: e.name, urgent: true });
+      }),
+    );
+    this.offs.push(b.on('atOddsNearby', (e) => this.trigger(`${e.name} is here, and things are bad between you`, { atOdds: e.name, urgent: true })));
     this.offs.push(b.on('actionRecorded', (e) => this.onPromiseTaskResult(e.record)));
     // A promise that is settled (kept, broken or called off) has nothing left to do.
     this.offs.push(
@@ -455,6 +543,18 @@ export class CognitiveController {
     if (tasks.length > 0) store.update('taskQueue', (q) => [...tasks, ...q].slice(0, this.o.levers().queueDepth + tasks.length), 'promise tasks');
   }
 
+  /** Validation context; an impulse's punch is judged as an impulse (§18.5: the gate at a lower bar). */
+  private env(isStuck: ValidationEnv['isStuck'], impulse = false): ValidationEnv {
+    const c = this.o.conflict;
+    return {
+      me: this.o.me,
+      isStuck,
+      canPerceive: this.o.canPerceive,
+      ...(this.o.isPerson ? { isPerson: this.o.isPerson } : {}),
+      ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal') => c.mayFight(target, impulse ? 'impulse' : intent) } : {}),
+    };
+  }
+
   /** Sets the current goal (Goal Gen does this from M4 on; the runner/tests before that). */
   setGoal(text: string, doneWhen?: string): Goal {
     const goal: Goal = { id: newId('g', this.now()), text, kind: 'current', createdAt: this.now(), status: 'active', ...(doneWhen ? { doneWhen } : {}) };
@@ -467,7 +567,7 @@ export class CognitiveController {
   impulse(out: DecisionOutput): boolean {
     const s = this.o.store.state;
     if (s.flags.inDanger) return false;
-    const env: ValidationEnv = { me: this.o.me, isStuck: (k, a) => this.o.awareness.isStuckOn(k, a), canPerceive: this.o.canPerceive };
+    const env = this.env((k, a) => this.o.awareness.isStuckOn(k, a), true);
     if (validateDecision(out, env)) return false;
     this.apply(out, 'impulse', {});
     return true;
@@ -505,7 +605,7 @@ export class CognitiveController {
     const busy = this.o.executor.busy;
     if (busy && !ctx.urgent) return;
     const isStuck = (skill: string, args: Record<string, unknown>) => this.o.awareness.isStuckOn(skill, args);
-    const env: ValidationEnv = { me: this.o.me, isStuck, canPerceive: this.o.canPerceive };
+    const env = this.env(isStuck);
     let out: DecisionOutput | null = null;
     let source: Decision['source'] = 'default';
     const L = this.o.levers();
@@ -556,7 +656,18 @@ export class CognitiveController {
     if (!out) {
       const candidates = this.o.socialCandidates?.() ?? [];
       const claim = this.o.claimToCheck?.();
-      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng(), ...(claim ? { claim } : {}), ...(this.o.liking ? { liking: this.o.liking } : {}) });
+      const c = this.o.conflict;
+      const t = this.now();
+      const conflict: ConflictView | undefined = c && {
+        rungOf: (n) => c.rungOf(n),
+        fearOf: (n) => c.fearOf(n),
+        mayBrawl: (n) => c.mayFight(n, 'brawl') === null,
+        warnedLately: (n) => {
+          const w = this.warned.get(n);
+          return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);
+        },
+      };
+      out = codeDecision(store.state, ctx, busy, isStuck, { candidates, roll: this.rng(), ...(claim ? { claim } : {}), ...(this.o.liking ? { liking: this.o.liking } : {}), ...(conflict ? { conflict } : {}) });
       source = 'default';
       if (out && validateDecision(out, env)) out = null;
     }
@@ -574,6 +685,10 @@ export class CognitiveController {
     }
     this.lastDecisionAt = now;
     store.set('decision', decision, `decision ${decision.option}`);
+    // Warning someone off, or walking away from them, counts toward the next one (WARN_EVERY_MS).
+    const stance = decision.speechIntent?.stance;
+    const who = decision.target?.agent;
+    if (who && (stance === 'hostile' || stance === 'threaten' || (decision.option === 'move' && decision.target?.pos))) this.warned.set(who, { at: now, rung: this.o.conflict?.rungOf(who) ?? 0 });
     // Our own promises become commitments and tasks only when the CC allowed committing (§6.4); accepting a deal
     // also records their half of it (§6.6).
     if (decision.speechIntent?.mayCommit) {

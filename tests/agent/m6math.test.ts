@@ -142,7 +142,8 @@ describe('the conflict evaluator (§17.4–17.7)', () => {
     expect(gateFight({ ...base, lim: { maxRung: 2, lethalAllowed: false } })).toMatch(/limited to rung 2/);
     expect(gateFight({ ...base, cooldownUntil: 5000 })).toMatch(/too recently/);
     expect(gateFight({ ...base, graceUntil: 5000 })).toMatch(/too new/);
-    expect(gateFight({ ...base, fightCapReached: true })).toMatch(/too many fights/);
+    // The cap only makes the agent hold back; the reason it sees says nothing of fights elsewhere.
+    expect(gateFight({ ...base, fightCapReached: true })).toBe('you hold back for now');
   });
 
   it('yields sooner when cautious, spares by mercy, complies when fear outweighs resentment and pride', () => {
