@@ -151,6 +151,10 @@ describe('demands and compliance (§17.7)', () => {
     const asked = (lately: boolean): ConflictView => ({ rungOf: () => 3, fearOf: () => 0, mayBrawl: () => true, demandPending: () => false, demandedLately: () => lately, warnedLately: () => false });
     expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: asked(false) })?.option).toBe('demand');
     expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: asked(true) })?.option).toBe('fight');
+    // One who heard it and didn't pay is gone after, if in sight; out of sight, not.
+    const off = (d: number): AgentState => ({ ...rex, perception: { ...rex.perception, nearbyEntities: [ent('Tib', d)] } });
+    expect(codeDecision(off(20), {}, false, never, { candidates: [], roll: 1, conflict: asked(true) })).toMatchObject({ option: 'fight', target: { agent: 'Tib' } });
+    expect(codeDecision(off(30), {}, false, never, { candidates: [], roll: 1, conflict: asked(true) })?.option).not.toBe('fight');
     // When a demand was said is what our side of the conversation has.
     const said = world(tyrant, ['Tib']);
     said.update('conversations', (cs) => ({

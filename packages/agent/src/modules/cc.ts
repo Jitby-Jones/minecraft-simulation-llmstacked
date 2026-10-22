@@ -167,6 +167,8 @@ const SPOKE_EVERY_MS = 10 * 60_000;
 const ASKED_FRESH_MS = 30_000;
 /** A demand waits this long for its answer before it comes to blows (§17.7). */
 const DEMAND_ANSWER_MS = 60_000;
+/** One who refused a demand of ours is gone after if seen this close (§17.7 "or else"). */
+const REFUSER_SIGHT = 24;
 /** A demand said this recently still stands: one who hasn't paid it may be beaten for it. */
 const DEMANDED_LATELY_MS = 10 * 60_000;
 /** Tribute is asked of those who gave in this often (§17.7 "every day": a few minutes, as days go here). */
@@ -379,6 +381,24 @@ function answerDemand(s: AgentStateStore['state'], from: AgentName, d: Demand, b
 /** What the conflict rungs call for with the people nearby (§17.5), if anything. */
 function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (name: AgentName) => number, leader?: AgentName | null): DecisionOutput | null {
   const near = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.distance <= 12).sort((a, b) => c.rungOf(b.name) - c.rungOf(a.name));
+  // §17.7 "or else": a domineering agent goes after one who heard his demand and didn't pay, if they're in sight.
+  const tyrant = s.self.persona.temperament.dominance >= 0.5;
+  const refuser = tyrant
+    ? s.perception.nearbyEntities.find(
+        (e) => e.kind === 'player' && e.visible && e.distance <= REFUSER_SIGHT && c.rungOf(e.name) >= 3 && (c.demandedLately?.(e.name) ?? false) && !c.demandPending?.(e.name) && c.mayBrawl(e.name),
+      )
+    : undefined;
+  if (refuser) {
+    return {
+      option: 'fight',
+      target: { agent: refuser.name },
+      task: { skill: 'duel', args: { target: refuser.name, stopAtHealth: yieldHealth(s.drives.caution) } },
+      fight: { target: refuser.name, intent: 'brawl', withAllies: [] },
+      speechIntent: { stance: 'threaten', gist: 'I told you to pay up', mayCommit: false },
+      terminate: { maxSeconds: 90 },
+      rationale: `code default: ${refuser.name} wouldn't pay`,
+    };
+  }
   for (const e of near) {
     const rung = c.rungOf(e.name);
     if (rung >= 4 && c.mayKill?.(e.name)) {
@@ -394,7 +414,6 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
       };
     }
     // A domineering agent's "or else" comes before the blows: a beating is for one who heard the demand and didn't pay.
-    const tyrant = s.self.persona.temperament.dominance >= 0.5;
     if (rung >= 3 && c.mayBrawl(e.name) && !c.demandPending?.(e.name) && (!tyrant || (c.demandedLately?.(e.name) ?? true))) {
       return {
         option: 'fight',
