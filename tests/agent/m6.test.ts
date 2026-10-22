@@ -257,8 +257,8 @@ describe('the code default answers a favor (§6.3 share policy, scenario A witho
     const promise: Commitment = { id: 'k1', debtor: 'Pip', creditor: 'Bram', what: { kind: 'give', item: 'log', qty: 8, text: '8 logs' }, status: 'accepted', createdFromConv: 'c1', createdAt: 0 };
     const working = { ...asked, commitments: [promise], option: { decisionId: 'd', option: 'work' as const, startedAt: 0, maxSeconds: 600, skill: 'obtain', args: { item: 'log', qty: 8 }, status: 'running' as const } };
     const again = codeDecision(working, { from: 'Bram', convId: 'c1' }, true, never);
-    expect(again?.option).toBe('work');
-    expect(again?.task).toBeUndefined();
+    // Going on with the work in hand (a decision the CC can use: work comes with its task).
+    expect(again).toMatchObject({ option: 'work', task: { skill: 'obtain', args: { item: 'log', qty: 8 } } });
     expect(again?.commitmentsToCreate).toBeUndefined();
     expect(again?.speechIntent).toMatchObject({ stance: 'agree', mayCommit: true, gist: "I'm on it, bringing you 8 logs" });
     // A line from another conversation is not part of this request.

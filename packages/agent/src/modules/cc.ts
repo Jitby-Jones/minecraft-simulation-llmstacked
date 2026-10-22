@@ -187,6 +187,17 @@ export function readAsk(text: string, isItem: (word: string) => boolean = () => 
  * follow-up ("so, can you?") refers back to what they asked earlier in this conversation; what we already promised
  * them is restated, never promised twice.
  */
+/**
+ * What we were at, to go on with while we answer someone: work with its task, or exploring. Anything aimed at someone
+ * else (following, a talk, a fight) gives way to the answer, and so does work stuck on its task.
+ */
+function keepDoing(s: AgentStateStore['state'], busy: boolean, isStuck: ValidationEnv['isStuck']): Pick<DecisionOutput, 'option' | 'task'> {
+  const o = s.option;
+  if (!busy || !o) return { option: 'rest' };
+  if (o.option === 'work' && o.skill && !isStuck(o.skill, o.args ?? {})) return { option: 'work', task: { skill: o.skill, args: o.args ?? {} } };
+  return { option: o.option === 'explore' ? 'explore' : 'rest' };
+}
+
 function answerRequest(
   s: AgentStateStore['state'],
   from: AgentName,
@@ -200,15 +211,15 @@ function answerRequest(
 ): DecisionOutput {
   const persona = s.self.persona;
   const me = s.self.username;
-  const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
+  const keep = keepDoing(s, busy, isStuck);
   const theirs = s.perception.heardSpeech.filter((u) => u.from === from && u.addressedToMe && (!convId || u.convId === convId)).slice(-4);
   // §17.8: a call to rise against someone is weighed by resentment of them, trust in who asks, and fear.
   const known = Object.keys(s.social);
   const foe = theirs.map((u) => parseRally(u.text, known)).filter((n): n is AgentName => n !== null && n !== me && n !== from).at(-1);
-  if (foe) return answerRally(s, from, foe, busy, conflict, power);
+  if (foe) return answerRally(s, from, foe, busy, isStuck, conflict, power);
   // §17.7: a demand ("give me 3 bread, or else") is weighed by fear, not by liking.
   const demand = theirs.map((u) => parseDemand(u.text)).filter((d): d is Demand => d !== null && (isItem?.(d.item) ?? true)).at(-1);
-  if (demand) return answerDemand(s, from, demand, busy, conflict);
+  if (demand) return answerDemand(s, from, demand, busy, isStuck, conflict);
   const ask = theirs.map((u) => readAsk(u.text, isItem)).filter((a) => a !== null).at(-1) ?? null;
   const liking = judge?.(from) ?? s.social[from]?.sentiment ?? persona.social.baselineSentiment;
   const owing = s.commitments.filter((c) => c.debtor === me && c.status === 'accepted').length;
@@ -217,7 +228,7 @@ function answerRequest(
     return s.self.inventory.filter((x) => m.matches(x.item)).reduce((a, x) => a + x.qty, 0);
   };
   const decline = (gist: string, rationale: string): DecisionOutput => ({
-    option: keep,
+    ...keep,
     target: { agent: from },
     speechIntent: { stance: 'decline', gist, mayCommit: false },
     terminate: { maxSeconds: 20 },
@@ -241,7 +252,7 @@ function answerRequest(
     if (v.kind === 'counter') {
       const mine = v.offer.want;
       return {
-        option: keep,
+        ...keep,
         target: { agent: from },
         trade: { with: from, phase: 'counter', give: mine, want: ask.offer.give },
         speechIntent: { stance: 'negotiate', gist: `how about ${stacksText(mine)} for your ${stacksText(ask.offer.give)}?`, mayCommit: false },
@@ -257,7 +268,7 @@ function answerRequest(
     // Asked again: say so, and keep at it.
     const keepOn = busy ? null : codeDecision(s, {}, busy, isStuck);
     return {
-      ...(keepOn ?? { option: keep, terminate: { maxSeconds: 20 } }),
+      ...(keepOn ?? { ...keep, terminate: { maxSeconds: 20 } }),
       target: { agent: from },
       speechIntent: { stance: 'agree', gist: kind === 'help' ? `I'm on it, helping you gather ${promised.what.item ?? ''}`.trim() : `I'm on it, bringing you ${promised.what.text}`, mayCommit: true },
       rationale: `code default: already promised ${from} ${promised.what.text}`,
@@ -303,8 +314,8 @@ const FIGHT_DUE_SEC = 30 * 60;
  * §17.8: join an uprising against X when we resent X enough, trust the one who asks, and fear of X is in check; one
  * of X's own followers won't. Joining is a promise to fight X together (commitment kind `fight`).
  */
-function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName, busy: boolean, c?: ConflictView, power?: PowerView): DecisionOutput {
-  const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
+function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName, busy: boolean, isStuck: ValidationEnv['isStuck'], c?: ConflictView, power?: PowerView): DecisionOutput {
+  const keep = keepDoing(s, busy, isStuck);
   const resentment = c?.resentmentOf?.(x) ?? 0;
   // Facing X together: with the one who asks and the others we know resent X.
   const allies = [...new Set([from, ...(power?.coalition(x).members ?? [])])];
@@ -312,7 +323,7 @@ function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName,
   const followsTarget = power?.leader() === x;
   if (!joinsRally({ resentment, trust: s.social[from]?.trust ?? 0.5, fear, followsTarget })) {
     return {
-      option: keep,
+      ...keep,
       target: { agent: from },
       speechIntent: { stance: 'decline', gist: followsTarget ? `no. ${x} looks after me` : `not me. I'm staying out of it`, mayCommit: false },
       terminate: { maxSeconds: 20 },
@@ -320,7 +331,7 @@ function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName,
     };
   }
   return {
-    option: keep,
+    ...keep,
     target: { agent: from },
     speechIntent: { stance: 'agree', gist: `fine. I'll fight ${x} with you.`, mayCommit: true },
     commitmentsToCreate: [{ debtor: s.self.username, creditor: from, what: { kind: 'fight', target: x, text: `fight ${x} together with ${from}` }, dueInSec: FIGHT_DUE_SEC }],
@@ -334,14 +345,14 @@ function answerRally(s: AgentStateStore['state'], from: AgentName, x: AgentName,
  * a lower bar for a leader or an idol (§18.4 authority). Giving in is a coerced commitment: owed like any promise,
  * and every payment a small grievance against them.
  */
-function answerDemand(s: AgentStateStore['state'], from: AgentName, d: Demand, busy: boolean, c?: ConflictView): DecisionOutput {
+function answerDemand(s: AgentStateStore['state'], from: AgentName, d: Demand, busy: boolean, isStuck: ValidationEnv['isStuck'], c?: ConflictView): DecisionOutput {
   const fear = c?.fearOf(from) ?? s.social[from]?.fearOf ?? 0;
   const resent = c?.resentmentOf?.(from) ?? 0;
-  const keep = busy ? (s.option?.option ?? 'rest') : 'rest';
+  const keep = keepDoing(s, busy, isStuck);
   const what = amountOf(d.item, d.qty);
   if (s.flags.inDanger || !complies(fear, resent, s.self.persona.temperament.loyalty, c?.authorityOf?.(from) ?? 0)) {
     return {
-      option: keep,
+      ...keep,
       target: { agent: from },
       speechIntent: { stance: 'hostile', gist: `refuse to give ${from} anything`, mayCommit: false },
       terminate: { maxSeconds: 20 },
@@ -936,7 +947,14 @@ export class CognitiveController {
         ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < SPOKE_EVERY_MS } } : {}),
       });
       source = 'default';
-      if (out && validateDecision(out, env)) out = null;
+      const why = out ? validateDecision(out, env) : null;
+      if (out && why) {
+        // An answer is said even when what it would have us go on with no longer holds: it goes out over a rest.
+        const { task: _task, ...answer } = out;
+        const said: DecisionOutput | null = ctx.from && out.speechIntent && out.option !== 'fight' ? { ...answer, option: 'rest', terminate: { maxSeconds: 20 } } : null;
+        logger.debug({ module: 'cc', why, option: out.option, answer: Boolean(said) }, 'code default not valid');
+        out = said && !validateDecision(said, env) ? said : null;
+      }
     }
     if (!out) return;
     this.apply(out, source, ctx);

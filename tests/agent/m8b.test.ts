@@ -23,7 +23,7 @@ import {
 import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
 import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/power';
 import { spareChance } from '@agora/agent/conflict/pressure';
-import { type ConflictView, codeDecision, paying, tributeDue } from '@agora/agent/modules/cc';
+import { type ConflictView, codeDecision, paying, tributeDue, validateDecision } from '@agora/agent/modules/cc';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
 import { SocialAwareness, codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
@@ -150,6 +150,14 @@ describe('demands and compliance (§17.7)', () => {
     // The same fear, but Rex is the one we follow: authority tips it.
     const led = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.75, 0.24) });
     expect(led?.task?.skill).toBe('give');
+    // Busy chopping when asked: the refusal goes on with the chopping (a valid decision), unless the chopping is stuck.
+    const working: AgentState = { ...heard('give me 3 bread, or else'), option: { decisionId: 'd0', option: 'work', startedAt: 0, maxSeconds: 600, skill: 'obtain', args: { item: 'oak_log', qty: 32 }, status: 'running' } };
+    const env = { me: 'Tib', isStuck: never, canPerceive: () => true };
+    const busyNo = codeDecision(working, { from: 'Rex', convId: 'c1' }, true, never, { candidates: [], roll: 1, conflict: view(0.6) });
+    expect(busyNo).toMatchObject({ option: 'work', task: { skill: 'obtain', args: { item: 'oak_log', qty: 32 } }, speechIntent: { stance: 'hostile' } });
+    expect(busyNo && validateDecision(busyNo, env)).toBeNull();
+    const stuck = (skill: string) => skill === 'obtain';
+    expect(codeDecision(working, { from: 'Rex', convId: 'c1' }, true, stuck, { candidates: [], roll: 1, conflict: view(0.6) })).toMatchObject({ option: 'rest', speechIntent: { stance: 'hostile' } });
   });
 });
 
