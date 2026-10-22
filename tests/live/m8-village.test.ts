@@ -55,7 +55,7 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     logger = createLogger({ name: 'm8-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false });
     // The bots' memories embed through the Hub, as in production.
     embedder = await createEmbedder({ modelDir: path.join(dataPaths().cache, 'models'), modelId: versions.embeddingModel.id, dims: versions.embeddingModel.dims, logger });
-    for (const c of ['gamerule advance_weather false', 'weather clear', 'gamerule respawn_radius 0']) await server.cmd(c);
+    for (const c of ['gamerule advance_weather false', 'weather clear']) await server.cmd(c);
   });
 
   afterAll(async () => {
@@ -65,7 +65,8 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
   it('NB: a death seen by the village goes on the board, and a newcomer learns of it from the sign', async () => {
     const x = 600;
     await server.cmd(`forceload add ${x - 32} -32 ${x + 32} 32`);
-    for (const c of ['gamerule advance_time false', 'time set 1000', `setworldspawn ${x} ${Y} 0`]) await server.cmd(c);
+    // Everyone arrives at the very spot (the newcomer within sight of the board, wherever it went up).
+    for (const c of ['gamerule advance_time false', 'time set 1000', `setworldspawn ${x} ${Y} 0`, 'gamerule respawn_radius 0']) await server.cmd(c);
     // A lava pit a few steps from the village center.
     await server.cmd(`fill ${x + 5} ${Y - 2} 3 ${x + 6} ${Y - 1} 4 minecraft:lava`);
     const world = WorldConfigSchema.parse({ server: { host: '127.0.0.1', port: PORT } });
@@ -114,7 +115,9 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     const x = 1600;
     const r = (n: number) => Math.round(n);
     await server.cmd(`forceload add ${x - 64} -64 ${x + 64} 64`);
-    for (const c of ['time set 1000', 'gamerule advance_time true', 'gamerule spawn_monsters true', 'difficulty hard', `setworldspawn ${x} ${Y} 0`]) await server.cmd(c);
+    // Arrivals scattered round the spawn, as a server does by default (respawn_radius 10), as at M8: with all five
+    // on the very same block, one run ended with two roles.
+    for (const c of ['time set 1000', 'gamerule advance_time true', 'gamerule spawn_monsters true', 'difficulty hard', `setworldspawn ${x} ${Y} 0`, 'gamerule respawn_radius 10']) await server.cmd(c);
     // Trees around the village, a stone outcrop with some coal and iron, animals, and iron ore farther out.
     for (let i = 0; i < 14; i++) {
       const a = (i / 14) * Math.PI * 2;
