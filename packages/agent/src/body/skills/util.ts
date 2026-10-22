@@ -97,7 +97,10 @@ export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, time
   } catch (err) {
     if (!(err instanceof SkillAbortedError)) {
       const at = bot.entity.position;
-      ctx.logger.info({ module: 'skill', from: from.floored().toString(), at: at.floored().toString(), to: pos.floored().toString(), range, events, err: errMsg(err) }, 'walk failed');
+      const f = at.floored();
+      // Where exactly it stopped, for one that never moved at all (in a hole, or in a block).
+      const stuck = { exact: `${at.x.toFixed(2)},${at.y.toFixed(2)},${at.z.toFixed(2)}`, onGround: bot.entity.onGround, feet: bot.blockAt(f)?.name ?? null, head: bot.blockAt(f.offset(0, 1, 0))?.name ?? null };
+      ctx.logger.info({ module: 'skill', from: from.floored().toString(), at: f.toString(), to: pos.floored().toString(), range, events, err: errMsg(err), ...stuck }, 'walk failed');
       stopMotion(bot);
     }
     throw err;
