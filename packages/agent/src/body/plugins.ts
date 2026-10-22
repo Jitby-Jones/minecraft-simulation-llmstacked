@@ -63,6 +63,10 @@ export function createFightMovements(bot: Bot): MovementsType {
   return m;
 }
 
+/** What the pathfinder hands a step hook: a block, or for one in an unloaded chunk a stand-in with no position. */
+type StepBlock = Block | { position?: undefined };
+const loaded = (b: StepBlock): b is Block => b.position !== undefined;
+
 const SCAFFOLD = ['dirt', 'cobblestone', 'cobbled_deepslate', 'netherrack', 'andesite', 'diorite', 'granite'];
 
 function blockLight(block: Block, timeOfDay: number): number {
@@ -89,7 +93,8 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = []): Moveme
   // stepping into it).
   const lavaId = bot.registry.blocksByName.lava?.id;
   if (lavaId !== undefined) {
-    m.exclusionAreasStep.push((block: Block) => {
+    m.exclusionAreasStep.push((block: StepBlock) => {
+      if (!loaded(block)) return 0;
       const p = block.position;
       for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]] as const) {
         if (bot.blockAt(p.offset(dx, dy, dz))?.type === lavaId) return 40;
@@ -116,7 +121,8 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = []): Moveme
       here = { at: Date.now(), active: rules.map((r) => r.condition(env)) };
       return here.active;
     };
-    m.exclusionAreasStep.push((block: Block) => {
+    m.exclusionAreasStep.push((block: StepBlock) => {
+      if (!loaded(block)) return 0;
       const env = {
         lightLevel: blockLight(block, bot.time.timeOfDay),
         timeOfDay: bot.time.timeOfDay,

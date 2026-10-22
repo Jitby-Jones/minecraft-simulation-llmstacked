@@ -211,12 +211,14 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       await server.cmd('effect give Rex minecraft:instant_damage 1 0');
       const kAt = Date.now();
       heard.timeline.push(`${heard.at()} -- Rex alone and hurt (followers away) --`);
+      // They stay away for his whole outing: a follower walking back to him is sent off again, until it starts.
+      const keepAway = setInterval(() => {
+        for (const n of followers) void server.cmd(`tp ${n} ${x + 80} ${Y} 60`).catch(() => undefined);
+      }, 15_000);
       // §17.11 K: proposed, agreed and carried out within about 20 minutes of the opening; those who swore just
       // before it, when he went about with his followers, wait for it (and strike after it, below).
       // (A call to rise against someone else, such as Rex's followers against a rebel, is not it.)
       const since = kAt - 20 * 60_000;
-      await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.exec(l.text)?.[1] === 'Rex'), 600_000, 'a call to rise against Rex', 500);
-      await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.exec(l.text)?.[1] === 'Rex'), 180_000, 'someone joining', 500);
       // Who rose against Rex, as seen at any moment since the opening: one sworn to it, in a fight with him or having
       // fought him since swearing (a beating over a refused demand, before that, is not it).
       const pacts = (n: 'Ann' | 'Bo' | 'Cyd') => agents[n].store.state.commitments.filter((c) => c.what.kind === 'fight' && c.what.target === 'Rex');
@@ -236,7 +238,13 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
           const o = agents[n].store.state.option;
           return o?.status === 'running' && o.targetAgent === 'Rex' && (o.option === 'follow' || o.option === 'fight');
         }) || struck().length >= 1;
-      await waitFor(closingIn, 600_000, 'the rebels closing in on Rex', 250);
+      try {
+        await waitFor(() => heard.lines.some((l) => l.at >= since && RALLY_RE.exec(l.text)?.[1] === 'Rex'), 600_000, 'a call to rise against Rex', 500);
+        await waitFor(() => heard.lines.some((l) => l.at >= since && JOIN_RE.exec(l.text)?.[1] === 'Rex'), 180_000, 'someone joining', 500);
+        await waitFor(closingIn, 600_000, 'the rebels closing in on Rex', 250);
+      } finally {
+        clearInterval(keepAway);
+      }
       for (const n of followers) await server.cmd(`execute at Rex run tp ${n} ~ ~ ~`);
       heard.timeline.push(`${heard.at()} -- ${followers.join(' and ')} back at Rex's side --`);
       await waitFor(() => struck().length >= 1, 300_000, 'the uprising', 500);
