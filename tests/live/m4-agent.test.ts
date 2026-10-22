@@ -230,7 +230,8 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
       const p = parseProximityLine(m);
       if (p.kind === 'speech' && p.speaker === 'Pip') pipSaid.push(p.text);
     });
-    const agent = new Agent({ body, persona: persona('pip'), username: 'Pip', llm: null, logger, world, memory: { db, embedder } });
+    // Her own goal ladder (§7): the village's work, which since M8 comes first now and then, is M8's test.
+    const agent = new Agent({ body, persona: persona('pip'), username: 'Pip', llm: null, logger, world, memory: { db, embedder }, socialGoals: false });
     const decisions: string[] = [];
     agent.bus.on('decision', (e) => decisions.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option} ${JSON.stringify(e.decision.task?.args ?? {})}`));
     const actions: string[] = [];

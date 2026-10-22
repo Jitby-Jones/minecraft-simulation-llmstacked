@@ -270,6 +270,13 @@ async function route(p: PlanCtx, item: string, stack: readonly string[]): Promis
       for (const d of r.delta) {
         if (d.count >= 0) continue;
         const ing = nameOf(bot, d.id);
+        // Made of what we're after (nuggets cut from the ingots we want more of): a way round, never to more of it,
+        // even with some in hand.
+        if (next.includes(ing)) {
+          tainted = true;
+          cost = INF;
+          break;
+        }
         if (count(bot, ing) >= -d.count) continue;
         const ri = await route(p, ing, next);
         kids.push({ name: ing, r: ri });

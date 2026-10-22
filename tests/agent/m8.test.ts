@@ -607,6 +607,41 @@ describe('cooking what was hunted (the obtain planner)', () => {
     // A furnace still to make (out of stone) costs more than an iron block found: but none has been seen.
     expect((await planObtain(bot, 'iron_ingot')).kind).toBe('smelt');
   });
+
+  it("one ingot short, iron is still mined and smelted: not made of nuggets cut from the ingots we're after", async () => {
+    const { planObtain } = await import('@agora/agent/body/skills/planner');
+    const items = [
+      { name: 'stone_pickaxe', count: 1, type: 6 },
+      { name: 'oak_log', count: 4, type: 5 },
+      { name: 'furnace', count: 1, type: 4 },
+      { name: 'crafting_table', count: 1, type: 8 },
+      { name: 'iron_ingot', count: 2, type: 1 },
+    ];
+    const names = ['', 'iron_ingot', 'raw_iron', 'iron_block', 'furnace', 'oak_log', 'stone_pickaxe', 'cobblestone', 'crafting_table', 'iron_nugget'];
+    const blocks = [{ id: 10, name: 'iron_ore', drops: [2], harvestTools: { 6: true } }];
+    const recipes: Record<number, unknown[]> = {
+      1: [{ result: { id: 1, count: 1 }, delta: [{ id: 9, count: -9 }, { id: 1, count: 1 }], requiresTable: true }],
+      9: [{ result: { id: 9, count: 9 }, delta: [{ id: 1, count: -1 }, { id: 9, count: 9 }], requiresTable: false }],
+    };
+    const bot = {
+      registry: {
+        itemsByName: Object.fromEntries(names.map((n, id): [string, { id: number }] => [n, { id }]).slice(1)),
+        items: Object.fromEntries(names.map((name, id): [number, { name: string }] => [id, { name }]).slice(1)),
+        blocksArray: blocks,
+        blocks: Object.fromEntries(blocks.map((b) => [b.id, b])),
+        blocksByName: Object.fromEntries(blocks.map((b) => [b.name, b])),
+        foodsByName: {},
+      },
+      inventory: { items: () => items, slots: [] },
+      entity: { position: new Vec3(0, 64, 0) },
+      on: () => undefined,
+      findBlocks: () => [],
+      blockAt: () => null,
+      recipesAll: (id: number) => recipes[id] ?? [],
+    } as never;
+    // Nine nuggets make an ingot, and an ingot we hold makes nine nuggets: a way round, not a way to more iron.
+    expect((await planObtain(bot, 'iron_ingot')).kind).toBe('smelt');
+  });
 });
 
 describe('staying alive in the village (§16.3: carry food)', () => {
