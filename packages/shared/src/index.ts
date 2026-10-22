@@ -12,3 +12,4 @@ export * from './types';
 export * from './config';
 export * from './proximityChat';
 export * from './personaGen';
+export * from './net';

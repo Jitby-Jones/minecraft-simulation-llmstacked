@@ -2,7 +2,7 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Vec3, type WorldConfig, WorldConfigSchema, parseProximityLine } from '@agora/shared';
+import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
 import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
@@ -23,6 +23,8 @@ import { SkillExecutor } from './modules/executor';
 import { type MindLevers, leversFor } from './modules/levers';
 import { NOW_RE, swornWith } from './modules/powerMove';
 import { SelfMonitor } from './modules/selfMonitor';
+import { SkillWriter } from './modules/skillWriter';
+import { SkillLibrary } from './skills/learned';
 import { Talking } from './modules/talking';
 import { Perception } from './perception/perception';
 import { SocialAwareness } from './social/awareness';
@@ -109,6 +111,11 @@ export class Agent {
   readonly power: PowerWatch;
   readonly romance: RomanceWatch;
   readonly family: FamilyWatch;
+  /** M10: the skills the agent wrote for itself, and the writer. */
+  readonly skills: SkillLibrary;
+  readonly skillWriter: SkillWriter;
+  /** The current goal's embedding, for picking the learned skills most to do with it. */
+  private goalVec: { text: string; v: Float32Array } | null = null;
   private dangerSource = '';
   /** The danger was a person (by name, or "someone"): no article. */
   private dangerIsPerson = false;
@@ -122,6 +129,9 @@ export class Agent {
   constructor(private readonly o: AgentOptions) {
     const { body, persona, username, llm, logger } = o;
     const now = o.now ?? Date.now;
+    const world = o.world ?? WorldConfigSchema.parse({});
+    const sw = world.skillWriter;
+    this.skills = new SkillLibrary(o.memory?.db ?? null, { memoryMb: sw.memoryMb, cpuMs: sw.cpuMs, wallMs: sw.wallSec * 1000, maxCalls: sw.maxCalls });
     this.store = new AgentStateStore(createInitialState({ persona, username, now: now(), ...(o.birth ? { born: true, youthUntil: o.birth.youthUntil } : {}) }));
     if (o.birth) applyBirthFacts(this.store, o.birth.facts, persona, now());
     const levers = (): MindLevers => leversFor(persona.abilities.intelligence, o.world?.abilities.intelligenceRoutesCCTier ?? true);
@@ -149,6 +159,7 @@ export class Agent {
             releaseFight: () => fightSlot.release(),
           }
         : {}),
+      extraSkills: () => this.skills.skills(this.skillWriter.onTrial()),
       now,
     });
     this.awareness = new ActionAwareness({ store: this.store, bus: this.bus, logger, now });
@@ -229,6 +240,10 @@ export class Agent {
         whyNotFamily: (n) => this.family.whyNotFamily(n),
         young: () => this.family.young(),
       },
+      learned: {
+        find: (n) => this.skills.find(n, this.skillWriter.onTrial()),
+        offered: () => this.skills.offered(sw.offered, this.goalQuery()),
+      },
       isPerson: (n) => Boolean(body.bot.players[n]) || Boolean(this.store.state.social[n]),
       mindLines: () => {
         const s = this.store.state;
@@ -276,7 +291,43 @@ export class Agent {
             now,
           });
     const rng = o.rng ? { rng: o.rng } : {};
-    const world = o.world ?? WorldConfigSchema.parse({});
+    const embedder = o.memory?.embedder;
+    this.skillWriter = new SkillWriter({
+      store: this.store,
+      bus: this.bus,
+      logger,
+      llm,
+      me: username,
+      config: sw,
+      privateServer: isPrivateHost(world.server.host) || sw.privateServerAck,
+      intelligence: persona.abilities.intelligence,
+      library: this.skills,
+      // The trial is the agent's next option, like a quirk's or a feeling's: the plan resumes after it.
+      tryOut: (skill, args, why) =>
+        this.cc.impulse({
+          option: 'work',
+          task: { skill, args },
+          terminate: { maxSeconds: Math.min(900, sw.wallSec + 30) },
+          rationale: `trying out a skill I wrote${why ? `, for: ${why}` : ''}`.slice(0, 400),
+        }),
+      ...(embedder ? { embed: async (t: string) => (await embedder.embed([t]))[0] ?? null } : {}),
+      now,
+    });
+    if (embedder) {
+      // Only worth an embedding once there are more learned skills than are offered at a time.
+      this.offs.push(
+        this.bus.on('newGoal', (e) => {
+          if (this.skills.verified().length <= sw.offered) return;
+          const text = e.goal.text;
+          void embedder
+            .embed([text])
+            .then(([v]) => {
+              if (v) this.goalVec = { text, v };
+            })
+            .catch(() => undefined);
+        }),
+      );
+    }
     this.roles = new RoleWatch({ store: this.store, bus: this.bus, me: username, now });
     this.socialGoals =
       (o.socialGoals ?? (o.goalGen !== false && world.community.socialGoals))
@@ -587,6 +638,13 @@ export class Agent {
   }
 
   /** §18.4.1 fearLevel = max(fear, caution above its baseline, fear of the leader we follow). */
+  /** What the learned skills offered are picked by: the current goal (its embedding when there is one). */
+  private goalQuery(): Float32Array | string | null {
+    const g = this.store.state.goals.current?.text;
+    if (!g) return null;
+    return this.goalVec?.text === g ? this.goalVec.v : g;
+  }
+
   private fearLevel(): number {
     const s = this.store.state;
     const leader = this.power.leader();
@@ -690,11 +748,13 @@ export class Agent {
     this.power.start();
     this.romance.start();
     this.family.start();
+    this.skillWriter.start();
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.skillWriter.stop();
     this.family.stop();
     this.romance.stop();
     this.power.stop();

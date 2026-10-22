@@ -164,13 +164,6 @@ export const WorldConfigSchema = z
         username: z.string().regex(/^[A-Za-z0-9_]{3,16}$/).optional(),
       })
       .prefault({}),
-    skillWriter: z
-      .object({
-        enabled: z.boolean().default(false),
-        /** Only allowed on a private server (§1.4, §9). */
-        privateServerAck: z.boolean().default(false),
-      })
-      .prefault({}),
     /** Agents' skins (§16.5): a NameMC skin by the agent's sex, given when the agent is created. */
     skins: z
       .object({
@@ -186,6 +179,30 @@ export const WorldConfigSchema = z
         waitSec: z.number().min(0).max(600).default(60),
         /** NameMC skin ids never to use. */
         exclude: z.array(z.string().regex(/^[0-9a-f]{16}$/)).default([]),
+      })
+      .prefault({}),
+    /**
+     * §1.4, §9, §21.1: new skills written at L3 and run sandboxed (isolated-vm). Off by default, and only ever on a
+     * private server: server.host on loopback or a private network, or the owner's word that it is one.
+     */
+    skillWriter: z
+      .object({
+        enabled: z.boolean().default(false),
+        /** The owner says the server is private though its host doesn't show it (e.g. 0.0.0.0 in a container). */
+        privateServerAck: z.boolean().default(false),
+        /** Who may write one (§21.1: intelligence 0.7 and up). */
+        minIntelligence: Unit.default(0.7),
+        /** New skills one agent may try to write in an hour. */
+        perHour: z.number().int().min(0).max(20).default(2),
+        /** Tries per skill, each told what went wrong the last time. */
+        attempts: z.number().int().min(1).max(5).default(3),
+        /** The sandbox: memory (MB), the code's own CPU time (ms), a run's wall time (s), skill calls per run. */
+        memoryMb: z.number().int().min(8).max(256).default(32),
+        cpuMs: z.number().int().min(50).max(10_000).default(1000),
+        wallSec: z.number().min(5).max(3600).default(600),
+        maxCalls: z.number().int().min(1).max(500).default(60),
+        /** Learned skills offered to the CC at a time, the most relevant first. */
+        offered: z.number().int().min(0).max(20).default(5),
       })
       .prefault({}),
   })

@@ -27,6 +27,7 @@ import { type Demand, demandFor, joinsRally, parseDemand, parseRally } from '../
 import { type Offer, amountOf, judgeOffer, parseHelpRequest, parseTradeOffer, stacksText } from '../social/trades';
 import { opinionLine, readOpinionAsk, statedOpinion } from '../social/opinions';
 import { getSkill, skillCatalog } from '../body/skills/registry';
+import type { AnySkill } from '../body/skills/types';
 import { CC_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import type { ActionAwareness } from './awareness';
@@ -56,6 +57,8 @@ export interface DecideContext {
 export interface ValidationEnv {
   me: AgentName;
   isStuck: (skill: string, args: Record<string, unknown>) => boolean;
+  /** M10: a skill the agent wrote for itself (verified, or on trial), by name. */
+  learnedSkill?: (name: string) => AnySkill | null;
   canPerceive: (name: AgentName) => boolean;
   /** A person (not a mob): fighting them needs the gate. */
   isPerson?: (name: AgentName) => boolean;
@@ -79,7 +82,7 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
   }
   if (d.option === 'fight' && !victim) return 'option fight needs fight.target';
   if (d.task) {
-    const skill = getSkill(d.task.skill);
+    const skill = getSkill(d.task.skill) ?? env.learnedSkill?.(d.task.skill) ?? null;
     if (!skill) return `there is no skill "${d.task.skill}"`;
     const parsed = skill.parseArgs(d.task.args);
     if (!parsed.ok) return `bad arguments for ${skill.name}: ${parsed.error}`;
@@ -848,6 +851,11 @@ export interface CCOptions {
   romance?: RomanceView;
   /** Families (§19.3–19.5): starting one with our partner, the bed ritual, children and parents. */
   family?: FamilyView;
+  /**
+   * M10: the skills the agent wrote for itself. `find` looks one up by name (verified, or on trial); `offered` are the
+   * lines for the model's skill list, the most relevant first.
+   */
+  learned?: { find(name: string): AnySkill | null; offered(): string[] };
   /** A person (fights with them are gated) rather than a mob. */
   isPerson?: (name: AgentName) => boolean;
   rng?: () => number;
@@ -1025,6 +1033,7 @@ export class CognitiveController {
       ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => c.mayFight(target, impulse ? 'impulse' : intent, { joining: joining === true }) } : {}),
       ...(this.o.romance ? { mayCourt: (name: AgentName) => this.o.romance?.mayCourt(name) ?? null } : {}),
       ...(this.o.family ? { mayStartFamily: (name: AgentName) => this.o.family?.whyNotFamily(name) ?? null } : {}),
+      ...(this.o.learned ? { learnedSkill: (name: string) => this.o.learned?.find(name) ?? null } : {}),
     };
   }
 
@@ -1105,7 +1114,8 @@ export class CognitiveController {
     const L = this.o.levers();
     if (this.o.llm && !s.flags.codeOnly) {
       const tier = reason.startsWith('new goal') && L.planningBurst ? 'L3' : L.ccTier;
-      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}\n\n${DECISION_FORMAT}`;
+      const learned = this.o.learned?.offered() ?? [];
+      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${DECISION_FORMAT}`;
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
       const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], now: this.now() });
       const messages: ChatMessage[] = [
@@ -1141,6 +1151,9 @@ export class CognitiveController {
             break;
           }
           logger.info({ module: 'cc', why }, 'decision rejected by code checks');
+          // M10: a skill reached for that there is none of: the skill writer may write it (if it may write at all).
+          const task = r.value.task;
+          if (task && why.startsWith('there is no skill')) this.o.bus.emit({ type: 'skillWanted', name: task.skill, args: task.args, why: r.value.rationale });
           messages.push({ role: 'assistant', content: r.text.slice(0, 2000) }, { role: 'user', content: `That decision can't be used: ${why}. Decide again.` });
         }
       } finally {
@@ -1216,7 +1229,7 @@ export class CognitiveController {
     const now = this.now();
     const decision: Decision = { ...out, id: newId('d', now), createdAt: now, stateVersion: store.version, source };
     if (decision.task) {
-      const skill = getSkill(decision.task.skill);
+      const skill = getSkill(decision.task.skill) ?? this.o.learned?.find(decision.task.skill) ?? null;
       if (skill) decision.task = { skill: skill.name, args: decision.task.args };
     }
     this.lastDecisionAt = now;

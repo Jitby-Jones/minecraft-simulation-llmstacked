@@ -5,6 +5,7 @@
 import type { ActionRecord, ActiveOption, Logger } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
+import type { AnySkill } from '../body/skills/types';
 import type { AgentStateStore } from '../state/store';
 import { evalCondition } from './conditions';
 import type { MindLevers } from './levers';
@@ -22,6 +23,8 @@ export interface ExecutorOptions {
   /** A world-wide fight slot (§17.10 maxConcurrentFights, the Hub's fight tokens); always granted without a Hub. */
   acquireFight?: () => Promise<boolean>;
   releaseFight?: () => void;
+  /** M10: the skills the agent wrote for itself (verified, and the one on trial), to run by name. */
+  extraSkills?: () => readonly AnySkill[];
   now?: () => number;
 }
 
@@ -185,6 +188,7 @@ export class SkillExecutor {
         slipChance: L.slipChance,
         knowsRecipe: this.o.knowsRecipe,
         planDepth: L.planDepth,
+        ...(this.o.extraSkills ? { extraSkills: this.o.extraSkills() } : {}),
         ...(this.o.combat ? { combat: this.o.combat() } : {}),
         progress: (note) => store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, progress: note } : o), 'progress'),
       });

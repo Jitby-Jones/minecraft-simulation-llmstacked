@@ -387,6 +387,8 @@ export interface GrowthState {
   combatGrowth: number;
   selfCorrections: number;
   mobParticipations: number;
+  /** M10, §7 evolution: the experiences reflection has already weighed for a trait annotation (each once a life). */
+  evolved?: string[];
 }
 
 /** A sign this agent has read (§6.8 notice board): where it stands and what its front says. */
@@ -546,6 +548,12 @@ export type AgentEvent =
   /** We walked away from our leader as a group set upon them (§17.8 defection). */
   | { type: 'defected'; from: AgentName; attackers: AgentName[] }
   /** §17.8: someone we resent is alone or hurt, and others resent them too: the moment to call on them. */
-  | { type: 'opening'; name: AgentName };
+  | { type: 'opening'; name: AgentName }
+  /** M10: the CC reached for a skill there is none of; the skill writer may write it. */
+  | { type: 'skillWanted'; name: string; args: Record<string, unknown>; why: string }
+  /** M10: a skill the agent wrote did what it said on its trial, and is kept. */
+  | { type: 'skillLearned'; name: string; description: string }
+  /** M10, §7 evolution: reflection found the agent changed ("has grown wary of strangers since being robbed"). */
+  | { type: 'traitAnnotated'; text: string };
 
 export type AgentEventType = AgentEvent['type'];

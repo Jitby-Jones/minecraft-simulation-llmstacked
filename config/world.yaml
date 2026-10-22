@@ -73,9 +73,17 @@ chat:                         # ProximityChat! ranges (§15.2)
 owner:
   # username: YourName        # gets op + spy. Agents never learn who this is.
 
-skillWriter:
-  enabled: false              # L3 skill writer (§1.4, M10). Private servers only.
-  privateServerAck: false
+skillWriter:                  # L3 skill writer (§1.4, §9, §21.1, M10): new skills, run sandboxed
+  enabled: false              # off by default; and only on a private server (server.host on loopback or a LAN)
+  privateServerAck: false     # say the server is private though server.host doesn't show it (a container's 0.0.0.0)
+  minIntelligence: 0.7        # who may write one
+  perHour: 2                  # new skills one agent may try to write in an hour
+  attempts: 3                 # tries per skill, each told what went wrong the time before
+  memoryMb: 32                # the sandbox: memory, the code's own CPU time, a run's wall time, skill calls per run
+  cpuMs: 1000
+  wallSec: 600
+  maxCalls: 60
+  offered: 5                  # learned skills offered to the CC at a time, the most relevant first
 
 skins:                        # §16.5: each new agent gets a NameMC skin by its sex, signed through MineSkin
   enabled: true

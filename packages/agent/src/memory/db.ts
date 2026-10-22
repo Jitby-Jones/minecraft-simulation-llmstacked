@@ -1,6 +1,6 @@
 // One SQLite file per bot (§4.7): memories(id, tier, text, embedding BLOB, ts, importance, source, about_agent),
-// kv (the state snapshot for resume, §23.4) and skills(...) for M10. WAL mode, so the dashboard can read while the
-// bot writes.
+// kv (the state snapshot for resume, §23.4) and skills (the skills it wrote for itself, M10). WAL mode, so the
+// dashboard can read while the bot writes.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +9,23 @@ import type { MemorySource } from '@agora/shared';
 import { fromBlob, toBlob } from '@agora/llm';
 
 export type MemoryTier = 'recent' | 'long';
+
+/** A skill the agent wrote for itself (M10), as kept. */
+export interface SkillRow {
+  name: string;
+  description: string;
+  /** Argument name → type ("number" | "string" | "boolean"). */
+  args: Record<string, string>;
+  /** What holds once it has worked (a condition), e.g. "inventoryHas:torch>={qty}". */
+  check: string | null;
+  code: string;
+  created: number;
+  /** When a trial run did what it said it would (null: not yet). */
+  verified: number | null;
+  uses: number;
+  successes: number;
+  embedding: Float32Array | null;
+}
 
 export interface MemoryRow {
   id: string;
@@ -73,6 +90,55 @@ export class MemoryDB {
         uses INTEGER NOT NULL DEFAULT 0
       );
     `);
+    // M10 columns on a database from before them.
+    const have = new Set((this.db.prepare('PRAGMA table_info(skills)').all() as { name: string }[]).map((c) => c.name));
+    for (const [col, def] of [
+      ['args', "TEXT NOT NULL DEFAULT '{}'"],
+      ['check_cond', 'TEXT'],
+      ['successes', 'INTEGER NOT NULL DEFAULT 0'],
+      ['embedding', 'BLOB'],
+    ] as const) {
+      if (!have.has(col)) this.db.exec(`ALTER TABLE skills ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  /** The skills it wrote for itself (M10), verified or not. */
+  skills(): SkillRow[] {
+    const rows = this.db.prepare('SELECT * FROM skills ORDER BY created').all() as {
+      name: string;
+      description: string;
+      args: string;
+      check_cond: string | null;
+      code: string;
+      created: number;
+      verified: number;
+      uses: number;
+      successes: number;
+      embedding: Buffer | null;
+    }[];
+    return rows.map((r) => ({
+      name: r.name,
+      description: r.description,
+      args: JSON.parse(r.args) as Record<string, string>,
+      check: r.check_cond,
+      code: r.code,
+      created: r.created,
+      verified: r.verified > 0 ? r.verified : null,
+      uses: r.uses,
+      successes: r.successes,
+      embedding: r.embedding ? fromBlob(r.embedding) : null,
+    }));
+  }
+
+  saveSkill(r: SkillRow): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO skills (name, description, args, check_cond, code, created, verified, uses, successes, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.name, r.description, JSON.stringify(r.args), r.check, r.code, r.created, r.verified ?? 0, r.uses, r.successes, r.embedding ? toBlob(r.embedding) : null);
+  }
+
+  /** A run of a skill it wrote: counted, and counted as a success if it worked. */
+  skillUsed(name: string, ok: boolean): void {
+    this.db.prepare('UPDATE skills SET uses = uses + 1, successes = successes + ? WHERE name = ?').run(ok ? 1 : 0, name);
   }
 
   insert(r: MemoryRow): void {
