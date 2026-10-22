@@ -123,6 +123,8 @@ export interface ConflictView {
   tributeDue?: (name: AgentName) => boolean;
   /** §17.7: we demanded something of them just now, or they are paying it or paid lately: no blows for that. */
   demandPending?: (name: AgentName) => boolean;
+  /** §17.7: we have said a demand to them in the last few minutes (a tyrant asks before he beats). */
+  demandedLately?: (name: AgentName) => boolean;
   warnedLately: (name: AgentName) => boolean;
 }
 
@@ -165,6 +167,8 @@ const SPOKE_EVERY_MS = 10 * 60_000;
 const ASKED_FRESH_MS = 30_000;
 /** A demand waits this long for its answer before it comes to blows (§17.7). */
 const DEMAND_ANSWER_MS = 60_000;
+/** A demand said this recently still stands: one who hasn't paid it may be beaten for it. */
+const DEMANDED_LATELY_MS = 10 * 60_000;
 /** Tribute is asked of those who gave in this often (§17.7 "every day": a few minutes, as days go here). */
 const TRIBUTE_EVERY_MS = 5 * 60_000;
 /** Someone who paid up lately isn't beaten for it: they are worth more paying (§17.7). */
@@ -389,7 +393,9 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
         rationale: `code default: ${e.name} has to go`,
       };
     }
-    if (rung >= 3 && c.mayBrawl(e.name) && !c.demandPending?.(e.name)) {
+    // A domineering agent's "or else" comes before the blows: a beating is for one who heard the demand and didn't pay.
+    const tyrant = s.self.persona.temperament.dominance >= 0.5;
+    if (rung >= 3 && c.mayBrawl(e.name) && !c.demandPending?.(e.name) && (!tyrant || (c.demandedLately?.(e.name) ?? true))) {
       return {
         option: 'fight',
         target: { agent: e.name },
@@ -449,6 +455,16 @@ export function tributeDue(commitments: readonly Commitment[], me: AgentName, na
   if (theirs.some((k) => k.status === 'accepted' || k.status === 'proposed')) return false;
   const last = Math.max(...theirs.filter((k) => k.status === 'fulfilled').map((k) => k.resolvedAt ?? 0), -Infinity);
   return now - last < 60 * 60_000 && now - last >= TRIBUTE_EVERY_MS;
+}
+
+/** When we last said a demand to them (§17.7), as our side of the conversations with them has it; −∞ if never. */
+export function lastDemandSaid(s: AgentStateStore['state'], name: AgentName): number {
+  let last = -Infinity;
+  for (const c of Object.values(s.conversations)) {
+    if (!c.participants.includes(name)) continue;
+    for (const u of c.transcript) if (u.from === s.self.username && u.ts > last && parseDemand(u.text)) last = u.ts;
+  }
+  return last;
 }
 
 /** §17.7: they owe us under threat, or paid up lately; either way a demand of ours is working on them. */
@@ -647,8 +663,6 @@ export class CognitiveController {
   private readonly warned = new Map<AgentName, { at: number; rung: number }>();
   /** When we last grumbled to someone, or called on them to rise (`inform:Y`, `rally:Y`). */
   private readonly spoke = new Map<string, number>();
-  /** When we last demanded something of someone (§17.7). */
-  private readonly demanded = new Map<AgentName, number>();
 
   constructor(private readonly o: CCOptions) {
     this.now = o.now ?? Date.now;
@@ -931,7 +945,8 @@ export class CognitiveController {
         ...(c.authorityOf ? { authorityOf: (n: AgentName) => c.authorityOf?.(n) ?? 0 } : {}),
         ...(c.fearWith ? { fearWith: (n: AgentName, allies: readonly AgentName[]) => c.fearWith?.(n, allies) ?? c.fearOf(n) } : {}),
         tributeDue: (n) => tributeDue(store.state.commitments, this.o.me, n, t),
-        demandPending: (n) => t - (this.demanded.get(n) ?? -Infinity) < DEMAND_ANSWER_MS || paying(store.state.commitments, this.o.me, n, t),
+        demandPending: (n) => t - lastDemandSaid(store.state, n) < DEMAND_ANSWER_MS || paying(store.state.commitments, this.o.me, n, t),
+        demandedLately: (n) => t - lastDemandSaid(store.state, n) < DEMANDED_LATELY_MS,
         warnedLately: (n) => {
           const w = this.warned.get(n);
           return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);
@@ -975,7 +990,6 @@ export class CognitiveController {
     const who = decision.target?.agent;
     if (who && (stance === 'hostile' || stance === 'threaten' || (decision.option === 'move' && decision.target?.pos))) this.warned.set(who, { at: now, rung: this.o.conflict?.rungOf(who) ?? 0 });
     if (who && (stance === 'inform' || stance === 'rally')) this.spoke.set(`${stance}:${who}`, now);
-    if (who && decision.option === 'demand') this.demanded.set(who, now);
     // Our own promises become commitments and tasks only when the CC allowed committing (§6.4); accepting a deal
     // also records their half of it (§6.6).
     if (decision.speechIntent?.mayCommit) {

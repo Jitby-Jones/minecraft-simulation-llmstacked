@@ -23,7 +23,7 @@ import {
 import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
 import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/power';
 import { spareChance } from '@agora/agent/conflict/pressure';
-import { type ConflictView, codeDecision, paying, tributeDue, validateDecision } from '@agora/agent/modules/cc';
+import { type ConflictView, codeDecision, lastDemandSaid, paying, tributeDue, validateDecision } from '@agora/agent/modules/cc';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
 import { SocialAwareness, codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
@@ -147,6 +147,18 @@ describe('demands and compliance (§17.7)', () => {
     const brawl = (pending: boolean): ConflictView => ({ rungOf: () => 3, fearOf: () => 0, mayBrawl: () => true, demandPending: () => pending, warnedLately: () => true });
     expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: brawl(false) })?.option).toBe('fight');
     expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: brawl(true) })?.option).not.toBe('fight');
+    // A tyrant asks before he beats: no demand said to Tib lately, so a demand first; one unpaid, then the blows.
+    const asked = (lately: boolean): ConflictView => ({ rungOf: () => 3, fearOf: () => 0, mayBrawl: () => true, demandPending: () => false, demandedLately: () => lately, warnedLately: () => false });
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: asked(false) })?.option).toBe('demand');
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: asked(true) })?.option).toBe('fight');
+    // When a demand was said is what our side of the conversation has.
+    const said = world(tyrant, ['Tib']);
+    said.update('conversations', (cs) => ({
+      ...cs,
+      d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: 0, lastActivity: 5, turns: 2, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: 5, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false, endedReason: 'quiet' },
+    }));
+    expect(lastDemandSaid(said.state, 'Tib')).toBe(5);
+    expect(lastDemandSaid(said.state, 'Pia')).toBe(-Infinity);
     // The same fear, but Rex is the one we follow: authority tips it.
     const led = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.75, 0.24) });
     expect(led?.task?.skill).toBe('give');
