@@ -73,7 +73,7 @@ describe.skipIf(!liveJavaPath())('M9b live: families', () => {
   beforeAll(async () => {
     server = await startLiveServer({ name: 'm9b', port: PORT, rconPort: 25603, deepGround: true });
     logger = createLogger({ name: 'm9b-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false, level: process.env.AGORA_LIVE_DEBUG ? 'debug' : 'info' });
-    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty peaceful', 'gamerule spawn_radius 0']) await server.cmd(c);
+    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty peaceful', 'gamerule respawn_radius 0']) await server.cmd(c);
     // Two in bed shouldn't end the night for the world while the test watches.
     await server.cmd('gamerule players_sleeping_percentage 101').catch(() => '');
   });

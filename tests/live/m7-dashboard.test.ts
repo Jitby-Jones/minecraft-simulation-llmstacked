@@ -48,7 +48,7 @@ describe.skipIf(!liveJavaPath())('M7 live: the dashboard and ctl', () => {
       await server.cmd(`place feature minecraft:oak ${x + (dx ?? 0)} ${Y} ${dz ?? 0}`);
     }
     await server.cmd(`setworldspawn ${x} ${Y} 0`);
-    await server.cmd('gamerule spawn_radius 0');
+    await server.cmd('gamerule respawn_radius 0');
     const dataDir = path.join(server.dir, '..', 'data-m7');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));

@@ -58,6 +58,8 @@ export interface LiveServer {
 }
 
 const RCON_PASSWORD = 'live-test-rcon';
+/** A command the server can't parse is a bug in the test, not a state of the world (26.1 renamed gamerules). */
+const MALFORMED = /^(Incorrect argument for command|Unknown or incomplete command|Unknown command)/;
 
 export function liveJavaPath(): string | null {
   const v = loadVersionsConfig();
@@ -115,8 +117,13 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
   await paper.waitReady(240_000);
   const rcon = new RconClient('127.0.0.1', rconPort, RCON_PASSWORD);
   await rcon.connect();
+  const cmd = async (c: string): Promise<string> => {
+    const r = await rcon.command(c);
+    if (MALFORMED.test(r)) throw new Error(`the server rejected "${c}": ${r}`);
+    return r;
+  };
   // 26.1 replaced the spawn-monsters property with a gamerule.
-  await rcon.command(`gamerule spawn_monsters ${opts.monsters ? 'true' : 'false'}`);
+  await cmd(`gamerule spawn_monsters ${opts.monsters ? 'true' : 'false'}`);
   return {
     dir,
     host: '127.0.0.1',
@@ -124,7 +131,7 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
     rcon,
     paper,
     logger,
-    cmd: (c) => rcon.command(c),
+    cmd,
     async stop() {
       rcon.close();
       await paper.stop(60_000);

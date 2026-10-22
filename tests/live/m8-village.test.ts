@@ -55,7 +55,7 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     logger = createLogger({ name: 'm8-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false });
     // The bots' memories embed through the Hub, as in production.
     embedder = await createEmbedder({ modelDir: path.join(dataPaths().cache, 'models'), modelId: versions.embeddingModel.id, dims: versions.embeddingModel.dims, logger });
-    for (const c of ['gamerule advance_weather false', 'weather clear', 'gamerule spawn_radius 0']) await server.cmd(c);
+    for (const c of ['gamerule advance_weather false', 'weather clear', 'gamerule respawn_radius 0']) await server.cmd(c);
   });
 
   afterAll(async () => {

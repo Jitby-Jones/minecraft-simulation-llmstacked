@@ -46,7 +46,7 @@ describe.skipIf(!liveJavaPath())('M8c live: reflection and conformity', () => {
   beforeAll(async () => {
     server = await startLiveServer({ name: 'm8c', port: PORT, rconPort: 25597, deepGround: true });
     logger = createLogger({ name: 'm8c-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false, level: process.env.AGORA_LIVE_DEBUG ? 'debug' : 'info' });
-    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty normal', 'gamerule spawn_radius 0']) await server.cmd(c);
+    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty normal', 'gamerule respawn_radius 0']) await server.cmd(c);
   });
 
   afterAll(async () => {

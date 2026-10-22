@@ -60,7 +60,7 @@ describe.skipIf(!liveJavaPath())('M9a live: romance', () => {
   beforeAll(async () => {
     server = await startLiveServer({ name: 'm9a', port: PORT, rconPort: 25599, deepGround: true });
     logger = createLogger({ name: 'm9a-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false, level: process.env.AGORA_LIVE_DEBUG ? 'debug' : 'info' });
-    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty peaceful', 'gamerule spawn_radius 0']) await server.cmd(c);
+    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty peaceful', 'gamerule respawn_radius 0']) await server.cmd(c);
   });
 
   afterAll(async () => {

@@ -56,7 +56,7 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
   beforeAll(async () => {
     server = await startLiveServer({ name: 'm8b', port: PORT, rconPort: 25595, deepGround: true });
     logger = createLogger({ name: 'm8b-live', logDir: path.join(server.dir, '..', 'agent-logs'), console: false });
-    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty normal', 'gamerule spawn_radius 0']) await server.cmd(c);
+    for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 1000', 'difficulty normal', 'gamerule respawn_radius 0']) await server.cmd(c);
   });
 
   afterAll(async () => {
