@@ -93,6 +93,8 @@ const SULK_MS = 10 * 60_000;
 /** Partners: no time together this long, or liking under 5 for COLD_MS, ends it (§19.2 breakup). */
 const NEGLECT_MS = 2 * GAME_DAY_MS;
 const COLD_MS = 10 * 60_000;
+/** A heart gone cold: liking under this, for COLD_MS. */
+const BREAKUP_LIKING = 5;
 /** One seen courting our partner stays suspected this long; jealousy at most every JEALOUS_EVERY_MS per rival. */
 const SUSPECT_MS = 30 * 60_000;
 const JEALOUS_EVERY_MS = 5 * 60_000;
@@ -330,6 +332,9 @@ export class RomanceWatch implements RomanceView {
   }
 
   reactionTo(from: AgentName): AdvanceReaction {
+    // §19.10's table is for a suitor's advance. Our partner's kindness is returned while we're still fond of them
+    // (cooling, it comes to a breakup instead).
+    if (this.partner() === from && this.liking(from) >= BREAKUP_LIKING) return 'reciprocate';
     const p = this.o.store.state.self.persona;
     return rollReaction(advanceWeights(p, this.advanceContext(from)), this.rng, this.o.override?.() ?? 0);
   }
@@ -625,7 +630,7 @@ export class RomanceWatch implements RomanceView {
       this.brokeUp(partner, true);
       return;
     }
-    const cold = this.liking(partner) < 5;
+    const cold = this.liking(partner) < BREAKUP_LIKING;
     this.coldSince = cold ? (this.coldSince ?? t) : null;
     if ((this.coldSince !== null && t - this.coldSince >= COLD_MS) || t - this.lastWithPartner >= NEGLECT_MS) {
       this.o.say?.(partner, BREAKUP_LINE);

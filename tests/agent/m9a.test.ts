@@ -207,6 +207,19 @@ function rig(persona: Persona = ned, people: string[] = ['Ivy', 'Bea']) {
 }
 
 describe('the romance watch (§19.1, §19.2)', () => {
+  it("returns a partner's kindness rather than rolling it as a suitor's advance, while still fond of them", () => {
+    const vain = PersonaSchema.parse({ name: 'Ned', sex: 'male', orientation: 'hetero', traits: ['vain'], big5: { agreeableness: 0.9, conscientiousness: 0.9 }, mind: { vanity: 1 } });
+    const r = rig(vain);
+    // Hardly any looks to go by: as a suitor's advance, a kind no is the likely roll.
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', sentiment: 6, evidence: 6 } }));
+    expect(r.w.reactionTo('Ivy')).not.toBe('reciprocate');
+    r.s.update('family', (f) => ({ ...f, partner: 'Ivy' }));
+    expect(r.w.reactionTo('Ivy')).toBe('reciprocate');
+    // Gone cold, the table again (and a breakup coming).
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), sentiment: 3, evidence: 3 } }));
+    expect(r.w.reactionTo('Ivy')).not.toBe('reciprocate');
+  });
+
   it('learns the sex one says one is, and the pronoun used for the one a line is about, once', () => {
     const r = rig();
     r.hear('Ivy', "hey! I'm a gal who loves exploring.");
