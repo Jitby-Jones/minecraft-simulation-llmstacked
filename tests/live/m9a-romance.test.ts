@@ -150,7 +150,8 @@ describe.skipIf(!liveJavaPath())('M9a live: romance', () => {
   }, 4_000_000);
 
   it('S: turned down again and again, the suitor is held back for the week, sadder each time, and resentful at the end', async () => {
-    const max = person({ name: 'Max', sex: 'male', traits: ['proud', 'vain'], big5: { agreeableness: 0, neuroticism: 0 }, mind: { vanity: 1, rationality: 0 }, temperament: { vengefulness: 1, aggression: 0 }, intelligence: 1, initiate: 0 });
+    // Max misreads hints (§19.10 persistence comes of low intelligence, §21 social signal reading), so he keeps at it.
+    const max = person({ name: 'Max', sex: 'male', traits: ['proud', 'vain'], big5: { agreeableness: 0, neuroticism: 0 }, mind: { vanity: 1, rationality: 0 }, temperament: { vengefulness: 1, aggression: 0 }, intelligence: 0, initiate: 0 });
     const zoe = person({ name: 'Zoe', sex: 'female', orientation: 'homo', traits: ['polite', 'calm'], initiate: 0 });
     const bodies = await cast(['Max', 'Zoe'], { Max: [0, 0], Zoe: [3, 0] }, 1200);
     // Zoe in diamond: what catches a vain eye (§19.2: with vanity 1, attraction is all looks), so he keeps at it.
@@ -159,7 +160,9 @@ describe.skipIf(!liveJavaPath())('M9a live: romance', () => {
     const heard = listen(Object.values(bodies), t0);
     const agents: Record<string, Agent> = {};
     // Max's roll: persisting while he may (§19.10 B), and resentment once no attempts are left. Zoe's: a kind no.
-    for (const [n, p, other, roll] of [['Max', max, 'Zoe', 0.58], ['Zoe', zoe, 'Max', 0.05]] as const) {
+    // (0.52 falls in persistence across his interest and shame while attempts are left; with them gone, and the shame of
+    // three no's, in resentment.)
+    for (const [n, p, other, roll] of [['Max', max, 'Zoe', 0.52], ['Zoe', zoe, 'Max', 0.05]] as const) {
       const a = new Agent({ body: bodies[n] as Body, persona: p, username: n, llm: null, logger: logger.child({ agent: n }), world, goalGen: false, socialGoals: false, rng: () => roll });
       const view = n === 'Max' ? knows(p, other, { sentiment: 8, perceivedSex: 'female', romanticInterest: 0.9, relationship: 'crush' }) : knows(p, other, { sentiment: 6, perceivedSex: 'male' });
       a.store.update('social', (all) => ({ ...all, [other]: view }), 'history');
