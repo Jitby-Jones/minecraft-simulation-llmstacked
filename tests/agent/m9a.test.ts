@@ -7,11 +7,13 @@ import { type DecisionOutput, type Persona, type PersonaInput, PersonaSchema, Se
 import { AgentBus } from '@agora/agent/bus';
 import { ACCEPTANCE, type CourtStep, DECLINE_LINES, FLIRT_BACK, PROPOSAL, type RomanceView, RomanceWatch, isAdvance } from '@agora/agent/social/romanceWatch';
 import type { Body } from '@agora/agent/body/body';
+import { type Bot, Vec3 } from '@agora/agent/body/bot';
 import { codeDecision, validateDecision } from '@agora/agent/modules/cc';
 import { Conversations } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking, needsDecision } from '@agora/agent/modules/talking';
+import { Perception } from '@agora/agent/perception/perception';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -249,6 +251,22 @@ describe('the romance watch (§19.1, §19.2)', () => {
     }
     expect(r.s.state.social.Bea?.romanticInterest).toBe(0);
     expect(r.w.mayCourt('Bea')).toMatch(/not someone you are drawn to/);
+  });
+
+  it('comes all the way to what draws it, not short of it', () => {
+    const vain = PersonaSchema.parse({ name: 'Ned', sex: 'male', orientation: 'hetero', traits: ['vain'], mind: { vanity: 1 } });
+    const r = rig(vain);
+    // Looks are all (vanity 1), and from over there no time together: 0.3 + 0.7 × 0.6.
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', admiration: 0.6, romanticInterest: 0.5 } }));
+    r.see(['Ivy', 20]);
+    for (let i = 0; i < 200; i++) {
+      r.t.now += 10_000;
+      r.tick();
+    }
+    // Within the step at which the store hears of it.
+    const interest = r.s.state.social.Ivy?.romanticInterest ?? 0;
+    expect(interest).toBeGreaterThan(0.71);
+    expect(interest).toBeLessThanOrEqual(0.72);
   });
 
   it('courts one it is drawn to: a compliment, a small gift, and the question once they have returned it twice', () => {
@@ -511,5 +529,47 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     t.addressed('u2', "Ned, you're really sweet, you know that?");
     await new Promise((r) => setTimeout(r, 1500));
     expect(t.said).toHaveLength(1);
+  });
+});
+
+describe('what a suitor sees (§17.4, §19.2)', () => {
+  // Ned's eyes on Ivy, three blocks off in the open; the clock moves only when told.
+  function eyes() {
+    const s = new AgentStateStore(createInitialState({ persona: ned, username: 'Ned', now: 0 }));
+    const t = { now: 1000 };
+    const equipment: ({ name: string } | null)[] = [null, null, null, null, null, null];
+    const me = { id: 1, type: 'player', username: 'Ned', position: new Vec3(0, 0, 0), eyeHeight: 1.62 };
+    const ivy = { id: 2, type: 'player', username: 'Ivy', position: new Vec3(3, 0, 0), height: 1.8, equipment };
+    const bot = { username: 'Ned', entity: me, entities: { 1: me, 2: ivy }, world: { raycast: () => null }, on: () => undefined, off: () => undefined } as unknown as Bot;
+    const p = new Perception({ bot, store: s, bus: new AgentBus(), logger: nullLogger(), now: () => t.now });
+    const look = () => (p as unknown as { updateEntities(): void }).updateEntities();
+    const seen = () => s.state.perception.nearbyEntities.find((e) => e.name === 'Ivy');
+    return { t, equipment, me, look, seen };
+  }
+
+  it('sees armor put on by someone standing still', () => {
+    const r = eyes();
+    r.look();
+    expect(r.seen()?.armor).toEqual([]);
+    // Diamond on, and she hasn't moved.
+    r.equipment[4] = { name: 'diamond_chestplate' };
+    r.equipment[5] = { name: 'diamond_helmet' };
+    r.look();
+    expect(r.seen()?.armor).toEqual(['diamond_chestplate', 'diamond_helmet']);
+  });
+
+  it('knows how far she is as he walks up to her, standing still', () => {
+    const r = eyes();
+    r.look();
+    expect(r.seen()?.distance).toBe(3);
+    r.me.position = new Vec3(2, 0, 0);
+    r.t.now += 1000;
+    r.look();
+    expect(r.seen()?.distance).toBe(1);
+    // Half a block is no news.
+    r.me.position = new Vec3(2.4, 0, 0);
+    r.t.now += 1000;
+    r.look();
+    expect(r.seen()?.distance).toBe(1);
   });
 });

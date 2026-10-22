@@ -34,6 +34,8 @@ const ENTITY_RADIUS = 32;
 /** Close enough to hear footsteps: perceived even without line of sight. */
 const HEAR_RADIUS = 4;
 const MAX_ENTITIES = 24;
+/** Distances to those about are written again at most this often when only they changed. */
+const DISTANCE_REFRESH_MS = 1000;
 const RING_ACTIONS = 20;
 /** How long a drop counts as someone else's (then it's anyone's). */
 const THEIRS_MS = 60_000;
@@ -85,6 +87,7 @@ export class Perception {
   /** Item entity → whose it is: tossed or dug out by someone else, not toward us (pickup courtesy). */
   private readonly theirs = new Map<number, { by: AgentName; at: number }>();
   private lastEntitiesKey = '';
+  private lastEntitiesAt = 0;
   private lastBlocksKey = '';
   private readonly socialSeenAt = new Map<AgentName, number>();
   private readonly offs: (() => void)[] = [];
@@ -328,9 +331,14 @@ export class Perception {
       });
       if (out.length >= MAX_ENTITIES) break;
     }
-    const key = out.map((e) => `${e.id}:${e.kind}:${Math.floor(e.pos.x)},${Math.floor(e.pos.y)},${Math.floor(e.pos.z)}:${e.visible ? 1 : 0}:${e.heldItem ?? ''}:${e.hurtRecently ? 1 : 0}`).join(';');
-    if (key !== this.lastEntitiesKey) {
+    // What they wear counts too: someone who puts armor on standing still looks different (§17.4 gear, §19.2 looks).
+    const key = out.map((e) => `${e.id}:${e.kind}:${Math.floor(e.pos.x)},${Math.floor(e.pos.y)},${Math.floor(e.pos.z)}:${e.visible ? 1 : 0}:${e.heldItem ?? ''}:${e.armor.join(',')}:${e.hurtRecently ? 1 : 0}`).join(';');
+    // And how far they are, as we walk up to (or away from) someone standing still: a block's change, once a second.
+    const known = this.o.store.state.perception.nearbyEntities;
+    const drifted = now - this.lastEntitiesAt >= DISTANCE_REFRESH_MS && out.some((e) => Math.abs((known.find((k) => k.id === e.id)?.distance ?? e.distance) - e.distance) >= 1);
+    if (key !== this.lastEntitiesKey || drifted) {
       this.lastEntitiesKey = key;
+      this.lastEntitiesAt = now;
       this.o.store.update('perception', (p) => ({ ...p, nearbyEntities: out }), 'perception:entities');
     }
     this.meetPeople(out.filter((e) => e.kind === 'player' && e.visible), now);

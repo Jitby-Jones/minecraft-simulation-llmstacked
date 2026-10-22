@@ -67,6 +67,8 @@ const TOGETHER_FULL_S = 30 * 60;
 const GIFTS_MS = 2 * 60 * 60_000;
 /** Romantic interest moves this much of the way toward attraction each tick while they're about. */
 const LEAN = 0.04;
+/** The store hears of a change in interest once it comes to this much. */
+const INTEREST_STEP = 0.005;
 /** A crush from this interest, gone again below DRIFT; the question asked from PROPOSE_AT. */
 export const CRUSH_AT = 0.5;
 const DRIFT = 0.3;
@@ -155,6 +157,8 @@ export interface RomanceOptions {
 export class RomanceWatch implements RomanceView {
   /** Seconds spent together lately, fading. */
   private readonly together = new Map<AgentName, { s: number; at: number }>();
+  /** Romantic interest as it leans, finer than the store hears of it (every INTEREST_STEP), so it reaches attraction. */
+  private readonly leaning = new Map<AgentName, number>();
   private readonly giftsFrom = new Map<AgentName, number[]>();
   /** Advances made to us, by whom and when (the soft cap and harsher answers, §19.10). */
   private readonly advancesFrom = new Map<AgentName, number[]>();
@@ -595,14 +599,18 @@ export class RomanceWatch implements RomanceView {
     for (const p of Object.values(s.social)) {
       if (!this.eligible(p.name) || p.relationship === 'partner') continue;
       const fit = this.fit(p.name);
-      // Drawn closer while they're about, drifting off slowly while not.
+      // Drawn closer while they're about, drifting off slowly while not; from where it leaned to last, unless something
+      // else (a rejection, a breakup) has moved it since.
       const target = around.has(p.name) ? this.attractionTo(p.name) : 0;
       const lean = around.has(p.name) ? LEAN : LEAN / 10;
-      const interest = clamp01(p.romanticInterest + (target - p.romanticInterest) * lean);
+      const was = this.leaning.get(p.name);
+      const from = was !== undefined && Math.abs(was - p.romanticInterest) < INTEREST_STEP ? was : p.romanticInterest;
+      const interest = clamp01(from + (target - from) * lean);
+      this.leaning.set(p.name, interest);
       let rel: Relationship = p.relationship;
       if (fit > 0 && interest >= CRUSH_AT && rel === 'none') rel = 'crush';
       if ((rel === 'crush' || rel === 'courting') && (interest < DRIFT || fit === 0)) rel = 'none';
-      if (Math.abs(interest - p.romanticInterest) >= 0.005 || rel !== p.relationship) {
+      if (Math.abs(interest - p.romanticInterest) >= INTEREST_STEP || rel !== p.relationship) {
         this.update(p.name, (x) => ({ ...x, romanticInterest: Math.round(interest * 1000) / 1000, relationship: rel }), rel !== p.relationship ? `romance: ${rel}` : 'romantic interest');
         if (rel === 'crush' && p.relationship !== 'crush') pushWorkmem(this.o.store, `I think I have a crush on ${p.name}`, 0.6, 'self_observed', { aboutAgent: p.name, now: t });
       }
