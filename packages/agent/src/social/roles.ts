@@ -2,8 +2,10 @@
 // conversation read can still name one). Each deed seen adds to a tally per person that halves every 10 minutes;
 // the role is the work with the biggest tally once it reaches 3: someone seen chopping three logs is a woodcutter,
 // for now. Digging dirt, the stuff huts are made of, counts half toward building: a builder gathers long before
-// setting a block down, and a few dug for a shelter or on the way to stone don't make a builder. It feeds the
-// division of labor (village.ts `others`) and what the agent knows of people.
+// setting a block down, and a few dug for a shelter or on the way to stone don't make a builder. Saying what one
+// does for the village ("I'm building a hut for the village.") makes it one's role at once, for whoever hears it:
+// work done out of sight is known that way, as among people. It feeds the division of labor (village.ts `others`)
+// and what the agent knows of people.
 
 import type { AgentName, ObservedAction } from '@agora/shared';
 import type { AgentBus } from '../bus';
@@ -35,6 +37,32 @@ export function weightOf(a: ObservedAction): number {
   return a.kind === 'dig' && BUILDING_DIRT.test(a.item ?? '') ? 0.5 : 1;
 }
 
+/** How one says what one does for the village (Social Goal Gen says it on taking work up). */
+export const WORK_SAYS: Readonly<Record<VillageKind, string>> = {
+  wood: "I'm cutting wood for the village.",
+  stone: "I'm mining stone for the village.",
+  food: "I'm hunting food for the village.",
+  build: "I'm building a hut for the village.",
+  guard: "I'm keeping watch over the village.",
+  tools: "I'm making tools for the village.",
+  scout: "I'm scouting the land for the village.",
+};
+
+const SAID: readonly [RegExp, VillageKind][] = [
+  [/\bI'?m (?:cutting|chopping|getting) (?:wood|logs|trees)\b/i, 'wood'],
+  [/\bI'?m (?:mining|digging|quarrying) (?:stone|cobble|ore|for ore)\b/i, 'stone'],
+  [/\bI'?m (?:hunting|cooking|farming)\b/i, 'food'],
+  [/\bI'?m building\b/i, 'build'],
+  [/\bI'?m (?:keeping watch|on guard|guarding)\b/i, 'guard'],
+  [/\bI'?m making tools\b/i, 'tools'],
+  [/\bI'?m (?:scouting|exploring)\b/i, 'scout'],
+];
+
+/** The work someone says they are doing ("I'm building a hut for the village"), if any. */
+export function statedWork(text: string): VillageKind | null {
+  return SAID.find(([re]) => re.test(text))?.[1] ?? null;
+}
+
 export interface RoleWatchOptions {
   store: AgentStateStore;
   bus: AgentBus;
@@ -44,17 +72,47 @@ export interface RoleWatchOptions {
 
 export class RoleWatch {
   private readonly tallies = new Map<AgentName, Map<VillageKind, { v: number; at: number }>>();
-  private off: (() => void) | null = null;
+  private readonly offs: (() => void)[] = [];
 
   constructor(private readonly o: RoleWatchOptions) {}
 
   start(): void {
-    this.off = this.o.bus.on('observedAction', (e) => this.saw(e.action));
+    this.offs.push(this.o.bus.on('observedAction', (e) => this.saw(e.action)));
+    this.offs.push(
+      this.o.bus.on('heard', (e) => {
+        const kind = e.utterance.from === this.o.me ? null : statedWork(e.utterance.text);
+        if (kind) this.told(e.utterance.from, kind);
+      }),
+    );
   }
 
   stop(): void {
-    this.off?.();
-    this.off = null;
+    for (const off of this.offs.splice(0)) off();
+  }
+
+  /** They said what they do for the village: that is their role for now, as if seen at it. */
+  private told(name: AgentName, kind: VillageKind): void {
+    const t = this.now;
+    const per = this.tallies.get(name) ?? new Map<VillageKind, { v: number; at: number }>();
+    this.tallies.set(name, per);
+    // What they said they now do outweighs what they were seen at before.
+    const top = Math.max(ROLE_AT, ...[...per.values()].map((x) => x.v * 0.5 ** ((t - x.at) / HALF_LIFE_MS) + 0.5));
+    per.set(kind, { v: top, at: t });
+    this.note(name, t);
+  }
+
+  private note(name: AgentName, t: number): void {
+    const role = this.roleOf(name, t);
+    if (role && this.o.store.state.social[name]?.perceivedRole !== role) {
+      this.o.store.update(
+        'social',
+        (all) => {
+          const p = all[name];
+          return p ? { ...all, [name]: { ...p, perceivedRole: role } } : all;
+        },
+        `role:${name}`,
+      );
+    }
   }
 
   private get now(): number {
@@ -70,17 +128,7 @@ export class RoleWatch {
     this.tallies.set(a.actor, per);
     const cur = per.get(kind);
     per.set(kind, { v: (cur ? cur.v * 0.5 ** ((t - cur.at) / HALF_LIFE_MS) : 0) + weightOf(a), at: t });
-    const role = this.roleOf(a.actor, t);
-    if (role && this.o.store.state.social[a.actor]?.perceivedRole !== role) {
-      this.o.store.update(
-        'social',
-        (all) => {
-          const p = all[a.actor];
-          return p ? { ...all, [a.actor]: { ...p, perceivedRole: role } } : all;
-        },
-        `role:${a.actor}`,
-      );
-    }
+    this.note(a.actor, t);
   }
 
   /** The role a person seems to have now, from deeds (null under ROLE_AT). */

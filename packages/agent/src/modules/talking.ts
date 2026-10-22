@@ -220,6 +220,12 @@ export class Talking {
     return this.send(conv.convId, text, volume);
   }
 
+  /** Says a line to the nearest person in earshot, if anyone is (§6.8: what one is doing for the village). */
+  async announce(text: string, range = 12): Promise<boolean> {
+    const near = this.o.store.state.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= range).sort((a, b) => a.distance - b.distance)[0];
+    return near ? this.blurt(near.name, text) : false;
+  }
+
   /** Won't answer them for `ms` (sulking, refusing to talk). */
   refuse(name: AgentName, ms: number): void {
     this.refusing.set(name, this.now() + ms);

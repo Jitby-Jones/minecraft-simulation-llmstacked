@@ -217,6 +217,7 @@ export class Agent {
             me: username,
             community: world.community.goal,
             view: () => villageView(this.store.state, this.roles.others(), now()),
+            announce: (text) => void this.talking.announce(text),
             ...rng,
             now,
           })

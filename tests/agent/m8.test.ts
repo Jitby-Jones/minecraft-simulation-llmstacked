@@ -18,7 +18,7 @@ import { codeGoal, villageFirst } from '@agora/agent/modules/goalGen';
 import { leversFor } from '@agora/agent/modules/levers';
 import { SocialGoalGen } from '@agora/agent/modules/socialGoalGen';
 import { deathNoticeMove, unpostedDeath, unpostedFind, villageMove } from '@agora/agent/modules/villageMove';
-import { RoleWatch, weightOf, workOf } from '@agora/agent/social/roles';
+import { RoleWatch, WORK_SAYS, statedWork, weightOf, workOf } from '@agora/agent/social/roles';
 import { type VillageView, chooseWork, describeVillage, needs, preferences, roleEntropy, roleFrom, villageView, villageWorkDone, villageWorkOf } from '@agora/agent/social/village';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
@@ -161,6 +161,25 @@ describe('roles from what people are seen doing (§6.3 perceivedRole)', () => {
     w.stop();
   });
 
+  it('what someone says they do for the village is their role at once, for whoever hears it', () => {
+    expect(statedWork("I'm building a hut for the village.")).toBe('build');
+    expect(statedWork("I'm cutting wood for the village.")).toBe('wood');
+    expect(statedWork('I am tired')).toBeNull();
+    for (const [k, line] of Object.entries(WORK_SAYS)) expect(statedWork(line)).toBe(k);
+    const store = new AgentStateStore(base());
+    store.update('social', (all) => ({ ...all, Bo: newSocialProfile('Bo', pip, 0) }));
+    const bus = new AgentBus();
+    const w = new RoleWatch({ store, bus, me: 'Pip', now: () => 1000 });
+    w.start();
+    // Seen chopping a while: a woodcutter. Then Bo says he's building now (out of our sight).
+    for (let i = 0; i < 5; i++) bus.emit({ type: 'observedAction', action: deed('Bo', 'dig', 'oak_log', i) });
+    expect(w.roleOf('Bo')).toBe('woodcutter');
+    bus.emit({ type: 'heard', utterance: { id: 'u1', convId: '', from: 'Bo', to: 'nearby', text: "I'm building a hut for the village.", ts: 1000, pos: null, volume: 'normal', outOfSight: true, addressedToMe: false } });
+    expect(store.state.social.Bo?.perceivedRole).toBe('builder');
+    expect(w.others()).toEqual({ build: 1 });
+    w.stop();
+  });
+
   it('counts a role someone told us about, while they are around', () => {
     const store = new AgentStateStore(base());
     store.update('social', (all) => ({ ...all, Cy: { ...newSocialProfile('Cy', pip, 0), perceivedRole: 'miner', lastSeen: 1000 } }));
@@ -178,9 +197,10 @@ describe('Social Goal Gen (§4.2 module 11)', () => {
     if (o.degrade) store.update('flags', (f) => ({ ...f, degrade: o.degrade ?? 0 }));
     const bus = new AgentBus();
     const roles: [string, string | null][] = [];
+    const said: string[] = [];
     const view = { ...VIEW };
-    const sg = new SocialGoalGen({ store, bus, logger: nullLogger(), llm: o.llm?.client ?? null, me: 'Wren', community: 'build a thriving village', view: () => view, onRole: (r, b) => roles.push([r, b]), rng: () => 0.5, now: () => t });
-    return { store, bus, sg, roles, view, tick: (ms: number) => (t += ms) };
+    const sg = new SocialGoalGen({ store, bus, logger: nullLogger(), llm: o.llm?.client ?? null, me: 'Wren', community: 'build a thriving village', view: () => view, onRole: (r, b) => roles.push([r, b]), announce: (x) => said.push(x), rng: () => 0.5, now: () => t });
+    return { store, bus, sg, roles, said, view, tick: (ms: number) => (t += ms) };
   }
 
   it('code default: takes up the work the village needs and the persona likes; five in a row make the role', async () => {
@@ -198,6 +218,8 @@ describe('Social Goal Gen (§4.2 module 11)', () => {
     await r.sg.run('periodic');
     expect(r.store.state.goals.social[0]?.id).toBe(id);
     expect(r.store.state.goals.socialKinds).toEqual(['guard', 'guard']);
+    // Taking the work up, it said so to those around; keeping at it, it doesn't say it again.
+    expect(r.said).toEqual(["I'm keeping watch over the village."]);
     r.sg.stop();
   });
 

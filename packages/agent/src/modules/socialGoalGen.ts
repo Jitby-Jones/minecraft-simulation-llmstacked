@@ -13,6 +13,7 @@ import type { AgentBus } from '../bus';
 import { type VillageKind, type VillageView, VILLAGE_KINDS, chooseWork, describeVillage, isVillageKind, roleFrom } from '../social/village';
 import { SLOW_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
+import { WORK_SAYS } from '../social/roles';
 import { DEATH_RULE, personaCore } from './prompts';
 
 export const SocialGoalSchema = z.object({
@@ -50,6 +51,8 @@ export interface SocialGoalGenOptions {
   /** What this agent knows of the village (its own perception, §13 rule 4). */
   view: () => VillageView;
   onRole?: (role: string, before: string | null) => void;
+  /** Says a line to whoever is around (taking work up, the agent says what it will be doing). */
+  announce?: (text: string) => void;
   rng?: () => number;
   now?: () => number;
 }
@@ -197,6 +200,9 @@ export class SocialGoalGen {
       : goals.map((g, i) => ({ id: `sg-${t.toString(36)}-${i}`, text: g.text, kind: 'social', createdAt: t, status: 'active', work: g.kind, ...(g.with ? { with: g.with } : {}) }));
     this.o.store.update('goals', (g) => ({ ...g, social, socialKinds: kinds, role }), 'social goals');
     if (!same) this.o.logger.info({ module: 'socialGoal', reason, goals: goals.map((g) => `${g.kind}: ${g.text}`), role }, 'social goals');
+    // Taking up other work, it says so to those around: what one does out of their sight they know from that.
+    const top = goals[0]?.kind;
+    if (top && top !== active[0]?.work && this.inCompany()) this.o.announce?.(WORK_SAYS[top]);
     if (role && role !== before) {
       this.o.logger.info({ module: 'socialGoal', role, before }, 'role');
       this.o.onRole?.(role, before);
