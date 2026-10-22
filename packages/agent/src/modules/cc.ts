@@ -84,7 +84,7 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
   }
   if ((d.option === 'talk' || d.option === 'follow' || d.option === 'court') && !d.target?.agent) return `option ${d.option} needs target.agent`;
   // §19.2: courting only whom one may court; a step in romance is with someone, by name.
-  const wooed = d.option === 'court' ? d.target?.agent : d.romance && (d.romance.phase === 'flirt' || d.romance.phase === 'propose') ? d.romance.with : undefined;
+  const wooed = d.option === 'court' ? d.target?.agent : d.romance && ['flirt', 'return', 'propose'].includes(d.romance.phase) ? d.romance.with : undefined;
   if (wooed && env.mayCourt) {
     const why = env.mayCourt(wooed);
     if (why) return `you can't court ${wooed}: ${why}`;
@@ -384,7 +384,7 @@ function answerAdvance(from: AgentName, proposal: boolean, romance: RomanceView,
   if (how === 'reciprocate' && (!proposal || romance.wouldAccept(from))) {
     return proposal
       ? { ...keep, target: { agent: from }, speechIntent: { stance: 'agree', gist: ACCEPTANCE, mayCommit: true }, romance: { with: from, phase: 'accept' }, terminate: { maxSeconds: 20 }, rationale: `code default: yes to ${from}` }
-      : { ...keep, target: { agent: from }, speechIntent: { stance: 'flirt', gist: FLIRT_BACK, mayCommit: false }, romance: { with: from, phase: 'flirt' }, terminate: { maxSeconds: 20 }, rationale: `code default: returned ${from}'s affection` };
+      : { ...keep, target: { agent: from }, speechIntent: { stance: 'flirt', gist: FLIRT_BACK, mayCommit: false }, romance: { with: from, phase: 'return' }, terminate: { maxSeconds: 20 }, rationale: `code default: returned ${from}'s affection` };
   }
   // Drawn to them, but not ready to be partners: a kind no.
   const reaction = how === 'reciprocate' ? 'politeDecline' : how;

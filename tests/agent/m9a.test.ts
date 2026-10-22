@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { type DecisionOutput, type Persona, type PersonaInput, PersonaSchema, SeededRandom, type SocialProfile, WorldConfigSchema, generatePersona, loadSexDifferences, nullLogger } from '@agora/shared';
 import { AgentBus } from '@agora/agent/bus';
-import { ACCEPTANCE, type CourtStep, DECLINE_LINES, FLIRT_BACK, PROPOSAL, type RomanceView, RomanceWatch } from '@agora/agent/social/romanceWatch';
+import { ACCEPTANCE, type CourtStep, DECLINE_LINES, FLIRT_BACK, PROPOSAL, type RomanceView, RomanceWatch, isAdvance } from '@agora/agent/social/romanceWatch';
 import type { Body } from '@agora/agent/body/body';
 import { codeDecision, validateDecision } from '@agora/agent/modules/cc';
 import { Conversations } from '@agora/agent/modules/conversations';
@@ -268,6 +268,21 @@ describe('the romance watch (§19.1, §19.2)', () => {
     expect(r.w.mayCourt('Bea')).toMatch(/Ivy is your partner/);
   });
 
+  it('returning a compliment is no attempt of ours and waits for no answer; our own next one waits a while', () => {
+    const r = rig();
+    r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', sentiment: 8, romanticInterest: 0.8, relationship: 'crush' } }));
+    r.see(['Ivy', 5]);
+    r.hear('Ivy', 'Ned, you look lovely today.');
+    r.decide({ option: 'rest', target: { agent: 'Ivy' }, speechIntent: { stance: 'flirt', gist: FLIRT_BACK, mayCommit: false }, romance: { with: 'Ivy', phase: 'return' } });
+    expect(r.s.state.family.advances.Ivy).toBeUndefined();
+    expect(r.w.courtship()).toBeNull();
+    // Nothing was asked of her: a "no" now is no rejection.
+    r.hear('Ivy', 'no, not that one');
+    expect(r.felt.some((f) => f.startsWith('rejected'))).toBe(false);
+    r.t.now += 4 * 60_000;
+    expect(r.w.courtship()?.kind).toBe('flirt');
+  });
+
   it('takes a no as rolled, and leaves them be once they have said no too often this week (the soft cap)', () => {
     const vain = PersonaSchema.parse({ ...ned, big5: { agreeableness: 1 }, temperament: { vengefulness: 0.9 } });
     const r = rig(vain);
@@ -358,7 +373,7 @@ describe('romance in the code default (§19.2, §19.10)', () => {
 
   it('says yes to a proposal it welcomes, and returns a compliment', () => {
     expect(answer('Ned, will you be my partner?', view())).toMatchObject({ speechIntent: { stance: 'agree', gist: ACCEPTANCE, mayCommit: true }, romance: { with: 'Ivy', phase: 'accept' } });
-    expect(answer('Ned, you look lovely today.', view())).toMatchObject({ speechIntent: { stance: 'flirt', gist: FLIRT_BACK }, romance: { with: 'Ivy', phase: 'flirt' } });
+    expect(answer('Ned, you look lovely today.', view())).toMatchObject({ speechIntent: { stance: 'flirt', gist: FLIRT_BACK }, romance: { with: 'Ivy', phase: 'return' } });
     // Drawn to her, but not ready to be partners: a kind no.
     expect(answer('Ned, will you be my partner?', view({ wouldAccept: () => false }))).toMatchObject({ romance: { phase: 'decline', reaction: 'politeDecline' }, speechIntent: { gist: DECLINE_LINES.politeDecline } });
   });
@@ -379,6 +394,7 @@ describe('romance in the code default (§19.2, §19.10)', () => {
     const env = { me: 'Ned', isStuck: () => false, canPerceive: () => true, mayCourt: (n: string) => (n === 'Bea' ? 'Bea is family' : null) };
     expect(validateDecision({ option: 'court', target: { agent: 'Bea' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea: Bea is family/);
     expect(validateDecision({ option: 'talk', target: { agent: 'Bea' }, romance: { with: 'Bea', phase: 'propose' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea/);
+    expect(validateDecision({ option: 'rest', target: { agent: 'Bea' }, romance: { with: 'Bea', phase: 'return' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/can't court Bea/);
     expect(validateDecision({ option: 'court', target: { agent: 'Ivy' }, terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toBeNull();
     expect(validateDecision({ option: 'court', terminate: { maxSeconds: 30 }, rationale: 'r' }, env)).toMatch(/needs target.agent/);
   });
@@ -387,6 +403,10 @@ describe('romance in the code default (§19.2, §19.10)', () => {
     expect(needsDecision('Ned, you look lovely today.')).toBe(true);
     expect(needsDecision('will you be my partner?')).toBe(true);
     expect(needsDecision('nice weather today')).toBe(false);
+    // A compliment returned answers ours: it wants no answer of its own (or the two would go on returning it).
+    expect(needsDecision(`Ned, ${FLIRT_BACK}`)).toBe(false);
+    expect(isAdvance("aww, you're sweet yourself")).toBe(false);
+    expect(isAdvance("you're really sweet, you know that?")).toBe(true);
   });
 });
 
@@ -402,12 +422,23 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: null, conversations, executor, me: persona.name, rng: () => 0 });
     conversations.start();
     talking.start();
+    let n = 0;
+    const decideRaw = (o: Pick<DecisionOutput, 'option' | 'speechIntent'>) => {
+      const d = { id: `x${++n}`, createdAt: 0, stateVersion: 1, source: 'default' as const, target: { agent: 'Ivy' }, terminate: { maxSeconds: 30 }, rationale: 'test', ...o };
+      s.set('decision', d, 'test');
+      bus.emit({ type: 'decision', decision: d });
+    };
     const decide = (id: string, option: 'talk' | 'court', stance: 'chat' | 'flirt' | 'propose', gist: string) => {
       const d = { id, createdAt: 0, stateVersion: 1, source: 'default' as const, option, target: { agent: 'Ivy' }, speechIntent: { stance, gist, mayCommit: false }, terminate: { maxSeconds: 30 }, rationale: 'test' };
       s.set('decision', d, 'test');
       bus.emit({ type: 'decision', decision: d });
     };
-    return { said, decide };
+    // A line from Ivy, put to us.
+    const addressed = (id: string, text: string) => {
+      const conv = conversations.withPartner('Ivy') ?? conversations.open('Ivy', false);
+      bus.emit({ type: 'addressed', utterance: { id, convId: conv.convId, from: 'Ivy', to: ['Ned'], text, ts: Date.now(), pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+    };
+    return { said, decide, decideRaw, addressed, bus, conversations };
   }
   const wait = async (said: string[], n: number) => {
     for (let i = 0; i < 60 && said.length < n; i++) await new Promise((r) => setTimeout(r, 50));
@@ -426,5 +457,38 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     await wait(t.said, 3);
     expect(t.said[2]).toBe('Ivy, will you be my partner?');
     for (const line of t.said) expect(NOT_PG_RE.test(line)).toBe(false);
+  });
+
+  it('courts on purpose: right after a chat with them ended, the line is said all the same; small talk waits', async () => {
+    const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }));
+    t.decide('d1', 'talk', 'chat', 'say hello');
+    await wait(t.said, 1);
+    const conv = t.conversations.withPartner('Ivy');
+    if (conv) t.conversations.end(conv.convId, 'test');
+    expect(t.conversations.mayInitiate('Ivy')).toBe(false);
+    t.decide('d2', 'talk', 'chat', 'say hello again');
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.said).toHaveLength(1);
+    t.decide('d3', 'court', 'propose', PROPOSAL);
+    await wait(t.said, 2);
+    expect(t.said[1]).toBe('Ivy, will you be my partner?');
+  });
+
+  it('answering an advance in code: the answer, and no "let me think" after it; an ignored one, nothing at all', async () => {
+    const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }));
+    let answer: 'return' | 'ignore' = 'return';
+    t.bus.on('needsDecision', (e) => {
+      if (e.reason !== 'request') return;
+      const gist = answer === 'return' ? FLIRT_BACK : '';
+      t.decideRaw({ option: 'rest', speechIntent: { stance: answer === 'return' ? 'flirt' : 'none', gist, mayCommit: false } });
+    });
+    t.addressed('u1', 'Ned, you look lovely today.');
+    await wait(t.said, 1);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(t.said).toEqual([`Ivy, ${FLIRT_BACK}`]);
+    answer = 'ignore';
+    t.addressed('u2', "Ned, you're really sweet, you know that?");
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(t.said).toHaveLength(1);
   });
 });

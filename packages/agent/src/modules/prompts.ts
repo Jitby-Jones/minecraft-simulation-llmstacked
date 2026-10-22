@@ -28,7 +28,7 @@ export const DECISION_FORMAT = `Reply with one JSON object:
  "commitmentsToCreate": [{"debtor": "you or them", "creditor": "...", "what": {"kind": "give|gather|meet|help|build|follow|custom", "item": "...", "qty": 1, "text": "..."}}],
  "trade": {"with": "name", "phase": "offer|accept|counter|decline", "give": [{"item": "...", "qty": 1}], "want": [{"item": "...", "qty": 1}]},   (only when trading; give is yours, want is theirs)
  "fight": {"target": "name", "intent": "brawl"},   (only with option fight: a brawl until someone yields)
- "romance": {"with": "name", "phase": "flirt|propose|accept|decline|breakup"},   (only when courting someone, or answering their advance)
+ "romance": {"with": "name", "phase": "flirt|return|propose|accept|decline|breakup"},   (only when courting someone, or answering their advance; return is a compliment of theirs returned)
  "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"},
  "rationale": "one sentence"}`;
 

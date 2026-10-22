@@ -91,8 +91,8 @@ export type TradeStep = z.infer<typeof TradeStepSchema>;
 /** §19.2, §19.10: a step in courting someone, or in answering their advance. */
 export const RomanceStepSchema = z.object({
   with: z.string().min(1),
-  /** flirt (a compliment, a small gift), propose (to be partners), accept or decline an advance, break up. */
-  phase: z.enum(['flirt', 'propose', 'accept', 'decline', 'breakup']),
+  /** flirt (a compliment, a small gift), return (theirs returned), propose (to be partners), accept or decline an advance, break up. */
+  phase: z.enum(['flirt', 'return', 'propose', 'accept', 'decline', 'breakup']),
   /** How a declined advance was taken (§19.10 A). */
   reaction: z.enum(['politeDecline', 'ignore', 'uncomfortable', 'disgusted', 'hostile']).optional(),
 });

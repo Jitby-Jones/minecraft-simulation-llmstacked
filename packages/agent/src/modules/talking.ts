@@ -294,6 +294,8 @@ export class Talking {
     if (request) {
       this.awaiting.set(convId, this.now());
       this.o.bus.emit({ type: 'needsDecision', reason: 'request', convId, from });
+      // Decided at once (in code): the answer is already on its way, and no "let me think" comes after it.
+      if (!this.awaiting.has(convId)) return;
       intent = { stance: 'ask', gist: 'you need a moment to think about it; maybe ask a short question', mayCommit: false };
     } else if (from && (this.o.rungOf?.(from) ?? 0) >= 1) {
       // §17.5 rungs 1–2: short and sharp, or a warning, unless we just decided to say something else to them.
@@ -321,10 +323,14 @@ export class Talking {
 
   private onDecision(d: Decision): void {
     const intent = d.speechIntent;
-    if (!intent || intent.stance === 'none') return;
     const person = d.target?.agent;
     // The answer to a request we stalled on, or the opening line of a talk option.
     const waiting = [...this.awaiting.keys()].find((id) => !person || this.o.conversations.get(id)?.participants.includes(person));
+    if (!intent || intent.stance === 'none') {
+      // Decided, with nothing to say to them (an advance ignored, §19.10): no stall either.
+      if (waiting && person) this.awaiting.delete(waiting);
+      return;
+    }
     if (waiting) {
       this.awaiting.delete(waiting);
       void this.say(waiting, [], intent, person ?? this.o.conversations.get(waiting)?.participants.find((n) => n !== this.o.me));
@@ -353,12 +359,15 @@ export class Talking {
       const same = d?.id === decisionId || (d?.option === option && d.target?.agent === person);
       return same && (!s.option || s.option.decisionId !== optionId || s.option.status === 'running');
     };
+    // Courting (§19.2) is said on purpose, not small talk.
+    const courting = option === 'court';
     for (let i = 0; i < 40; i++) {
       if (!on()) return;
       const near = this.o.store.state.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === person && e.distance <= 8);
       if (near) {
-        // A warning or a threat doesn't wait out the pause between friendly chats.
-        const sharp = intent.stance === 'hostile' || intent.stance === 'threaten';
+        // A warning or a threat doesn't wait out the pause between friendly chats; nor does courting (§19.2): said
+        // on purpose, not small talk.
+        const sharp = courting || intent.stance === 'hostile' || intent.stance === 'threaten';
         if (!sharp && !this.o.conversations.mayInitiate(person) && !this.o.conversations.withPartner(person)) return;
         const conv = this.o.conversations.open(person, true);
         await this.say(conv.convId, [], intent, person, on);

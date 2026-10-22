@@ -17,6 +17,8 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 /** A compliment, a shy smile, a small gift: a flirt (§19.2 courting). */
 export const FLIRT_RE =
   /\b(you look (so )?(great|lovely|nice|wonderful|cute|beautiful|handsome) today|you'?re (so |really )?(sweet|cute|lovely|pretty|handsome|beautiful|charming|adorable)|i (really )?like (spending time|being) with you|you (always )?make me smile|this is for you|\*(blushes|smiles shyly)\*)/i;
+/** A compliment returned ("you're sweet too"): the answer to one, not a new advance wanting its own. */
+const RETURN_RE = /\b(too|as well|yourself)\b/i;
 /** "Will you be my partner?" */
 export const PROPOSE_RE = /\b(will|would) you be my (partner|sweetheart)\b|\bbe my partner\b|\bgo out with me\b/i;
 /** Yes to a proposal ("Ned, yes! I'd love to be your partner."). */
@@ -52,7 +54,7 @@ export const REJECTION_LINES: Readonly<Record<RejectionReaction, string>> = {
 };
 
 export function isAdvance(text: string): boolean {
-  return FLIRT_RE.test(text) || PROPOSE_RE.test(text);
+  return (FLIRT_RE.test(text) && !RETURN_RE.test(text)) || PROPOSE_RE.test(text);
 }
 
 const TICK_MS = 10_000;
@@ -430,6 +432,11 @@ export class RomanceWatch implements RomanceView {
         'an advance',
       );
       if (this.relationshipWith(r.with) !== 'partner') this.update(r.with, (p) => ({ ...p, relationship: 'courting' }), 'courting');
+      return;
+    }
+    // Theirs returned: no answer is waited for, and it is no attempt of ours; our own next compliment can wait.
+    if (r.phase === 'return') {
+      this.stepAt.set(`flirt:${r.with}`, t);
       return;
     }
     if (r.phase === 'accept') return this.partnered(r.with);
