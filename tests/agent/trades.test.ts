@@ -93,6 +93,24 @@ describe('the code default answers offers and requests for help', () => {
     cc.stop();
   });
 
+  it('answers a request even when a later reason to decide comes in while it waits its turn', async () => {
+    const s = store();
+    withState(s, { inventory: [{ item: 'oak_log', qty: 8 }], lines: [heard('Bram', "Pip, I'll give you 6 bread for 8 logs")] });
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true });
+    cc.start();
+    // A decision is under way; the request waits behind it, and something else comes up before its turn.
+    cc.trigger('checking in', { urgent: true });
+    bus.emit({ type: 'needsDecision', reason: 'request', convId: 'c1', from: 'Bram' });
+    cc.trigger('things are getting worse with Cy', { urgent: true, atOdds: 'Cy' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(s.state.commitments.map((c) => `${c.debtor}>${c.creditor} ${c.what.text}`)).toEqual(['Pip>Bram 8 logs', 'Bram>Pip 6 bread']);
+    cc.stop();
+  });
+
   it('counters a stingy offer with what it is worth to it, and turns down strangers', () => {
     const s = store();
     withState(s, { inventory: [{ item: 'oak_log', qty: 8 }], lines: [heard('Bram', '3 bread for 8 logs?')] });

@@ -161,6 +161,8 @@ const DUSK = 12_500;
 const WARN_EVERY_MS = 3 * 60_000;
 /** Grumbling to the same friend, or calling on the same person to rise, at most this often. */
 const SPOKE_EVERY_MS = 10 * 60_000;
+/** A question put to us is still worth answering this long after it was asked. */
+const ASKED_FRESH_MS = 30_000;
 /** A demand waits this long for its answer before it comes to blows (§17.7). */
 const DEMAND_ANSWER_MS = 60_000;
 /** Tribute is asked of those who gave in this often (§17.7 "every day": a few minutes, as days go here). */
@@ -625,6 +627,8 @@ export class CognitiveController {
   private stopped = false;
   private lastDecisionAt = 0;
   private deferred: { reason: string; ctx: DecideContext } | null = null;
+  /** A question put to us, still to be answered: a later reason to decide doesn't push it out of the queue. */
+  private asked: { reason: string; ctx: DecideContext; at: number } | null = null;
   private readonly now: () => number;
 
   private readonly rng: () => number;
@@ -803,8 +807,8 @@ export class CognitiveController {
 
   trigger(reason: string, ctx: DecideContext = {}): void {
     if (this.o.store.state.flags.inDanger) {
-      // The reflex owns the body; decide when it's over (§4.5).
-      this.deferred = { reason, ctx };
+      // The reflex owns the body; decide when it's over (§4.5). A question put to us is kept over lesser reasons.
+      if (ctx.from || !this.deferred?.ctx.from) this.deferred = { reason, ctx };
       return;
     }
     // Rate cap (§13 rule 6): non-urgent decisions at most every 2 s.
@@ -822,7 +826,18 @@ export class CognitiveController {
   }
 
   private kick(reason: string, ctx: DecideContext): void {
-    this.flight.run('cc', () => this.decide(reason, ctx)).catch((err: unknown) => this.o.logger.warn({ module: 'cc', reason, err: String(err) }, 'decision failed'));
+    if (ctx.from) this.asked = { reason, ctx, at: this.now() };
+    this.flight
+      .run('cc', async () => {
+        // A decision waiting behind a running one replaces any older one waiting; a question put to us (a request,
+        // a demand) is answered first all the same, while still fresh, and the later reason is taken up after it.
+        const q = this.asked && this.now() - this.asked.at < ASKED_FRESH_MS ? this.asked : null;
+        this.asked = null;
+        if (!q || q.ctx === ctx) return this.decide(reason, ctx);
+        await this.decide(q.reason, q.ctx);
+        if (ctx.urgent) this.trigger(reason, ctx);
+      })
+      .catch((err: unknown) => this.o.logger.warn({ module: 'cc', reason, err: String(err) }, 'decision failed'));
   }
 
   private checkGoal(): void {

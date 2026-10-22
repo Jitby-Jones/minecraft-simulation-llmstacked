@@ -12,6 +12,8 @@ import {
   type Logger,
   type Persona,
   type SocialProfile,
+  type Utterance,
+  withoutOpeningName,
 } from '@agora/shared';
 import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
@@ -90,13 +92,16 @@ const ITEMISH = /\b(?:\d{1,3}\s+)?([a-z_]{3,24}?)s?\b(?=[\s,.!?]|$)/i;
  * → a fight against Rex (§17.8), when Rex is someone we know of.
  */
 export function codePromises(theirLines: readonly string[], known: readonly AgentName[] = []): Promises {
+  const isName = (w: string) => known.some((n) => n.toLowerCase() === w.toLowerCase());
   const promises = theirLines
     .filter((t) => looksLikePromise(t))
     .slice(0, 2)
-    .map((t) => {
+    .map((line) => {
+      // "Rex, fine. I'll give you 3 bread": the promise is what follows the name.
+      const t = withoutOpeningName(line, isName);
       const foe = parseFightPromise(t, known);
       if (foe) return { what: { kind: 'fight' as const, target: foe, text: t.slice(0, 160) }, dueInSec: FIGHT_DUE_SEC };
-      const m = /\b(?:bring|give|get|fetch|grab)\s+(?:you\s+)?(?:some\s+)?(\d{1,3})?\s*([a-z_]{3,24})/i.exec(t);
+      const m = /\b(?:bring|give|get|fetch|grab)\s+(?:you\s+)?(?:some\s+|the\s+|a\s+|an\s+|those\s+|these\s+)?(\d{1,3})?\s*([a-z_]{3,24})/i.exec(t);
       const qty = m?.[1] ? Number(m[1]) : NUM.exec(t)?.[1] ? Number(NUM.exec(t)?.[1]) : undefined;
       const item = m?.[2] ?? ITEMISH.exec(t)?.[1];
       return m ? { what: { kind: 'give' as const, ...(item ? { item: item.toLowerCase().replace(/s$/, '') } : {}), ...(qty ? { qty } : {}), text: t.slice(0, 160) } } : { what: { kind: 'custom' as const, text: t.slice(0, 160) } };
@@ -146,6 +151,8 @@ export class SocialAwareness {
         this.settling.add(t);
       }),
     );
+    // §17.7: giving in to a demand of ours is taken down as it is said; two paid in one conversation are two.
+    this.offs.push(this.o.bus.on('addressed', (e) => this.onGivingIn(e.utterance)));
     // §18.4.1: what people say about each other, from every line heard (the L2 read adds more at the end).
     this.offs.push(
       this.o.bus.on('heard', (e) => {
@@ -332,8 +339,31 @@ export class SocialAwareness {
   }
 
   /** §6.4: promises the partner made to us become accepted commitments (L1, or code). */
+  /**
+   * Their answer to a demand we made in this conversation (§17.7): a promise to give the demanded item is a coerced
+   * commitment, recorded at once. One per demand: a payment restated isn't paid twice.
+   */
+  private onGivingIn(u: Utterance): void {
+    const s = this.o.store.state;
+    const conv = u.convId ? s.conversations[u.convId] : undefined;
+    if (!conv || u.from === this.o.me || !looksLikePromise(u.text)) return;
+    const demands = conv.transcript.filter((x) => x.from === this.o.me && x.ts <= u.ts).map((x) => parseDemand(x.text)).filter((d) => d !== null);
+    const last = demands[demands.length - 1];
+    if (!last) return;
+    const taken = s.commitments.filter((c) => c.coerced && c.debtor === u.from && c.creditor === this.o.me && c.createdFromConv === conv.convId);
+    if (taken.length >= demands.length) return;
+    const pr = codePromises([u.text], [...Object.keys(s.social), this.o.me]).promises[0];
+    const item = pr?.what.kind === 'give' ? pr.what.item : undefined;
+    if (!pr || !item || !(itemMatcher(last.item).matches(item) || itemMatcher(item).matches(last.item))) return;
+    const now = this.now();
+    const k: Commitment = { id: newId('k', now), debtor: u.from, creditor: this.o.me, what: pr.what, dueBy: now + 600_000, status: 'accepted', createdFromConv: conv.convId, createdAt: now, coerced: true };
+    this.o.store.update('commitments', (all) => [...all, k], `${u.from} gave in`);
+    pushWorkmem(this.o.store, `${u.from} gave in to me: ${k.what.text}`, 0.6, `told_by:${u.from}`, { aboutAgent: u.from, now });
+    this.o.logger.info({ module: 'social', partner: u.from, promise: k.what }, 'gave in to our demand');
+  }
+
   private async extractPromises(partner: AgentName, conv: ConversationState, theirs: readonly string[]): Promise<void> {
-    const fallback = () => codePromises(theirs, Object.keys(this.o.store.state.social));
+    const fallback = () => codePromises(theirs, [...Object.keys(this.o.store.state.social), this.o.me]);
     let out: Promises = fallback();
     if (this.o.llm && !this.o.store.state.flags.codeOnly) {
       const r = await this.o.llm.call<Promises>({
@@ -355,7 +385,10 @@ export class SocialAwareness {
     }
     const now = this.now();
     // A promise said twice (or restated later) is still one promise.
-    const open = this.o.store.state.commitments.filter((c) => c.debtor === partner && c.creditor === this.o.me && (c.status === 'accepted' || c.status === 'proposed'));
+    // So is one already taken down from this conversation as it was said (giving in to a demand, above).
+    const open = this.o.store.state.commitments.filter(
+      (c) => c.debtor === partner && c.creditor === this.o.me && (c.status === 'accepted' || c.status === 'proposed' || c.createdFromConv === conv.convId),
+    );
     const key = (w: Commitment['what']) => `${w.kind}:${w.item ?? w.target ?? w.text}`;
     const seen = new Set(open.map((c) => key(c.what)));
     const fresh: Promises['promises'] = [];

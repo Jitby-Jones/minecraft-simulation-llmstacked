@@ -205,6 +205,41 @@ describe('who a line is for (§6.2)', () => {
   });
 });
 
+describe('giving in, as it is said (§17.7)', () => {
+  it('two demands paid in one conversation are two coerced promises; a payment restated is not a third', async () => {
+    const s = world(tyrant, ['Pia']);
+    const bus = new AgentBus();
+    const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: null, me: 'Rex', settleMs: 0, now: () => 10_000_000 });
+    sa.start();
+    const lines: { id: string; from: string; text: string }[] = [];
+    const say = (from: string, text: string) => {
+      const u = { id: `u${lines.length}`, convId: 'p1', from, to: from === 'Rex' ? ['Pia'] : ['Rex'], text, ts: lines.length + 1, pos: null, volume: 'normal' as const, outOfSight: false, addressedToMe: from !== 'Rex', heardAs: from === 'Rex' ? ('other' as const) : ('me' as const) };
+      lines.push(u);
+      s.update('conversations', (cs) => ({
+        ...cs,
+        p1: { convId: 'p1', participants: ['Rex', 'Pia'], startedAt: 0, lastActivity: u.ts, turns: lines.length, myTurns: 0, lastEmbeds: [], status: 'active', transcript: lines.map((l, i) => ({ ...u, ...l, ts: i + 1 })), initiatedByMe: true, nudged: false },
+      }));
+      if (from !== 'Rex') bus.emit({ type: 'addressed', utterance: u });
+    };
+    const coerced = () => s.state.commitments.filter((c) => c.coerced && c.debtor === 'Pia' && c.creditor === 'Rex');
+    say('Rex', 'Pia, give me 3 bread, or else');
+    say('Pia', "Rex, fine. I'll give you 3 bread");
+    expect(coerced().map((c) => c.what.text)).toEqual(["fine. I'll give you 3 bread"]);
+    s.update('commitments', (all) => all.map((c) => ({ ...c, status: 'fulfilled' as const, resolvedAt: 5 })));
+    say('Pia', "there, I'll give you the bread, ok?");
+    expect(coerced()).toHaveLength(1);
+    say('Rex', 'Pia, give me 3 bread, or else');
+    say('Pia', "Rex, fine. I'll give you 3 bread");
+    expect(coerced()).toHaveLength(2);
+    // Read at the end, the conversation adds nothing that is already down.
+    s.update('conversations', (cs) => ({ ...cs, p1: { ...(cs.p1 as NonNullable<typeof cs.p1>), status: 'ended', endedReason: 'turn cap' } }));
+    bus.emit({ type: 'conversationEnded', convId: 'p1', reason: 'turn cap' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(s.state.commitments.filter((c) => c.debtor === 'Pia')).toHaveLength(2);
+    sa.stop();
+  });
+});
+
 describe('promises in a group', () => {
   it("a promise made to someone else in the conversation isn't one to us", async () => {
     const run = async (addressedToMe: boolean) => {

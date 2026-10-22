@@ -98,6 +98,20 @@ export function mentionsName(text: string, name: string): boolean {
   return new RegExp(`(^|[^A-Za-z0-9_])@?${escaped}($|[^A-Za-z0-9_])`, 'i').test(text);
 }
 
+const OPENING_NAME = /^\s*(?:@([A-Za-z0-9_]{1,16})\b|([A-Za-z0-9_]{1,16})\s*[,:])\s*/;
+
+/** The word a line opens with as if naming whom it is for ("Tib, give me..." or "@Tib ..."); null if none. */
+export function openingName(text: string): string | null {
+  const m = OPENING_NAME.exec(text);
+  return m?.[1] ?? m?.[2] ?? null;
+}
+
+/** The line without the name it opens with, when that word is a name (`isName`). */
+export function withoutOpeningName(text: string, isName: (word: string) => boolean): string {
+  const name = openingName(text);
+  return name && isName(name) ? text.replace(OPENING_NAME, '') : text;
+}
+
 export function quote(text: string): string {
   return `"${text.replace(/"/g, "'")}"`;
 }

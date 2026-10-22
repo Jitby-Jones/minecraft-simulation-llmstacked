@@ -3,7 +3,7 @@
 // repetition, partner out of range or silent, danger, or the CC moving on. Ending sets a pair cooldown and fires
 // `conversationEnded` for Social Awareness and commitment extraction (M6).
 
-import { type AgentName, type ConversationState, type ConvId, type Logger, type Utterance, maxTurnsFor, mentionsName, tokenize } from '@agora/shared';
+import { type AgentName, type ConversationState, type ConvId, type Logger, type Utterance, maxTurnsFor, mentionsName, openingName, tokenize } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 
@@ -19,14 +19,11 @@ export interface AddresseeInput {
   inConversationWith: boolean;
 }
 
-/** A line that opens with a name ("Tib, give me..." or "@Tib ...") is said to that one, whoever else it names. */
-const VOCATIVE = /^\s*(?:@([A-Za-z0-9_]{1,16})\b|([A-Za-z0-9_]{1,16})\s*[,:])/;
-
 /** §6.2/§16.1 addressee detection: an opening name, `@name` or a name mention, an ongoing one-on-one, or being the only one in range. */
 export function detectAddressee(i: AddresseeInput): Addressee {
   const others = i.inRange.filter((n) => n !== i.speaker && n !== i.me);
-  const m = VOCATIVE.exec(i.text);
-  const named = (m?.[1] ?? m?.[2])?.toLowerCase();
+  // A line that opens with a name is said to that one, whoever else it names.
+  const named = openingName(i.text)?.toLowerCase();
   if (named === i.me.toLowerCase()) return 'me';
   if (named && others.some((n) => n.toLowerCase() === named)) return 'other';
   if (mentionsName(i.text, i.me)) return 'me';
