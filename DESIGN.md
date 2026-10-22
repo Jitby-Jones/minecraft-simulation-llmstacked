@@ -31,13 +31,14 @@
 | Milestone | Status | Verified by |
 |---|---|---|
 | **M0** scaffold, schemas, setup/doctor/server-mode, bot joins | **done** | `pnpm run check` (typecheck, lint, §22.2 forbidden-strings, unit tests) + `pnpm test:live` M0 exit test on real Paper 26.1.2 |
-| **M1** body: 21 verified skills with postconditions, L0 reflexes | **done** | `pnpm run check` + `pnpm test:live` on Paper 26.1.2: `m1-skills` (16/16) and the exit test `m1-night` (a scripted bot survives a night on hard; 4/4 consecutive runs) |
+| **M1** body: 21 verified skills with postconditions, L0 reflexes | **done** | `pnpm run check` + `pnpm test:live` on Paper 26.1.2: `m1-skills` (17/17, with the closed-window check added in M6b) and the exit test `m1-night` (a scripted bot survives a night on hard; 4/4 consecutive runs) |
 | **M2** LLM client with the §22 subscription lock; Agent State with versioning and abort-on-stale | **done** (live NanoGPT smoke test pending a key) | `pnpm run check`: the client against a mocked NanoGPT (§22.8 unit list, abort-on-stale), allowlist/tier resolution checked against the live 331-model subscription list; `tests/live/m2-nanogpt.test.ts` runs with `NANOGPT_API_KEY` + `AGORA_LIVE_LLM=1` |
 | **M3/M3b** single-agent PIANO (CC + bottleneck, option–action, executor, Action Awareness, Self-Monitor, Talking) and intelligence levers | **done** (chat with a real model pending a key) | `pnpm run check` (module tests against fakes and the mocked NanoGPT) + `pnpm test:live` exit test `m3-agent` on Paper 26.1.2: a code-only bot gets stone tools from nothing on its own; a bot driven through the full LLM path by a scripted model works through "get X first" steps, declines a spoken request, and never promises (the script tries to) |
 | **M4** memory (Summarize-and-Forget over SQLite + local embeddings), Goal Gen, personas with quirks | **done** (goal choice by a real model pending a key) | `pnpm run check` + `pnpm test:live` exit test `m4-agent` on Paper 26.1.2: a code-only bot runs its own goal chain (wooden pickaxe → stone tools → furnace → iron pickaxe, the iron hidden in the ground and found by digging) with its quirks visible (picks poppies, hums for company); a told fact drops out of working memory into SQLite and is repeated with attribution, in a later conversation, through the real local embedder; hidden ore isn't a target until seen |
 | **M5** Hub (rate tokens, budgets, shared embedder, speech guard), supervisor, proximity-chat conversations among several agents, graceful shutdown and resume | **done** | `pnpm run check` (Hub protocol over a real socket, supervisor with stand-in bots, floor control, snapshots, persona calibration) + `pnpm test:live` exit test `m5-population`: real bot processes join through the Hub, shut down gracefully and resume as the same agents; two agents meet and talk until their conversation ends by itself, with nothing looping afterwards; scenario C with four people. `pnpm start` run twice on a fresh normal world: two agents, a death (lava) archived and replaced, resume after Ctrl+C |
 | **M6** Social Awareness, commitments, trades, the help option, claims; deaths matter to the living | **done** | `pnpm run check` (social updates with and without a model, commitments, trades, help, deeds, rumors, deaths) + `pnpm test:live` exit test `m6-social` on Paper 26.1.2, 8/8: **A** a scripted-model Bram asks code-only Pip for 8 logs; she promises, gathers and hands them over, both sides record the promise as kept, and Bram's sentiment goes 5.6 → 8.1 (trust 0.6); **B** a promise past its deadline drops trust to 0.3 and comes up when Bram talks later; **D** a false diamond claim is checked and the teller's trust drops; **E** a zombie ends a conversation cleanly, with a canned line, and talk resumes; **G** a plain client gets bread through the same code paths; **T** an offer made in chat is accepted and both halves are handed over; **K** help gathering wood ends with the logs handed over; **H** a killed agent is replaced in 6 s and the survivors grow more cautious |
 | **M6a** emotions and biases core: feelings, impulses, first impressions, gut against facts, conformity, mobs | **done** | `pnpm run check` (appraisal, decay and contagion; gossip read in code; impulses and regret; first impressions fading into the facts for the rational; conformity, confirmation, availability, scapegoat; mobs) + `pnpm test:live` exit test `m6a-minds` on Paper 26.1.2, 3/3: **Q** an insulted hothead shouts back within 0.5 s while a stoic answers calmly; **M** diamond armor impresses a vain agent at first sight (7.0 vs 5.4 for leather) and a rational one hardly at all; **N** three people turn on Rex: an impulsive conformist joins in and a rational onlooker who knows him speaks up |
+| **M6b** conflict core: grievances, power and fear, the escalation ladder (rungs 0–3), the code gate, brawls that end in a yield | **done** (the lethal rung waits for M8b) | `pnpm run check` (pressure from grievances and fear, rungs with hysteresis and pacing, the gate in the CC, yields heard and reckoned beatings, fight slots, staying within reach) + `pnpm test:live` exit test `m6b-conflict` on Paper 26.1.2, 3/3, and again in the full regression: **I** two quarrelsome brutes with a seeded grudge share a grove: hostile talk at rung 1, threats at rung 2, then one brawl at rung 3 that ends when one gives up ("ok ok, I yield!" at about 5 HP, or running off); nobody dies, and the loser fears the winner more |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -1611,3 +1612,128 @@ Findings from building the system, with reasons. Where this section conflicts wi
    - **Q:** "Kai, you are so lazy" made the hothead shout "excuse me?!" 0.5 s later (anger 1.0), while the stoic said "hey" (anger 0).
    - **M:** at first sight the vain agent rated a stranger in diamond armor 7.0 (admiration 0.84) and one in leather 5.4; the rational one 5.1 and 5.0.
    - **N:** three people turned on Rex. The impulsive conformist said "yeah, Rex is no good!" (3.4 about Rex), and the rational onlooker who knew Rex to be fair said "hold on, Rex has always been fair with me." (7.0).
+
+### M6b (2026-10-22)
+1. **The conflict evaluator (§17.4, §17.5), all code** (`conflict/evaluator.ts`; the arithmetic is in `conflict/pressure.ts`).
+   - **Grievances from what happens:**
+     - being hit (0.3 + damage/10, up to 0.7)
+     - an insult felt
+     - a promise to us broken
+     - a friend (sentiment ≥ 7) attacked in front of us
+     - a friend's killer, from the public death message (`killed_friend` barely fades)
+   - Kills announced in chat count toward the killer's power.
+   - **Code friction (§17.3):**
+     - someone digging within 5 blocks of where we are working (+0.03)
+     - being turned down (+0.05)
+     - at most once every 20 s per person
+   - **Power from what can be seen:** gear, kills announced, fights seen won, company, visible hurt.
+   - **Fear** = sigmoid(6·(theirs − mine − allies)) × (0.5 + caution), and it shrinks inside a mob.
+   - **Self-assessment (§21.3):** less intelligent agents misjudge their own fighting by N(0, 0.2·(1 − intelligence)), drawn once per life.
+   - **When it runs:** pressure is re-evaluated on each event and every 2 s for the people in sight. A rung relaxes after 10 minutes out of sight.
+2. **The ladder, rungs 0–3.** The thresholds (0.2, 0.35, 0.5) and the 0.15 hysteresis are as designed. Three rules go beyond the design:
+   - **Pacing:** a rung rises at most one step per 15 s. Without it, one bad moment went straight from nothing to a brawl.
+   - **Words before blows:** the gate refuses a deliberate fight below rung 2. An impulsive punch is exempt and only has to clear the lower bar.
+   - **No lethal rung yet:** rung 4 is capped off until M8b, whatever `maxRung` says. Until then, a fight is a brawl that ends in a yield.
+3. **What each rung does in the code default:**
+   - **Rung 0 (avoid):** keep 12 blocks from someone feared (≥ 0.7) and disliked (< 5) who comes within 6.
+   - **Rung 1:** hostile talk.
+   - **Rung 2:** threats.
+   - **Rung 3:** propose a brawl (`duel`), which still has to pass the gate.
+   - **Talking:** it answers someone at rung ≥ 1 in that stance, unless the CC just decided to say something else to them. Code-only agents use canned lines. A warning or threat doesn't wait out the 1–2 minute pause between friendly chats.
+   - **When the CC decides:** a rung going up wakes it at once, and so does someone we're at odds with coming within 12 blocks (the design's "X comes into sight"). This happens even mid-task; otherwise the CC only decides between tasks.
+     - "Coming near" fires at most once a minute per person, but again at once if the rung is higher than last time.
+     - In scenario I's first runs, the rungs rose while the rival was out of sight behind leaves (an unseen player is perceived only within 4 blocks), and the warnings and the brawl were lost or delayed by a minute.
+   - **Repetition:** hostile talk and threats toward the same person come at most every 3 minutes, and again whenever the rung rises.
+   - **The CC packet** lists resentment, fear, the rung and the worst grievance for each person nearby (§17.11).
+4. **The gate (§17.5)** is part of the CC's decision checks.
+   - **What it covers:** any decision that would fight a person goes through `mayFight` (option `fight`, or `attack`/`duel` on a person). Without a conflict core, nobody fights a person on purpose.
+   - **On refusal:** the reason goes back to the model, which decides again.
+   - **The checks, in order:** words first (rung ≥ 2), the threshold, the newcomer grace, the pair cooldown, and the world-wide cap. An impulse's punch is judged as an impulse.
+5. **The duel (§17.6, §21.3).**
+   - **Technique by tier:**
+     - Novices (< 0.3) spam-click at random 2–6 ticks.
+     - Trained fighters and better time their swings to the weapon's cooldown, with a jitter of 400 ms × (1 − combat) + 50 ms.
+   - **Our yield:**
+     - It comes at our yield health (4 + 6·caution), raised against a visible weapon whose next critical blow could finish us.
+     - The fighter stops, backs off, and says "ok ok, I yield!".
+   - **Their yield** is read from chat. `SURRENDER_RE` matches "I yield", "I give up", "you win" and a bare "enough!", but not "I've had enough of you" or the winner's "that's enough".
+   - **Never to the death.** The fighter also stops when:
+     - three of our blows in a row go unanswered and theirs have stopped for 5 s (a yield in deeds). The first version needed only 2 blows landed; in one run a fighter "won" that way while the other was still coming, then fled and gave up as well.
+     - they run off (10 blocks for 2 s)
+     - they've taken a reckoned beating (18 of 20, net of 0.4 HP/s regeneration)
+     - they call it off ("that's enough. stay out of my way."): over for both, with no winner
+   - **A fight that fizzles out:** if nobody lands a blow for 10 s, the fight is over with no winner (recorded as interrupted, with its cooldown).
+     - Without this, two fighters out of each other's reach (item 6) each read the other's silence as a yield and both claimed the win. It stays as the backstop.
+   - **Perception parity:**
+     - Other players' hearts aren't visible (§17.4), so the beating is reckoned from the blows that land, our weapon and their visible armor, never from health metadata.
+     - The reflex's damage race no longer reads people's health either; mobs are unchanged.
+   - **When a fight is settled:** someone yields, the winner calls it off ("that's enough. stay out of my way."), or our duel ends. The reflexes then leave the other person alone until they strike again.
+     - In the first live run, both fighters stopped at once, and each one's reflexes then fled from the other's earlier blows.
+   - **Running from a person:** the reflex flee says "ok ok, I give up!" once. It waits 1.5 s first, and says nothing if the chat has echoed a yield of ours in the meantime (a duel giving up says its own).
+   - **A yield already decided stands:** if the reflexes take over while the duel is backing off and saying it (a last blow sent the bot under its flee floor), the duel's record still says "yielded".
+   - **Fights the reflexes fight count too:** someone hit us, we hit back or ran, and the danger passed. The fight is recorded like a duel, with its pair cooldown: yielded if we said so, won if they did, interrupted otherwise.
+     - Without this, in scenario I the bot that only fought back started a second brawl 80 s after losing the first.
+   - **After a fight:**
+     - the record (`lastFight`) and a 300 s pair cooldown
+     - growth of +0.01, or +0.02 for a win over someone stronger, capped at +0.25 (§21.3)
+     - what onlookers learn: `fightsWonSeen` and `estCombat` ± 0.05
+   - **Witnesses (§17.6):** perception now names the attacker when one person hits another (the swing attribution of M1). Onlookers think less of the attacker (−0.5, at most once a minute), unless they hated the victim. A friend's attacker is a grievance and the ally-defense reflex's business, as before.
+   - **Left for M8b (§17.13):** ignoring a yield and mercy come with the lethal rung; at rung 3 a yield always ends the fight. A rung-2 threat is words only until demands create coercive commitments. `ambush`, `retreat`, `groupAttack` and the `demand`, `recruit` and `rally` options come with coalitions.
+6. **Staying within reach.** In 1 run in 3, both fighters stopped 3.1 blocks apart, each one "arrived", and the fight fizzled out. The causes are in the libraries; the fixes are in the body layer (`body/plugins.ts`, `skills/util.ts`):
+   - **Follow range.** M1 set pvp's attack range to 3, Paper's reach. pvp follows with a `GoalFollow` that re-aims only once the target strays farther than the follow range from where it was last seen, so at pvp's 2 a fighter could settle 3–4 blocks off. The follow range is now 1.
+   - **Re-aiming.** A fighter with a target, out of reach and standing still, whose goal is gone or aims at an old spot, aims again (at most once a second; a goal that aims right but has no way there is left alone).
+   - **Fight movements:** walk, jump and sprint, but no digging or towering one's way to someone (in one run a fighter's pathfinder spent a dirt block mid-brawl).
+   - **Stopping.** pvp's `stop()` waits up to 5 s for the pathfinder and then drops every `path_stop` listener on the bot, and it leaves the pathfinder a stop that wipes the next goal (by the code, a reflex flight from a fight would stand still until its first re-plan, 1.5 s later). Skills and reflexes now use `forceStop()`.
+   - **`stopMotion` on an idle pathfinder.** `pathfinder.stop()` sets a flag that an idle pathfinder never acts on, so the next goal set was wiped and its `goto` failed at once ("PathStopped", seen on pickups since M1). An idle pathfinder now has its goal cleared instead.
+   - **Words.** A person in danger memories is named ("I fought off Gorm", not "a attacker"), and someone talking to a bot in a brawl hears "not now!".
+7. **Fear damping (§21.3):**
+   - Fear from combat events (being hit, threatened, or watching a fight) is ×(1 − 0.6·combat).
+   - In a fight (option `fight`, or hit in the last 10 s), arousal is capped at 1 − 0.5·combat. A skilled fighter's override stays up, and so does its impulse threshold.
+8. **Fight slots (§17.10 `maxConcurrentFights`)** are Hub tokens like the speech guard.
+   - **Messages:** `fightStart`, `fightGrant` and `fightEnd`. A slot is freed on disconnect and lapses after 5 minutes.
+   - **The cap** is `world.conflict.maxConcurrentFights` (default 2), which `pnpm start` passes to the Hub.
+   - **Deviation:** the design has the Hub count fights from logs and never tell bots. A bare yes/no slot is the smallest working version of the cap, and the Hub-protocol test lists it with the other grants.
+   - **What the bot sees:** a refusal is remembered for 30 s. The gate then answers "you hold back for now", so the bot never learns that fights are going on elsewhere (§13: no unperceived information). The code default falls back to threats (rung 2), as §17.10 says.
+9. **Perceived abilities (§21.4):**
+   - `estCombat` comes from fights won and lost.
+   - `estIntelligence` comes from the L2 read of each conversation (`seemedClever`, moving a quarter of the way each time). This replaces the batched L1 rating with one extra field on a call that already happens. A lie caught adds 0.05 (cunning).
+   - Gossip about fights, and teaching recipes, come later.
+10. **Live exit test** (`tests/live/m6b-conflict.test.ts`, scenario I, code-only agents):
+   - Two quarrelsome brutes, Gorm and Brak, with a seeded history (sentiment 2, an old insult, logs taken), work the same grove. Wit, a plain client, listens 12 blocks away.
+   - **The arc:**
+     - rung 1 at 2 s: "what do you want?", "keep your distance.", "get lost."
+     - rung 2 at 18 s: "back off, or else.", "don't push me."
+     - rung 3 at 34 s: "leave, or we fight.", then one brawl
+   - **How the brawls ended:** in each run one side gave up and the other's duel stopped ("gave up", 15–21 blows landed).
+     - The one in a duel says "ok ok, I yield!" at about 5 HP (fists; yield at 4 + 6·caution). One who only fought back by reflex ran off with "ok ok, I give up!".
+     - Either of them can lose: in the three final runs Gorm lost twice and Brak once.
+     - In one earlier run both reached the threshold together and both yielded. That counts: no winner, both alive.
+     - The loser's fear of the winner rose (0.31 → 0.38–0.40), and nobody died. The lowest health after a fight was 3.3.
+   - **Results:** 3 of 3 runs on the final code, and 1/1 in the regression run. About a dozen earlier runs found the issues behind items 3, 5 and 6:
+     - rungs rising out of sight
+     - both fighters stopping at once and fleeing
+     - a yield lost when the reflexes took over
+     - a second brawl by the side that only fought back
+     - the winner answering a yield with a threat
+     - a "win" after two blows, while the other was still coming
+     - fights that fizzled out with both fighters out of reach
+11. **A gather loop without a cap (§13 rule 6), found by the regression run.**
+    - The M3 test with a model hung for five minutes in `obtain` → `gather`: a collect batch that resolved without any items arriving was simply tried again.
+    - Now each batch has a time limit (45 s plus 10 s a block, and then the collect plugin's task is cancelled). A batch that brings nothing in counts as a failure and its blocks are skipped, and the loop has a hard cap of qty + 12 rounds.
+    - `pickup`'s path got a time limit too.
+    - **Drops that roll away.** The collect plugin only goes after a drop that lands within half a block of the block's center. After a batch that brought nothing in, the skill walks over matching drops it can see within 3 blocks of where it dug before counting the batch a failure.
+    - **New information lifts a stuck mark (§4.6).** In the second regression run, M4's agent needed three raw iron. Each `prospect` showed one ore, each `obtain` dug it and then failed for want of the next, and one lost drop tipped `obtain` into "stuck". The code default then explored away from the ore it had just found. Now a `prospect` that finds an ore lifts the marks of tasks that failed for want of it.
+12. **A loop without a cap in mineflayer (§13 rule 6), found by the regression run.** In M6 scenario H, every bot in the test process timed out half a minute after the victim died. The process was at 100% CPU; the inspector, attached to the stuck worker, showed it spinning in mineflayer's `putSelectedItemRange`.
+    - That loop runs while the window it was given still has an item on the cursor, but `clickWindow` acts on whichever window is open now. The victim had died with an item on the cursor of a container window, most likely mid-craft. Once that window closed, every click went to the inventory and returned at once: a microtask loop that starved the event loop.
+    - Our mineflayer patch now gives up after 40 passes, or as soon as the window is no longer the open one or the connection has ended. An M1 live test holds a stack over a closed table and expects the put-back to fail at once.
+13. **Regression on the final M6b tree** (all live exit tests, one after another). Three more issues surfaced on the way and were fixed before the final run:
+    - **A timer that fired into a stopped agent.** All of M4's checks passed, but the run failed on an unhandled rejection. A Goal Gen run asked for "soon" fired after the agent had stopped and read the memory database after it had closed. Now:
+      - Goal Gen and the CC cancel their delayed runs on stop.
+      - Module runs log their errors instead of leaving them unhandled.
+      - Memory finds nothing once its database has closed, including a recall that was waiting on the embedder when it closed.
+      - A unit test reproduces the race.
+    - **A hand-over picked up late.** In one run of M6 scenario G, Wit picked up the bread after Pip's `give` had stopped watching. It had started watching only after stepping back, and only for 5 s. So the give failed, and the promise stayed open although the bread had arrived.
+      - The give now watches from the moment the items leave its hands, for 8 s, and reports what it tossed.
+      - If the receiver is seen picking those items up within a minute, the promise counts as kept (§6.6).
+    - **A test that assumed full health.** M1's flee test took 13 HP off a bot that the zombie before it had already hurt, which killed the bot. The test now heals it to full first.
+    - **Final result:** M1 skills 17/17, the M1 night test, M3 2/2, M4 3/3, M5 3/3, M6 8/8, M6a 3/3 and M6b 1/1, all green.
