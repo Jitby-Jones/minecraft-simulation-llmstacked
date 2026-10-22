@@ -43,6 +43,10 @@ export const SocialUpdateSchema = z.object({
   insultedMe: z.boolean().default(false),
   /** How clever they came across, 0..1 (§21.4 perceived intelligence). */
   seemedClever: z.number().min(0).max(1).optional(),
+  /** §19.1: the sex they came across as, from what they said of themselves or how others spoke of them. */
+  theirSex: z.enum(['male', 'female', 'unknown']).default('unknown'),
+  /** §19.2: how well we'd get on as partners, from what was perceived of them (values, humor, energy), 0..1. */
+  compatibility: z.number().min(0).max(1).optional(),
 });
 export type SocialUpdate = z.infer<typeof SocialUpdateSchema>;
 
@@ -324,7 +328,7 @@ export class SocialAwareness {
       messages: [
         {
           role: 'system',
-          content: `${personaCore(this.persona, s.traitAnnotations)}\n\nYou just finished talking with ${partner}. Update what you think of them, as yourself (your values and temper decide how their manner strikes you). JSON: {"sentimentDelta": -2..2, "frictionDelta": -0.3..0.3, "frictionReason": "...", "perceivedGoals": ["..."], "perceivedRole": "...", "facts": ["new things you learned about them or from them"], "summary": "at most 60 words about ${partner}", "opinions": [{"target": "a name they talked about", "valence": -1..1}], "insultedMe": false, "seemedClever": 0..1}`,
+          content: `${personaCore(this.persona, s.traitAnnotations)}\n\nYou just finished talking with ${partner}. Update what you think of them, as yourself (your values and temper decide how their manner strikes you). JSON: {"sentimentDelta": -2..2, "frictionDelta": -0.3..0.3, "frictionReason": "...", "perceivedGoals": ["..."], "perceivedRole": "...", "facts": ["new things you learned about them or from them"], "summary": "at most 60 words about ${partner}", "opinions": [{"target": "a name they talked about", "valence": -1..1}], "insultedMe": false, "seemedClever": 0..1, "theirSex": "male|female|unknown", "compatibility": 0..1}. theirSex only if they said so or someone called them he or she, else unknown. compatibility: how well you two would get on as partners (shared values and humor, an energy that suits yours), from what you saw of them; leave it out if you can't tell.`,
         },
         {
           role: 'user',
@@ -359,6 +363,11 @@ export class SocialAwareness {
       summary: u.summary ? u.summary.split(/\s+/).slice(0, 60).join(' ') : p.summary,
       // §21.4: how clever they seem builds up over conversations.
       ...(u.seemedClever !== undefined ? { estIntelligence: p.estIntelligence + (u.seemedClever - p.estIntelligence) * 0.25 } : {}),
+      // §19.1, §19.2: what they are, once it's clear; how well we'd get on, first judged, then refreshed.
+      ...(u.theirSex !== 'unknown' && p.perceivedSex === 'unknown' ? { perceivedSex: u.theirSex } : {}),
+      ...(u.compatibility !== undefined
+        ? { estTraits: { ...p.estTraits, compatibility: Math.round((p.estTraits.compatibility === undefined ? u.compatibility : p.estTraits.compatibility + (u.compatibility - p.estTraits.compatibility) * 0.3) * 100) / 100 } }
+        : {}),
     };
     // §17.3: lasting friction wears sentiment down slowly.
     if (p.friction > 0.5) p = { ...p, sentiment: Math.max(0, p.sentiment - 0.2) };

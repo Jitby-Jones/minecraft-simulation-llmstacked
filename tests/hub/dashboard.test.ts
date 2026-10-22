@@ -121,6 +121,18 @@ describe('the dashboard model', () => {
     expect((m.overview() as { power: { hour: Record<string, number> } }).power.hour.brawls).toBe(0);
   });
 
+  it('shows couples (§19.2), each pair once', () => {
+    const { m, t } = model();
+    for (const [i, [name, partner]] of [['Ned', 'Ivy'], ['Ivy', 'Ned'], ['Bo', 'Cy'], ['Max', null]].entries()) {
+      m.online(name ?? '', `s${i}`);
+      m.telemetry(name ?? '', 'state', t.now, { partner });
+    }
+    expect((m.overview() as { couples: [string, string][] }).couples).toEqual([
+      ['Bo', 'Cy'],
+      ['Ivy', 'Ned'],
+    ]);
+  });
+
   it('counts tokens per hour by module, tier and agent, and projects when the weekly quota runs out', () => {
     const { m, t } = model();
     const cost = (agent: string, module: 'cc' | 'talking', tier: 'L1' | 'L2', input: number) => m.cost(agent, { t: 'cost', module, tier, model: 'm', inputTokens: input, outputTokens: 10, ms: 100, ok: true });

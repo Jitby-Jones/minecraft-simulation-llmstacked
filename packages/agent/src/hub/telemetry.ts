@@ -48,6 +48,7 @@ export function startTelemetry(o: TelemetryOptions): () => void {
         ...(d.target?.agent ? { target: d.target.agent } : {}),
         ...(d.speechIntent ? { stance: d.speechIntent.stance, gist: d.speechIntent.gist, mayCommit: d.speechIntent.mayCommit } : {}),
         ...(d.fight ? { fight: { target: d.fight.target, intent: d.fight.intent } } : {}),
+        ...(d.romance ? { romance: { with: d.romance.with, phase: d.romance.phase, ...(d.romance.reaction ? { reaction: d.romance.reaction } : {}) } } : {}),
         rationale: d.rationale,
         stateVersion: d.stateVersion,
       });
@@ -112,6 +113,7 @@ export function startTelemetry(o: TelemetryOptions): () => void {
       goal: s.goals.current?.text ?? null,
       role: s.goals.role ?? null,
       leader: Object.values(s.social).find((p) => p.allegiance === 'leader')?.name ?? null,
+      partner: s.family.partner ?? null,
       village: s.goals.social.filter((g) => g.status === 'active').map((g) => g.text),
       option: opt ? { option: opt.option, status: opt.status, startedAt: opt.startedAt, ...(opt.skill ? { skill: opt.skill, args: brief(opt.args) } : {}), ...(opt.progress ? { progress: opt.progress } : {}), ...(opt.targetAgent ? { target: opt.targetAgent } : {}) } : null,
       emotions: { anger: r2(e.anger), fear: r2(e.fear), joy: r2(e.joy), sadness: r2(e.sadness), shame: r2(e.shame), envy: r2(e.envy), affection: r2(e.affection), arousal: r2(e.arousal) },
@@ -143,6 +145,9 @@ export function startTelemetry(o: TelemetryOptions): () => void {
         rung: s.conflict.rungs[p.name] ?? 0,
         lastSeen: p.lastSeen,
         ...(p.lastFight ? { lastFight: p.lastFight.outcome } : {}),
+        // §19.2: how far it has gone with them, as this agent sees it.
+        ...(p.relationship !== 'none' ? { relationship: p.relationship } : {}),
+        ...(p.romanticInterest >= 0.05 ? { romanticInterest: r2(p.romanticInterest) } : {}),
         grievances: p.grievances.length,
       }));
     send('social', { people });

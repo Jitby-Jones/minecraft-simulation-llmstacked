@@ -333,6 +333,7 @@ export class DashboardModel {
       agents: agents.map((a) => this.summary(a)),
       society: this.society(),
       power: this.powerView(),
+      couples: this.couples(),
       events: this.events.last(40).reverse(),
       problems: this.problems.last(20).reverse(),
     };
@@ -408,6 +409,18 @@ export class DashboardModel {
         coerced: count('coerced'),
       },
     };
+  }
+
+  /** §19.2: who is whose partner among those online, each pair once (one side saying so is enough to show it). */
+  couples(): [string, string][] {
+    const out = new Map<string, [string, string]>();
+    for (const v of this.agents.values()) {
+      const p = v.state?.partner;
+      if (!v.online || typeof p !== 'string' || !p) continue;
+      const pair = [v.name, p].sort() as [string, string];
+      out.set(pair.join('+'), pair);
+    }
+    return [...out.values()].sort((a, b) => a[0].localeCompare(b[0]));
   }
 
   /** Who thinks what of whom (§18.8 heatmaps): one cell per observer and person they know. */

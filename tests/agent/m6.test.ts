@@ -89,6 +89,8 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
             summary: 'Bram is friendly and busy building.',
             opinions: [{ target: 'Cass', valence: -0.8 }],
             seemedClever: 0.9,
+            theirSex: 'male',
+            compatibility: 0.7,
           }),
         };
       }
@@ -117,6 +119,9 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
     sa.claimFailed('Bram');
     expect(s.state.social.Bram?.estIntelligence).toBeCloseTo(0.65, 5);
     expect(s.state.heardOpinions).toEqual([{ speaker: 'Bram', target: 'Cass', valence: -0.8, ts: 5000 }]);
+    // §19.1, §19.2: what he came across as, and how well they'd get on as partners.
+    expect(p?.perceivedSex).toBe('male');
+    expect(p?.estTraits.compatibility).toBe(0.7);
     expect(s.state.commitments[0]).toMatchObject({ debtor: 'Bram', creditor: 'Pip', status: 'accepted', what: { kind: 'give', item: 'oak_log', qty: 8 }, dueBy: 5000 + 300_000 });
     sa.stop();
     rt.stop();

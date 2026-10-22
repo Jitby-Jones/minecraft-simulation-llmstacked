@@ -246,8 +246,8 @@ export class RomanceWatch implements RomanceView {
     const tg = this.together.get(name);
     const shared = tg ? (tg.s * 0.5 ** ((t - tg.at) / TOGETHER_HALF_LIFE_MS)) / TOGETHER_FULL_S : 0;
     const gifts = (this.giftsFrom.get(name) ?? []).filter((at) => t - at < GIFTS_MS).length / 3;
-    // Without a model, how well we'd get on is read from how we've come to feel about them.
-    const compatibility = clamp01(0.35 + 0.65 * ((this.liking(name) - 3) / 7));
+    // How well we'd get on: as L2 judged it after talking (§19.2); without a model, read from how we've come to feel.
+    const compatibility = p.estTraits.compatibility ?? clamp01(0.35 + 0.65 * ((this.liking(name) - 3) / 7));
     const superficial = clamp01(0.3 + 0.7 * Math.max(p.gearScore, p.admiration));
     return attraction(s.self.persona.mind.vanity, { superficial, compatibility, sharedTime: clamp01(shared), gifts: clamp01(gifts) }) * this.fit(name);
   }

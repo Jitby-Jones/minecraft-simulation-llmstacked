@@ -71,6 +71,7 @@ interface Overview {
     leaders: { name: string; followers: string[] }[];
     hour: { brawls: number; lethal: number; yields: number; kills: number; defections: number; uprisings: number; coerced: number };
   };
+  couples: [string, string][];
   events: Row[];
   problems: Row[];
 }
@@ -569,11 +570,15 @@ function renderVillage(o: Overview): void {
     cls: 'muted',
     text: `${plural(h.brawls, 'brawl', 'brawls')}, ${plural(h.lethal, 'fight', 'fights')} to the death; ${plural(h.yields, 'yield', 'yields')}, ${plural(h.kills, 'kill', 'kills')}; ${plural(h.uprisings, 'uprising', 'uprisings')} agreed, ${plural(h.defections, 'defection', 'defections')}; ${plural(h.coerced, 'payment', 'payments')} under threat.`,
   });
+  // §19.2: partners.
+  const couples = el('ol', { cls: 'feed' }, o.couples.length > 0 ? o.couples.map(([a, b]) => el('li', {}, [el('span', { cls: 'who', text: `${a} and ${b}` })])) : [el('li', { cls: 'empty', text: 'No couples yet.' })]);
   $('village').replaceChildren(
     el('h3', { text: 'Roles' }),
     rolesList,
     el('h3', { text: 'Who follows whom' }),
     followList,
+    el('h3', { text: 'Couples' }),
+    couples,
     el('h3', { text: 'Power (last hour)' }),
     hour,
     el('h3', { text: 'What people talk about (last hour)' }),
