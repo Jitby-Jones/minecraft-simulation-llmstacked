@@ -230,6 +230,31 @@ describe('goal generation (§4.2 module 10)', () => {
     }
   });
 
+  it('without a model, a goal not finished in 20 minutes is given up for the next one', async () => {
+    let t = 0;
+    const s = store();
+    const set: string[] = [];
+    const gg = new GoalGen({
+      store: s,
+      bus: new AgentBus(),
+      logger: nullLogger(),
+      llm: null,
+      me: 'Pip',
+      now: () => t,
+      setGoal: (text) => {
+        set.push(text);
+        s.update('goals', (g) => ({ ...g, current: { id: `g${set.length}`, text, kind: 'current', createdAt: t, status: 'active' } }), 'goal');
+      },
+    });
+    s.update('goals', (g) => ({ ...g, current: { id: 'g0', text: 'tame a wolf', kind: 'current', createdAt: 0, status: 'active' } }), 'goal');
+    t = 19 * 60_000;
+    await gg.run('periodic');
+    expect(set).toEqual([]);
+    t = 21 * 60_000;
+    await gg.run('periodic');
+    expect(set).toEqual(['make a wooden pickaxe']);
+  });
+
   it('nothing runs into a stopped agent: a run asked for soon is dropped, and memory read after its database closed finds nothing', async () => {
     const s = store();
     const db = new MemoryDB(':memory:');

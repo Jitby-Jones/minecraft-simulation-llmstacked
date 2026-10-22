@@ -26,6 +26,9 @@ export const GoalOutputSchema = z.object({
 });
 export type GoalOutput = z.infer<typeof GoalOutputSchema>;
 
+/** A goal the code default has not finished in this long is given up: without a model nothing else would. */
+export const STALE_GOAL_MS = 20 * 60_000;
+
 function held(s: AgentState, item: string): number {
   return s.self.inventory.filter((x) => x.item === item).reduce((a, x) => a + x.qty, 0);
 }
@@ -131,6 +134,8 @@ export class GoalGen {
     const s = this.o.store.state;
     if (this.stopped || s.flags.inDanger) return;
     let out: { text: string; doneWhen?: string } | null = null;
+    /** The model answered (a new goal, or keep the current one): its call, not the code default's. */
+    let answered = false;
     if (this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('goal')) {
       const guard = this.o.store.guard(SLOW_POLICY);
       try {
@@ -181,6 +186,7 @@ export class GoalGen {
           ],
         });
         if (!r.ok && r.reason === 'stale') return;
+        answered = r.ok;
         if (r.ok && !r.value.keep && r.value.goal) {
           const g = r.value.goal;
           const checkable = g.doneWhen && evalCondition(g.doneWhen, s) !== null ? g.doneWhen : undefined;
@@ -191,8 +197,11 @@ export class GoalGen {
       }
     }
     if (this.stopped) return;
-    out ??= codeGoal(this.o.store.state);
-    if (!out || out.text === this.o.store.state.goals.current?.text) return;
+    const now = this.o.store.state;
+    const stale = !answered && now.goals.current && this.now() - now.goals.current.createdAt > STALE_GOAL_MS;
+    out ??= codeGoal(stale ? { ...now, goals: { ...now.goals, current: null } } : now);
+    // A stale goal set again starts afresh (its villageWork counts from now).
+    if (!out || (!stale && out.text === this.o.store.state.goals.current?.text)) return;
     this.o.logger.info({ module: 'goal', reason, goal: out.text, doneWhen: out.doneWhen }, 'new goal');
     this.o.setGoal(out.text, out.doneWhen);
   }
