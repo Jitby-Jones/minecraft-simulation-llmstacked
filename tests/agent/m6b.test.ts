@@ -228,6 +228,14 @@ describe('fights end in a yield (§17.6)', () => {
     expect(b.s.state.workmem.at(-1)?.text).toBe('I beat Rex in a fight');
     // Our own fight ending settles it: their earlier blows no longer make them a threat.
     expect(b.ce.settled('Rex', b.t.now - 1000)).toBe(true);
+    // Whoever else struck us meanwhile was in that fight too: it is over with them, with its cooldown.
+    const g = evaluator(brute);
+    g.s.update('social', (all) => ({ ...all, Bo: newSocialProfile('Bo', brute, 0) }));
+    g.bus.emit({ type: 'attacked', by: 'Bo', damage: 3 });
+    g.t.now += 2000;
+    g.bus.emit({ type: 'actionRecorded', record: { id: 'r', skill: 'duel', args: { target: 'Rex' }, expected: '', observed: 'Rex took a beating', ok: true, ts: 0, durationMs: 1, data: { outcome: 'won' } } });
+    expect(g.s.state.conflict.pairCooldownUntil.Bo).toBe(g.t.now + 300_000);
+    expect(g.s.state.social.Bo?.lastFight?.outcome).toBe('interrupted');
   });
 
   it('a fight the reflexes fought counts too: recorded with its cooldown when the danger passes', () => {
@@ -261,6 +269,11 @@ describe('fights end in a yield (§17.6)', () => {
     // A blow right after the yield (a last swing) is the same fight; one a while after starts a new one.
     expect(b.ce.settled('Rex', b.t.now + 500)).toBe(true);
     expect(b.ce.settled('Rex', b.t.now + 9000)).toBe(false);
+    // So does a second one, however soon: a parting blow is one.
+    b.bus.emit({ type: 'attacked', by: 'Rex', damage: 2 });
+    expect(b.ce.settled('Rex', b.t.now + 500)).toBe(true);
+    b.bus.emit({ type: 'attacked', by: 'Rex', damage: 2 });
+    expect(b.ce.settled('Rex', b.t.now + 1000)).toBe(false);
     expect(b.s.state.social.Ann?.fightsWonSeen).toBe(1);
     b.t.now += 31_000;
     expect(b.ce.settled('Rex')).toBe(false);

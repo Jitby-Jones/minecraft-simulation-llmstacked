@@ -161,6 +161,9 @@ const DEAL_DUE_SEC = 600;
 const DUSK = 12_500;
 /** Hostile talk toward the same person at most this often. */
 const WARN_EVERY_MS = 3 * 60_000;
+/** Options that are about a person: the same one with someone else is another option (an answer's person is only
+ *  whom it is said to). */
+const WITH_SOMEONE: ReadonlySet<string> = new Set(['talk', 'trade', 'demand', 'recruit', 'follow', 'help']);
 /** Grumbling to the same friend, or calling on the same person to rise, at most this often. */
 const SPOKE_EVERY_MS = 10 * 60_000;
 /** A question put to us is still worth answering this long after it was asked. */
@@ -478,12 +481,26 @@ export function tributeDue(commitments: readonly Commitment[], me: AgentName, na
 
 /** When we last said a demand to them (§17.7), as our side of the conversations with them has it; −∞ if never. */
 export function lastDemandSaid(s: AgentStateStore['state'], name: AgentName): number {
+  return lastSaidTo(s, name, (text) => Boolean(parseDemand(text)));
+}
+
+/** When we last said something (`which`: a line like that) in a conversation they're in. */
+export function lastSaidTo(s: AgentStateStore['state'], name: AgentName, which: (text: string) => boolean = () => true): number {
   let last = -Infinity;
   for (const c of Object.values(s.conversations)) {
     if (!c.participants.includes(name)) continue;
-    for (const u of c.transcript) if (u.from === s.self.username && u.ts > last && parseDemand(u.text)) last = u.ts;
+    for (const u of c.transcript) if (u.from === s.self.username && u.ts > last && which(u.text)) last = u.ts;
   }
   return last;
+}
+
+/** A warning or a threat we're on our way to say: its option still running, and nothing said to them since. */
+export function owesThreat(s: AgentStateStore['state']): boolean {
+  const d = s.decision;
+  const who = d?.target?.agent;
+  const stance = d?.speechIntent?.stance;
+  if (!d || !who || (stance !== 'threaten' && stance !== 'hostile')) return false;
+  return s.option?.decisionId === d.id && s.option.status === 'running' && lastSaidTo(s, who) < d.createdAt;
 }
 
 /** §17.7: they owe us under threat, or paid up lately; either way a demand of ours is working on them. */
@@ -532,7 +549,9 @@ export function codeDecision(
     if (food) return food;
     if (!ctx.atOdds || !social?.conflict) return null;
     // Someone we're at odds with came near: the one we swore to take on (with the others at hand), or the rungs.
-    return (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking, social.power?.leader());
+    const move = (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking, social.power?.leader());
+    // A threat we're on our way to say is said before the next one; only blows come first.
+    return move && move.option !== 'fight' && owesThreat(s) ? null : move;
   }
   // Starving with nothing to eat comes before anything, even the night (§16.3: carry food).
   const starving = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
@@ -678,8 +697,9 @@ export class CognitiveController {
   private readonly now: () => number;
 
   private readonly rng: () => number;
-  /** When we last warned someone off, and at which rung (words come now and then, and again when it gets worse). */
-  private readonly warned = new Map<AgentName, { at: number; rung: number }>();
+  /** When we last warned someone off (or meant to: `line`, by the decision), and at which rung (words come now and
+   *  then, and again when it gets worse). */
+  private readonly warned = new Map<AgentName, { at: number; rung: number; decisionId: string; line: boolean }>();
   /** When we last grumbled to someone, or called on them to rise (`inform:Y`, `rally:Y`). */
   private readonly spoke = new Map<string, number>();
 
@@ -968,7 +988,10 @@ export class CognitiveController {
         demandedLately: (n) => t - lastDemandSaid(store.state, n) < DEMANDED_LATELY_MS,
         warnedLately: (n) => {
           const w = this.warned.get(n);
-          return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);
+          if (!w || t - w.at >= WARN_EVERY_MS || c.rungOf(n) > w.rung) return false;
+          // A line counts once said, or while we're still on our way to say it.
+          const o = store.state.option;
+          return !w.line || lastSaidTo(store.state, n) >= w.at || (o?.decisionId === w.decisionId && o.status === 'running');
         },
       };
       out = codeDecision(store.state, ctx, busy, isStuck, {
@@ -1007,7 +1030,8 @@ export class CognitiveController {
     // Warning someone off, or walking away from them, counts toward the next one (WARN_EVERY_MS).
     const stance = decision.speechIntent?.stance;
     const who = decision.target?.agent;
-    if (who && (stance === 'hostile' || stance === 'threaten' || (decision.option === 'move' && decision.target?.pos))) this.warned.set(who, { at: now, rung: this.o.conflict?.rungOf(who) ?? 0 });
+    const line = stance === 'hostile' || stance === 'threaten';
+    if (who && (line || (decision.option === 'move' && decision.target?.pos))) this.warned.set(who, { at: now, rung: this.o.conflict?.rungOf(who) ?? 0, decisionId: decision.id, line });
     if (who && (stance === 'inform' || stance === 'rally')) this.spoke.set(`${stance}:${who}`, now);
     // Our own promises become commitments and tasks only when the CC allowed committing (§6.4); accepting a deal
     // also records their half of it (§6.6).
@@ -1018,9 +1042,11 @@ export class CognitiveController {
       this.recordPromises([...own, ...deal], ctx.convId ?? '');
     }
     const cur = store.state.option;
+    // The same thing goes on; but talking to (or following, helping) someone else is a new option.
     const sameTask =
       cur?.status === 'running' &&
       cur.option === decision.option &&
+      (!WITH_SOMEONE.has(decision.option) || (cur.targetAgent ?? null) === (decision.target?.agent ?? null)) &&
       (!decision.task || (cur.skill !== undefined && taskKey(cur.skill, cur.args ?? {}) === taskKey(decision.task.skill, decision.task.args)));
     if (!sameTask) {
       // A queued task that is now being run leaves the queue (promise tasks only once they succeed).

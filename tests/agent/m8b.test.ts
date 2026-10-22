@@ -23,7 +23,8 @@ import {
 import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
 import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/power';
 import { spareChance } from '@agora/agent/conflict/pressure';
-import { type ConflictView, codeDecision, lastDemandSaid, paying, tributeDue, validateDecision } from '@agora/agent/modules/cc';
+import { ActionAwareness } from '@agora/agent/modules/awareness';
+import { CognitiveController, type ConflictView, codeDecision, lastDemandSaid, lastSaidTo, owesThreat, paying, tributeDue, validateDecision } from '@agora/agent/modules/cc';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
 import { SocialAwareness, codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
@@ -174,6 +175,69 @@ describe('demands and compliance (§17.7)', () => {
     expect(busyNo && validateDecision(busyNo, env)).toBeNull();
     const stuck = (skill: string) => skill === 'obtain';
     expect(codeDecision(working, { from: 'Rex', convId: 'c1' }, true, stuck, { candidates: [], roll: 1, conflict: view(0.6) })).toMatchObject({ option: 'rest', speechIntent: { stance: 'hostile' } });
+  });
+});
+
+describe('a demand on its way (§17.7)', () => {
+  it('is said before the next one; one that never got said is made again, and one said counts', async () => {
+    const s = world(tyrant, ['Tib', 'Pia']);
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Tib', 9), ent('Pia', 10)] }));
+    const bus = new AgentBus();
+    const walks: ((r: unknown) => void)[] = [];
+    const body = { skill: () => null, run: () => new Promise((resolve) => walks.push(resolve)) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    // Tib is the worse of the two; neither may be beaten yet.
+    const conflict = { rungOf: (n: string) => (n === 'Tib' ? 3 : 2), fearOf: () => 0, mayFight: () => 'not yet' };
+    const clock = { now: 10_000_000 };
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Rex', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, rng: () => 0.99, now: () => clock.now });
+    const settle = () => new Promise((r) => setTimeout(r, 20));
+    executor.start();
+    cc.start();
+    cc.trigger('Tib is here', { urgent: true, atOdds: 'Tib' });
+    await settle();
+    expect(s.state.decision).toMatchObject({ option: 'demand', target: { agent: 'Tib' } });
+    expect(s.state.option).toMatchObject({ option: 'demand', targetAgent: 'Tib', skill: 'goTo' });
+    expect(owesThreat(s.state)).toBe(true);
+    // Pia comes near while we walk over to Tib: Tib hears the demand first.
+    const first = s.state.decision?.id;
+    cc.trigger('Pia is here', { urgent: true, atOdds: 'Pia' });
+    await settle();
+    expect(s.state.decision?.id).toBe(first);
+    // Tib walked off and the walk came to nothing before a word was said: Tib is asked again, not passed over.
+    clock.now += 5000;
+    walks.shift()?.({ id: 'w', skill: 'goTo', args: { agent: 'Tib', range: 4 }, ok: false, expected: 'within 6 of Tib', observed: '8.2 blocks from Tib', error: 'expected within 6 of Tib but saw 8.2', startedAt: 0, durationMs: 1 });
+    await settle();
+    expect(s.state.decision).toMatchObject({ option: 'demand', target: { agent: 'Tib' } });
+    expect(s.state.decision?.id).not.toBe(first);
+    // Said, it counts: the next demand is Pia's, and it is a new option (walking over to Pia, not on to Tib).
+    const at = clock.now + 1;
+    s.update('conversations', (cs) => ({
+      ...cs,
+      d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: at, lastActivity: at, turns: 1, myTurns: 1, lastEmbeds: [], status: 'active', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: at, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false },
+    }));
+    expect(owesThreat(s.state)).toBe(false);
+    expect(lastSaidTo(s.state, 'Tib')).toBe(at);
+    expect(lastSaidTo(s.state, 'Tib', (t) => t.startsWith('hello'))).toBe(-Infinity);
+    cc.trigger('Pia is here', { urgent: true, atOdds: 'Pia' });
+    await settle();
+    expect(s.state.decision).toMatchObject({ option: 'demand', target: { agent: 'Pia' } });
+    expect(s.state.option?.targetAgent).toBe('Pia');
+    cc.stop();
+    executor.stop();
+  });
+
+  it('only blows come before it', () => {
+    const s = world(tyrant, ['Tib', 'Pia']);
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Tib', 9), ent('Pia', 5)] }));
+    s.set('decision', { id: 'd1', createdAt: 100, stateVersion: 1, source: 'default', option: 'demand', target: { agent: 'Tib' }, speechIntent: { stance: 'threaten', gist: 'give me 3 bread, or else', mayCommit: false }, terminate: { maxSeconds: 40 }, rationale: 't' }, 'test');
+    s.set('option', { decisionId: 'd1', option: 'demand', startedAt: 100, maxSeconds: 40, targetAgent: 'Tib', status: 'running' }, 'test');
+    const view = (refused: boolean): ConflictView => ({ rungOf: () => 3, fearOf: () => 0, mayBrawl: () => true, demandPending: () => false, demandedLately: (n) => refused && n === 'Pia', warnedLately: (n) => n === 'Tib' });
+    expect(codeDecision(s.state, { atOdds: 'Pia' }, true, never, { candidates: [], roll: 1, conflict: view(false) })).toBeNull();
+    expect(codeDecision(s.state, { atOdds: 'Pia' }, true, never, { candidates: [], roll: 1, conflict: view(true) })).toMatchObject({ option: 'fight', target: { agent: 'Pia' } });
+    // Its option over, nothing is owed any more.
+    s.update('option', (o) => (o ? { ...o, status: 'failed' } : o), 'test');
+    expect(owesThreat(s.state)).toBe(false);
   });
 });
 

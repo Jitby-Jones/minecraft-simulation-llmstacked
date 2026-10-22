@@ -86,6 +86,8 @@ export class ConflictEvaluator {
   private readonly escalatedAt = new Map<AgentName, number>();
   /** When a fight with each person was last settled: they gave up or called it off, or our duel with them ended. */
   private readonly settledAt = new Map<AgentName, number>();
+  /** Their blows since then: one is a parting blow; another is a new fight (§17.6). */
+  private readonly blowsSince = new Map<AgentName, number>();
   /** §21.3 self-assessment: the less intelligent misjudge their own fighting, once per life. */
   private readonly misjudge: number;
   private timer: NodeJS.Timeout | null = null;
@@ -104,6 +106,7 @@ export class ConflictEvaluator {
       b.on('attacked', (e) => {
         if (!e.by || !this.isPerson(e.by)) return;
         this.hitBy.set(e.by, this.now());
+        if (this.settledAt.has(e.by)) this.blowsSince.set(e.by, (this.blowsSince.get(e.by) ?? 0) + 1);
         this.grieve(e.by, 'attack', true, `${e.by} hit me`, 0.3 + Math.min(0.4, e.damage / 10));
         this.provoke(e.by, 0.5);
       }),
@@ -155,7 +158,10 @@ export class ConflictEvaluator {
     this.offs.push(
       b.on('actionRecorded', (e) => {
         const r = e.record;
-        if (r.skill === 'duel' && typeof r.args.target === 'string') this.fought(r.args.target, typeof r.data?.outcome === 'string' ? r.data.outcome : 'interrupted');
+        if (r.skill !== 'duel' || typeof r.args.target !== 'string') return;
+        this.fought(r.args.target, typeof r.data?.outcome === 'string' ? r.data.outcome : 'interrupted');
+        // Whoever else struck us meanwhile was in that fight too, and it is over with them as well.
+        this.foughtTheRest();
       }),
     );
     this.offs.push(b.on('heard', (e) => this.onSurrender(e.utterance.from, e.utterance.text)));
@@ -168,20 +174,7 @@ export class ConflictEvaluator {
     );
     // A fight fought by the reflexes (we hit back, or ran) is a fight too: when the danger passes, it is recorded
     // like a duel, with its pair cooldown, so neither side starts another right away (§17.10).
-    this.offs.push(
-      b.on('dangerCleared', () => {
-        const t = this.now();
-        for (const [name, at] of this.hitBy) {
-          if (t - at > FIGHT_WINDOW_MS) {
-            this.hitBy.delete(name);
-            continue;
-          }
-          if (t - (this.foughtAt.get(name) ?? -Infinity) < FIGHT_WINDOW_MS) continue;
-          const outcome = t - this.yieldedAt < FIGHT_WINDOW_MS ? 'yielded' : t - (this.surrenderedAt.get(name) ?? -Infinity) < FIGHT_WINDOW_MS ? 'won' : 'interrupted';
-          this.fought(name, outcome);
-        }
-      }),
-    );
+    this.offs.push(b.on('dangerCleared', () => this.foughtTheRest()));
     // §17.3 code friction: working the same spot we are, or turning us down.
     this.offs.push(
       b.on('observedAction', (e) => {
@@ -211,6 +204,25 @@ export class ConflictEvaluator {
     this.update(name, (p) => ({ ...p, friction: Math.min(1, p.friction + d) }), `friction: ${why}`);
   }
 
+  /** Everyone who struck us lately and whose fight with us isn't on record yet: a fight that ended (§17.10). */
+  private foughtTheRest(): void {
+    const t = this.now();
+    for (const [name, at] of this.hitBy) {
+      if (t - at > FIGHT_WINDOW_MS) {
+        this.hitBy.delete(name);
+        continue;
+      }
+      if (t - (this.foughtAt.get(name) ?? -Infinity) < FIGHT_WINDOW_MS) continue;
+      const outcome = t - this.yieldedAt < FIGHT_WINDOW_MS ? 'yielded' : t - (this.surrenderedAt.get(name) ?? -Infinity) < FIGHT_WINDOW_MS ? 'won' : 'interrupted';
+      this.fought(name, outcome);
+    }
+  }
+
+  private settle(name: AgentName, t: number): void {
+    this.settledAt.set(name, t);
+    this.blowsSince.set(name, 0);
+  }
+
   /** One of our fights ended: the record, a pair cooldown, and what we learned (§17.6, §21.3 growth). */
   private fought(target: AgentName, outcome: string): void {
     const t = this.now();
@@ -230,7 +242,7 @@ export class ConflictEvaluator {
       }),
       'a fight',
     );
-    this.settledAt.set(target, t);
+    this.settle(target, t);
     this.o.store.update('conflict', (c) => ({ ...c, pairCooldownUntil: { ...c.pairCooldownUntil, [target]: t + this.o.config.pairCooldownSec * 1000 } }), 'fight over');
     // §21.3 growth: every fight survived teaches a little, a win against someone stronger more (capped at +0.25).
     const g = 0.01 + (won && stronger ? 0.01 : 0);
@@ -241,19 +253,20 @@ export class ConflictEvaluator {
 
   /** A fight with them was settled after `since` (their last blow), in the last half minute: they gave up or called
    *  it off, or our duel with them ended. The reflexes leave such a person be until they strike again (§17.6); a
-   *  blow just after (a parting blow, a last swing before they knew it was over) is still that fight, not a new one. */
+   *  blow just after (a parting blow, a last swing before they knew it was over) is still that fight, not a new one,
+   *  but a second is. */
   settled(name: AgentName, since = -Infinity): boolean {
     const at = this.settledAt.get(name);
-    return at !== undefined && this.now() - at < 30_000 && since - at < SETTLED_GRACE_MS;
+    return at !== undefined && this.now() - at < 30_000 && since - at < SETTLED_GRACE_MS && (this.blowsSince.get(name) ?? 0) <= 1;
   }
 
   /** Someone gave up a fight in front of us: the other one won (§17.4 fights won, §21.4 perceived combat). */
   private onSurrender(loser: AgentName, text: string): void {
     if (loser === this.o.me) return;
     const t = this.now();
-    if (CALL_OFF_RE.test(text)) this.settledAt.set(loser, t);
+    if (CALL_OFF_RE.test(text)) this.settle(loser, t);
     if (!SURRENDER_RE.test(text)) return;
-    this.settledAt.set(loser, t);
+    this.settle(loser, t);
     this.surrenderedAt.set(loser, t);
     const fight = [...this.o.store.state.perception.observedActions]
       .reverse()
