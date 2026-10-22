@@ -622,6 +622,26 @@ describe('followers and leaders, as onlookers see them (§17.7)', () => {
     expect(w.pw.leader()).toBeNull();
   });
 
+  it('blows by two within a minute are a group setting upon the leader; a minute apart, two fights', () => {
+    const at = (gap: number) => {
+      const w = watch(meek);
+      const paid = (i: number): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${i}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status: 'fulfilled', resolvedAt: w.t.now - i * 60_000 });
+      w.s.update('commitments', () => [paid(1), paid(2)]);
+      w.fears.Rex = 0.8;
+      w.tick();
+      expect(w.pw.leader()).toBe('Rex');
+      w.powers.Bo = 0.5;
+      w.powers.Cy = 0.5;
+      w.fears.Rex = 0.3;
+      w.bus.emit({ type: 'observedAction', action: { id: 'a1', actor: 'Bo', kind: 'attack', target: 'Rex', ts: w.t.now } });
+      w.t.now += gap;
+      w.bus.emit({ type: 'observedAction', action: { id: 'a2', actor: 'Cy', kind: 'attack', target: 'Rex', ts: w.t.now } });
+      return w.pw.standsBy('Rex');
+    };
+    expect(at(40_000)).toBe(false);
+    expect(at(70_000)).toBe(true);
+  });
+
   it('a loyal follower who likes the leader stands by them against the same group', () => {
     expect(defects({ loyalty: 0.9, sentiment: 8, fearOfLeader: 0.5, fearOfCoalition: 0.8 })).toBe(false);
     expect(defects({ loyalty: 0.4, sentiment: 3, fearOfLeader: 0.3, fearOfCoalition: 0.8 })).toBe(true);

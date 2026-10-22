@@ -18,8 +18,11 @@ const SIGHTING_MS = 5 * 60_000;
 const GRUDGE_MS = 60 * 60_000;
 /** Giving in to someone counts toward following them this long. */
 const COMPLIED_MS = 60 * 60_000;
-/** Blows on the leader this recent make one attack (the group set upon them). */
-const SET_UPON_MS = 15_000;
+/**
+ * Blows on the leader by two or more people within this make a group setting upon them (§17.8 side-taking): an
+ * uprising's blows come over tens of seconds, one rebel after another, not all at once.
+ */
+const SET_UPON_MS = 60_000;
 /** Each follower adds this much to how strong someone is, against a coalition (§17.8 k). */
 export const FOLLOWER_WEIGHT = 0.25;
 /** In live mode an uprising needs a bigger margin: death is for real (§17.8). */
