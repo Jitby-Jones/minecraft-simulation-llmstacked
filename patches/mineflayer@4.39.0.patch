@@ -62,7 +62,7 @@ index d3291b06ea1144dccf0bfd58d2d31b6a6bd9bded..3beb18a17fb0d9d5a63c109e28931764
  
    bot._client.on(brandChannel, (serverBrand) => {
 diff --git a/lib/plugins/inventory.js b/lib/plugins/inventory.js
-index bab0eef7bac7b251bf44c5bb1c623f86c324d4ff..d1ceb975a41ec0d5d7a44c0ee75bba2766f59d00 100644
+index bab0eef7bac7b251bf44c5bb1c623f86c324d4ff..30d132a5aa7b0463dc1accc002ee0004a8cb8c7e 100644
 --- a/lib/plugins/inventory.js
 +++ b/lib/plugins/inventory.js
 @@ -30,9 +30,13 @@ function inject (bot, { hideErrors }) {
@@ -81,7 +81,22 @@ index bab0eef7bac7b251bf44c5bb1c623f86c324d4ff..d1ceb975a41ec0d5d7a44c0ee75bba27
      bot._client.on('window_items', listener)
      bot._client.on('set_slot', listener)
    }
-@@ -478,13 +482,18 @@ function inject (bot, { hideErrors }) {
+@@ -165,7 +169,13 @@ function inject (bot, { hideErrors }) {
+     // try to put it in an item that already exists and just increase
+     // the count.
+ 
+-    while (window.selectedItem) {
++    // Clicks resolve without waiting on the server, so a pass that changes nothing comes straight back: if this
++    // window was closed (dying mid-craft closes the table; clickWindow then acts on the inventory) or the
++    // connection is gone, the loop never ends and, being all microtasks, starves the event loop. Give up instead.
++    for (let tries = 0; window.selectedItem; tries++) {
++      if (tries >= 40 || bot._client.ended || (window !== bot.inventory && bot.currentWindow !== window)) {
++        throw new Error('could not put the carried item back: the window is gone')
++      }
+       const item = window.findItemRange(start, end, window.selectedItem.type, window.selectedItem.metadata, true, window.selectedItem.nbt)
+ 
+       if (item && item.stackSize !== item.count) { // something to join with
+@@ -478,13 +488,18 @@ function inject (bot, { hideErrors }) {
      // crafting area, including picking up the result (which consumes the
      // ingredients). Waiting for that resync on result clicks too keeps
      // follow-up clicks and close_window from racing ahead of the craft.
@@ -102,7 +117,7 @@ index bab0eef7bac7b251bf44c5bb1c623f86c324d4ff..d1ceb975a41ec0d5d7a44c0ee75bba27
        }
      } else if (window.type === 'minecraft:merchant') {
        const toUpdate = []
-@@ -629,7 +638,7 @@ function inject (bot, { hideErrors }) {
+@@ -629,7 +644,7 @@ function inject (bot, { hideErrors }) {
      if (bot.supportFeature('stateIdUsed')) { // 1.17.1 +
        bot._client.write('window_click', {
          windowId: window.id,
@@ -111,7 +126,7 @@ index bab0eef7bac7b251bf44c5bb1c623f86c324d4ff..d1ceb975a41ec0d5d7a44c0ee75bba27
          slot,
          mouseButton,
          mode,
-@@ -806,6 +815,12 @@ function inject (bot, { hideErrors }) {
+@@ -806,6 +821,12 @@ function inject (bot, { hideErrors }) {
      if (slotId === 40) return 45 // offhand
      return slotId // main inventory
    }
@@ -124,7 +139,7 @@ index bab0eef7bac7b251bf44c5bb1c623f86c324d4ff..d1ceb975a41ec0d5d7a44c0ee75bba27
    // 1.21.9+ uses set_player_inventory for server-initiated inventory changes
    // (e.g. console /give) instead of set_slot
    bot._client.on('set_player_inventory', (packet) => {
-@@ -866,6 +881,22 @@ function inject (bot, { hideErrors }) {
+@@ -866,6 +887,22 @@ function inject (bot, { hideErrors }) {
        cursorItem: Item.toNotch(window.selectedItem)
      })
      await synced
