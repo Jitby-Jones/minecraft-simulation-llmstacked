@@ -46,6 +46,7 @@
 | **M8c** reflection as debiasing, hearsay, fear and conformity (the preference cascade), more biases | **done** (the audit by a real model pending a key) | `pnpm run check` (the audit's candidates; corrections taken by rationality and resisted by the stubborn; inoculation and growth; hearsay grievances; a feared leader keeping dissent quiet, and defiance that goes unpunished bringing it out; tribute and the bandwagon; the in-group, attribution and sunk-cost biases) + `pnpm test:live` exit test `m8c-minds` on Paper 26.1.2, 2/2: **O** a neighbor's rumor that Kai stole is taken in by both as a grudge from hearsay (resentment 0.12 and 0.14); after the bias audit, rational Ria lets it go (0.00, inoculated, and the rumor told again weighs half) while stubborn Ulf keeps it (0.14); **P** asked what they think of Rex, the four who go along say much the same while he is armed and feared (variance 0.017, one dissenter), and once he is plainly weaker three speak against him (variance 0.040) |
 | **M9a** romance: who can be drawn to whom, attraction and interest, crushes, courting, partners and breakups, advances and rejections (§19.10), jealousy, PG | **done** (compatibility read by a real model pending a key) | `pnpm run check` (orientation and the sex others take one to be; attraction and interest; the stages; the §19.10 tables, a partner's advance returned, and the soft cap; jealousy; the PG filter; the code gate; the CC packet and the code default's courting) + `pnpm test:live` exit test `m9a-romance` on Paper 26.1.2, 3/3: **R** two strangers, each deciding for themselves, go from a first hello ("hey, how is it going? I'm a guy who loves exploring.") through crushes and courting to partners in 13 minutes, everything said PG; **S** a proud, vain suitor is turned down kindly every 3 minutes; he keeps at it three times, and the fourth no, with no attempts left, he takes with resentment ("fine. your loss.": a grievance, and less liking); past the soft cap, code holds back every advance to her, and he makes none after; sadder each time (0.70); **V** a man courts Ivy in her partner's hearing and is turned down kindly; her partner feels envy and anger within 10 s, holds a `romantic_rival` grievance against him, and is still her partner |
 | **M9b** families: starting one, the bed ritual, births on the Hub, inheritance, the newborn, youth and parents | **done** | `pnpm run check` (inheritance over 300 children; the family watch, the code default's family steps and its gate; a parent's word in youth; birth facts; youth and kin in the conflict core; the Hub's pairing, gate, gestation across a restart, a person as a partner, a full population) + `pnpm test:live` exit test `m9b-family` on Paper 26.1.2, 2/2: **T** through the real Hub and supervisor: partners with a home and food, one asks and the other says yes, they lie down side by side at night, each reports it, and the Hub brings their daughter into the world at the beds; her first words name her parents, who know her for theirs; her traits lie within her parents' range (28 of 28), and she knows her family and no one else; **U** a father warns his young daughter about the man who attacked him; she has never met him, and turns against him (5.00 to 4.49, a grievance told by her father), and a gift from him later mends it somewhat |
+| **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** (a skill written by a real model pending a key) | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -2224,3 +2225,96 @@ Findings from building the system, with reasons. Where this section conflicts wi
 8. **Bugs found on the way:**
    - **A second "how about it?":** answering his partner's next line under the same intent, the one who asked said the propose stance's stock line, since the question itself had already been said in that conversation; she took it for another question. In an earlier run, the one who said yes kept saying "let me think about it" (the stock line of an agree without a promise). After a courting or family line has been said in a conversation, what follows under that intent is small talk.
    - **Either may ask:** each partner checks the conditions from their own side, and whoever gets there first asks. Scenario T now waits for either of them to ask and the other to say yes.
+
+### M10 (2026-10-22)
+1. **The skill writer (§1.4, §4 module 12, §21.1)** (`modules/skillWriter.ts`, `skills/learned.ts`), L3:
+   - **When:** the CC reaches for a skill there is none of. The model names one in a decision; the code checks refuse it ("there is no skill …"), and the model is told to decide again, as before. The CC also emits `skillWanted`: the name, the arguments it was reached for with, and why.
+   - **Who may write (all in code):**
+     - `skillWriter.enabled` (off by default);
+     - a private server: `server.host` on loopback, a private range (RFC 1918), link-local, or IPv6 unique-local or link-local (`isPrivateHost`), or else the owner's `privateServerAck` (for 0.0.0.0 in a container, say);
+     - intelligence at least `minIntelligence` (0.7, §21.1);
+     - a model (not code-only, not at degrade level 3);
+     - and the sandbox installed.
+     Why not is logged once.
+   - **How often:** one at a time (single-flight), at most `perHour` (2) new skills an hour per agent; a skill given up on isn't tried again for an hour.
+   - **The draft (L3, `skill` schema):** a snake_case name, a short description, typed arguments, a check and the code (the body of `async function (args, api)`).
+     - **Checks:** `inventoryHas:<item>>=<n>`, `blockAt:<x>,<y>,<z>=<block>` or `near:<x>,<y>,<z>`, with `{arg}` for an argument.
+     - **The prompt:** the persona core, the rules, and the skills it may use (their CC descriptions). Then: what it wanted, the name and arguments it reached for, where it is, what it holds, and what went wrong before.
+   - **Checked in code before it ever runs (`lintDraft`):**
+     - it is not a skill the agent has;
+     - none of `require`, `import`, `process`, `eval`, `Function`, `globalThis`, `constructor`, `__proto__`, `prototype`, `WebAssembly`, `Atomics`, `SharedArrayBuffer`;
+     - at least one `api.skill("…")`, and only of the skills that act on the world: goTo, follow, explore, look, wait, gather, mine, pickup, prospect, craft, smelt, obtain, place, shelter, deposit, withdraw, eat, equip, sleep, hunt, build. Fighting, giving and speaking keep their own gates;
+     - a check of one of the three kinds;
+     - it takes the arguments it was reached for with.
+     A refused draft is written again, told why.
+   - **The trial (self-verification, as in Voyager):** a draft that passes is tried out at once, for real.
+     - **How it runs:** as option `work` with the new skill, through the impulse path (the plan resumes after it), with `maxSeconds` = the sandbox's wall time + 30 s.
+     - **Verification:** the runner checks the result against the skill's check, like any skill's postcondition.
+     - **Did what it said:** kept as verified, with an embedding of its description, a note in working memory ("I worked out a new skill: …") and `skillLearned`.
+     - **Didn't:** written again, told the code, what happened and that the check didn't hold. After `attempts` (3) tries it is given up on.
+   - **Cut short is not a try:** a trial interrupted (danger, something more pressing), one that couldn't start, or one that never ran within its time plus 90 s is set aside as written. It is tried again when next wanted, and given up after 3 such.
+   - **No model to be had** (budget, an outage) is no verdict on the skill: nothing is given up.
+2. **The sandbox (§9)** (`skills/sandbox.ts`), on isolated-vm. It is an optional dependency; without it, no skill is written or run.
+   - **Limits:**
+     - its own V8 heap, capped at `memoryMb` (32);
+     - the code's own CPU time, capped at `cpuMs` (1 s): by the run's timeout, which covers only the first synchronous slice, and by a watchdog every 50 ms;
+     - a wall time for the whole run, skills included (`wallSec`, 600 s);
+     - at most `maxCalls` (60) skill calls;
+     - an abort stops it.
+   - **Inside:**
+     - `api.skill(name, args)` runs a verified skill through the same runner as any (its postcondition checked, no slip roll) and resolves to `{ ok, observed, error }`;
+     - `api.look()` gives its position, inventory, health, food and whether it is day;
+     - `api.log(text)` notes something.
+     Nothing else: no require, process, timers, network or files. Only JSON strings cross; the API object is frozen, and the references are taken off the global object. A failure on the host side comes back as a result, never as a thrown error.
+3. **The library** (`SkillLibrary`; table `skills` in `memory/db.ts`):
+   - **Where it lives:** in the agent's memory database (name, description, arguments, check, code, created, verified, uses, successes, embedding), so it survives restarts and goes along in an export.
+   - **Offered to the CC:** the verified ones go in its skill list ("name {args} — description (a skill you wrote)"), at most `offered` (5). Once there are more than that, they are picked by similarity to the current goal's embedding (cached per goal); otherwise by successes, or by words shared with the goal.
+   - **Used:** they run by name like any skill (`extraSkills` in the executor), with uses and successes counted.
+4. **Trait annotations (§7 evolution)** (`modules/reflection.ts`):
+   - **What may change someone, found by code:** formative experiences in the agent's own state, each weighed once in a life (`growth.evolved`):
+     - a partner or parent killed (5);
+     - becoming a parent (3);
+     - being robbed, seen itself (2);
+     - being beaten in a fight (2);
+     - being made to pay twice or more (2);
+     - a fight won (1.5);
+     - two or more promises to it broken (1.5);
+     - three or more kept (1);
+     - three or more of its own judgments corrected on reflection (1).
+   - **When:** at the end of reflection (so calm and out of danger), at most once an hour.
+   - **L3 (`annotation` schema):** given the three most formative experiences, it writes how one of them changed the agent, in the third person, or says none did. Then all three are weighed and nothing is kept.
+     - **What is kept:** a note of at most 100 characters, in the third person (no I, me or you) and PG (the §19.6 filter), with a leading name dropped.
+     - **A note that won't do** gives way to code's own words for that experience ("has grown wary of strangers since being robbed").
+     - **Without a model:** code's words for the strongest experience.
+   - **Where it goes:**
+     - the five latest in `traitAnnotations`, which is the persona prompt's "How you have changed lately: …" in every module that speaks or decides, and part of the state snapshot;
+     - a note in working memory with salience 0.9 ("How I have changed: …"), which goes on to long-term memory;
+     - `traitAnnotated`.
+     The persona's YAML core is never rewritten.
+5. **Deviations:**
+   - **Choosing among learned skills:** by similarity to the current goal's embedding, not to the task at hand; by successes or shared words when there is no embedding.
+   - **What a written skill can't do:** fight, give, speak, or call another written skill (no nesting).
+   - **A private server** is judged from `server.host` alone (no DNS lookup; a name counts as public), or from the owner's acknowledgment.
+   - **The trial** runs through the impulse path, so the plan resumes after it.
+   - **Formative experiences** are found by code, each kind once a life, and code's words stand without a model.
+6. **Tests:**
+   - **Unit** (`tests/agent/m10.test.ts`, 25):
+     - the sandbox: the API and nothing of the host; CPU time before and after an await; wall time, the call cap, the memory cap, an abort;
+     - a draft's checks, and its check as a postcondition;
+     - a written skill run through the runner on a stand-in body;
+     - the library: kept in SQLite across a reopening, offered by relevance and by embedding;
+     - the writer against the mocked NanoGPT:
+       - written, tried at once and kept;
+       - written again, told what went wrong, then given up for an hour;
+       - refused drafts, and the arguments it must take;
+       - a cut-short trial tried again without being rewritten;
+       - a skill that can't be made, `perHour`, and the four gates;
+     - private hosts;
+     - the CC: a written skill passes its checks, one there is none of is wanted, and the written ones are in its prompt;
+     - trait annotations: formative experiences, the note's form, with a model, a note that won't do, nothing changed, without a model, the five latest, part of reflection.
+   - **Live exit test** (`tests/live/m10-skills.test.ts`, on Paper 26.1.2), 1/1. Ada (intelligence 0.9) runs on the full LLM path with a scripted model, with her memory database and the skill writer on.
+     - **0 s:** her CC reaches for `stock_up_logs {qty: 3}`. The code checks refuse it, and the skill is wanted.
+     - **Written:** L3 (the primary L3 model) writes it once: look at the inventory, `gather` the logs still missing, check `inventoryHas:oak_log>={qty}`.
+     - **17 s:** the trial in the world gathers 3 logs (16.5 s). The check holds, so the skill is kept, in her database too.
+     - **26 s:** her CC, which now has "stock_up_logs {qty: number} — gathers oak logs until I hold enough (a skill you wrote)" in its skill list, reaches for it again for 6 logs. It runs as a skill she has (+2 logs to 6, 9.5 s; she had picked up a fourth), without being written again.
+     - **After:** the reopened database holds it, verified, with 2 uses and 2 successes.
