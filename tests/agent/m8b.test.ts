@@ -642,6 +642,28 @@ describe('followers and leaders, as onlookers see them (§17.7)', () => {
     expect(at(70_000)).toBe(true);
   });
 
+  it('seeing the leader give up a fight, a half-hearted follower walks away; a loyal, fond one stands by', () => {
+    const beaten = (persona: typeof meek, sentiment: number) => {
+      const w = watch(persona);
+      const paid = (i: number): Commitment => ({ ...pact(persona.name, 'Rex', 'x'), id: `p${i}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status: 'fulfilled', resolvedAt: w.t.now - i * 60_000 });
+      w.s.update('commitments', () => [paid(1), paid(2)]);
+      w.s.update('social', (all) => ({ ...all, Rex: { ...(all.Rex ?? newSocialProfile('Rex', persona, 0)), sentiment } }));
+      w.tick();
+      expect(w.pw.leader()).toBe('Rex');
+      const left: unknown[] = [];
+      w.bus.on('defected', (e) => left.push(e));
+      // One rebel beats Rex, who gives up in front of us.
+      w.powers.Bo = 0.35;
+      w.bus.emit({ type: 'observedAction', action: { id: 'a1', actor: 'Bo', kind: 'attack', target: 'Rex', ts: w.t.now } });
+      expect(w.pw.standsBy('Rex')).toBe(true);
+      w.bus.emit({ type: 'heard', utterance: { id: 'u1', convId: '', from: 'Rex', to: 'nearby', text: 'ok ok, I yield!', ts: w.t.now, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false } });
+      return { leader: w.pw.leader(), left };
+    };
+    expect(beaten(meek, 4)).toEqual({ leader: null, left: [{ type: 'defected', from: 'Rex', attackers: ['Bo'] }] });
+    const devoted = PersonaSchema.parse({ ...meek, name: 'Pia', temperament: { ...meek.temperament, loyalty: 0.95 } });
+    expect(beaten(devoted, 9)).toEqual({ leader: 'Rex', left: [] });
+  });
+
   it('a loyal follower who likes the leader stands by them against the same group', () => {
     expect(defects({ loyalty: 0.9, sentiment: 8, fearOfLeader: 0.5, fearOfCoalition: 0.8 })).toBe(false);
     expect(defects({ loyalty: 0.4, sentiment: 3, fearOfLeader: 0.3, fearOfCoalition: 0.8 })).toBe(true);

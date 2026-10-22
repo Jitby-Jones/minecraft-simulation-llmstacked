@@ -6,6 +6,7 @@
 
 import { type AgentName, type Logger, type SocialProfile, openingName } from '@agora/shared';
 import type { AgentBus } from '../bus';
+import { SURRENDER_RE } from '../body/skills/duel';
 import type { AgentStateStore } from '../state/store';
 import { companionsOf, defects, follows, looksLikeLeader, parseDemand } from './coercion';
 import { fearOf } from './pressure';
@@ -92,6 +93,8 @@ export class PowerWatch {
   private readonly defied = new Map<AgentName, Map<AgentName, number>>();
   /** When someone was last seen alone or hurt. */
   private readonly openings = new Map<AgentName, number>();
+  /** When we last said we stand by our leader against whom ("how:names"). */
+  private readonly stoodBy = new Map<string, number>();
   /** When we last woke the CC for a moment against each person. */
   private readonly toldOpening = new Map<AgentName, number>();
   private timer: NodeJS.Timeout | null = null;
@@ -122,6 +125,8 @@ export class PowerWatch {
       b.on('heard', (e) => {
         const u = e.utterance;
         if (u.from === this.o.me) return;
+        // Our leader giving up a fight in front of us: the side that beat them looks the stronger.
+        if (u.from === this.following && SURRENDER_RE.test(u.text)) this.sawBeaten(u.from);
         // A demand made of someone else, overheard: they will resent it. It is made of whomever it names first
         // ("Ann, give me 3 bread, or else").
         const named = openingName(u.text);
@@ -246,21 +251,40 @@ export class PowerWatch {
    */
   standsBy(leader: AgentName): boolean {
     if (this.following !== leader) return false;
+    const attackers = this.setUpon(leader);
+    return attackers.length < 2 || this.pickSide(leader, attackers, 'set upon');
+  }
+
+  /** Who struck someone in the last minute (as we saw it). */
+  private setUpon(name: AgentName): AgentName[] {
     const t = this.now();
-    const attackers = [...(this.blows.get(leader) ?? new Map<AgentName, number>())].filter(([n, at]) => n !== this.o.me && t - at < SET_UPON_MS).map(([n]) => n);
-    if (attackers.length < 2) return true;
+    return [...(this.blows.get(name) ?? new Map<AgentName, number>())].filter(([n, at]) => n !== this.o.me && t - at < SET_UPON_MS).map(([n]) => n);
+  }
+
+  /** §17.8: our leader gave up a fight in front of us; those who beat them look the stronger side, and we pick one. */
+  private sawBeaten(leader: AgentName): void {
+    const by = this.setUpon(leader);
+    if (by.length > 0) this.pickSide(leader, by, 'beaten');
+  }
+
+  /** Loyalty, fondness and fear of the leader against fear of those against them: true if we stand by them. */
+  private pickSide(leader: AgentName, attackers: AgentName[], how: 'set upon' | 'beaten'): boolean {
+    const t = this.now();
     const s = this.o.store.state;
     const coalition = attackers.reduce((a, n) => a + this.o.powerOf(n), 0);
     const fearOfCoalition = fearOf(coalition, this.o.myPower(), 0, s.drives.caution);
-    const go = defects({
-      loyalty: s.self.persona.temperament.loyalty,
-      sentiment: s.social[leader]?.sentiment ?? 5,
-      fearOfLeader: this.o.fearOf(leader),
-      fearOfCoalition,
-    });
-    if (!go) return true;
-    this.leave(leader, `${attackers.join(' and ')} set upon ${leader}`);
-    this.o.logger.info({ module: 'conflict', leader, attackers, fearOfCoalition: Number(fearOfCoalition.toFixed(2)) }, 'defected');
+    const fearOfLeader = this.o.fearOf(leader);
+    const go = defects({ loyalty: s.self.persona.temperament.loyalty, sentiment: s.social[leader]?.sentiment ?? 5, fearOfLeader, fearOfCoalition });
+    const facts = { module: 'conflict', leader, attackers, how, fearOfCoalition: Number(fearOfCoalition.toFixed(2)), fearOfLeader: Number(fearOfLeader.toFixed(2)) };
+    if (!go) {
+      // Asked on every blow: said once a minute for the same ones.
+      const key = `${how}:${[...attackers].sort().join(',')}`;
+      if (t - (this.stoodBy.get(key) ?? -Infinity) >= SET_UPON_MS) this.o.logger.info(facts, 'stands by the leader');
+      this.stoodBy.set(key, t);
+      return true;
+    }
+    this.leave(leader, `${attackers.join(' and ')} ${how === 'beaten' ? 'beat' : 'set upon'} ${leader}`);
+    this.o.logger.info(facts, 'defected');
     this.o.bus.emit({ type: 'defected', from: leader, attackers });
     return false;
   }
