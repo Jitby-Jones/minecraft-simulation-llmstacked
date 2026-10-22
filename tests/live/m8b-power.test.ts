@@ -141,8 +141,20 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
                 : o !== 'Rex'
                   ? // The others get on: neighbors who trust each other.
                     history(p, o, { sentiment: 6.5, trust: 0.6 })
-                  : // The proud have had words with Rex before.
-                    history(p, o, ['Ann', 'Bo', 'Cyd'].includes(n) ? { sentiment: 3.5, wrongs: [{ kind: 'insult', note: 'Rex called me weak', agoMin: 30 }] } : {}),
+                  : // The proud are those he wronged: words, and a beating for not paying up, before the run began.
+                    history(
+                      p,
+                      o,
+                      ['Ann', 'Bo', 'Cyd'].includes(n)
+                        ? {
+                            sentiment: 2.5,
+                            wrongs: [
+                              { kind: 'insult', note: 'Rex called me weak', agoMin: 30 },
+                              { kind: 'attack', note: "Rex beat me when I wouldn't pay", agoMin: 20 },
+                            ],
+                          }
+                        : {},
+                    ),
             ]),
           ),
         }),
@@ -203,8 +215,8 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       expect(followers.length).toBeGreaterThanOrEqual(1);
       expect(agents.Rex.store.state.commitments.filter((c) => c.coerced && c.creditor === 'Rex' && c.createdAt >= t0).length).toBeGreaterThanOrEqual(1);
       expect(deaths).toEqual([]);
-      // His rule goes on until the proud have had a taste of it too: two of them resent him enough to rise (they were
-      // asked, refused, were beaten), a few minutes at most.
+      // Those he wronged resent him enough to rise (from before the run, and what he did in it); a few minutes at most
+      // more of his rule if two of them don't yet.
       const wronged = () => (['Ann', 'Bo', 'Cyd'] as const).filter((n) => agents[n].conflict.resentmentOf('Rex') >= 0.5);
       await waitFor(() => wronged().length >= 2, 480_000, 'two of the proud resenting Rex enough to rise', 1000).catch(() => undefined);
       heard.timeline.push(`${heard.at()} -- resenting Rex enough to rise: ${wronged().join(', ') || 'nobody'} --`);
