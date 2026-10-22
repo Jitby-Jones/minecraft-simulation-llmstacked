@@ -40,6 +40,7 @@
 | **M6a** emotions and biases core: feelings, impulses, first impressions, gut against facts, conformity, mobs | **done** | `pnpm run check` (appraisal, decay and contagion; gossip read in code; impulses and regret; first impressions fading into the facts for the rational; conformity, confirmation, availability, scapegoat; mobs) + `pnpm test:live` exit test `m6a-minds` on Paper 26.1.2, 3/3: **Q** an insulted hothead shouts back within 0.5 s while a stoic answers calmly; **M** diamond armor impresses a vain agent at first sight (7.0 vs 5.4 for leather) and a rational one hardly at all; **N** three people turn on Rex: an impulsive conformist joins in and a rational onlooker who knows him speaks up |
 | **M6b** conflict core: grievances, power and fear, the escalation ladder (rungs 0–3), the code gate, brawls that end in a yield | **done** (the lethal rung waits for M8b) | `pnpm run check` (pressure from grievances and fear, rungs with hysteresis and pacing, the gate in the CC, yields heard and reckoned beatings, fight slots, staying within reach) + `pnpm test:live` exit test `m6b-conflict` on Paper 26.1.2, 3/3, and again in the full regression: **I** two quarrelsome brutes with a seeded grudge share a grove: hostile talk at rung 1, threats at rung 2, then one brawl at rung 3 that ends when one gives up ("ok ok, I yield!" at about 5 HP, or running off); nobody dies, and the loser fears the winner more |
 | **M7** dashboard (per-agent state, decisions with their reasons, conversations, the social graph, tokens per hour), `pnpm ctl`/`logs`/`export`/`import`, Docker and systemd | **done** | `pnpm run check` (the dashboard model and server: host check, CSP, token, body limits; ctl commands and refusals; telemetry; logs merging; export/import round trip; the unit and Docker files) + `pnpm test:live` exit test `m7-dashboard` on Paper 26.1.2, 1/1 (twice): two code-only agents run under the supervisor; through the dashboard's API, each agent's decisions come with their reasons and what came of them, and who thinks what of whom; `ctl` works with the token only (status, say, save, population); a hot export after `ctl save` restores both agents with their snapshots. The page rendered in Chromium, light and dark, with no console errors |
+| **M8** social goals, the community goal, roles, the notice board | **done** | `pnpm run check` (the division of labor from what each agent perceives, roles from deeds and from the last five social goals, the village moves and their finishing acts, signs read and written, staying fed and healing, the dashboard's village card) + `pnpm test:live` exit test `m8-village` on Paper 26.1.2, 2/2: **NB** a death by the village goes on a sign at the board, and a newcomer who never heard of it reads it there (it goes on its mind, and it grows more careful); **V** five code-only agents (real bot processes, as in production) live together for 60 minutes: at the end a builder, two hunters, a miner and a woodcutter (role entropy 1.92 bits), with 8 deposits in the village chest, 14 hunts and a sign |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -1777,3 +1778,100 @@ Findings from building the system, with reasons. Where this section conflicts wi
      - The "runs out" date wrapped. It now reads "in 35 min", with the clock time beneath.
      - Rung 0 read "avoid" for everyone. It means no conflict at all, so it now reads "—".
      - The browser's own favicon request also logged a 404; it now gets a 204.
+
+### M8 (2026-10-22)
+1. **Social Goal Gen (§4.2 module 11)** (`modules/socialGoalGen.ts`), L2:
+   - **When it runs:** every 60–120 s while someone else has been seen in the last 2 minutes. It also runs soon after a death is heard of (the prompt adds "think about keeping each other safe", §16.3) and after a piece of village work is done.
+   - **Under quota pressure (§22.4):** half as often from degrade level 1, off from level 2. Deviation: §5's per-agent step (Social Goal Gen slows at 80 % of an agent's hourly share) folds into level 1 in the Hub's budget message, so the slowing starts there.
+   - **Output:** one or two goals, each with its kind of work (wood, stone, food, build, guard, tools, scout) and, if any, whom it's with.
+   - **Prompt:** the persona core, the death rule, the community goal, the village as the agent knows it, the people around (sentiment, perceived role and wants), recent deaths, signs read, and its part so far.
+   - **Guards:** single-flight, zod-validated, thrown away when stale, and cancelled on stop.
+2. **The code default: division of labor from what the agent perceives** (`social/village.ts`). Each kind of work scores need × liking ÷ (1 + others seen at it), plus a little noise; the current work gets +0.15, so roles hold.
+   - **Needs come from what the agent itself knows:**
+     - what was in the village chest the last time it looked inside
+     - huts seen near home, by their doors
+     - hostile mobs that came near home in the last 10 minutes, and deaths to mobs it heard of
+     - dusk or night
+     - ore it has seen or read about
+     - people who asked for food
+   - **Likings come from the persona:** the Big Five, temperament, abilities and caution, plus words in its life goals, values and traits.
+   - **Others' work comes from their deeds** (`social/roles.ts`): chopping logs, mining stone, fighting mobs, hunting animals, setting blocks down, and digging dirt (the stuff huts are made of), which counts half: a builder gathers long before setting a block down, and a few dug for a shelter or on the way to stone don't make a builder.
+     - Each person has a tally per kind of work that halves every 10 minutes; at 3, that becomes their perceived role.
+     - **What people say they do counts too:** taking up other work with someone around, an agent says so ("I'm building a hut for the village."). Whoever hears a line like that takes it as the speaker's role at once, over what they were seen at before; work done out of sight is known that way, as among people.
+     - A role someone stated in conversation (the L2 read) also counts, while they're around.
+   - **Divergence (unit test):** without seeing each other, five pool personas already start on 3 kinds of work; once they see each other at work, they spread over 4–5.
+3. **Role (§6.8, as in Sid):** the kind of work behind most of the last five social goals (a tie goes to the latest), computed in code. It goes to the dashboard together with the role entropy (§11 F).
+4. **Village work as goals:**
+   - **When the village comes first:** once an agent has stone tools, Goal Gen's code default (`codeGoal`) puts its top social goal before its own next step with probability 0.5 + 0.3·agreeableness + 0.2·loyalty − 0.3·ambition, kept between 0.2 and 0.95.
+   - **When a village goal is done:** the goal's `doneWhen` is `villageWork:<kind>`, a new condition. It holds once the work's finishing act has happened since the goal was set: goods put in a chest or handed over, a hut built, a patrol round walked or a hostile mob killed, or a notice posted.
+   - **Prompts:** Goal Gen's prompt gets the community goal and the agent's part in the village. The CC packet gets "Your part in the village: …; everyone hopes to …".
+   - **What the code default does for each kind** (`modules/villageMove.ts`):
+     - **wood, stone:** gather 16, then put them in the village chest. With no chest seen near home, it makes one and sets it down there first.
+     - **food:** hunt animals in sight, cook the meat, hand it in.
+     - **build:** get blocks for a hut (dirt), a door if there are planks for it, then build the hut.
+     - **guard:** fight hostile mobs near the village while health is at least 10; otherwise walk the edge.
+     - **tools:** put a spare stone pickaxe in the chest.
+     - **scout:** explore until it finds ore away from home, then post a sign at the board saying where.
+   - **Nights:** a guard on duty stays out (while health ≥ 12 and caution < 0.8); everyone else digs in.
+   - **Goals that never end.** Without a model, nothing replaced a goal the code default couldn't finish. Now a goal not finished in 20 minutes is given up; a model that says "keep" still keeps it.
+5. **New skills** (`body/skills/village.ts`):
+   - **`hunt`:** kills animals in sight and picks up the meat.
+   - **`build {hut}`:** a 5×5 hut with walls three high, a doorway and a flat roof laid rim first, plus a door if the agent has one. It takes 71 blocks of cobblestone, planks or dirt, and 4 more for holes. The site is level, 4–20 blocks from home, with a free cell all round; up to 4 holes one deep under it are filled first, and of the sites at the same distance the one with the fewest holes wins.
+   - **The ground by home is kept whole:** dirt and the like are dug more than 16 blocks from home. A gatherer near home walks out first, so the ground the huts go on isn't dug up.
+   - **`sign {text}`:** posts at the board, next to the signs standing near home, or by home if there are none. The text goes on four lines of 15 characters, whole words only, and is read back the way anyone passing by would read it.
+   - **`patrol {radius}`:** walks the village edge and fights off hostile mobs that come near.
+   - `sign` is now an item category (any standing or wall sign).
+6. **What the agent sees of the village** (`perception/village.ts`), all from its own eyes (§13 rule 4) and kept in the snapshot (§23.4):
+   - its home (where it arrived)
+   - the chest nearest home it has seen, and what was in it when it last opened it (`deposit` and `withdraw` now report the contents)
+   - huts, by their doors
+   - signs it has read. The board is where signs stand within 16 blocks of home: everyone's home is a few blocks apart around the world spawn.
+   - hostile mobs that came near home
+   - ore found away from home
+   - **Work seen:** people fighting mobs and setting blocks down are now perceived deeds, for roles, at most one note per person and thing every few seconds. Fights between people are recorded as before, and the winner of a fight is now looked up only among fights between people.
+7. **The notice board (§6.8, §16.1, §16.3):**
+   - **Reading a sign:** it goes on the agent's mind as something seen (salience 0.5; 0.7 for news of a death). News of a death raises caution by 0.05, less than seeing or hearing of one.
+   - **Posting a death:** a death that no sign mentions yet is posted by anyone near home who has a sign, or the planks to make one, before their own work. The notice is the death message, plus where it happened if they saw it.
+   - **Sign formats:** signs are read the way the client receives them (the front's lines, as plain text, JSON or NBT text components).
+8. **Dashboard:**
+   - each agent's role, with its part in the village on hover
+   - a Roles tile: how many roles, and the role entropy in bits
+   - "The village" card: who has which role, and the words most used in the chat over the last hour
+   - **Deviation:** the culture metrics (§6.8) are counted in code rather than summarized by L1, so they spend no tokens.
+9. **Personas:** two more in the pool, Wren (a protector) and Oswin (a careful maker), so a village of five can come from the pool.
+10. **Not built:**
+    - **Constitution and voting (§6.8, optional):** per §16.1 it would be an agent playing a role (a "mayor" persona), not a Hub service. It waits until there's a use for it.
+    - **Kinds of work:** farming and lighting the village are not village work yet.
+11. **Live exit test** (`tests/live/m8-village.test.ts`, on Paper 26.1.2):
+    - **NB, the notice board:** Ann heard of Bodo's death in lava by the village (the death message: this time she didn't see it, so no place went with it) and posted "Bodo tried to swim in lava" at the board; Cyrus, who came afterward and never had the death message, read it there: it went on his mind as something seen, and his caution rose from 0.35 to 0.4.
+    - **V, the village:** five code-only agents (real bot processes) at the world spawn for 60 minutes, three nights.
+      - **Roles:** at the end the five living were a builder, two hunters, a miner and a woodcutter (role entropy 1.92 bits among the settled). Roles held for long stretches (Oswin a builder and Pip a hunter from start to end).
+      - **Work shown:** 8 deposits in the village chest (cobblestone, logs, cooked meat), 14 hunts and a sign.
+      - **One hut tried:** 67 of its blocks were placed, 5 short of the plan, so not counted as built.
+      - **Deaths:** seven died at night, six to zombies (most of them "speared": 26.1's zombies may carry spears) and one to a skeleton; newcomers took their places.
+12. **Bugs found on the way:**
+    - **The notice board:** test names a real server would reject (under 3 characters); a sign wasn't an item category, so posting one never checked out; and the board radius was too small for homes a few blocks apart around the spawn.
+    - **Starving:** two agents starved in the first trial village, since nothing in the code default looked for food once the inventory was empty. Hungry with nothing to eat, an agent now takes food from the village chest, hunts what it sees, or looks around. Starving comes before the task at hand.
+    - **Cooking:** the obtain planner couldn't cook meat in hand (raw meat comes from no block).
+    - **"give me a sec"** was read as a request for an item called "sec".
+    - **Mobs under the floor** (in a tunnel below) counted as threats. In a village, prospecting now digs its mine outside it.
+    - **Slimes by day:** superflat ground is below Y 40, where slimes come out in any light, and the guard kept walking its rounds at half a heart.
+      - The live village now stands on a deep flat world (grass at Y 40 over stone).
+      - A badly hurt agent (health 8 or less) gets food first, then lies low until healed.
+      - A hurt guard is off duty.
+    - **Woodcutters without trees** look for more farther out.
+    - **Goals that never end** (see 4).
+    - **Attack attribution:** on 26.1 the hurt packet arrives a moment before the swing that caused it, so no attacker was ever found.
+      - After two morning deaths, every newcomer took up guarding, since nobody had been seen fighting a mob.
+      - A blow is now looked at again up to 150 ms later, in perception and in the reflexes.
+    - **Morning deaths:** one agent was shot by a skeleton and one blown up by a creeper, each while running across open ground.
+      - An armed, healthy agent now fights a lone archer instead of fleeing it.
+      - Flight from archers heads out of their line of fire.
+      - An agent leaves its shelter only once no mob is heard within 16 blocks, or by midmorning.
+    - **Builders never built:** they asked for "2 dirt" while holding 59; the target is now the total. A shelter where the ground won't do is dug a few steps away.
+    - **Everyone a builder:** a builder gathering dirt wasn't seen doing anything, so each agent who came to choose saw no builders, and within half an hour all five were building.
+      - Dirt dug now counts toward building (see 2).
+      - The dirt they dug riddled the ground by home with holes, so no hut site was left. The ground by home is now kept whole, and a site may have a few shallow holes, filled first (see 5).
+      - With the ground by home kept whole, builders dug out of the others' sight, and again all took up building. Now they say what they do (see 2).
+    - **Furnaces:** what was left in a furnace (cooked, or raw when the fuel ran out) blocked the next batch ("destination full"), and fuel already in it wasn't topped up. Now the furnace is cleared first and given fuel enough for the batch.
+    - **Iron:** with a furnace still to make, the planner chose ingots crafted from an iron block (as cheap by its reckoning as finding iron ore) and went looking for one. Storage blocks are never searched for unseen.
