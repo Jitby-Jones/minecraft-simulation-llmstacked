@@ -1,8 +1,9 @@
 // duel (§17.6, §21.3): a fight with a person that ends when one side gives up. Only the conflict core's code gate
 // lets it start. We give up at our own yield health: stop attacking, step back and say so. They give up when they
 // say so or stop hitting back (the yield protocol works in chat and in deeds, the same with a human), and a brawl
-// is never to the death: we also stop once they've plainly taken a beating, or have run off. Their hearts can't be
-// seen (§17.4), so "a beating" is reckoned from the blows that land, our weapon and the armor they wear. Technique
+// is never to the death: we also stop once they've plainly taken a beating, or turn and run. Their hearts can't be
+// seen (§17.4), so "a beating" is reckoned from the blows that land, our weapon and the armor they wear: it is over
+// once one more blow, a critical one, could finish them. Technique
 // follows combat ability: novices spam clicks (random timing, weak hits), trained fighters and better time their
 // swings to the weapon's cooldown, with a reaction delay of 400 ms × (1 − combat) + 50 ms.
 
@@ -31,9 +32,15 @@ export const CALL_OFF_RE = /\b(that'?s enough|stay out of my way|we'?re done her
 
 export type DuelOutcome = 'won' | 'yielded' | 'gone' | 'interrupted';
 
-/** Reckoned damage (of their 20, net of what they heal meanwhile) at which they've taken a beating: the brawl is
- *  over even if they never say so. Set above where a fighter normally yields, so the yield usually comes first. */
-const BEATEN_DAMAGE = 18;
+/** Reckoned health (of their 20, net of what they heal meanwhile) that one more critical blow mustn't take: once it
+ *  could, they've taken a beating and the brawl is over even if they never say so. */
+const BEATEN_LEFT = 19;
+/** A critical blow (struck falling) does half as much again. */
+const CRIT = 1.5;
+/** No blow from them this long while they make off: they've turned and run, and the brawl is over. */
+const FLED_MS = 1500;
+/** How far they get in a second to be running (a knockback is well under this). */
+const RUN_BLOCKS_PER_S = 2.5;
 /** A fed fighter heals about this much a second (fast regeneration, then slow). */
 const REGEN_PER_S = 0.4;
 /** No blow from them this long while ours still land: they've stopped fighting (a yield in deeds). */
@@ -52,6 +59,18 @@ export function yieldAt(stopAtHealth: number, theirWeapon: string | undefined): 
 /** One blow's reckoned damage: the weapon, softened by the armor they visibly wear; a novice's hurried swings land weaker. */
 export function reckonBlow(weapon: string | undefined, theirArmor: readonly string[], combat: number): number {
   return weaponStats(weapon).dmg * (1 - armorPoints(theirArmor) / 50) * (combat < 0.3 ? 0.4 : 1);
+}
+
+/** A brawl is over: one more blow (a critical one) could finish them, by the damage reckoned so far. */
+export function beaten(dealt: number, nextBlow: number): boolean {
+  return dealt + nextBlow * CRIT >= BEATEN_LEFT;
+}
+
+/** They're making off: over the last second they moved this far, most of it farther from us. */
+export function runningAway(before: { x: number; z: number }, now: { x: number; z: number }, me: { x: number; z: number }): boolean {
+  const moved = Math.hypot(now.x - before.x, now.z - before.z);
+  const gained = Math.hypot(now.x - me.x, now.z - me.z) - Math.hypot(before.x - me.x, before.z - me.z);
+  return moved >= RUN_BLOCKS_PER_S && gained >= 0.7 * moved;
 }
 
 export const duel = defineSkill({
@@ -97,6 +116,9 @@ export const duel = defineSkill({
     let landed = 0;
     let unanswered = 0;
     let dealt = 0;
+    let lastBlow = 0;
+    /** Where they were, a few times a second, for telling a run from a stagger. */
+    const trail: { at: number; x: number; z: number }[] = [];
     let theirLast = Date.now();
     let ourLast = Date.now();
     const onHurt = (x: Entity) => {
@@ -113,7 +135,8 @@ export const duel = defineSkill({
       landed++;
       unanswered++;
       ourLast = Date.now();
-      dealt += reckonBlow(bot.heldItem?.name, eq.slice(2).filter((i): i is { name: string } => Boolean(i)).map((i) => i.name), combat);
+      lastBlow = reckonBlow(bot.heldItem?.name, eq.slice(2).filter((i): i is { name: string } => Boolean(i)).map((i) => i.name), combat);
+      dealt += lastBlow;
     };
     // What the pathfinder runs into while following them (for the debug log).
     const paths: Record<string, number> = {};
@@ -165,12 +188,22 @@ export const duel = defineSkill({
           outcome = 'gone';
           break;
         }
-        if (!args.lethal && dealt - REGEN_PER_S * ((Date.now() - started) / 1000) >= BEATEN_DAMAGE) {
+        const next = lastBlow || reckonBlow(bot.heldItem?.name, [], combat);
+        if (!args.lethal && landed > 0 && beaten(dealt - REGEN_PER_S * ((Date.now() - started) / 1000), next)) {
           outcome = 'won';
           why = 'took a beating';
           break;
         }
         const t = Date.now();
+        trail.push({ at: t, x: cur.position.x, z: cur.position.z });
+        while (trail.length > 1 && t - (trail[0]?.at ?? t) > 1000) trail.shift();
+        const then = trail[0];
+        // They've turned and run: no blow from them for a moment, and a second's flight away from us.
+        if (!args.lethal && then && t - then.at >= 800 && t - theirLast > FLED_MS && runningAway(then, cur.position, bot.entity.position)) {
+          outcome = 'won';
+          why = 'ran off';
+          break;
+        }
         // A yield in deeds: three of our blows in a row went unanswered, and theirs have stopped for a while.
         if (!args.lethal && unanswered >= 3 && t - theirLast > QUIET_MS && t - ourLast < 2500) {
           outcome = 'won';

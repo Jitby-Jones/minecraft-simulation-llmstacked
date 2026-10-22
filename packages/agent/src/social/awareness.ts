@@ -109,6 +109,11 @@ export function codePromises(theirLines: readonly string[], known: readonly Agen
   return { promises };
 }
 
+/** Two names for what is asked and promised are the same thing: "logs" and "log", "oak_log" and "log". */
+export function sameItem(a: string, b: string): boolean {
+  return a === b || itemMatcher(a).matches(b) || itemMatcher(b).matches(a);
+}
+
 export interface SocialAwarenessOptions {
   store: AgentStateStore;
   bus: AgentBus;
@@ -354,7 +359,7 @@ export class SocialAwareness {
     if (taken.length >= demands.length) return;
     const pr = codePromises([u.text], [...Object.keys(s.social), this.o.me]).promises[0];
     const item = pr?.what.kind === 'give' ? pr.what.item : undefined;
-    if (!pr || !item || !(itemMatcher(last.item).matches(item) || itemMatcher(item).matches(last.item))) return;
+    if (!pr || !item || !sameItem(last.item, item)) return;
     const now = this.now();
     const k: Commitment = { id: newId('k', now), debtor: u.from, creditor: this.o.me, what: pr.what, dueBy: now + 600_000, status: 'accepted', createdFromConv: conv.convId, createdAt: now, coerced: true };
     this.o.store.update('commitments', (all) => [...all, k], `${u.from} gave in`);
@@ -410,7 +415,7 @@ export class SocialAwareness {
       status: 'accepted',
       createdFromConv: conv.convId,
       createdAt: now,
-      ...(pr.what.item && demanded.some((d) => itemMatcher(d).matches(pr.what.item ?? '') || itemMatcher(pr.what.item ?? '').matches(d)) ? { coerced: true } : {}),
+      ...(pr.what.item && demanded.some((d) => sameItem(d, pr.what.item ?? '')) ? { coerced: true } : {}),
     }));
     if (made.length === 0) return;
     this.o.store.update('commitments', (all) => [...all, ...made], `${partner} promised`);

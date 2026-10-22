@@ -123,7 +123,7 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       const body = bodies[n];
       body.bot.on('death', () => void deaths.push(n));
       const p = personas[n];
-      const a = new Agent({ body, persona: p, username: n, llm: null, logger, world, goalGen: false, socialGoals: false, rng: () => 0.99 });
+      const a = new Agent({ body, persona: p, username: n, llm: null, logger: logger.child({ agent: n }), world, goalGen: false, socialGoals: false, rng: () => 0.99 });
       const others = names.filter((o) => o !== n);
       a.store.update(
         'social',
@@ -242,7 +242,7 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
     const agents = {} as Record<(typeof names)[number], Agent>;
     for (const n of names) {
       const p = personas[n];
-      const a = new Agent({ body: bodies[n], persona: p, username: n, llm: null, logger, world, goalGen: false, socialGoals: false, rng: () => 0.2 });
+      const a = new Agent({ body: bodies[n], persona: p, username: n, llm: null, logger: logger.child({ agent: n }), world, goalGen: false, socialGoals: false, rng: () => 0.2 });
       const now = Date.now();
       // The same resentment as in K: the three were beaten and made to pay; they told each other so. Lin and Moe
       // have paid Vex twice this hour, out of fear.
@@ -325,9 +325,9 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
     await sleep(1500);
     const avenger = person({ name: 'Gorm', sex: 'male', traits: ['vengeful', 'grim'], temperament: { aggression: 0.9, dominance: 0.7, vengefulness: 0.95, mercy: 0.05, loyalty: 0.8, ambition: 0.3 }, caution: 0.05, combat: 0.7 });
     const onlooker = person({ name: 'Wit', sex: 'female', traits: ['calm'], temperament: { aggression: 0.2, dominance: 0.2, vengefulness: 0.4, mercy: 0.7, loyalty: 0.5, ambition: 0.3 }, caution: 0.5, combat: 0.3 });
-    const g = new Agent({ body: gorm, persona: avenger, username: 'Gorm', llm: null, logger, world: lethalWorld, goalGen: false, socialGoals: false, rng: () => 0.99 });
+    const g = new Agent({ body: gorm, persona: avenger, username: 'Gorm', llm: null, logger: logger.child({ agent: 'Gorm' }), world: lethalWorld, goalGen: false, socialGoals: false, rng: () => 0.99 });
     g.store.update('social', (all) => ({ ...all, Pell: history(avenger, 'Pell', { sentiment: 0, wrongs: [{ kind: 'killed_friend', note: 'Pell killed my brother', agoMin: 30 }, { kind: 'insult', note: 'Pell laughed about it', agoMin: 5 }] }) }), 'history');
-    const w = new Agent({ body: wit, persona: onlooker, username: 'Wit', llm: null, logger, world: lethalWorld, goalGen: false, socialGoals: false, rng: () => 0.99 });
+    const w = new Agent({ body: wit, persona: onlooker, username: 'Wit', llm: null, logger: logger.child({ agent: 'Wit' }), world: lethalWorld, goalGen: false, socialGoals: false, rng: () => 0.99 });
     const t0 = Date.now();
     const heard = listen([gorm, wit], t0);
     let pellDied = false;

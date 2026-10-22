@@ -8,7 +8,7 @@ import { AgentBus } from '@agora/agent/bus';
 import { ConflictEvaluator } from '@agora/agent/conflict/evaluator';
 import { EventEmitter } from 'node:events';
 import { Vec3 } from '@agora/agent/body/bot';
-import { CALL_OFF_RE, SURRENDER_RE, reckonBlow, yieldAt } from '@agora/agent/body/skills/duel';
+import { CALL_OFF_RE, SURRENDER_RE, beaten, reckonBlow, runningAway, yieldAt } from '@agora/agent/body/skills/duel';
 import { stopMotion } from '@agora/agent/body/skills/util';
 import { type PvpTuning, keepPvpInReach } from '@agora/agent/body/plugins';
 import { Feelings } from '@agora/agent/mind/feelings';
@@ -195,6 +195,23 @@ describe('fights end in a yield (§17.6)', () => {
     expect(reckonBlow('iron_sword', [], 0.5)).toBe(6);
     expect(reckonBlow('iron_sword', ['iron_helmet', 'iron_chestplate', 'iron_leggings', 'iron_boots'], 0.5)).toBeCloseTo(6 * (1 - 15 / 50), 5);
     expect(reckonBlow(undefined, [], 0.1)).toBeCloseTo(0.4, 5);
+    // A beating is over before a blow could kill: two of an iron sword (one more, a crit, would make 21).
+    expect(beaten(6, 6)).toBe(false);
+    expect(beaten(12, 6)).toBe(true);
+    expect(beaten(15, 5)).toBe(true);
+    expect(beaten(12, 4)).toBe(false);
+  });
+
+  it('tells someone running off from someone knocked back', () => {
+    const me = { x: 0, z: 0 };
+    // A second's sprint, away from us: running.
+    expect(runningAway({ x: 2, z: 0 }, { x: 6, z: 0 }, me)).toBe(true);
+    expect(runningAway({ x: 2, z: 1 }, { x: 5, z: 3 }, me)).toBe(true);
+    // Knocked back a block: not.
+    expect(runningAway({ x: 2, z: 0 }, { x: 3, z: 0 }, me)).toBe(false);
+    // Circling us, or coming at us: not running away.
+    expect(runningAway({ x: 3, z: 0 }, { x: 0, z: 3 }, me)).toBe(false);
+    expect(runningAway({ x: 5, z: 0 }, { x: 1, z: 0 }, me)).toBe(false);
   });
 
   it('a fight called off is over for both, and nobody gave up', () => {
