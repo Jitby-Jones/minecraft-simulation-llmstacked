@@ -25,9 +25,8 @@ import { FOLLOWER_WEIGHT, LIVE_MARGIN, PowerWatch } from '@agora/agent/conflict/
 import { spareChance } from '@agora/agent/conflict/pressure';
 import { type ConflictView, codeDecision, tributeDue } from '@agora/agent/modules/cc';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from '@agora/agent/modules/powerMove';
-import { codePromises } from '@agora/agent/social/awareness';
+import { SocialAwareness, codePromises } from '@agora/agent/social/awareness';
 import { CommitmentTracker } from '@agora/agent/social/commitments';
-import type { SocialAwareness } from '@agora/agent/social/awareness';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -142,6 +141,12 @@ describe('demands and compliance (§17.7)', () => {
     const no = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.6) });
     expect(no?.speechIntent?.stance).toBe('hostile');
     expect(no?.commitmentsToCreate).toBeUndefined();
+    // Having demanded it, a domineering agent gives them the chance before any blows.
+    const rex = world(tyrant, ['Tib']).state;
+    const near: AgentState = { ...rex, perception: { ...rex.perception, nearbyEntities: [ent('Tib', 4)] } };
+    const brawl = (pending: boolean): ConflictView => ({ rungOf: () => 3, fearOf: () => 0, mayBrawl: () => true, demandPending: () => pending, warnedLately: () => true });
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: brawl(false) })?.option).toBe('fight');
+    expect(codeDecision(near, {}, false, never, { candidates: [], roll: 1, conflict: brawl(true) })?.option).not.toBe('fight');
     // The same fear, but Rex is the one we follow: authority tips it.
     const led = codeDecision(heard('give me 3 bread, or else'), { from: 'Rex', convId: 'c1' }, false, never, { candidates: [], roll: 1, conflict: view(0.75, 0.24) });
     expect(led?.task?.skill).toBe('give');
@@ -179,6 +184,41 @@ describe('saying it (§17.7, §17.8)', () => {
     talking.stop();
     conversations.stop();
   }, 10_000);
+});
+
+describe('promises in a group', () => {
+  it("a promise made to someone else in the conversation isn't one to us", async () => {
+    const run = async (addressedToMe: boolean) => {
+      const s = world(meek, ['Tib', 'Rex']);
+      const bus = new AgentBus();
+      const sa = new SocialAwareness({ store: s, bus, logger: nullLogger(), llm: null, me: 'Tib', settleMs: 0, now: () => 10_000_000 });
+      sa.start();
+      const u = (id: string, from: string, text: string, toMe: boolean) => ({ id, convId: 'g1', from, to: toMe ? ['Tib'] : ['Rex'], text, ts: 1, pos: null, volume: 'normal' as const, outOfSight: false, addressedToMe: toMe, heardAs: toMe ? ('me' as const) : ('other' as const) });
+      s.update('conversations', (cs) => ({
+        ...cs,
+        g1: {
+          convId: 'g1',
+          participants: ['Tib', 'Pia', 'Rex'],
+          startedAt: 0,
+          lastActivity: 10,
+          turns: 2,
+          myTurns: 0,
+          lastEmbeds: [],
+          status: 'ended',
+          transcript: [u('a', 'Rex', 'give me 3 bread, or else', false), u('b', 'Pia', "fine. I'll give you 3 bread", addressedToMe)],
+          initiatedByMe: false,
+          nudged: false,
+          endedReason: 'turn cap',
+        },
+      }));
+      bus.emit({ type: 'conversationEnded', convId: 'g1', reason: 'turn cap' });
+      await new Promise((r) => setTimeout(r, 100));
+      sa.stop();
+      return s.state.commitments.filter((c) => c.debtor === 'Pia');
+    };
+    expect(await run(false)).toEqual([]);
+    expect((await run(true)).map((c) => c.creditor)).toEqual(['Tib']);
+  });
 });
 
 describe('tribute (§17.7)', () => {

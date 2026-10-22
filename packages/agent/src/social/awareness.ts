@@ -260,7 +260,9 @@ export class SocialAwareness {
       if (theirs.length === 0) continue;
       const update = await this.socialUpdate(partner, conv);
       this.apply(partner, update);
-      if (theirs.some((t) => looksLikePromise(t))) await this.extractPromises(partner, conv, theirs);
+      // In a group, a promise to someone else isn't one to us: only what they said to us counts.
+      const toMe = conv.participants.length <= 2 ? theirs : conv.transcript.filter((u) => u.from === partner && (u.addressedToMe || u.heardAs === 'me')).map((u) => u.text);
+      if (toMe.some((t) => looksLikePromise(t))) await this.extractPromises(partner, conv, toMe);
     }
   }
 

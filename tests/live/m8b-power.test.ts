@@ -167,7 +167,8 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       }
     };
     for (const n of names) agents[n].start();
-    for (const n of names) agents[n].setGoal('gather wood', 'inventoryHas:oak_log>=32');
+    // The others work; Rex lives off them.
+    for (const n of names.slice(1)) agents[n].setGoal('gather wood', 'inventoryHas:oak_log>=32');
     try {
       // J: demands, giving in out of fear, coerced promises, followers.
       await waitFor(() => heard.lines.some((l) => l.who === 'Rex' && DEMAND_RE.test(l.text)), 180_000, 'a demand from Rex', 500);

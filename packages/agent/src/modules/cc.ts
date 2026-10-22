@@ -121,6 +121,8 @@ export interface ConflictView {
   fearWith?: (name: AgentName, allies: readonly AgentName[]) => number;
   /** §17.7 tribute: they gave in to us before, and it's time they paid again. */
   tributeDue?: (name: AgentName) => boolean;
+  /** §17.7: we demanded something of them just now, or they are paying it: they get the chance before any blows. */
+  demandPending?: (name: AgentName) => boolean;
   warnedLately: (name: AgentName) => boolean;
 }
 
@@ -159,6 +161,8 @@ const DUSK = 12_500;
 const WARN_EVERY_MS = 3 * 60_000;
 /** Grumbling to the same friend, or calling on the same person to rise, at most this often. */
 const SPOKE_EVERY_MS = 10 * 60_000;
+/** A demand waits this long for its answer before it comes to blows (§17.7). */
+const DEMAND_ANSWER_MS = 60_000;
 /** Tribute is asked of those who gave in this often (§17.7 "every day": a few minutes, as days go here). */
 const TRIBUTE_EVERY_MS = 5 * 60_000;
 
@@ -370,7 +374,7 @@ function conflictMove(s: AgentStateStore['state'], c: ConflictView, liking?: (na
         rationale: `code default: ${e.name} has to go`,
       };
     }
-    if (rung >= 3 && c.mayBrawl(e.name)) {
+    if (rung >= 3 && c.mayBrawl(e.name) && !c.demandPending?.(e.name)) {
       return {
         option: 'fight',
         target: { agent: e.name },
@@ -619,6 +623,8 @@ export class CognitiveController {
   private readonly warned = new Map<AgentName, { at: number; rung: number }>();
   /** When we last grumbled to someone, or called on them to rise (`inform:Y`, `rally:Y`). */
   private readonly spoke = new Map<string, number>();
+  /** When we last demanded something of someone (§17.7). */
+  private readonly demanded = new Map<AgentName, number>();
 
   constructor(private readonly o: CCOptions) {
     this.now = o.now ?? Date.now;
@@ -890,6 +896,9 @@ export class CognitiveController {
         ...(c.authorityOf ? { authorityOf: (n: AgentName) => c.authorityOf?.(n) ?? 0 } : {}),
         ...(c.fearWith ? { fearWith: (n: AgentName, allies: readonly AgentName[]) => c.fearWith?.(n, allies) ?? c.fearOf(n) } : {}),
         tributeDue: (n) => tributeDue(store.state.commitments, this.o.me, n, t),
+        demandPending: (n) =>
+          t - (this.demanded.get(n) ?? -Infinity) < DEMAND_ANSWER_MS ||
+          store.state.commitments.some((k) => k.coerced && k.debtor === n && k.creditor === this.o.me && k.status === 'accepted'),
         warnedLately: (n) => {
           const w = this.warned.get(n);
           return Boolean(w && t - w.at < WARN_EVERY_MS && c.rungOf(n) <= w.rung);
@@ -926,6 +935,7 @@ export class CognitiveController {
     const who = decision.target?.agent;
     if (who && (stance === 'hostile' || stance === 'threaten' || (decision.option === 'move' && decision.target?.pos))) this.warned.set(who, { at: now, rung: this.o.conflict?.rungOf(who) ?? 0 });
     if (who && (stance === 'inform' || stance === 'rally')) this.spoke.set(`${stance}:${who}`, now);
+    if (who && decision.option === 'demand') this.demanded.set(who, now);
     // Our own promises become commitments and tasks only when the CC allowed committing (§6.4); accepting a deal
     // also records their half of it (§6.6).
     if (decision.speechIntent?.mayCommit) {
