@@ -1,7 +1,7 @@
 // M3 (§10): the single-agent PIANO modules without Minecraft: pure parts, then modules against fakes and the mocked
 // NanoGPT. Live behavior is in tests/live/m3-agent.test.ts.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type AgentState, ModelsConfigSchema, PersonaSchema, type Utterance, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import type { Body } from '@agora/agent/body/body';
@@ -64,6 +64,30 @@ describe('addressing and conversations (§6.2)', () => {
     expect(ended).toEqual(['turn cap']);
     expect(conv.mayInitiate('Bram')).toBe(false);
     conv.stop();
+  });
+
+  it('a conversation nobody has spoken in for a minute ends, whoever spoke last (a stroll is not held for it)', () => {
+    vi.useFakeTimers();
+    try {
+      let t = 0;
+      const s = store();
+      const bus = new AgentBus();
+      const ended: string[] = [];
+      bus.on('conversationEnded', (e) => ended.push(e.reason));
+      const conv = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0, now: () => t });
+      conv.start();
+      bus.emit({ type: 'heard', utterance: { id: 'u1', convId: '', from: 'Bram', to: ['Pip'], text: 'hi Pip', ts: 0, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+      // Pip never answers, and Bram stands there saying nothing more.
+      t = 30_000;
+      vi.advanceTimersByTime(1000);
+      expect(conv.withPartner('Bram')?.status).toBe('active');
+      t = 61_000;
+      vi.advanceTimersByTime(1000);
+      expect(ended).toEqual(['went quiet']);
+      conv.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('in a conversation of two, a line plainly for someone else is not for us', () => {

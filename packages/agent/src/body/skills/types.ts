@@ -68,6 +68,8 @@ export interface SkillContext {
   combat?: number;
   /** Whom we are in a conversation with just now, if anyone (a stroll stops for it). */
   talkingWith?: () => string | null;
+  /** Someone just seen attacking another, if anyone (a stroll stops to watch). */
+  fightNearby?: () => string | null;
 }
 
 export interface SkillDef<A> {

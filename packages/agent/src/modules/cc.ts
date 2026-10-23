@@ -63,6 +63,8 @@ export interface DecideContext {
   opening?: AgentName;
   /** A block of ours around us changed just now (a wall of the shelter we are in broken, a hut's door): seen to mid-task too. */
   change?: BlockChange;
+  /** §17.7: we have just begun to follow this person: a stroll begun before gives way to their side. */
+  leader?: AgentName;
 }
 
 export interface ValidationEnv {
@@ -236,6 +238,8 @@ const WARN_EVERY_MS = 3 * 60_000;
 /** Options that are about a person: the same one with someone else is another option (an answer's person is only
  *  whom it is said to). */
 const WITH_SOMEONE: ReadonlySet<string> = new Set(['talk', 'trade', 'demand', 'recruit', 'follow', 'help']);
+/** Skills that are only a stroll or a look about: anything with a purpose comes before them. */
+const STROLLS: ReadonlySet<string> = new Set(['wander', 'lookAround']);
 
 /**
  * A fight with the same person to the same end (a brawl, or to the death) is the fight already under way, whatever
@@ -745,6 +749,9 @@ export function codeDecision(
     // §17.8: the moment against one we resent (alone or hurt) is worth stopping work for: the others are called on.
     const moment = ctx.opening && pv ? rallyMove(s, pv) : null;
     if (moment) return moment;
+    // §17.7: one we have just begun to follow, while we stroll about: to their side.
+    const escort = ctx.leader && pv && STROLLS.has(s.option?.skill ?? '') ? escortMove(s, pv) : null;
+    if (escort) return escort;
     if (!ctx.atOdds || !social?.conflict) return null;
     // Someone we're at odds with came near: the one we swore to take on (with the others at hand), or the rungs.
     const move = (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking, social.power?.leader());
@@ -1085,6 +1092,11 @@ export class CognitiveController {
     );
     this.offs.push(b.on('atOddsNearby', (e) => this.trigger(`${e.name} is here, and things are bad between you`, { atOdds: e.name, urgent: true })));
     this.offs.push(b.on('opening', (e) => this.trigger(`${e.name} is alone or hurt: a chance to deal with ${e.name} together`, { opening: e.name, urgent: true })));
+    this.offs.push(
+      b.on('leaderChanged', (e) => {
+        if (e.leader) this.trigger(`you now follow ${e.leader}`, { leader: e.leader });
+      }),
+    );
     // What changed around us: something of ours broken or opened, anything right beside us, or a blast is worth a
     // decision now; at once if it opens the shelter we are in, or comes at night. (Blocks set down near a hut, a door
     // shut: news for the packet only.)

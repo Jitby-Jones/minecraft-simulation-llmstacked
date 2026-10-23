@@ -140,6 +140,8 @@ export interface RunSkillDeps {
   settleMs?: number;
   /** Whom we are in a conversation with just now, if anyone. */
   talkingWith?: () => string | null;
+  /** Someone just seen attacking another, if anyone. */
+  fightNearby?: () => string | null;
 }
 
 export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkillDeps): Promise<SkillRunRecord> {
@@ -183,6 +185,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     home: deps.home ?? null,
     ...(deps.combat !== undefined ? { combat: deps.combat } : {}),
     ...(deps.talkingWith ? { talkingWith: deps.talkingWith } : {}),
+    ...(deps.fightNearby ? { fightNearby: deps.fightNearby } : {}),
   };
   let ok = false;
   let observed: string;

@@ -590,11 +590,11 @@ describe('a stroll (wander): clear of those to keep away from, close to the one 
     }
   });
 
-  it('stops for a talk: stays put and faces whoever it is talking with', async () => {
+  /** A stroll with Rex at `rex`, its context given `extra` (whom it talks with, a fight seen): where it walked and looked. */
+  async function pausedStroll(extra: Record<string, () => string | null>, rex = new Vec3(3, 64, 0)) {
     const ac = new AbortController();
     const walks: unknown[] = [];
     const looked: Vec3[] = [];
-    const rex = new Vec3(3, 64, 0);
     const rexEntity = { id: 1, type: 'player', username: 'Rex', name: 'player', position: rex, height: 1.8 };
     const bot = {
       entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 },
@@ -613,12 +613,28 @@ describe('a stroll (wander): clear of those to keep away from, close to the one 
     const parsed = wander?.parseArgs({ radius: 16, seconds: 30 });
     if (!wander || !parsed?.ok) throw new Error('wander args');
     setTimeout(() => ac.abort(), 2500);
-    const ctx = { bot: bot as unknown as Bot, signal: ac.signal, logger: nullLogger(), rng: new SeededRandom(3), movements: () => ({}) as never, knowsRecipe: () => true, say: async () => undefined, slip: null, home: null, progress: () => undefined, planDepth: 2, talkingWith: () => 'Rex' };
+    const ctx = { bot: bot as unknown as Bot, signal: ac.signal, logger: nullLogger(), rng: new SeededRandom(3), movements: () => ({}) as never, knowsRecipe: () => true, say: async () => undefined, slip: null, home: null, progress: () => undefined, planDepth: 2, ...extra };
     const r = await wander.run(ctx, parsed.args);
+    return { r, walks, looked };
+  }
+
+  it('stops for a talk: stays put and faces whoever it is talking with', async () => {
+    const { r, walks, looked } = await pausedStroll({ talkingWith: () => 'Rex' });
     expect(walks).toEqual([]);
     expect(looked.length).toBeGreaterThanOrEqual(1);
     expect(looked.every((p) => p.x === 3)).toBe(true);
     expect(r.observed).toMatch(/stopped to talk with Rex/);
+  });
+
+  it('stops to watch a fight in sight: stays put and faces the one fighting', async () => {
+    const { r, walks, looked } = await pausedStroll({ fightNearby: () => 'Rex' }, new Vec3(20, 64, 0));
+    expect(walks).toEqual([]);
+    expect(looked.length).toBeGreaterThanOrEqual(1);
+    expect(looked.every((p) => p.x === 20)).toBe(true);
+    expect(r.observed).toMatch(/stopped to watch Rex fight/);
+    // A fight out of sight is nothing to stop for.
+    const far = await pausedStroll({ fightNearby: () => 'Rex' }, new Vec3(60, 64, 0));
+    expect(far.walks.length).toBeGreaterThanOrEqual(1);
   });
 
   it('strolls about near the one it keeps by, wherever the stroll began', async () => {

@@ -29,6 +29,10 @@ export interface ExecutorOptions {
 }
 
 const ACTION_LOG = 30;
+/** A conversation with a line this recent is one going on (a stroll stays for it); older, it has gone quiet. */
+const TALK_LIVE_MS = 15_000;
+/** A blow this recent between two others is a fight going on (a stroll stops to watch). */
+const FIGHT_SEEN_MS = 8_000;
 
 /** "that's enough", "we're done, thanks": the person being helped calls it off (§6.7). */
 export const HELP_DONE_RE = /\b(that'?s enough|enough|we'?re done|i'?m done|done now|all done|you can stop|stop now|that'?s all|that'?ll do|all good now)\b/i;
@@ -198,7 +202,19 @@ export class SkillExecutor {
         progress: (note) => store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, progress: note } : o), 'progress'),
         talkingWith: () => {
           const me = store.state.self.username;
-          return Object.values(store.state.conversations).find((c) => c.status === 'active')?.participants.find((n) => n !== me) ?? null;
+          const t = this.now();
+          return Object.values(store.state.conversations).find((c) => c.status === 'active' && t - c.lastActivity < TALK_LIVE_MS)?.participants.find((n) => n !== me) ?? null;
+        },
+        fightNearby: () => {
+          const me = store.state.self.username;
+          const t = this.now();
+          const blows = store.state.perception.observedActions;
+          for (let i = blows.length - 1; i >= 0; i--) {
+            const a = blows[i];
+            if (!a || t - a.ts > FIGHT_SEEN_MS) break;
+            if (a.kind === 'attack' && a.target && a.actor !== me && a.target !== me) return a.actor;
+          }
+          return null;
         },
       });
       ok = r.ok && !r.mismatch;

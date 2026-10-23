@@ -178,11 +178,17 @@ export const wander = defineSkill({
     const end = Date.now() + args.seconds * 1000;
     const seen = new Set<string>();
     const talked = new Set<string>();
+    const watched = new Set<string>();
     let walked = 0;
     // Someone talking with us, in sight: a stroll is no reason to walk off from them.
     const talkingTo = () => {
       const who = ctx.talkingWith?.();
       return who && findEntity(bot, who, 16) ? who : null;
+    };
+    // A fight breaking out in sight: people stop to watch.
+    const fightAt = () => {
+      const who = ctx.fightNearby?.();
+      return who && findEntity(bot, who, 32) ? who : null;
     };
     bot.pathfinder.setMovements(ctx.movements());
     try {
@@ -194,6 +200,14 @@ export const wander = defineSkill({
           talked.add(partner);
           await glance(ctx, 16, partner);
           await waitMs(ctx, 1500 + ctx.rng.next() * 1500);
+          continue;
+        }
+        // A fight in sight: stay and watch it while it lasts.
+        const fighter = fightAt();
+        if (fighter) {
+          watched.add(fighter);
+          await glance(ctx, 32, fighter);
+          await waitMs(ctx, 1000 + ctx.rng.next() * 1000);
           continue;
         }
         // The next spot: somewhere within the radius of where the stroll began (or of the one we keep close to), away
@@ -218,7 +232,7 @@ export const wander = defineSkill({
         const from = bot.entity.position.clone();
         // A talk begun on the way stops the walk.
         const listen = setInterval(() => {
-          if (talkingTo()) stopMotion(bot);
+          if (talkingTo() || fightAt()) stopMotion(bot);
         }, 1000);
         try {
           await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(tx, tz, 2)), 20_000), () => stopMotion(bot));
@@ -242,9 +256,10 @@ export const wander = defineSkill({
     } finally {
       stopMotion(bot);
     }
-    const things = [...seen].filter((x) => !talked.has(x)).slice(0, 6);
+    const things = [...seen].filter((x) => !talked.has(x) && !watched.has(x)).slice(0, 6);
     const talks = talked.size > 0 ? `, stopped to talk with ${[...talked].join(', ')}` : '';
-    return { ok: true, observed: `strolled ${walked.toFixed(0)} blocks${things.length > 0 ? `, saw ${things.join(', ')}` : ''}${talks}` };
+    const fights = watched.size > 0 ? `, stopped to watch ${[...watched].join(', ')} fight` : '';
+    return { ok: true, observed: `strolled ${walked.toFixed(0)} blocks${things.length > 0 ? `, saw ${things.join(', ')}` : ''}${talks}${fights}` };
   },
 });
 

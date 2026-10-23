@@ -545,6 +545,24 @@ describe('tribute (§17.7)', () => {
     // With nothing else to do, a follower keeps by the one it follows.
     expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
   });
+
+  it('one who has just begun to follow, out on a stroll, goes to their side; not from work, nor when already by them', () => {
+    const tib = world(meek, ['Rex']).state;
+    const led: PowerView = { leader: () => 'Rex', coalition: (x) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false };
+    const calm: ConflictView = { rungOf: () => 0, fearOf: () => 0, mayBrawl: never, warnedLately: never };
+    const doing = (skill: string, d: number): AgentState => ({
+      ...tib,
+      perception: { ...tib.perception, nearbyEntities: [ent('Rex', d)] },
+      option: { decisionId: 'd0', option: 'work', startedAt: 0, maxSeconds: 90, skill, args: {}, status: 'running' },
+    });
+    const now = (s: AgentState, leader?: string) => codeDecision(s, leader ? { leader } : {}, true, never, { candidates: [], roll: 1, conflict: calm, power: led });
+    expect(now(doing('wander', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    expect(now(doing('lookAround', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    // Work with a purpose goes on; one already at their side stays strolling; and nothing new, nothing changes.
+    expect(now(doing('obtain', 14), 'Rex')).toBeNull();
+    expect(now(doing('wander', 4), 'Rex')).toBeNull();
+    expect(now(doing('wander', 14))).toBeNull();
+  });
 });
 
 describe('followers and leaders, as onlookers see them (§17.7)', () => {
