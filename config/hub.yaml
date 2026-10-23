@@ -2,8 +2,8 @@
 hub: { host: 127.0.0.1, port: 8765 }
 dashboard: { enabled: true, host: 127.0.0.1, port: 8080 }
 rateLimit:
-  rps: 20          # NanoGPT allows 25 requests/s per account; keep headroom
-  burst: 20
+  rps: 0.9         # NanoGPT's subscription takes 60 text requests a minute per key; 0.9/s + burst 5 stays under it
+  burst: 5
   queueTimeoutMs: 15000
 speech:
   globalPerSec: 5  # global loop guard across all bots (§6.2)

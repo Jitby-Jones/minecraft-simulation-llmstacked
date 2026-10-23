@@ -99,12 +99,49 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(r.value).toEqual({ option: 'work', rationale: 'need logs' });
     const req = fake.chatRequests()[0];
     expect(req?.url).toBe('https://nano-gpt.com/api/subscription/v1/chat/completions');
-    expect(req?.body?.response_format).toMatchObject({ type: 'json_schema' });
+    // A JSON-object reply, the schema in the prompt (subscription models fill every field of a json_schema reply).
+    expect(req?.body?.response_format).toEqual({ type: 'json_object' });
+    const msgs = req?.body?.messages as { role: string; content: string }[];
+    expect(msgs[0]?.content).toMatch(/^You are Pip, a careful builder\.\n\nReply with only a JSON object \(reply\) matching this JSON schema:\n\{/);
+    expect(msgs.at(-1)).toEqual({ role: 'user', content: 'What do you do next?' });
     expect(req?.body?.include_usage).toBe(true);
     const sent = JSON.stringify(req?.body);
     expect(sent).not.toMatch(/cache_control|billing|provider|service_tier/i);
     expect([...(req?.headers.keys() ?? [])].some((h) => /provider|billing|cache/i.test(h))).toBe(false);
     expect(rt.meter.spentThisHour('Pip')).toBe(321);
+  });
+
+  it("asks for the API's json_schema format only when configured to", async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: GOOD });
+    const rt = await runtime(fake, { ...fastTiers, llm: { structuredOutput: 'schema' } });
+    expect((await ask(rt, { schemaName: 'decision' })).ok).toBe(true);
+    expect(fake.chatRequests()[0]?.body?.response_format).toMatchObject({ type: 'json_schema', json_schema: { name: 'decision' } });
+  });
+
+  it('a prompt that describes the format gets only the line asking for it; placeholders are tidied before validation', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: JSON.stringify({ option: 'work', rationale: 'need logs', target: { agent: 'none' } }) });
+    const rt = await runtime(fake);
+    const strict = z.object({ option: z.enum(['work', 'rest', 'talk']), rationale: z.string(), target: z.object({ agent: z.string().min(1) }).optional() }).strict();
+    const r = await rt.client.call({
+      tier: 'L2',
+      module: 'cc',
+      agent: 'Pip',
+      messages: [{ role: 'user', content: 'Reply with {"option": ..., "rationale": ...}' }],
+      schema: strict,
+      schemaName: 'decision',
+      formatInPrompt: true,
+      prepare: (j) => {
+        const o = { ...(j as Record<string, unknown>) };
+        if ((o.target as { agent?: string } | undefined)?.agent === 'none') delete o.target;
+        return o;
+      },
+      fallback: () => ({ option: 'rest' as const, rationale: 'code default' }),
+    });
+    expect(r.value).toEqual({ option: 'work', rationale: 'need logs' });
+    const msgs = fake.chatRequests()[0]?.body?.messages as { role: string; content: string }[];
+    expect(msgs[0]).toEqual({ role: 'system', content: 'Reply with only the JSON object (decision) described above.' });
   });
 
   it('repairs an invalid reply once, then falls back to the code default', async () => {
@@ -148,6 +185,32 @@ describe('the client (§5, §22.2, §22.6)', () => {
     const before = fake.chatRequests().filter((q) => q.body?.model === first).length;
     await ask(rt);
     expect(fake.chatRequests().filter((q) => q.body?.model === first).length).toBe(before);
+  });
+
+  it('takes a rate token for every request it sends: a fallback model’s and a repair’s too (NanoGPT counts each)', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    let tokens = 0;
+    const counting = {
+      acquire: () => {
+        tokens++;
+        return Promise.resolve();
+      },
+      rate: 10_000,
+    };
+    const rt = await startLlm({ apiKey: 'test-key', config: ModelsConfigSchema.parse(fastTiers), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: counting });
+    const [first] = rt.router.chain('L2');
+    // The first model times out, the second answers wrongly once and then rightly: three requests, three tokens.
+    let wrong = true;
+    fake.chat = ({ model }) => {
+      if (model === first) return { text: GOOD, delayMs: 2000 };
+      if (!wrong) return { text: GOOD };
+      wrong = false;
+      return { text: '{"option":"dance"}' };
+    };
+    const r = await ask(rt);
+    expect(r.ok).toBe(true);
+    expect(fake.chatRequests()).toHaveLength(3);
+    expect(tokens).toBe(3);
   });
 
   it('refreshes the allowlist on "model not found" and hot-swaps when a model disappears', async () => {

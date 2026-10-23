@@ -1,0 +1,104 @@
+{
+  "measuredAt": "2026-10-23T06:16:55.332Z",
+  "results": [
+    {
+      "model": "deepseek/deepseek-latest",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 0.8,
+      "jsonOkRate": 0.8,
+      "p50Ms": 14108,
+      "p90Ms": 23770
+    },
+    {
+      "model": "z-ai/glm-5.1",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 1,
+      "jsonOkRate": 1,
+      "p50Ms": 5140,
+      "p90Ms": 8955
+    },
+    {
+      "model": "tencent/hy4-preview",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 0,
+      "jsonOkRate": 0,
+      "p50Ms": 0,
+      "p90Ms": 0
+    },
+    {
+      "model": "moonshotai/kimi-k2-thinking",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 0.6,
+      "jsonOkRate": 0.6,
+      "p50Ms": 42416,
+      "p90Ms": 42479
+    },
+    {
+      "model": "holo3-35b-a3b",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 0.8,
+      "jsonOkRate": 0.8,
+      "p50Ms": 2624,
+      "p90Ms": 10553
+    },
+    {
+      "model": "qwen/qwen3.5-122b-a10b",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 0.6,
+      "jsonOkRate": 0.6,
+      "p50Ms": 29345,
+      "p90Ms": 41749
+    },
+    {
+      "model": "deepseek/deepseek-v4-pro",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 1,
+      "jsonOkRate": 1,
+      "p50Ms": 2887,
+      "p90Ms": 10628
+    },
+    {
+      "model": "qwen/qwen3-235b-a22b-instruct-2507",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 1,
+      "jsonOkRate": 1,
+      "p50Ms": 12013,
+      "p90Ms": 14809
+    },
+    {
+      "model": "nousresearch/hermes-4-405b",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 1,
+      "jsonOkRate": 1,
+      "p50Ms": 4685,
+      "p90Ms": 9607
+    },
+    {
+      "model": "z-ai/glm-5.3",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 1,
+      "jsonOkRate": 1,
+      "p50Ms": 2567,
+      "p90Ms": 3365
+    },
+    {
+      "model": "mistral-code-agent-latest",
+      "tier": "L3",
+      "calls": 5,
+      "okRate": 1,
+      "jsonOkRate": 1,
+      "p50Ms": 2351,
+      "p90Ms": 2603
+    }
+  ]
+}

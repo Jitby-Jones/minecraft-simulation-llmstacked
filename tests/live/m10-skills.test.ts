@@ -13,7 +13,7 @@ import { type Embedder, LocalRateLimiter, startLlm } from '@agora/llm';
 import { Agent, MemoryDB } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
 import { countItem } from '@agora/agent/body/inventory';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -73,7 +73,7 @@ describe.skipIf(!liveJavaPath())('M10 live: a skill written, verified and reused
     const decisionSystems: string[] = [];
     fake.chat = ({ body }) => {
       const messages = body.messages as { role: string; content: string }[];
-      const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const schema = schemaNameOf(body);
       const rest = { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'waiting a bit' };
       switch (schema ?? '') {
         case 'decision': {
@@ -115,7 +115,7 @@ describe.skipIf(!liveJavaPath())('M10 live: a skill written, verified and reused
     const events: AgentEvent[] = [];
     for (const type of ['skillWanted', 'skillLearned', 'actionRecorded'] as const) agent.bus.on(type, (e: AgentEvent) => events.push(e));
     const runs = () => events.flatMap((e) => (e.type === 'actionRecorded' && e.record.skill === 'stock_up_logs' ? [e.record] : []));
-    const writes = () => fake.chatRequests().filter((r) => (r.body?.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name === 'skill');
+    const writes = () => fake.chatRequests().filter((r) => schemaNameOf(r.body) === 'skill');
     agent.start();
     const t0 = Date.now();
     const at = () => `${Math.round((Date.now() - t0) / 1000)} s`;

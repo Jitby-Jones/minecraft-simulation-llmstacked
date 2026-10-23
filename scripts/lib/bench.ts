@@ -1,9 +1,11 @@
 // Statistics for the §11 latency check (`pnpm bench-models`).
 
-import type { BenchFile } from '@agora/llm';
+import type { BenchFile, TierName } from '@agora/llm';
 
 export interface BenchSample {
   model: string;
+  /** The tier whose prompts were sent. */
+  tier?: TierName;
   ms: number;
   /** A real model reply (not the code default). */
   ok: boolean;
@@ -25,16 +27,20 @@ export function percentile(xs: readonly number[], p: number): number {
 const rate = (xs: readonly boolean[]) => (xs.length === 0 ? 0 : xs.filter(Boolean).length / xs.length);
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
+/** One result per model and tier measured. */
 export function summarizeBench(samples: readonly BenchSample[]): BenchFile['results'] {
   const by = new Map<string, BenchSample[]>();
-  for (const s of samples) by.set(s.model, [...(by.get(s.model) ?? []), s]);
-  return [...by.entries()].map(([model, xs]) => {
+  for (const s of samples) by.set(`${s.tier ?? ''} ${s.model}`, [...(by.get(`${s.tier ?? ''} ${s.model}`) ?? []), s]);
+  return [...by.values()].map((xs) => {
+    const model = xs[0]?.model ?? '';
+    const tier = xs[0]?.tier;
     const okMs = xs.filter((x) => x.ok).map((x) => x.ms);
     const json = xs.filter((x) => x.json !== undefined).map((x) => x.json === true);
     const ttft = xs.flatMap((x) => (x.ttftMs !== undefined ? [x.ttftMs] : []));
     const tool = xs.filter((x) => x.toolOk !== undefined).map((x) => x.toolOk === true);
     return {
       model,
+      ...(tier ? { tier } : {}),
       calls: xs.length,
       okRate: round(rate(xs.map((x) => x.ok))),
       jsonOkRate: round(json.length > 0 ? rate(json) : 1),
@@ -46,8 +52,9 @@ export function summarizeBench(samples: readonly BenchSample[]): BenchFile['resu
   });
 }
 
-/** Keeps earlier results for models not measured this run. */
+/** Keeps earlier results for the models and tiers not measured this run. */
 export function mergeBench(previous: BenchFile | null, fresh: BenchFile['results'], measuredAt: string): BenchFile {
-  const seen = new Set(fresh.map((r) => r.model));
-  return { measuredAt, results: [...fresh, ...(previous?.results ?? []).filter((r) => !seen.has(r.model))] };
+  const key = (r: BenchFile['results'][number]) => `${r.tier ?? ''} ${r.model}`;
+  const seen = new Set(fresh.map(key));
+  return { measuredAt, results: [...fresh, ...(previous?.results ?? []).filter((r) => !seen.has(key(r)))] };
 }

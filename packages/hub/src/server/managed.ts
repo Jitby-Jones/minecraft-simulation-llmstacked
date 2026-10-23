@@ -3,7 +3,7 @@
 import path from 'node:path';
 import type { DataPaths, Logger, VersionsConfig, WorldConfig } from '@agora/shared';
 import { applyServerFiles } from './apply';
-import { eulaAccepted, opsContainingBots, readModeState } from './files';
+import { eulaAccepted, opsContainingBots, readModeState, worldExists } from './files';
 import { verifyInstall, paperJarName } from './install';
 import { findJava, type JavaInfo } from './java';
 import { PaperProcess } from './process';
@@ -38,8 +38,12 @@ export function preflightServer(opts: ManagedServerOptions): PreflightResult {
   if (!java) problems.push(`Java ${opts.versions.java.minMajor}+ not found (set JAVA_HOME, AGORA_JAVA or server.javaPath)`);
   const mode = readModeState(opts.paths);
   if (!mode) problems.push('server files not generated: run `pnpm run setup`');
-  else if (mode.mode !== opts.world.mode) {
-    problems.push(`config/world.yaml says mode ${opts.world.mode} but the server is set up for ${mode.mode}: run \`pnpm server-mode ${opts.world.mode}\``);
+  // A world never generated yet just switches (the server files are applied right after); a played one can't.
+  else if (mode.mode !== opts.world.mode && worldExists(opts.paths, mode.levelName)) {
+    const on = opts.world.mode === 'test';
+    problems.push(
+      `test mode is ${on ? 'on' : 'off'} in config/world.yaml (mode ${opts.world.mode}), but the server's world "${mode.levelName}" was set up with it ${on ? 'off' : 'on'}: run \`pnpm test-mode ${on ? 'on' : 'off'}\` (add --new-world if that world was already played: ${on ? '' : 'hardcore needs a fresh world; '}the old one is kept), or \`pnpm test-mode ${on ? 'off' : 'on'}\` to keep it as it is`,
+    );
   }
   const opBots = opsContainingBots(opts.paths, opts.botNames);
   if (opBots.length > 0) problems.push(`bot usernames are op (never allowed, §13 rule 10): ${opBots.join(', ')}`);

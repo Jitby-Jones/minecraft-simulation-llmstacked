@@ -7,8 +7,6 @@ import { planDepthFor } from '../body/skills/planner';
 
 export interface MindLevers {
   ccTier: TierName;
-  /** Complex new goals get one L3 planning burst (high intelligence only). */
-  planningBurst: boolean;
   memories: number;
   tasks: number;
   people: number;
@@ -33,7 +31,6 @@ export function leversFor(intelligence: number, intelligenceRoutesCCTier = true)
   const i = Math.min(1, Math.max(0, intelligence));
   return {
     ccTier: intelligenceRoutesCCTier && i < 0.35 ? 'L1' : 'L2',
-    planningBurst: intelligenceRoutesCCTier && i >= 0.7,
     memories: Math.round(lerp(i, 3, 6)),
     tasks: Math.round(lerp(i, 2, 5)),
     people: Math.round(lerp(i, 3, 6)),

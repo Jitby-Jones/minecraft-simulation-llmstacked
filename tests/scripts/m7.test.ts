@@ -163,6 +163,6 @@ describe('pnpm ctl', () => {
       message: 'running',
       data: { mode: 'test', uptimeSec: 3720, target: 3, server: 'running', living: [{ username: 'Pip', slot: 's0', online: true, since: 0 }, { username: 'Rex', slot: 's1', online: false, since: 0 }], quota: { level: 1, codeOnly: false, weeklyPercent: 0.72 }, dashboard: 'http://127.0.0.1:8080' },
     });
-    expect(text.split('\n')).toEqual(['mode test, up 62 min, server running', 'population 2 of 3', '  ● Pip (s0)', '  ○ Rex (s1)', 'quota: level 1, 72% of the week used', 'dashboard http://127.0.0.1:8080']);
+    expect(text.split('\n')).toEqual(['test mode on (mode test), up 62 min, server running', 'population 2 of 3', '  ● Pip (s0)', '  ○ Rex (s1)', 'quota: level 1, 72% of the week used', 'dashboard http://127.0.0.1:8080']);
   });
 });

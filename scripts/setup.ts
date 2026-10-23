@@ -65,6 +65,13 @@ async function main(): Promise<void> {
   const applied = await applyServerFiles(paths, world, process.env.RCON_PASSWORD ?? '');
   if (!applied.ok) {
     console.error(`[setup] server files not written: ${applied.message}`);
+    if (/--new-world/.test(applied.message)) {
+      console.error(
+        world.mode === 'live'
+          ? '[setup] Test mode is off in config/world.yaml (hardcore): `pnpm test-mode off --new-world` starts a fresh hardcore world (the old one is kept), or `pnpm test-mode on` keeps playing this one.'
+          : '[setup] Test mode is on in config/world.yaml: `pnpm test-mode on --new-world` starts a fresh world for it (the old one is kept), or `pnpm test-mode off` keeps this one.',
+      );
+    }
     process.exitCode = 1;
   } else log(`server files written: ${applied.message}`);
 

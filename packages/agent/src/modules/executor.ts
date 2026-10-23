@@ -29,6 +29,12 @@ export interface ExecutorOptions {
 }
 
 const ACTION_LOG = 30;
+/** A conversation with a line this recent is one going on (a stroll stays for it); older, it has gone quiet. */
+const TALK_LIVE_MS = 15_000;
+/** A blow this recent between two others is a fight going on (a stroll stops to watch). */
+const FIGHT_SEEN_MS = 8_000;
+/** How long a new option waits for the one it replaced to clean up (its last stop of motion). */
+const SETTLE_MS = 1500;
 
 /** "that's enough", "we're done, thanks": the person being helped calls it off (§6.7). */
 export const HELP_DONE_RE = /\b(that'?s enough|enough|we'?re done|i'?m done|done now|all done|you can stop|stop now|that'?s all|that'?ll do|all good now)\b/i;
@@ -61,7 +67,8 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     case 'demand':
     case 'recruit':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
-      return { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 600) } };
+      // While talking: facing them, an eye on what's around.
+      return { skill: 'lookAround', args: { seconds: Math.min(opt.maxSeconds, 600), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
     // A fight is a duel until someone yields (the conflict gate let it through, §17.5).
     case 'fight':
       if (opt.skill) return { skill: opt.skill, args: opt.args ?? {} };
@@ -71,16 +78,20 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     // §19.2 courting: walk over, then the small gift (a give task) or a moment while the line is said.
     case 'court':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 3 } };
-      return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 60) } };
+      return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'lookAround', args: { seconds: Math.min(opt.maxSeconds, 60), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
+    // Resting is not standing frozen: one stays put and keeps an eye on what's around (on whom we face, if anyone).
     case 'yield':
     case 'apologize':
     case 'rest':
-      return { skill: 'wait', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120) } };
+      return { skill: 'lookAround', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
   }
 }
 
 export class SkillExecutor {
   private current: { opt: ActiveOption; ac: AbortController; reason: string | null; skill?: string } | null = null;
+  /** Settles once the latest run, its skill's cleanup included, is over. */
+  private settled: Promise<void> = Promise.resolve();
+  private stopped = false;
   private readonly offs: (() => void)[] = [];
   private readonly now: () => number;
 
@@ -95,7 +106,7 @@ export class SkillExecutor {
   /** Nothing physical going on (resting or just looking around): upkeep reflexes like picking things up may run. */
   get idleBody(): boolean {
     const skill = this.current?.skill ?? this.current?.opt.skill;
-    return this.current === null || skill === 'wait' || skill === 'look';
+    return this.current === null || skill === 'wait' || skill === 'look' || skill === 'lookAround' || skill === 'wander';
   }
 
   /** The running option's skill can continue during a conversation (§6.2 busy matrix). */
@@ -111,7 +122,16 @@ export class SkillExecutor {
       if (!opt || opt.status !== 'running') return;
       if (this.current?.opt.decisionId === opt.decisionId) return;
       if (this.current) this.abort('replaced by a new decision');
-      void this.run(opt);
+      // The one replaced cleans up first, a moment at most: its last stop of motion would cut this one's walk short
+      // (a gift tossed from where the walk was stopped, short of whom it was for). Replaced again meanwhile, or
+      // stopping: not run at all.
+      const before = this.settled;
+      this.settled = (async () => {
+        await Promise.race([before, new Promise((r) => setTimeout(r, SETTLE_MS))]);
+        const now = this.o.store.state.option;
+        if (this.stopped || now?.decisionId !== opt.decisionId || now.status !== 'running') return;
+        await this.run(opt);
+      })().catch((err: unknown) => this.o.logger.warn({ module: 'executor', err: String(err) }, 'option failed to run'));
     };
     this.o.store.on('change', onChange);
     this.offs.push(() => this.o.store.off('change', onChange));
@@ -123,18 +143,22 @@ export class SkillExecutor {
         if (opt?.option === 'help' && opt.targetAgent === e.utterance.from && HELP_DONE_RE.test(e.utterance.text)) this.abort('they said done');
       }),
     );
-    // A talk option is over when its conversation is.
+    // A talk option is over when its conversation is: one with them that had a line since the option began. An
+    // older one going quiet just as we decided to talk to them again is not it (its end would cut off what we meant
+    // to say).
     this.offs.push(
       this.o.bus.on('conversationEnded', (e) => {
         const opt = this.current?.opt;
         const who = opt?.targetAgent;
         if (opt?.option !== 'talk' || !who) return;
-        if (this.o.store.state.conversations[e.convId]?.participants.includes(who)) this.abort('conversation over');
+        const conv = this.o.store.state.conversations[e.convId];
+        if (conv?.participants.includes(who) && conv.lastActivity >= opt.startedAt) this.abort('conversation over');
       }),
     );
   }
 
   stop(): void {
+    this.stopped = true;
     this.abort('shutting down');
     for (const off of this.offs.splice(0)) off();
   }
@@ -191,6 +215,22 @@ export class SkillExecutor {
         ...(this.o.extraSkills ? { extraSkills: this.o.extraSkills() } : {}),
         ...(this.o.combat ? { combat: this.o.combat() } : {}),
         progress: (note) => store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, progress: note } : o), 'progress'),
+        talkingWith: () => {
+          const me = store.state.self.username;
+          const t = this.now();
+          return Object.values(store.state.conversations).find((c) => c.status === 'active' && t - c.lastActivity < TALK_LIVE_MS)?.participants.find((n) => n !== me) ?? null;
+        },
+        fightNearby: () => {
+          const me = store.state.self.username;
+          const t = this.now();
+          const blows = store.state.perception.observedActions;
+          for (let i = blows.length - 1; i >= 0; i--) {
+            const a = blows[i];
+            if (!a || t - a.ts > FIGHT_SEEN_MS) break;
+            if (a.kind === 'attack' && a.target && a.actor !== me && a.target !== me) return a.actor;
+          }
+          return null;
+        },
       });
       ok = r.ok && !r.mismatch;
       rec = {
@@ -210,7 +250,7 @@ export class SkillExecutor {
       logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');
       bus.emit({ type: 'actionRecorded', record: rec });
       if ((opt.option === 'talk' || opt.option === 'trade' || (opt.option === 'court' && !opt.skill)) && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
-        step = { skill: 'wait', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)) } };
+        step = { skill: 'lookAround', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
         continue;
       }
       if ((opt.option === 'help' || opt.option === 'court') && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted && opt.skill) {

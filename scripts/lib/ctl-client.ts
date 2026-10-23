@@ -45,7 +45,7 @@ export function formatStatus(r: CtlResult): string {
     dashboard?: string;
   };
   const lines = [
-    `mode ${d.mode ?? '?'}, up ${Math.round((d.uptimeSec ?? 0) / 60)} min, server ${d.server ?? '?'}`,
+    `test mode ${d.mode === 'test' ? 'on' : d.mode === 'live' ? 'off' : '?'} (mode ${d.mode ?? '?'}), up ${Math.round((d.uptimeSec ?? 0) / 60)} min, server ${d.server ?? '?'}`,
     `population ${d.living?.length ?? 0} of ${d.target ?? '?'}`,
     ...(d.living ?? []).map((a) => `  ${a.online ? '●' : '○'} ${a.username} (${a.slot})`),
     d.quota ? `quota: level ${d.quota.level}${d.quota.codeOnly ? ', code-only' : ''}${d.quota.weeklyPercent === null ? '' : `, ${Math.round(d.quota.weeklyPercent * 100)}% of the week used`}` : 'quota: no key (code-only)',

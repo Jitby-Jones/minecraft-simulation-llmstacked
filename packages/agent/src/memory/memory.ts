@@ -220,6 +220,43 @@ export class Memory {
     return r.value.text;
   }
 
+  /** The memories as kept, newest first, without their vectors (debug controls). */
+  rows(tier?: 'recent' | 'long', limit = 200): Omit<MemoryRow, 'embedding'>[] {
+    if (!this.o.db.isOpen) return [];
+    return this.o.db
+      .list(tier)
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, limit)
+      .map(({ embedding: _e, ...r }) => r);
+  }
+
+  /** A memory the operator writes in (debug controls): kept like any other, its source `operator`. */
+  async add(text: string, importance = 0.6, tier: 'recent' | 'long' = 'long'): Promise<string | null> {
+    const [v] = await this.o.embedder.embed([text]);
+    if (!v || !this.o.db.isOpen) return null;
+    const id = `m${this.now().toString(36)}${(seq++).toString(36)}`;
+    this.o.db.insert({ id, tier, text, embedding: v, ts: this.now(), importance: Math.min(1, Math.max(0, importance)), source: 'operator', aboutAgent: null, confidence: 1, isFalse: false });
+    return id;
+  }
+
+  /** The operator changes a memory: new words (embedded again), importance, or marked false. */
+  async edit(id: string, patch: { text?: string; importance?: number; isFalse?: boolean }): Promise<boolean> {
+    if (!this.o.db.isOpen) return false;
+    const vec = patch.text ? (await this.o.embedder.embed([patch.text]))[0] : undefined;
+    return this.o.db.update(id, {
+      ...(patch.text ? { text: patch.text, source: 'operator' as const, ...(vec ? { embedding: vec } : {}) } : {}),
+      ...(patch.importance !== undefined ? { importance: Math.min(1, Math.max(0, patch.importance)) } : {}),
+      ...(patch.isFalse !== undefined ? { isFalse: patch.isFalse } : {}),
+    });
+  }
+
+  /** The operator deletes a memory. */
+  remove(id: string): boolean {
+    if (!this.o.db.isOpen || !this.o.db.get(id)) return false;
+    this.o.db.delete([id]);
+    return true;
+  }
+
   /** A claim turned out false (§6.5): memories quoting it never come back as true. */
   markFalseMatching(text: string): number {
     const needle = text.trim().toLowerCase();

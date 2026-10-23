@@ -64,11 +64,17 @@ function grudges(s: AgentState, v: PowerMoveCtx): AgentName[] {
     .sort((a, b) => v.resentmentOf(b) - v.resentmentOf(a));
 }
 
+/**
+ * Within this of its leader a follower is by them: inside the 6 blocks within which onlookers see two people together
+ * (conflict/power.ts), so one who keeps to it is seen at the leader's side.
+ */
+const BY_LEADER = 5;
+
 /** §17.7: a follower stays near its leader (and the reflexes defend the leader). */
 export function escortMove(s: AgentState, v: PowerMoveCtx): DecisionOutput | null {
   const leader = v.power.leader();
   const them = leader ? player(s, leader) : undefined;
-  if (!leader || !them || them.distance <= 8 || them.distance > 48 || v.isStuck('follow', { agent: leader, distance: 3 })) return null;
+  if (!leader || !them || them.distance <= BY_LEADER || them.distance > 48 || v.isStuck('follow', { agent: leader, distance: 3 })) return null;
   return { option: 'follow', target: { agent: leader }, terminate: { maxSeconds: 60 }, rationale: `code default: staying with ${leader}` };
 }
 

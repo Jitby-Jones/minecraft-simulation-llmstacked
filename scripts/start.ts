@@ -25,14 +25,28 @@ import {
   repoRoot,
   seedFromString,
 } from '@agora/shared';
-import { type Embedder, KeyLockError, QuotaGovernor, createEmbedder, createGuardedFetch, evaluateKeyLock, fetchUsage } from '@agora/llm';
+import {
+  type Embedder,
+  KeyLockError,
+  type LlmRuntime,
+  QuotaGovernor,
+  createEmbedder,
+  createGuardedFetch,
+  evaluateKeyLock,
+  fetchSubscriptionModels,
+  fetchUsage,
+  loadBenchFile,
+  startLlm,
+} from '@agora/llm';
 import {
   DashboardModel,
   DashboardServer,
   Hub,
   type ManagedServer,
+  PersonaWriter,
   SkinService,
   Supervisor,
+  TuningStore,
   attachDashboard,
   controlHandler,
   nodeLauncher,
@@ -139,17 +153,25 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
         mineskinKey: getMineSkinKey(),
       })
     : null;
+  const pool = loadPersonaPool();
+  // The master model (§16.2, §20): writes each new person, and each child on the way, from numbers drawn by code. On
+  // the agents' shared rate limit, at the lowest priority; without a key, code's own words stand.
+  const master: LlmRuntime | null = key
+    ? await startLlm({ apiKey: key, config: models, logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), limiter: hub.tokens(), background: false, pollUsage: false })
+    : null;
+  const writer = master ? new PersonaWriter({ llm: master.client, logger, rng: new SeededRandom(seedFromString(`personas-${Date.now()}`)) }) : null;
   const supervisor = new Supervisor({
     hub,
     paths,
     world,
     sexDiffs: loadSexDifferences(),
-    pool: loadPersonaPool(),
+    pool,
     launcher: nodeLauncher({ entry: path.join(repoRoot(), 'packages', 'agent', 'src', 'main.ts'), cwd: repoRoot(), hubUrl: `ws://127.0.0.1:${hub.port}`, logDir: path.join(paths.logs, 'bots') }),
     logger,
     rng: new SeededRandom(seedFromString(`${Date.now()}`)),
     ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
     ...(skins ? { skins } : {}),
+    ...(writer ? { writer } : {}),
   });
 
   let ending: Ending = 'stop';
@@ -164,6 +186,22 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     personas: () => supervisor.rosterSnapshot.agents.map((a) => ({ username: a.username, traits: a.persona.traits, sex: a.persona.sex, status: a.status })),
   });
   const detachDashboard = attachDashboard(hub, model);
+  // Debug controls: the operator's settings for the agents, sent to each as it starts and whenever they change.
+  const tuning = new TuningStore(path.join(paths.agents, 'tuning.json'));
+  hub.on('ready', (s, name) => s.send({ t: 'tuning', tuning: tuning.for(name) }));
+  const sendTuning = (scope: string) => {
+    for (const s of hub.list()) if (s.username && (scope === 'all' || s.username === scope)) s.send({ t: 'tuning', tuning: tuning.for(s.username) });
+  };
+  let modelList: { at: number; list: { id: string; capabilities: string[]; thinking: boolean }[] } | null = null;
+  const subscriptionModels = async () => {
+    if (!key) return null;
+    if (!modelList || Date.now() - modelList.at > 10 * 60_000) {
+      const ms = await fetchSubscriptionModels(createGuardedFetch({}), key, AbortSignal.timeout(15_000));
+      modelList = { at: Date.now(), list: ms.filter((m) => m.chat).map((m) => ({ id: m.id, capabilities: [...m.capabilities], thinking: m.thinking })).sort((a, b) => a.id.localeCompare(b.id)) };
+    }
+    return modelList.list;
+  };
+
   let dashboard: DashboardServer | null = null;
   const stop = async (why: string, how: Ending): Promise<void> => {
     if (stopping) return;
@@ -174,6 +212,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     await dashboard?.close();
     detachDashboard();
     await hub.close();
+    master?.stop();
     governor?.stop();
     telemetry.end();
     await server?.stop();
@@ -209,6 +248,16 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
           setMode: (mode, newWorld) => setWorldMode(mode, newWorld),
           stop: (why) => void stop(why, 'stop'),
           restart: (why) => void stop(why, 'restart'),
+          debug: {
+            request: (name, op, args) => hub.request(name, op, args),
+            tuning,
+            sendTuning,
+            addAgent: (o) => supervisor.addAgent(o),
+            retireAgent: (name) => supervisor.retireAgent(name),
+            restartAgent: (name) => supervisor.restartAgent(name),
+            personas: () => pool.map((p) => ({ id: p.id ?? p.name, name: p.name, sex: p.sex, traits: p.traits })),
+            models: subscriptionModels,
+          },
         }),
       },
     });

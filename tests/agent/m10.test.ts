@@ -19,7 +19,7 @@ import { CognitiveController, validateDecision } from '@agora/agent/modules/cc';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
 import { personaCore } from '@agora/agent/modules/prompts';
-import { MAX_ANNOTATIONS, Reflection, cleanAnnotation, formativeExperiences } from '@agora/agent/modules/reflection';
+import { MAX_ANNOTATIONS, Reflection, cleanAnnotation, experienceFor, formativeExperiences } from '@agora/agent/modules/reflection';
 import { SkillWriter } from '@agora/agent/modules/skillWriter';
 import { type SkillDraft, SkillLibrary, asSkill, checkExpectation, fillCheck, lintDraft } from '@agora/agent/skills/learned';
 import { loadSandbox, runSandboxed } from '@agora/agent/skills/sandbox';
@@ -27,7 +27,7 @@ import { withGrievance } from '@agora/agent/social/math';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 
 const LIMITS = { memoryMb: 16, cpuMs: 200, wallMs: 5000, maxCalls: 5 };
 const ada = PersonaSchema.parse({ name: 'Ada', sex: 'female', traits: ['inventive'], abilities: { intelligence: 0.9 } });
@@ -365,7 +365,7 @@ describe('the CC and the skills it wrote', () => {
     const fake = new FakeNanoGpt(standardModels());
     let n = 0;
     fake.chat = ({ body }) => {
-      const name = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const name = schemaNameOf(body);
       if (name !== 'decision') return { text: '{"summary":"ok"}' };
       n++;
       return n === 1
@@ -427,6 +427,20 @@ describe('how it has changed (§7 evolution: trait annotations)', () => {
     expect(formativeExperiences(s.state)[1]).toMatchObject({ what: 'Gorm stole from you', becomes: 'has grown wary of strangers since being robbed' });
     s.update('growth', (g) => ({ ...g, evolved: ['parent', 'beaten'] }), 'test');
     expect(formativeExperiences(s.state).map((f) => f.key)).toEqual(['robbed', 'let_down', 'self_corrections']);
+  });
+
+  it("takes the experience a model's note comes from as listed or in the model's own words", () => {
+    const found = formativeExperiences(lived().state);
+    const key = (k: string | null, from = found) => experienceFor(from, k)?.key;
+    expect(key('robbed')).toBe('robbed');
+    // As glm-5.1 put it, live: the key with who did it.
+    expect(key('robbed by Gorm')).toBe('robbed');
+    expect(key('Let down')).toBe('let_down');
+    expect(key('Gorm stole from you')).toBe('robbed');
+    expect(key('a bad winter')).toBeUndefined();
+    expect(key(null)).toBeUndefined();
+    // A single experience: that one, whatever the key says.
+    expect(key('a bad winter', found.slice(1, 2))).toBe('robbed');
   });
 
   it('keeps a note short, in the third person, plain and PG', () => {

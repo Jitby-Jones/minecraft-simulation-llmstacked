@@ -194,12 +194,20 @@ describe.skipIf(!liveJavaPath())('M9b live: families', () => {
       // After gestation: the child, at the beds, greeting its parents by name.
       const child = await waitFor(() => loadRoster(paths.roster).agents.find((a) => a.parents), 120_000, 'the child born', 1000);
       const kid = await waitFor(() => agentOf(child.username), 120_000, 'the child running', 500);
+      // Where it came into the world: how near the beds it came once there (it arrives at the spawn and is brought to
+      // the beds, and may stroll off after).
+      let nearest = Infinity;
+      const where = setInterval(() => {
+        const p = kid.store.state.self.pos;
+        nearest = Math.min(nearest, Math.hypot(p.x - (x + 1), p.z - 0.5));
+      }, 250);
+      where.unref();
       await waitFor(() => heard.lines.some((l) => l.who === child.username && /hi (dad|mom)/.test(l.text)), 60_000, 'the child greeting its parents', 500);
       await waitFor(() => agentOf('Ned')?.store.state.family.children.includes(child.username) && agentOf('Ivy')?.store.state.family.children.includes(child.username), 90_000, 'both parents knowing their child', 500);
       report();
-      // At the beds.
-      const at = kid.store.state.self.pos;
-      expect(Math.hypot(at.x - (x + 1), at.z - 0.5)).toBeLessThan(6);
+      // Born at the beds.
+      clearInterval(where);
+      expect(nearest).toBeLessThan(6);
       // Its traits within the parents' range ± noise (one child: nearly all of them).
       const p = child.persona;
       const within = NUMERIC_TRAIT_KEYS.filter((k) => getTrait(p, k) >= 0.35 - 0.25 && getTrait(p, k) <= 0.65 + 0.25).length;
@@ -300,6 +308,9 @@ describe.skipIf(!liveJavaPath())('M9b live: families', () => {
       await server.cmd('give Gorm minecraft:bread 4');
       await server.cmd('execute at Lily_S run tp Gorm ~2 ~ ~');
       await sleep(1500);
+      // A word to her first, as anyone handing something over would: she stops to hear him out.
+      await gorm.say('Lily_S, here, have some bread.');
+      await sleep(2500);
       const lp = lilyBody.bot.entity.position;
       await gorm.bot.lookAt(lp.offset(0, 1.2, 0), true);
       const bread = gorm.bot.inventory.items().find((i) => i.name === 'bread');

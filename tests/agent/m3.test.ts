@@ -1,7 +1,7 @@
 // M3 (§10): the single-agent PIANO modules without Minecraft: pure parts, then modules against fakes and the mocked
 // NanoGPT. Live behavior is in tests/live/m3-agent.test.ts.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type AgentState, ModelsConfigSchema, PersonaSchema, type Utterance, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import type { Body } from '@agora/agent/body/body';
@@ -11,6 +11,7 @@ import { ActionAwareness } from '@agora/agent/modules/awareness';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { CognitiveController, codeDecision, validateDecision } from '@agora/agent/modules/cc';
 import { evalCondition } from '@agora/agent/modules/conditions';
+import { whyNotHide } from '@agora/agent/modules/hiding';
 import { Conversations, detectAddressee, textSimilarity } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
@@ -18,7 +19,7 @@ import { GIVEAWAY_RE, Talking, cleanReply, looksLikePromise, needsDecision } fro
 import { parseSystemLine } from '@agora/agent/perception/system';
 import { createInitialState } from '@agora/agent/state/initial';
 import { AgentStateStore } from '@agora/agent/state/store';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 
 const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['curious', 'generous'], speech: { maxWords: 20 } });
 const store = () => new AgentStateStore(createInitialState({ persona, username: 'Pip', now: 0 }));
@@ -65,6 +66,30 @@ describe('addressing and conversations (§6.2)', () => {
     conv.stop();
   });
 
+  it('a conversation nobody has spoken in for a minute ends, whoever spoke last (a stroll is not held for it)', () => {
+    vi.useFakeTimers();
+    try {
+      let t = 0;
+      const s = store();
+      const bus = new AgentBus();
+      const ended: string[] = [];
+      bus.on('conversationEnded', (e) => ended.push(e.reason));
+      const conv = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0, now: () => t });
+      conv.start();
+      bus.emit({ type: 'heard', utterance: { id: 'u1', convId: '', from: 'Bram', to: ['Pip'], text: 'hi Pip', ts: 0, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+      // Pip never answers, and Bram stands there saying nothing more.
+      t = 30_000;
+      vi.advanceTimersByTime(1000);
+      expect(conv.withPartner('Bram')?.status).toBe('active');
+      t = 61_000;
+      vi.advanceTimersByTime(1000);
+      expect(ended).toEqual(['went quiet']);
+      conv.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('in a conversation of two, a line plainly for someone else is not for us', () => {
     const s = store();
     const bus = new AgentBus();
@@ -91,7 +116,9 @@ describe('conditions, levers and the packet (§4.3, §4.4, §21.1)', () => {
     }));
     expect(evalCondition('inventoryHas:oak_log>=5', s)).toBe(true);
     expect(evalCondition('inventoryHas:log>=8', s)).toBe(true);
-    expect(evalCondition('inventoryHas:oak_log>5', s)).toBe(false);
+    // A kind of wood counts any wood (the birch too): all serve alike.
+    expect(evalCondition('inventoryHas:oak_log>5', s)).toBe(true);
+    expect(evalCondition('inventoryHas:oak_log>8', s)).toBe(false);
     expect(evalCondition('agentInRange:Bram', s)).toBe(true);
     expect(evalCondition('agentLeftRange:Bram', s)).toBe(false);
     expect(evalCondition('timeIs:night', s)).toBe(true);
@@ -101,8 +128,8 @@ describe('conditions, levers and the packet (§4.3, §4.4, §21.1)', () => {
   });
 
   it('scales the mind with intelligence (anchors at 0.2 and 0.8)', () => {
-    expect(leversFor(0.2)).toMatchObject({ ccTier: 'L1', memories: 3, tasks: 2, people: 3, queueDepth: 2, candidates: 2, slipChance: 0.08, planningBurst: false });
-    expect(leversFor(0.8)).toMatchObject({ ccTier: 'L2', memories: 6, tasks: 5, people: 6, queueDepth: 6, candidates: 4, slipChance: 0.01, planningBurst: true });
+    expect(leversFor(0.2)).toMatchObject({ ccTier: 'L1', memories: 3, tasks: 2, people: 3, queueDepth: 2, candidates: 2, slipChance: 0.08 });
+    expect(leversFor(0.8)).toMatchObject({ ccTier: 'L2', memories: 6, tasks: 5, people: 6, queueDepth: 6, candidates: 4, slipChance: 0.01 });
     expect(leversFor(0.2, false).ccTier).toBe('L2');
     expect(leversFor(0.2).planDepth).toBeLessThan(leversFor(0.8).planDepth);
   });
@@ -144,14 +171,31 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     expect(validateDecision({ ...base, option: 'work', task: { skill: 'get', args: { item: 'stone_pickaxe' } } }, env)).toBeNull();
   });
 
-  it('keeps working without an LLM: shelter at night, then the goal, then the prerequisite it was told to get first', () => {
+  it('keeps working without an LLM: no digging in at night as a matter of course, then the goal, then the prerequisite it was told to get first', () => {
     const never = () => false;
     const night = withState((x) => ({ ...x, self: { ...x.self, isDay: false } }));
-    expect(codeDecision(night, {}, false, never)?.task?.skill).toBe('shelter');
-    // Dug in from dusk, before the monsters come out at dark; not in the afternoon.
-    const at = (time: number) => withState((x) => ({ ...x, self: { ...x.self, isDay: true, time } }));
-    expect(codeDecision(at(12_800), {}, false, never)?.task?.skill).toBe('shelter');
-    expect(codeDecision(at(11_000), {}, false, never)?.task?.skill).not.toBe('shelter');
+    // The night is no reason to hide: with nothing to do, a stroll close to home, never standing frozen.
+    const atNight = codeDecision(night, {}, false, never)?.task;
+    expect([atNight?.skill, atNight?.args.radius]).toEqual(['wander', 8]);
+    const day = withState((x) => ({ ...x, self: { ...x.self, isDay: true, time: 6000 } }));
+    const byDay = codeDecision(day, {}, false, never)?.task;
+    expect([byDay?.skill, byDay?.args.radius]).toEqual(['wander', 16]);
+    // Out after dark far from home: back home.
+    const away = withState((x) => ({ ...x, self: { ...x.self, isDay: false, pos: { x: 100, y: 64, z: 0 } }, village: { ...x.village, home: { x: 0, y: 64, z: 0 } } }));
+    expect(codeDecision(away, {}, false, never)?.task).toEqual({ skill: 'goTo', args: { x: 0, y: 64, z: 0, range: 4 } });
+    // With a model, hiding is the model's call (gated below); a decision of the code default's never hides.
+    const scared = { ...away, emotions: { ...away.emotions, fear: 0.8 } };
+    expect(codeDecision(scared, {}, false, never, { candidates: [], roll: 0.9 })?.task?.skill).toBe('goTo');
+    const bram = { id: 7, kind: 'player' as const, name: 'Bram', pos: { x: 110, y: 64, z: 0 }, distance: 10, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
+    const company = { ...scared, perception: { ...scared.perception, nearbyEntities: [bram] } };
+    // The code-only brain (no model at all) digs in at night, with others or not: without a mind to choose better, it
+    // was that or be shot down in the open (M8's village).
+    expect(codeDecision(company, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
+    expect(codeDecision(night, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
+    // A shelter the model chose goes through the same gate.
+    const env = { me: 'Pip', isStuck: never, canPerceive: () => true, mayHide: () => whyNotHide(company) };
+    expect(validateDecision({ option: 'work', task: { skill: 'shelter', args: {} }, terminate: { maxSeconds: 600 }, rationale: 'scared' }, env)).toMatch(/can't dig in to hide now: you are not alone/);
+    expect(validateDecision({ option: 'work', task: { skill: 'shelter', args: {} }, terminate: { maxSeconds: 600 }, rationale: 'scared' }, { ...env, mayHide: () => whyNotHide(scared) })).toBeNull();
     const goal = withState((x) => ({ ...x, goals: { ...x.goals, current: { id: 'g', text: 'stone tools', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'inventoryHas:stone_pickaxe>=1' } } }));
     expect(codeDecision(goal, {}, false, never)?.task).toEqual({ skill: 'obtain', args: { item: 'stone_pickaxe', qty: 1 } });
     const deep = {
@@ -222,7 +266,7 @@ describe('Cognitive Controller against the mocked NanoGPT', () => {
     const fake = new FakeNanoGpt(standardModels());
     let n = 0;
     fake.chat = ({ body }) => {
-      const name = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const name = schemaNameOf(body);
       if (name !== 'decision') return { text: '{"summary":"ok"}' };
       n++;
       return n === 1
@@ -297,6 +341,34 @@ describe('Skill Executor termination (§4.4)', () => {
     expect(ends).toEqual(['until inventoryHas:oak_log>=2|true']);
     expect(s.state.option?.status).toBe('terminated');
     expect(s.state.actionLog).toHaveLength(1);
+    ex.stop();
+  });
+
+  it('a new option starts once the one it replaced has cleaned up (its last stop of motion cut the new walk short)', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const events: string[] = [];
+    const body = {
+      skill: () => ({ talkOverable: true }),
+      run: (skill: string, args: Record<string, unknown>, opts: { signal: AbortSignal }) =>
+        new Promise<SkillRunRecord>((resolve) => {
+          events.push(`start ${skill}`);
+          // Cleaning up after an abort takes a moment (stopping motion), as a skill's finally does.
+          opts.signal.addEventListener('abort', () => setTimeout(() => (events.push(`cleanup ${skill}`), resolve({ id: 'r', skill, args, expected: 'x', observed: 'interrupted', ok: false, mismatch: false, aborted: true, slip: null, startedAt: 0, durationMs: 1, error: 'aborted' })), 60), { once: true });
+        }),
+    } as unknown as Body;
+    const ex = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    ex.start();
+    s.set('option', { decisionId: 'd1', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'wander', args: {}, status: 'running' });
+    await wait(20);
+    s.set('option', { decisionId: 'd2', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'give', args: { to: 'Wit', item: 'bread', qty: 2 }, status: 'running' });
+    await wait(200);
+    expect(events).toEqual(['start wander', 'cleanup wander', 'start give']);
+    // Replaced again while waiting: only the latest runs.
+    s.set('option', { decisionId: 'd3', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'gather', args: {}, status: 'running' });
+    s.set('option', { decisionId: 'd4', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'obtain', args: {}, status: 'running' });
+    await wait(300);
+    expect(events.slice(3)).toEqual(['cleanup give', 'start obtain']);
     ex.stop();
   });
 

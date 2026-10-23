@@ -100,7 +100,19 @@ export const hunt = defineSkill({
 // --- build a hut ----------------------------------------------------------------------------------------------------
 
 /** Blocks a hut can be made of, best first. */
-export const HUT_MATERIALS = ['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'stone_bricks', 'dirt'] as const;
+/** What a hut is built of, in the order used: stone, then planks of any wood (acacia in a savanna), then dirt. */
+export const HUT_MATERIALS = ['cobblestone', 'cobbled_deepslate', 'stone_bricks', 'planks', 'dirt'] as const;
+const hutRank = (name: string): number => HUT_MATERIALS.indexOf((name.endsWith('_planks') ? 'planks' : name) as (typeof HUT_MATERIALS)[number]);
+/** A block a hut can be built of. */
+export const isHutMaterial = (name: string): boolean => hutRank(name) >= 0;
+
+/** The hut block to place next: the first kind in HUT_MATERIALS' order that we carry. */
+function hutBlock(bot: Bot): string | undefined {
+  return bot.inventory
+    .items()
+    .filter((i) => isHutMaterial(i.name))
+    .sort((a, b) => hutRank(a.name) - hutRank(b.name))[0]?.name;
+}
 const DOORS = /_door$/;
 
 /** A 5×5 hut: walls three high with a doorway in the middle of one side, then a flat roof, rim first. */
@@ -147,9 +159,22 @@ export function hutSiteHoles(bot: Bot, c: Vec3): Vec3[] | null {
   return holes;
 }
 
+/** Solid, but no ground to build on: a tree's canopy or trunk. */
+const NOT_GROUND = /_(leaves|log|wood|stem)$|^(vine|brown_mushroom_block|red_mushroom_block|mushroom_stem)$/;
+
+/** The top of the ground at (x, z) within 8 blocks of height `y`: a solid block with room above it (null: none). */
+function groundAt(bot: Bot, x: number, z: number, y: number): number | null {
+  for (let yy = y + 8; yy >= y - 8; yy--) {
+    const b = bot.blockAt(new Vec3(x, yy, z));
+    if (isSolid(b) && !NOT_GROUND.test(b?.name ?? '') && free(bot, new Vec3(x, yy + 1, z))) return yy;
+  }
+  return null;
+}
+
 /**
  * The nearest corner near `center` with level, solid ground under 5×5 (a few shallow holes are filled), room for
- * 5×5×4 and a free cell all round; of those at the same distance, the one with the fewest holes.
+ * 5×5×4 and a free cell all round; of those at the same distance, the one with the fewest holes. The height follows
+ * the ground (on a hillside the level patch is rarely at home's own height).
  */
 export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): Vec3 | null {
   const base = center.floored();
@@ -158,8 +183,11 @@ export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): V
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-        for (const dy of [0, 1, -1]) {
-          const c = base.offset(dx, dy, dz);
+        // The ground under the middle of the hut sets its height (home's own as well, as before).
+        const g = groundAt(bot, base.x + dx + 2, base.z + dz + 2, base.y - 1);
+        const heights = [...new Set([...(g === null ? [] : [g + 1, g + 2, g]), base.y, base.y + 1, base.y - 1])];
+        for (const y of heights) {
+          const c = new Vec3(base.x + dx, y, base.z + dz);
           const holes = hutSiteHoles(bot, c);
           if (holes && (!best || holes.length < best.holes)) best = { c, holes: holes.length };
           if (best?.holes === 0) return best.c;
@@ -174,7 +202,7 @@ export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): V
 function buildingBlocks(bot: Bot): number {
   return bot.inventory
     .items()
-    .filter((i) => (HUT_MATERIALS as readonly string[]).includes(i.name))
+    .filter((i) => isHutMaterial(i.name))
     .reduce((a, i) => a + i.count, 0);
 }
 
@@ -196,7 +224,7 @@ export const build = defineSkill({
     // The holes in the ground first, so the floor is whole.
     for (const hole of hutSiteHoles(bot, corner) ?? []) {
       throwIfAborted(ctx.signal);
-      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      const block = hutBlock(bot);
       if (!block) break;
       await placeItemAt(ctx, block, hole).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
@@ -214,7 +242,7 @@ export const build = defineSkill({
       if (i === firstRoof) await gotoNear(ctx, corner.offset(2, 0, 2), 0.8, 20_000).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
       });
-      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      const block = hutBlock(bot);
       if (!block) break;
       try {
         await placeItemAt(ctx, block, target);
@@ -230,7 +258,7 @@ export const build = defineSkill({
       throwIfAborted(ctx.signal);
       const target = corner.plus(cell);
       if (isSolid(bot.blockAt(target))) continue;
-      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      const block = hutBlock(bot);
       if (!block) break;
       await gotoNear(ctx, target, 3, 10_000).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;

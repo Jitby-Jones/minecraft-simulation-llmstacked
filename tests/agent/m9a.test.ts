@@ -490,6 +490,17 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     for (const line of t.said) expect(NOT_PG_RE.test(line)).toBe(false);
   });
 
+  it('told who someone is, says who it is in turn, once', async () => {
+    const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }));
+    t.addressed('u1', "hey! I'm a gal who loves exploring.");
+    await wait(t.said, 1);
+    expect(t.said[0]).toMatch(/I'm a guy who loves exploring\.$/);
+    t.addressed('u2', "nice to meet you! I'm a gal who loves a good chat.");
+    await wait(t.said, 2);
+    expect(t.said[1]).toBeDefined();
+    expect(statedSex(t.said[1] ?? '')).toBeNull();
+  });
+
   it('puts a stop between any greeting and who one is', async () => {
     for (const r of [0, 0.2, 0.4, 0.6, 0.8]) {
       const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }), () => r);

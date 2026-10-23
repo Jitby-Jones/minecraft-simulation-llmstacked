@@ -9,7 +9,7 @@ import { QuotaGovernor } from './governor';
 import { createGuardedFetch } from './guard';
 import { CostMeter, type CostRecord } from './meter';
 import { ModelAllowlist, fetchSubscriptionModels } from './models';
-import { LocalRateLimiter, type TokenSource } from './ratelimit';
+import { LocalRateLimiter, SUBSCRIPTION_BURST, SUBSCRIPTION_RPS, type TokenSource } from './ratelimit';
 import { type BenchFile, ModelRouter, TIERS, type TierName } from './tiers';
 import { evaluateKeyLock, fetchUsage } from './usage';
 
@@ -25,6 +25,7 @@ const BenchFileSchema = z.object({
   results: z.array(
     z.object({
       model: z.string(),
+      tier: z.enum(['L1', 'L2', 'L3']).optional(),
       calls: z.number().int().nonnegative(),
       okRate: z.number().min(0).max(1),
       jsonOkRate: z.number().min(0).max(1),
@@ -121,7 +122,7 @@ export async function startLlm(o: StartLlmOptions): Promise<LlmRuntime> {
   });
   governor.ingest(usage);
   const meter = new CostMeter(o.now);
-  const limiter = o.limiter ?? new LocalRateLimiter({ rps: 20, now: o.now });
+  const limiter = o.limiter ?? new LocalRateLimiter({ rps: SUBSCRIPTION_RPS, burst: SUBSCRIPTION_BURST, now: o.now });
   const client = new LlmClient({
     apiKey: o.apiKey,
     router,
@@ -133,6 +134,7 @@ export async function startLlm(o: StartLlmOptions): Promise<LlmRuntime> {
     fetch: o.fetch,
     activeAgents: o.activeAgents,
     onCost: o.onCost,
+    structured: config.llm.structuredOutput,
     now: o.now,
   });
   if (o.background ?? true) {

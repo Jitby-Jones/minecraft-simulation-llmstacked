@@ -218,6 +218,37 @@ describe('a fight decided again (§17.6)', () => {
   });
 });
 
+describe('a new follower out on a stroll (§17.7)', () => {
+  it('beginning to follow someone wakes the mind mid-stroll, and it keeps by them from then on; at work, the work goes on', async () => {
+    const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+    const follows = async (skill: string, args: Record<string, unknown>) => {
+      const s = world(meek, ['Rex']);
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 3)] }));
+      const bus = new AgentBus();
+      const body = { say: () => Promise.resolve(true), skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+      const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+      const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+      let leader: string | null = null;
+      const power = { leader: () => leader, coalition: (x: string) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [] };
+      const conflict = { rungOf: () => 0, fearOf: () => 0, mayFight: () => null };
+      const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: meek.name, levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, power, rng: () => 0.99 });
+      for (const m of [executor, cc]) m.start();
+      s.set('option', { decisionId: 'd0', option: 'work', startedAt: Date.now(), maxSeconds: 90, skill, args, status: 'running' }, 'under way');
+      await settle();
+      expect(executor.busy).toBe(true);
+      // Tib has just begun to follow Rex (right beside him at that moment).
+      leader = 'Rex';
+      bus.emit({ type: 'leaderChanged', leader: 'Rex', before: null });
+      await settle(100);
+      const d = s.state.decision;
+      for (const m of [cc, executor]) m.stop();
+      return d;
+    };
+    expect(await follows('wander', { radius: 16, seconds: 75 })).toMatchObject({ option: 'follow', target: { agent: 'Rex' }, rationale: 'code default: following Rex now; keeping by Rex' });
+    expect(await follows('obtain', { item: 'oak_log', qty: 32 })).toBeNull();
+  });
+});
+
 describe('a demand on its way (§17.7)', () => {
   it('is said before the next one; one that never got said is made again, and one said counts', async () => {
     const s = world(tyrant, ['Tib', 'Pia']);
@@ -542,6 +573,28 @@ describe('tribute (§17.7)', () => {
     expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid })?.option).toBe('move');
     const led: PowerView = { leader: () => 'Rex', coalition: (x) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false };
     expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })?.option).not.toBe('move');
+    // With nothing else to do, a follower keeps by the one it follows.
+    expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+  });
+
+  it('one who has just begun to follow, out on a stroll, keeps by them from then on; work with a purpose goes on', () => {
+    const tib = world(meek, ['Rex']).state;
+    const led: PowerView = { leader: () => 'Rex', coalition: (x) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false };
+    const calm: ConflictView = { rungOf: () => 0, fearOf: () => 0, mayBrawl: never, warnedLately: never };
+    const doing = (skill: string, d: number): AgentState => ({
+      ...tib,
+      perception: { ...tib.perception, nearbyEntities: [ent('Rex', d)] },
+      option: { decisionId: 'd0', option: 'work', startedAt: 0, maxSeconds: 90, skill, args: {}, status: 'running' },
+    });
+    const now = (s: AgentState, leader?: string) => codeDecision(s, leader ? { leader } : {}, true, never, { candidates: [], roll: 1, conflict: calm, power: led });
+    expect(now(doing('wander', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' }, rationale: 'code default: following Rex now; keeping by Rex' });
+    expect(now(doing('lookAround', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    // Beside them just now is no reason to stroll off from them.
+    expect(now(doing('wander', 2), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    // Work with a purpose goes on; one out of sight is no one to keep by; and nothing new, nothing changes.
+    expect(now(doing('obtain', 14), 'Rex')).toBeNull();
+    expect(now(doing('wander', 40), 'Rex')).toBeNull();
+    expect(now(doing('wander', 14))).toBeNull();
   });
 });
 
@@ -620,6 +673,20 @@ describe('followers and leaders, as onlookers see them (§17.7)', () => {
     expect(left).toEqual([{ type: 'defected', from: 'Rex', attackers: ['Bo', 'Cy'] }]);
     w.tick();
     expect(w.pw.leader()).toBeNull();
+  });
+
+  it('one we follow who dies is followed no more; someone else dying changes nothing', () => {
+    const w = watch(meek);
+    const paid = (i: number): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${i}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status: 'fulfilled', resolvedAt: w.t.now - i * 60_000 });
+    w.s.update('commitments', () => [paid(1), paid(2)]);
+    w.fears.Rex = 0.8;
+    w.tick();
+    expect(w.pw.leader()).toBe('Rex');
+    w.bus.emit({ type: 'peerDied', name: 'Bo', cause: 'was slain by Zombie', witnessed: true });
+    expect(w.pw.leader()).toBe('Rex');
+    w.bus.emit({ type: 'peerDied', name: 'Rex', cause: 'was slain by Ann', witnessed: true, killer: 'Ann' });
+    expect(w.pw.leader()).toBeNull();
+    expect(w.s.state.social.Rex?.allegiance).toBeUndefined();
   });
 
   it('blows by two within a minute are a group setting upon the leader; a minute apart, two fights', () => {
@@ -705,6 +772,9 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(told).toEqual([]); // nobody we know of resents Rex too
     s.update('heardOpinions', () => [{ speaker: 'Bo', target: 'Rex', valence: -0.7, ts: t.now }]);
     tick();
+    expect(told).toEqual([]); // alone for a moment is not yet alone
+    t.now += 4000;
+    tick();
     tick();
     expect(told).toEqual(['Rex']); // once; Cy we resent, but nobody else does
     t.now += 2 * 60_000;
@@ -749,7 +819,9 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(c.against).toBeCloseTo(0.6 + 2 * FOLLOWER_WEIGHT);
     expect(c.opening).toBe(false); // not in sight
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Bo', 3)] }));
-    expect(w.pw.coalition('Rex').opening).toBe(true); // in sight, nobody but us near Rex
+    expect(w.pw.coalition('Rex').opening).toBe(false); // in sight, nobody but us near Rex: for a moment, not yet
+    w.t.now += 4000;
+    expect(w.pw.coalition('Rex').opening).toBe(true); // seen alone a while
     // The moment lasts a while (time to call on the others), then it's gone while Rex has company.
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Di', 16)] }));
     expect(w.pw.coalition('Rex').opening).toBe(true);
@@ -890,6 +962,8 @@ describe('the code default for power (§17.7, §17.8)', () => {
   it('a follower keeps close to the leader', () => {
     expect(escortMove(state([ent('Rex', 20)]), ctx({ leader: 'Rex' }))).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
     expect(escortMove(state([ent('Rex', 5)]), ctx({ leader: 'Rex' }))).toBeNull();
+    // Seen with him (within 6) is by him: one 7 blocks off goes back to his side.
+    expect(escortMove(state([ent('Rex', 7)]), ctx({ leader: 'Rex' }))).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
     expect(escortMove(state([ent('Rex', 20)]), ctx())).toBeNull();
   });
 

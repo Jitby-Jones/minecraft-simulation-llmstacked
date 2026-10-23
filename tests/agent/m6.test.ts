@@ -16,7 +16,7 @@ import { DeedWatch } from '@agora/agent/social/deeds';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 
 // No rationality: the M6 rules alone, without System 2 pulling feelings toward the facts (M6a, tests/agent/m6a.test.ts).
 const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['generous'], social: { baselineSentiment: 5, grudge: 0 }, mind: { rationality: 0, biasProfile: { negativity: 0, confirmation: 0 } } });
@@ -77,7 +77,7 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
   it('turns a finished conversation into a profile update, heard opinions and recorded promises', async () => {
     const fake = new FakeNanoGpt(standardModels());
     fake.chat = ({ body }) => {
-      const name = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const name = schemaNameOf(body);
       if (name === 'social') {
         return {
           text: JSON.stringify({

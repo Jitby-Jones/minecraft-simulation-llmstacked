@@ -56,7 +56,7 @@ export function keepPvpInReach(bot: Bot, pvp: PvpTuning): void {
 /** Movements for going after someone in a fight: the safe defaults, but walking, jumping and sprinting only (no
  *  digging or towering one's way there). */
 export function createFightMovements(bot: Bot): MovementsType {
-  const m = createMovements(bot);
+  const m = createMovements(bot, [], { sprint: true });
   m.canDig = false;
   m.allow1by1towers = false;
   m.scafoldingBlocks = [];
@@ -76,11 +76,15 @@ function blockLight(block: Block, timeOfDay: number): number {
   return Math.max(b.light ?? 0, sky);
 }
 
-/** Pathfinder movements with safe defaults (no >3-block drops, scaffolding) and quirk path costs (§7). */
-export function createMovements(bot: Bot, quirks: readonly Quirk[] = []): MovementsType {
+/**
+ * Pathfinder movements with safe defaults (no >3-block drops, scaffolding) and quirk path costs (§7). A walk unless
+ * `sprint`: sprinting is what makes one hungry (a food point every 40 blocks or so), so it is for running away and
+ * fights; an agent sprinting everywhere starves by its first night.
+ */
+export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: { sprint?: boolean } = {}): MovementsType {
   const m = new Movements(bot);
   m.allowParkour = true;
-  m.allowSprinting = true;
+  m.allowSprinting = opts.sprint === true;
   m.canDig = true;
   // Fall damage starts above 3 blocks: avoid falls (§4.5).
   m.maxDropDown = 3;

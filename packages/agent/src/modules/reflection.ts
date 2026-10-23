@@ -25,6 +25,7 @@ import { NOT_PG_RE } from '../social/romance';
 import { pushWorkmem } from '../state/workmem';
 import type { MindLevers } from './levers';
 import { personaCore } from './prompts';
+import { isOff } from '../state/switches';
 
 export const CORRECTION_KINDS = ['hearsay', 'scapegoat', 'idol', 'crowd', 'first_impression'] as const;
 export type CorrectionKind = (typeof CORRECTION_KINDS)[number];
@@ -134,8 +135,23 @@ export function cleanAnnotation(raw: string, name: string): string | null {
   return t.charAt(0).toLowerCase() + t.slice(1);
 }
 
-const ANNOTATE_RULES = `Look back at what has happened to you lately. Has any of it changed you? If so, write one short note about how, in the third person and without your name, the way a friend would put it: "has grown wary of strangers since being robbed". At most 100 characters, plain words, nothing crude. If none of it changed you, say so with null.
-JSON: {"key": "the experience it comes from", "annotation": "has ..."} or {"key": null, "annotation": null}`;
+const ANNOTATE_RULES = `Look back at what has happened to you lately. Has any of it changed you? If so, write one short note about how, in the third person and without your name, the way a friend who knows you would put it, in your own words: "has grown <how> since <what happened>". At most 100 characters, plain words, nothing crude. If none of it changed you, say so with null.
+JSON: {"key": "the name of the experience it comes from, as listed before its colon", "annotation": "has ..."} or {"key": null, "annotation": null}`;
+
+/**
+ * The experience a model's note comes from: the key as listed, or as the model put it in its own words ("robbed by
+ * Zed", "lost parent", what happened). With a single experience, that one.
+ */
+export function experienceFor(found: readonly Formative[], key: string | null): Formative | undefined {
+  if (key === null) return undefined;
+  const k = key.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const said = key.trim().toLowerCase();
+  return (
+    found.find((x) => x.key === k) ??
+    found.find((x) => k.includes(x.key) || said.includes(x.what.toLowerCase())) ??
+    (found.length === 1 ? found[0] : undefined)
+  );
+}
 
 /** What code finds worth a second look (and, without a model, the audit itself), strongest gap first. */
 export function auditCandidates(s: AgentState): Suspect[] {
@@ -248,7 +264,7 @@ export class Reflection {
   async run(reason: string): Promise<void> {
     const s = this.o.store.state;
     // Arousal blocks reflection (§18.2); so does danger.
-    if (this.stopped || s.flags.inDanger || s.emotions.arousal >= CALM) return;
+    if (this.stopped || s.flags.inDanger || isOff(s, 'reflection') || s.emotions.arousal >= CALM) return;
     const suspects = auditCandidates(s);
     let corrections: Suspect[] = suspects;
     if (suspects.length > 0 && this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('reflection')) {
@@ -288,7 +304,7 @@ export class Reflection {
   async annotate(): Promise<void> {
     const t = this.now();
     const s = this.o.store.state;
-    if (this.stopped || t - this.annotatedAt < ANNOTATE_EVERY_MS) return;
+    if (this.stopped || isOff(s, 'reflection') || t - this.annotatedAt < ANNOTATE_EVERY_MS) return;
     const found = formativeExperiences(s).slice(0, 3);
     const top = found[0];
     if (!top) return;
@@ -315,7 +331,7 @@ export class Reflection {
           this.annotatedAt = -Infinity;
           return;
         }
-        const f = found.find((x) => x.key === r.value.key);
+        const f = experienceFor(found, r.value.key);
         // None of it changed them: all of it weighed, nothing kept. A note that won't do gives way to code's words.
         if (!f || r.value.annotation === null) pick = { weighed: found.map((x) => x.key), text: null, key: '' };
         else pick = { weighed: [f.key], text: cleanAnnotation(r.value.annotation, s.self.persona.name) ?? f.becomes, key: f.key };

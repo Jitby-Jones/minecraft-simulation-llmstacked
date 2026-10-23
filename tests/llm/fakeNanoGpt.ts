@@ -41,6 +41,8 @@ export interface FakeReply {
   delayMs?: number;
   /** Streamed pieces (stream: true requests). */
   chunks?: string[];
+  /** A pause before each streamed piece after the first (a slow or stalled stream). */
+  chunkDelayMs?: number;
 }
 
 export interface RecordedRequest {
@@ -117,11 +119,19 @@ export class FakeNanoGpt {
     if (body.stream === true) {
       const enc = new TextEncoder();
       const chunks = reply.chunks ?? [reply.text ?? ''];
+      const gap = reply.chunkDelayMs ?? 0;
+      const signal = init?.signal;
       const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          for (const c of chunks) {
-            const frame = { id: 'c1', object: 'chat.completion.chunk', created: 0, model, choices: [{ index: 0, delta: { content: c }, finish_reason: null }] };
-            controller.enqueue(enc.encode(`data: ${JSON.stringify(frame)}\n\n`));
+        async start(controller) {
+          try {
+            for (const [i, c] of chunks.entries()) {
+              if (i > 0 && gap > 0) await abortableDelay(gap, signal);
+              const frame = { id: 'c1', object: 'chat.completion.chunk', created: 0, model, choices: [{ index: 0, delta: { content: c }, finish_reason: null }] };
+              controller.enqueue(enc.encode(`data: ${JSON.stringify(frame)}\n\n`));
+            }
+          } catch (err) {
+            controller.error(err);
+            return;
           }
           const last = { id: 'c1', object: 'chat.completion.chunk', created: 0, model, choices: [], usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens } };
           controller.enqueue(enc.encode(`data: ${JSON.stringify(last)}\n\ndata: [DONE]\n\n`));
@@ -199,4 +209,19 @@ export function standardModels(): FakeModel[] {
     { id: 'p3-big', ownedBy: 'p3', caps: ['structured_output', 'reasoning'], price: [1.1, 3] },
     { id: 'p4-plain', ownedBy: 'p4', caps: [], price: [0.01, 0.02] },
   ];
+}
+
+/**
+ * Which structured reply a chat request asks for: the json_schema name, or the name the client puts in parentheses in
+ * its reply-format line (`Reply with only a JSON object (decision) …`); undefined for a plain text request.
+ */
+export function schemaNameOf(body: Record<string, unknown> | null | undefined): string | undefined {
+  const named = (body?.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+  if (named) return named;
+  const messages = (body?.messages as { role: string; content: string }[] | undefined) ?? [];
+  for (const m of messages) {
+    const hit = /(?:^|\n)Reply with only (?:a|the) JSON object \(([A-Za-z0-9_-]+)\)/.exec(m.content);
+    if (m.role === 'system' && hit?.[1]) return hit[1];
+  }
+  return undefined;
 }

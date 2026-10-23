@@ -16,7 +16,7 @@ import {
   loadVersionsConfig,
   loadWorldConfig,
 } from '@agora/shared';
-import { bindingWarning, eulaAccepted, findJava, ownerSkinIds, readModeState, verifyInstall } from '@agora/hub';
+import { bindingWarning, eulaAccepted, findJava, ownerSkinIds, readModeState, verifyInstall, worldExists } from '@agora/hub';
 import { checkSubscriptionLock, checkTiers } from './lib/doctor-llm';
 
 type Status = 'ok' | 'warn' | 'fail';
@@ -115,10 +115,18 @@ async function main(): Promise<void> {
   report(install.ok ? 'ok' : 'fail', 'Jars', install.ok ? "Paper, ProximityChat! and our plugins' hashes match" : install.problems.join('; '));
   report(eulaAccepted(paths) ? 'ok' : 'fail', 'EULA', eulaAccepted(paths) ? 'accepted' : 'run `pnpm run setup --accept-eula`');
   const mode = readModeState(paths);
+  const testMode = (m: string) => (m === 'test' ? 'test mode on' : 'test mode off (hardcore)');
+  const played = mode ? worldExists(paths, mode.levelName) : false;
   report(
-    mode?.mode === world.mode ? 'ok' : 'fail',
+    !mode ? 'fail' : mode.mode === world.mode ? 'ok' : played ? 'fail' : 'warn',
     'Mode',
-    mode ? `server set up for ${mode.mode} (world "${mode.levelName}"); config says ${world.mode}` : 'run `pnpm run setup`',
+    !mode
+      ? 'run `pnpm run setup`'
+      : mode.mode === world.mode
+        ? `${testMode(world.mode)}, world "${mode.levelName}"`
+        : played
+          ? `config/world.yaml has ${testMode(world.mode)}, but world "${mode.levelName}" was played with ${testMode(mode.mode)}: \`pnpm test-mode ${world.mode === 'test' ? 'on' : 'off'} --new-world\` for a fresh world (the old one is kept), or \`pnpm test-mode ${world.mode === 'test' ? 'off' : 'on'}\` to keep it`
+          : `config/world.yaml has ${testMode(world.mode)}; the server switches to it on the next start (world "${mode.levelName}" not played yet)`,
   );
   report(process.env.RCON_PASSWORD ? 'ok' : 'fail', 'RCON password', process.env.RCON_PASSWORD ? 'set in .env' : 'run `pnpm run setup`');
 

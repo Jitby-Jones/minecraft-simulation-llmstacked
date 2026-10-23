@@ -69,7 +69,8 @@ export function startTelemetry(o: TelemetryOptions): () => void {
   offs.push(
     on('conversationEnded', (e) => {
       const c = store.state.conversations[e.convId];
-      send('conversation', { convId: e.convId, participants: c?.participants ?? [], reason: e.reason, turns: c?.turns ?? 0, startedAt: c?.startedAt ?? null });
+      // Whom we talked with: the others (a conversation's participants include ourselves).
+      send('conversation', { convId: e.convId, with: (c?.participants ?? []).filter((p) => p !== me), reason: e.reason, turns: c?.turns ?? 0, startedAt: c?.startedAt ?? null });
     }),
   );
   offs.push(on('newGoal', (e) => send('goal', { event: 'new', text: e.goal.text, kind: e.goal.kind, ...(e.goal.doneWhen ? { doneWhen: e.goal.doneWhen } : {}) })));

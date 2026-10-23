@@ -14,7 +14,7 @@ import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
 import { countItem } from '@agora/agent/body/inventory';
 import { PROMISE_RE } from '@agora/agent/modules/talking';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -33,7 +33,7 @@ function scriptedBrain(fake: FakeNanoGpt): void {
     const messages = body.messages as { role: string; content: string }[];
     const system = messages[0]?.content ?? '';
     const user = messages.at(-1)?.content ?? '';
-    const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+    const schema = schemaNameOf(body);
     if (schema === 'summary') return { text: JSON.stringify({ summary: 'I am making stone tools.' }) };
     if (schema === 'decision') {
       const doing = /Doing now: work obtain (\{[^}]*\})/.exec(user)?.[1];

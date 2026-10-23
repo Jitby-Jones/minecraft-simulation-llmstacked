@@ -11,6 +11,8 @@ export * from './hub/hub';
 export * from './hub/roster';
 export * from './hub/births';
 export * from './hub/supervisor';
+export * from './hub/personaWriter';
+export * from './hub/tuning';
 export * from './skins/namemc';
 export * from './skins/mineskin';
 export * from './skins/service';

@@ -8,6 +8,7 @@ import { type AgentName, type EmotionName, type EmotionState, type Logger, type 
 import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 import { type AppraisalEvent, appraise, contagion, decayEmotions, updateMood } from './emotions';
+import { ALONE_RANGE } from '../modules/hiding';
 
 export interface FeelingsOptions {
   store: AgentStateStore;
@@ -37,6 +38,8 @@ const TONE: readonly { re: RegExp; feel: Partial<Record<EmotionName, number>> }[
 ];
 
 const HEAT_HALF_LIFE_MS = 90_000;
+/** How often the dark frightens an agent who is alone with monsters about. */
+const DARK_EVERY_MS = 10_000;
 /** A blow this recent means we're in a fight (§21.3 arousal cap). */
 const FIGHT_MS = 10_000;
 const STOP_WORDS = new Set(['being', 'called', 'getting', 'seen', 'as', 'the', 'and', 'that', 'with', 'from', 'about']);
@@ -57,6 +60,9 @@ export class Feelings {
   private timer: NodeJS.Timeout | null = null;
   private readonly offs: (() => void)[] = [];
   private readonly now: () => number;
+
+  /** When the dark last frightened us (aloneInDark). */
+  private lastDark = -Infinity;
 
   constructor(private readonly o: FeelingsOptions) {
     this.now = o.now ?? Date.now;
@@ -234,5 +240,15 @@ export class Feelings {
     const mood = updateMood(s.mood, e, dt);
     if (Math.abs(mood.valence - s.mood.valence) >= 0.002) this.o.store.update('mood', () => mood, 'mood');
     for (const [name] of this.heat) if (this.angerToward(name) < 0.01) this.heat.delete(name);
+    // Night, nobody of ours in sight and monsters close: it gets frightening (every ten seconds of it).
+    if (!s.self.isDay && t - this.lastDark >= DARK_EVERY_MS) {
+      const near = s.perception.nearbyEntities;
+      const hostiles = near.filter((x) => x.kind === 'hostile' && x.distance <= 16).length;
+      const company = near.some((x) => x.kind === 'player' && x.distance <= ALONE_RANGE);
+      if (hostiles > 0 && !company) {
+        this.lastDark = t;
+        this.feel({ kind: 'aloneInDark', hostiles }, null, 0);
+      }
+    }
   }
 }

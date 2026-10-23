@@ -15,6 +15,7 @@ import { SLOW_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { WORK_SAYS } from '../social/roles';
 import { DEATH_RULE, personaCore } from './prompts';
+import { isOff } from '../state/switches';
 
 export const SocialGoalSchema = z.object({
   goals: z
@@ -128,7 +129,7 @@ export class SocialGoalGen {
 
   async run(reason: string): Promise<void> {
     const s = this.o.store.state;
-    if (this.stopped || s.flags.inDanger || !this.inCompany()) return;
+    if (this.stopped || s.flags.inDanger || isOff(s, 'socialGoals') || !this.inCompany()) return;
     const view = this.o.view();
     const current = s.goals.social.find((g) => g.status === 'active')?.work;
     let out: Picked[] | null = null;

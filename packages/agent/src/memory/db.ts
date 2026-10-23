@@ -149,6 +149,26 @@ export class MemoryDB {
       .run(r.id, r.tier, r.text, r.embedding ? toBlob(r.embedding) : null, r.ts, r.importance, r.source, r.aboutAgent, r.confidence, r.isFalse ? 1 : 0);
   }
 
+  /** One memory by id, or null. */
+  get(id: string): MemoryRow | null {
+    return this.list().find((r) => r.id === id) ?? null;
+  }
+
+  /** Changes a memory's text (with its new embedding), importance, or whether it is known false (debug controls). */
+  update(id: string, patch: { text?: string; embedding?: Float32Array | null; importance?: number; isFalse?: boolean; source?: MemorySource }): boolean {
+    const r = this.get(id);
+    if (!r) return false;
+    this.insert({
+      ...r,
+      ...(patch.text !== undefined ? { text: patch.text } : {}),
+      ...(patch.embedding !== undefined ? { embedding: patch.embedding } : {}),
+      ...(patch.importance !== undefined ? { importance: patch.importance } : {}),
+      ...(patch.isFalse !== undefined ? { isFalse: patch.isFalse } : {}),
+      ...(patch.source !== undefined ? { source: patch.source } : {}),
+    });
+    return true;
+  }
+
   delete(ids: readonly string[]): void {
     const del = this.db.prepare('DELETE FROM memories WHERE id = ?');
     this.db.transaction((xs: readonly string[]) => {

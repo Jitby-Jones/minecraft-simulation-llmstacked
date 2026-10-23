@@ -1,8 +1,15 @@
-// Request-rate limiting (§5): the Hub hands out tokens from a 20 rps bucket (M5); without the Hub each bot uses a
-// local bucket of 20/N rps. Waiters are served by module priority (Talking first). After a 429 the rate drops by
+// Request-rate limiting (§5): the Hub hands out tokens from one bucket for the key (0.9 rps, under the subscription's
+// 60 a minute); without the Hub each bot uses a local bucket of 0.9/N rps. Waiters are served by module priority (Talking first). After a 429 the rate drops by
 // 20 % for 10 minutes (§22.6).
 
 import { type LlmModule, sleep } from '@agora/shared';
+
+/**
+ * NanoGPT's subscription takes at most 60 text requests a minute per key (its 429s say so); 0.9 a second, with a
+ * burst of 5, stays under that in any minute (54 + 5). Everyone on the key shares it (the Hub's bucket).
+ */
+export const SUBSCRIPTION_RPS = 0.9;
+export const SUBSCRIPTION_BURST = 5;
 
 export interface TokenSource {
   /** Resolves when a request may go out; higher priority is served first (MODULE_PRIORITY). Rejects if the signal fires first. */

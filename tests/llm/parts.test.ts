@@ -189,6 +189,10 @@ describe('model list and tiers (§22.3)', () => {
       ],
     };
     expect(resolveTiers(allow, specs, bench).chains.L1.slice(0, 2)).toEqual(['c/small', 'b/small']);
+    // A measurement taken on one tier's prompts orders that tier only: fast at planning isn't fast at talk.
+    const planning = { measuredAt: 'now', results: bench.results.map((x) => ({ ...x, tier: 'L3' as const })) };
+    expect(resolveTiers(allow, specs, planning).chains.L1).toEqual(r.chains.L1);
+    expect(resolveTiers(allow, specs, planning).chains.L3.slice(0, 2).sort()).toEqual(['b/small', 'c/small']);
     const configured = resolveTiers(allow, { ...specs, L1: { ...spec, primary: 'b/small', fallbacks: ['missing/model'] } });
     expect(configured.chains.L1[0]).toBe('b/small');
     expect(configured.chains.L1.length).toBeGreaterThanOrEqual(3);

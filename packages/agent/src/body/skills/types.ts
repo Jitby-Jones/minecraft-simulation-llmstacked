@@ -49,8 +49,8 @@ export interface SkillContext {
   signal: AbortSignal;
   logger: Logger;
   rng: Random;
-  /** Quirk-adjusted pathfinder movements (§7 pathCost). */
-  movements: () => Movements;
+  /** Quirk-adjusted pathfinder movements (§7 pathCost): a walk, or with `sprint` a run (running away). */
+  movements: (sprint?: boolean) => Movements;
   /** Recipe knowledge gate (§21.2): false = "I don't know how to make that". */
   knowsRecipe: (item: string) => boolean;
   /** Rate-limited speech port (§6.2). */
@@ -66,6 +66,10 @@ export interface SkillContext {
   planDepth: number;
   /** Fighting ability 0..1 with growth (§21.3): technique in fights. */
   combat?: number;
+  /** Whom we are in a conversation with just now, if anyone (a stroll stops for it). */
+  talkingWith?: () => string | null;
+  /** Someone just seen attacking another, if anyone (a stroll stops to watch). */
+  fightNearby?: () => string | null;
 }
 
 export interface SkillDef<A> {

@@ -1,6 +1,8 @@
 // The dashboard page (M7): polls the Hub's read-only API and draws what each agent is doing and why, what they
-// say, who thinks what of whom, and what it all costs. Every name and line comes from the bots, so all of it goes
-// into the page as text (textContent), never as markup.
+// say, who thinks what of whom, and what it all costs; and the operator's controls (controls.ts). Every name and
+// line comes from the bots, so all of it goes into the page as text (textContent), never as markup.
+
+import { renderAgentDebug, renderControls } from './controls';
 
 interface Quota {
   level: number;
@@ -221,6 +223,7 @@ function tipFor(target: Element, value: string, label: string): void {
 
 // ---- state ----
 let selected: string | null = null;
+let controlsMode = '';
 let lastChat = 0;
 const tableView: Record<string, boolean> = {};
 let overview: Overview | null = null;
@@ -339,6 +342,7 @@ function renderAgents(o: Overview): void {
     const pick = () => {
       selected = selected === a.name ? null : a.name;
       void refreshDetail();
+      renderAgentDebug($('debug'), selected, () => void refresh());
       renderAgents(o);
     };
     tr.addEventListener('click', pick);
@@ -403,6 +407,7 @@ function renderDetail(a: AgentDetail, now: number): void {
   close.addEventListener('click', () => {
     selected = null;
     d.hidden = true;
+    renderAgentDebug($('debug'), null, () => void refresh());
     if (overview) renderAgents(overview);
   });
   d.replaceChildren(
@@ -541,7 +546,11 @@ function eventText(r: Row): string {
   if (w === 'defected') return `walked away from ${str(r.from)} as ${Array.isArray(r.attackers) ? (r.attackers as string[]).join(' and ') : 'others'} set upon them`;
   if (w === 'escalation') return `rung ${str(r.from)} → ${str(r.to)} with ${str(r.with)}`;
   if (w === 'impulse') return `acted on impulse: ${str(r.rationale)}`;
-  if (w === 'conversation') return `talked with ${Array.isArray(r.participants) ? (r.participants as string[]).join(', ') : ''} (${str(r.turns)} turns, ${str(r.reason)})`;
+  if (w === 'conversation') {
+    // The others only (older bots sent every participant, the agent itself among them).
+    const others = (Array.isArray(r.with) ? (r.with as string[]) : Array.isArray(r.participants) ? (r.participants as string[]) : []).filter((n) => n !== r.agent);
+    return `talked with ${others.join(', ') || 'nobody'} (${str(r.turns)} turns, ${str(r.reason)})`;
+  }
   if (w === 'goal') return `${r.event === 'done' ? 'reached' : 'new'} goal: ${str(r.text)}`;
   if (w === 'commitment') return `${str(r.debtor)} owes ${str(r.creditor)} "${str(r.text)}": ${str(r.status)}`;
   return w;
@@ -592,6 +601,11 @@ async function refresh(): Promise<void> {
   try {
     const o = await get<Overview>('/api/overview');
     overview = o;
+    // The controls are drawn once, and again only when the mode changes (their inputs keep what was typed).
+    if (o.mode !== controlsMode) {
+      controlsMode = o.mode;
+      renderControls($('controls'), { mode: () => overview?.mode ?? 'test', refresh: () => void refresh() });
+    }
     renderHeader(o);
     renderBanner(o.quota);
     renderKpis(o);

@@ -9,6 +9,7 @@ import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
 import { appraise, topEmotion } from './emotions';
+import { isOff } from '../state/switches';
 
 export type Impulse = 'outburst' | 'stormOff' | 'refuseTalk' | 'flee' | 'gift' | 'punch';
 
@@ -89,7 +90,7 @@ export class Impulses {
 
   private onFelt(cause: string, by?: AgentName): void {
     const s = this.o.store.state;
-    if (s.flags.inDanger || this.now() - this.lastAt < COOLDOWN_MS) return;
+    if (s.flags.inDanger || isOff(s, 'impulses') || this.now() - this.lastAt < COOLDOWN_MS) return;
     const imp = pickImpulse(s.emotions, s.self.persona, cause, this.rng(), Boolean(by && this.o.mayPunch?.(by)));
     if (!imp) return;
     // Flight needs no target; the rest are aimed at whoever stirred it.

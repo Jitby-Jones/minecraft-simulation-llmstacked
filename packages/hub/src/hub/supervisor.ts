@@ -30,6 +30,12 @@ import type { AgentSkin } from '../skins/service';
 import { type ConceptionReport, matchReport, sameCouple, whyNoBirth } from './births';
 import type { Hub, HubSession } from './hub';
 import { type PendingBirth, type Roster, type RosterEntry, livingAgents, loadRoster, saveRoster } from './roster';
+import type { WriteContext } from './personaWriter';
+
+/** The master model that writes a person from code's numbers (personaWriter.ts), or a stand-in. */
+export interface PersonaSource {
+  write(draft: Persona, ctx: WriteContext): Promise<Persona>;
+}
 
 /** Where agents' skins come from (§16.5): the SkinService, or a stand-in. */
 export interface SkinSource {
@@ -81,6 +87,8 @@ export interface SupervisorOptions {
   rcon?: (cmd: string) => Promise<string>;
   /** Agents' skins (§16.5); without it, agents wear the default skin. */
   skins?: SkinSource;
+  /** The master model, writing each generated person and each child (§16.2, §20); without it, code's words stand. */
+  writer?: PersonaSource;
   /** Override population.initial (tests, `pnpm start --population`). */
   initial?: number;
   now?: () => number;
@@ -94,6 +102,8 @@ interface Running {
 
 /** The extinction brake looks at the deaths of the last hour (§17.10). */
 const HOUR_MS = 60 * 60_000;
+/** How long a birth waits for the master model still writing the child (its call has its own timeout). */
+const WRITE_WAIT_MS = 60_000;
 
 export class Supervisor {
   private roster: Roster;
@@ -105,6 +115,10 @@ export class Supervisor {
   private readonly reports = new Map<string, ConceptionReport>();
   private stopping = false;
   private readonly timers = new Set<NodeJS.Timeout>();
+  /** Aborts the master model's calls at shutdown. */
+  private readonly halt = new AbortController();
+  /** Children the master model is writing now, by their birth on the way. */
+  private readonly writing = new Map<PendingBirth, Promise<void>>();
   private readonly now: () => number;
   private target: number;
 
@@ -153,16 +167,80 @@ export class Supervisor {
     // One without a skin yet (it couldn't be had when it was created) gets one before it logs in again.
     for (const a of resumed) void this.dress(a).then(() => this.launch(a.slot));
     if (resumed.length > 0) this.o.logger.info({ module: 'supervisor', agents: resumed.map((a) => a.username) }, 'resuming agents');
-    // Children on the way when we last stopped come when they're due (at once, if that's past).
-    for (const pb of this.roster.pendingBirths) this.scheduleBirth(pb);
+    // Children on the way when we last stopped come when they're due (at once, if that's past), written if not yet.
+    for (const pb of this.roster.pendingBirths) {
+      this.scheduleBirth(pb);
+      if (!pb.written) this.write(pb);
+    }
     const want = Math.max(this.target, this.o.world.population.minAlive) - resumed.length;
     const stagger = this.o.world.population.spawnStaggerSec * 1000;
     for (let i = 0; i < want; i++) {
       if (this.stopping) return;
+      // The next person is written while they wait their turn to come in.
+      const next = this.drawn();
       if (i > 0 || resumed.length > 0) await this.sleep(stagger);
+      const persona = await next;
       if (this.stopping) return;
-      await this.spawnNew();
+      await this.enter(persona);
     }
+  }
+
+  /**
+   * Debug controls: one more agent now, counted in the population. From the persona pool by id or name, or
+   * generated (of the sex asked for, if any); a name asked for is used when it is a valid one nobody has had.
+   * Returns the new entry, or why not.
+   */
+  async addAgent(o: { persona?: string; name?: string; sex?: Sex } = {}): Promise<RosterEntry | string> {
+    const max = this.o.world.population.maxAlive;
+    if (this.living.length >= max) return `the population is at maxAlive (${max}); raise population.maxAlive in config/world.yaml`;
+    const used = this.usedNames();
+    if (o.name && (!isValidUsername(o.name) || used.has(o.name))) return `"${o.name}" can't be used: names are 3–16 letters, digits or _, and never reused`;
+    let persona: Persona;
+    if (o.persona) {
+      const want = o.persona.toLowerCase();
+      const p = this.o.pool.find((x) => (x.id ?? '').toLowerCase() === want || x.name.toLowerCase() === want);
+      if (!p) return `no persona "${o.persona}" in personas/ (try one of: ${this.o.pool.map((x) => x.id ?? x.name).join(', ')})`;
+      persona = p;
+    } else {
+      persona = generatePersona({ rng: this.o.rng, world: this.o.world, sexDiffs: this.o.sexDiffs, takenNames: used, ...(o.sex ? { sex: o.sex } : {}) });
+    }
+    if (o.name) persona = { ...persona, name: o.name };
+    persona = await this.drawn(persona, Boolean(o.name));
+    // Others may have come in while this one was being written.
+    if (this.living.length >= max) return `the population is at maxAlive (${max}); raise population.maxAlive in config/world.yaml`;
+    this.target = Math.min(max, Math.max(this.target, this.living.length) + 1);
+    this.o.logger.info({ module: 'supervisor', persona: persona.id ?? persona.name, name: o.name ?? null, target: this.target }, 'agent added by the operator');
+    return this.enter(persona);
+  }
+
+  /**
+   * Debug controls: an agent leaves for good (says goodbye and logs off; its memory stays with the roster entry, not
+   * the graveyard), and the population it was counted in is one smaller, so nobody replaces it.
+   */
+  retireAgent(username: string): string | null {
+    const entry = this.living.find((a) => a.username.toLowerCase() === username.toLowerCase());
+    if (!entry) return `no living agent ${username}`;
+    entry.status = 'retired';
+    this.target = Math.max(0, this.target - 1);
+    this.save();
+    this.publishSkins();
+    const session = this.o.hub.bySlot(entry.slot);
+    // Not connected (starting up, or stuck): its process is stopped instead.
+    if (session) session.send({ t: 'retire', reason: 'removed by the operator' });
+    else this.running.get(entry.slot)?.proc.kill('SIGTERM');
+    this.o.logger.info({ module: 'supervisor', agent: entry.username, target: this.target }, 'agent removed by the operator');
+    return null;
+  }
+
+  /** Debug controls: the agent's process saves and stops, and starts again as the same agent (from its snapshot). */
+  restartAgent(username: string): string | null {
+    const entry = this.living.find((a) => a.username.toLowerCase() === username.toLowerCase());
+    if (!entry) return `no living agent ${username}`;
+    const run = this.running.get(entry.slot);
+    if (!run) return `${entry.username} is not running right now`;
+    run.proc.kill('SIGTERM');
+    this.o.logger.info({ module: 'supervisor', agent: entry.username }, 'agent restarted by the operator');
+    return null;
   }
 
   /** `ctl population <n>` (§16.2): adds agents now, or retires the newest ones. */
@@ -198,21 +276,47 @@ export class Supervisor {
     return new Set(this.roster.usedNames);
   }
 
-  /** The next persona: unused pool entries first (balancing sex among the living), then a generated one. */
+  /** The master model's version of a drawn person; the draft itself without one, or if it fails. */
+  private async written(draft: Persona, o: { keepName?: boolean; parents?: readonly [Persona, Persona] } = {}): Promise<Persona> {
+    if (!this.o.writer) return draft;
+    // Its own name isn't taken from it (a child's is kept for it from its conception).
+    const taken = this.usedNames();
+    taken.delete(draft.name);
+    try {
+      return await this.o.writer.write(draft, { takenNames: taken, living: this.living.map((a) => a.persona), signal: this.halt.signal, ...o });
+    } catch (err) {
+      this.o.logger.warn({ module: 'supervisor', err: String(err) }, 'persona writer failed; code drew this person');
+      return draft;
+    }
+  }
+
+  /**
+   * The next persona: with personas 'generated', always a new one; otherwise unused pool entries first (balancing sex
+   * among the living), then a generated one.
+   */
   private nextPersona(): Persona {
     const living = this.living;
     const females = living.filter((a) => a.persona.sex === 'female').length;
     const wantSex = females * 2 < living.length ? 'female' : females * 2 > living.length ? 'male' : undefined;
     const usedIds = new Set(this.roster.agents.map((a) => a.persona.id ?? a.persona.name));
     const allowed = this.o.world.personas;
-    const fresh = this.o.pool.filter((p) => !usedIds.has(p.id ?? p.name) && (allowed === 'auto' || allowed.includes(p.id ?? p.name)));
+    const fresh = allowed === 'generated' ? [] : this.o.pool.filter((p) => !usedIds.has(p.id ?? p.name) && (allowed === 'auto' || allowed.includes(p.id ?? p.name)));
     const pick = fresh.find((p) => !wantSex || p.sex === wantSex) ?? fresh[0];
     if (pick) return pick;
     return generatePersona({ rng: this.o.rng, world: this.o.world, sexDiffs: this.o.sexDiffs, takenNames: this.usedNames(), ...(wantSex ? { sex: wantSex } : {}) });
   }
 
-  private async spawnNew(): Promise<RosterEntry> {
-    const persona = this.nextPersona();
+  private async spawnNew(given?: Persona, keepName = false): Promise<RosterEntry> {
+    return this.enter(await this.drawn(given, keepName));
+  }
+
+  /** The next person (or the one given): a generated one written by the master model, a pool one as its author wrote it. */
+  private async drawn(given?: Persona, keepName = false): Promise<Persona> {
+    const persona = given ?? this.nextPersona();
+    return persona.source === 'generated' ? this.written(persona, { keepName }) : persona;
+  }
+
+  private async enter(persona: Persona): Promise<RosterEntry> {
     const used = this.usedNames();
     const username = isValidUsername(persona.name) && !used.has(persona.name) ? persona.name : generateUsername(persona.name, used, this.o.rng);
     const entry: RosterEntry = { username, persona, slot: `a${this.roster.nextSlot}`, bornAt: this.now(), status: 'alive', kitGiven: false, placed: false };
@@ -391,6 +495,50 @@ export class Supervisor {
     this.save();
     this.o.logger.info({ module: 'supervisor', parents, dueAt: pb.dueAt }, 'a child is on the way');
     this.scheduleBirth(pb);
+    this.write(pb);
+  }
+
+  /** The parents' personas: ours from the roster (the dead too); one we have none for, as the other parent saw them. */
+  private parentPersonas(pb: PendingBirth): [Persona, Persona] | null {
+    const [ua, ub] = pb.parents;
+    const known = (u: string) => this.roster.agents.find((a) => a.username === u)?.persona;
+    const ka = known(ua);
+    const kb = known(ub);
+    const base = ka ?? kb;
+    if (!base) return null;
+    const as = (u: string, p: Persona | undefined) => p ?? perceivedPersona(base, { username: u, sex: pb.seen[u]?.sex ?? 'unknown', model: pb.seen[u]?.model ?? {} });
+    return [as(ua, ka), as(ub, kb)];
+  }
+
+  /** The child drawn and written while it is on the way; its birth waits for that a little (WRITE_WAIT_MS). */
+  private write(pb: PendingBirth): void {
+    const w = this.conceive(pb).catch((err: unknown) => this.o.logger.warn({ module: 'supervisor', parents: pb.parents, err: String(err) }, 'could not write the child'));
+    this.writing.set(pb, w);
+    void w.finally(() => this.writing.delete(pb));
+  }
+
+  /**
+   * The child is drawn at conception (its numbers from its parents; its name kept for it from then) and written by
+   * the master model while on the way, so it is ready when it is born.
+   */
+  private async conceive(pb: PendingBirth): Promise<void> {
+    const parents = this.parentPersonas(pb);
+    if (!parents) return;
+    // Drawn before a restart: the same child.
+    const draft = pb.persona ?? inheritPersona({ rng: this.o.rng, world: this.o.world, a: parents[0], b: parents[1], takenNames: this.usedNames() });
+    if (!pb.persona) {
+      pb.persona = draft;
+      this.roster.usedNames.push(draft.name);
+      this.save();
+    }
+    if (!this.o.writer) return;
+    const child = await this.written(draft, { parents });
+    if (this.stopping || !this.roster.pendingBirths.includes(pb)) return;
+    // Its name, kept for it now in place of the one drawn (which nobody ever had).
+    if (child.name !== draft.name) this.roster.usedNames = [...this.roster.usedNames.filter((n) => n !== draft.name), child.name];
+    pb.persona = child;
+    pb.written = true;
+    this.save();
   }
 
   private scheduleBirth(pb: PendingBirth): void {
@@ -404,6 +552,10 @@ export class Supervisor {
   /** §19.3, §19.4: the child, with traits from both parents, its starting knowledge, at its parents' beds. */
   private async birth(pb: PendingBirth): Promise<void> {
     if (this.stopping) return;
+    // A child the master model is still writing is waited for, a little.
+    const writing = this.writing.get(pb);
+    if (writing) await Promise.race([writing, this.sleep(WRITE_WAIT_MS)]);
+    if (this.stopping) return;
     this.roster.pendingBirths = this.roster.pendingBirths.filter((x) => x !== pb);
     const [ua, ub] = pb.parents;
     if (this.living.length >= this.o.world.population.maxAlive) {
@@ -412,15 +564,14 @@ export class Supervisor {
       return;
     }
     // The dead parent's persona is still on the roster; one we have none for is as the other parent saw them.
-    const known = (u: string) => this.roster.agents.find((a) => a.username === u)?.persona;
-    const ka = known(ua);
-    const kb = known(ub);
-    const base = ka ?? kb;
-    if (!base) return;
-    const as = (u: string, p: Persona | undefined) => p ?? perceivedPersona(base, { username: u, sex: pb.seen[u]?.sex ?? 'unknown', model: pb.seen[u]?.model ?? {} });
-    const a = as(ua, ka);
-    const b = as(ub, kb);
-    const persona = inheritPersona({ rng: this.o.rng, world: this.o.world, a, b, takenNames: this.usedNames() });
+    const parents = this.parentPersonas(pb);
+    if (!parents) return;
+    const [a, b] = parents;
+    const known = (u: string) => this.roster.agents.some((x) => x.username === u);
+    const ka = known(ua) ? a : undefined;
+    const kb = known(ub) ? b : undefined;
+    // Drawn at conception and written while on the way (an older roster's child is drawn now).
+    const persona = pb.persona ?? inheritPersona({ rng: this.o.rng, world: this.o.world, a, b, takenNames: this.usedNames() });
     const username = persona.name;
     const siblings = this.living.filter((x) => x.parents && sameCouple(x.parents, pb.parents)).map((x) => x.username);
     const parentFact = (u: string, p: Persona, known: boolean) => ({ username: u, name: p.name, sex: known ? p.sex : (pb.seen[u]?.sex ?? 'unknown') });
@@ -445,7 +596,8 @@ export class Supervisor {
     };
     this.roster.nextSlot++;
     this.roster.agents.push(entry);
-    this.roster.usedNames.push(username);
+    // Kept for the child since its conception (an older roster's, now).
+    if (!this.roster.usedNames.includes(username)) this.roster.usedNames.push(username);
     this.save();
     this.o.logger.info({ module: 'supervisor', agent: username, parents: pb.parents, sex: persona.sex, generation: persona.generation }, 'a child is born');
     await this.dress(entry);
@@ -497,6 +649,7 @@ export class Supervisor {
   /** §23.4: everyone flushes memory and writes a snapshot, then disconnects; roster.json is saved last. */
   async shutdown(reason: string, timeoutMs = 30_000): Promise<void> {
     this.stopping = true;
+    this.halt.abort();
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     const waiting = [...this.running.keys()];

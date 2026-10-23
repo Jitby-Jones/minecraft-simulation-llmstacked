@@ -1,5 +1,5 @@
-// The Hub (§3, §8): infrastructure only. It hands out LLM rate tokens from the one shared bucket (NanoGPT allows
-// 25 rps per account; we use 20), budgets, the shared local embedder (§23.5) and the global speech guard (§6.2),
+// The Hub (§3, §8): infrastructure only. It hands out LLM rate tokens from the one shared bucket (NanoGPT's
+// subscription takes 60 text requests a minute per key; we use 54), budgets, the shared local embedder (§23.5) and the global speech guard (§6.2),
 // and it collects logs and telemetry for the dashboard. It never sends a bot anything about the world or other
 // players: chat goes through the Minecraft server and its proximity plugin (§15, §16.1). Every message is checked
 // with zod on both ends; the socket binds to localhost by default (§23.3).
@@ -7,7 +7,7 @@
 import { EventEmitter } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { type BotToHub, type HubConfig, type HubToBot, type Logger, parseBotToHub } from '@agora/shared';
-import { type Embedder, LocalRateLimiter, type QuotaStatus, agentDegrade, perAgentHourly } from '@agora/llm';
+import { type Embedder, LocalRateLimiter, type QuotaStatus, type TokenSource, agentDegrade, perAgentHourly } from '@agora/llm';
 
 export interface HubSession {
   id: number;
@@ -27,6 +27,7 @@ export interface HubEvents {
   conception: [HubSession, Extract<BotToHub, { t: 'conception' }>];
   bye: [HubSession, Extract<BotToHub, { t: 'bye' }>];
   snapshotDone: [HubSession, Extract<BotToHub, { t: 'snapshotDone' }>];
+  debugResult: [HubSession, Extract<BotToHub, { t: 'debugResult' }>];
   telemetry: [HubSession, Extract<BotToHub, { t: 'telemetry' | 'log' | 'cost' }>];
   closed: [HubSession];
 }
@@ -85,6 +86,11 @@ export class Hub extends EventEmitter<HubEvents> {
     this.now = o.now ?? Date.now;
     this.limiter = new LocalRateLimiter({ rps: o.config.rateLimit.rps, burst: o.config.rateLimit.burst, now: this.now });
     this.speech = new SpeechBucket(o.config.speech.globalPerSec, this.now);
+  }
+
+  /** The shared rate limit, for the Hub's own model calls (the persona writer): the bucket the agents draw on. */
+  tokens(): TokenSource {
+    return { acquire: (priority, signal) => this.limiter.acquire(priority, signal), backOff: () => this.limiter.backOff() };
   }
 
   get port(): number {
@@ -233,6 +239,9 @@ export class Hub extends EventEmitter<HubEvents> {
       case 'snapshotDone':
         this.emit('snapshotDone', s, msg);
         return;
+      case 'debugResult':
+        this.emit('debugResult', s, msg);
+        return;
       case 'log':
       case 'telemetry':
         this.emit('telemetry', s, msg);
@@ -290,6 +299,36 @@ export class Hub extends EventEmitter<HubEvents> {
         s.send({ t: 'snapshot', reqId });
       });
     return (await Promise.all(sessions.map(one))).filter(Boolean).length;
+  }
+
+  /** The session of a living agent by name (debug controls). */
+  byName(username: string): HubSession | undefined {
+    const low = username.toLowerCase();
+    return this.list().find((s) => s.username?.toLowerCase() === low);
+  }
+
+  /**
+   * An operator's debug request to one agent (dashboard, `pnpm ctl agent`): sent as `debug`, answered with
+   * `debugResult`. Resolves with the answer, or with ok false if the agent isn't here or doesn't answer in time.
+   */
+  request(username: string, op: string, args: Record<string, unknown> = {}, timeoutMs = 15_000): Promise<{ ok: boolean; message: string; data?: unknown }> {
+    const s = this.byName(username);
+    if (!s) return Promise.resolve({ ok: false, message: `${username} is not connected` });
+    return new Promise((resolve) => {
+      const reqId = `dbg-${s.id}-${this.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+      const done = (x: HubSession, m: Extract<BotToHub, { t: 'debugResult' }>) => {
+        if (x.id !== s.id || m.reqId !== reqId) return;
+        clearTimeout(timer);
+        this.off('debugResult', done);
+        resolve({ ok: m.ok, message: m.message, ...(m.data !== undefined ? { data: m.data } : {}) });
+      };
+      const timer = setTimeout(() => {
+        this.off('debugResult', done);
+        resolve({ ok: false, message: `${username} did not answer in ${Math.round(timeoutMs / 1000)} s` });
+      }, timeoutMs);
+      this.on('debugResult', done);
+      s.send({ t: 'debug', reqId, op, args });
+    });
   }
 
   broadcastBudget(why: string): void {

@@ -195,6 +195,7 @@ export class Conversations {
       if (p !== this.o.me) this.cooldownUntil.set(p, this.now() + 60_000 + this.rng() * 60_000);
     }
     this.endedAt.set(convId, this.now());
+    this.o.logger.info({ module: 'conversations', with: conv.participants.filter((p) => p !== this.o.me), reason, turns: conv.turns }, 'conversation ended');
     this.write({ ...conv, status: 'ended', endedReason: reason }, `conversation ended: ${reason}`);
     this.o.bus.emit({ type: 'conversationEnded', convId, reason });
   }
@@ -293,6 +294,11 @@ export class Conversations {
     const now = this.now();
     const inRange = new Set(this.o.inRange());
     for (const c of this.active()) {
+      // Nobody has said anything for a minute: it is over, whoever spoke last (as when a line comes after so long).
+      if (now - c.lastActivity > IDLE_END_MS) {
+        this.end(c.convId, 'went quiet');
+        continue;
+      }
       const partners = c.participants.filter((p) => p !== this.o.me);
       if (partners.every((p) => !inRange.has(p))) {
         const since = c.partnerOutOfRangeSince ?? now;

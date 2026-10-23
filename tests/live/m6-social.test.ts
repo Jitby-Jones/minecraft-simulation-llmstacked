@@ -37,7 +37,7 @@ import { Body } from '@agora/agent/body/body';
 import { countItem } from '@agora/agent/body/inventory';
 import { itemMatcher } from '@agora/agent/body/items';
 import { type RunningBot, runBot } from '@agora/agent/hub/runtime';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -86,9 +86,9 @@ describe.skipIf(!liveJavaPath())('M6 live: social model, commitments and deaths'
     fake.chat = ({ body }) => {
       const messages = body.messages as { role: string; content: string }[];
       const user = messages.at(-1)?.content ?? '';
-      const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const schema = schemaNameOf(body);
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I build things.' }) };
-      if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
+      if (schema === 'plan') return { text: JSON.stringify({ keep: true }) };
       if (schema === 'addressed') return { text: JSON.stringify({ addressedToMe: false }) };
       if (schema === 'social') return { text: JSON.stringify({ sentimentDelta: 0.3, summary: 'Pip seems helpful.' }) };
       if (schema === 'promises') {

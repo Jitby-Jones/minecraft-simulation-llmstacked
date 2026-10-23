@@ -8,5 +8,5 @@ export { createInitialState } from './state/initial';
 export { leversFor, type MindLevers } from './modules/levers';
 export { MemoryDB, type MemoryRow, type MemoryTier } from './memory/db';
 export { Memory, clusterVectors, type Recalled } from './memory/memory';
-export { GoalGen, codeGoal } from './modules/goalGen';
+export { GoalGen, codePlan } from './modules/goalGen';
 export { QuirkRunner } from './modules/quirkRunner';

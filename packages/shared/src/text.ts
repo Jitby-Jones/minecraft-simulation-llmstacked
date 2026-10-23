@@ -75,6 +75,50 @@ export function countWords(text: string): number {
   return t.length === 0 ? 0 : t.split(/\s+/).length;
 }
 
+/** The sentences of a text, each with its closing punctuation (a last one may have none). */
+export function sentences(text: string): string[] {
+  return (normalizeWhitespace(text).match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)|[.!?…]+/g) ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** Ends like a finished sentence. */
+export function endsSentence(text: string): boolean {
+  return /[.!?…]["'”’)\]]*$/.test(text.trim());
+}
+
+/**
+ * About `maxWords` words without cutting a sentence off: whole sentences while they fit in one and a half times the
+ * budget (the first one always, up to twice it). Only a first sentence longer than that is cut, at a clause boundary
+ * if there is one, ending in "…".
+ */
+export function fitWords(text: string, maxWords: number): string {
+  const all = sentences(text);
+  const soft = Math.max(8, Math.round(maxWords * 1.5));
+  const hard = Math.max(12, maxWords * 2);
+  const out: string[] = [];
+  let n = 0;
+  for (const s of all) {
+    const w = countWords(s);
+    if (out.length === 0) {
+      if (w > hard) {
+        let cut = s.split(' ').slice(0, soft).join(' ');
+        const clause = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf('; '), cut.lastIndexOf(' - '), cut.lastIndexOf(' — '));
+        if (clause > cut.length / 2) cut = cut.slice(0, clause);
+        return `${cut.replace(/[\s,;:—-]+$/, '')}…`;
+      }
+    } else if (n + w > soft) break;
+    out.push(s);
+    n += w;
+  }
+  return out.join(' ');
+}
+
+/** A reply that ran out of tokens mid-sentence: the unfinished sentence goes, if a finished one comes before it. */
+export function dropUnfinished(text: string): string {
+  const all = sentences(text);
+  if (all.length < 2 || endsSentence(all[all.length - 1] ?? '')) return all.join(' ');
+  return all.slice(0, -1).join(' ');
+}
+
 /** Truncates to at most `maxWords` words, keeping sentence punctuation if cut. */
 export function capWords(text: string, maxWords: number): string {
   const words = normalizeWhitespace(text).split(' ');
@@ -115,3 +159,10 @@ export function withoutOpeningName(text: string, isName: (word: string) => boole
 export function quote(text: string): string {
   return `"${text.replace(/"/g, "'")}"`;
 }
+
+/**
+ * §19.6: romance is PG. Nothing sexual, no innuendo: a line like that is never said. Words that are ordinary game
+ * talk ("strip mine", "stripped logs", "naked without my armor") are left alone.
+ */
+export const NOT_PG_RE =
+  /\b(sex|sexy|sexual(ly)?|nudes?|horny|kinky|fetish\w*|seduc\w*|undress\w*|lingerie|mak(e|ing) love|sleep(ing)? with (me|you|him|her)|turn(s|ed)? me on|hot body|thicc|boobs?|tits|genital\w*|orgasm\w*|erotic\w*|porn\w*|grope\w*|fondl\w*)\b/i;

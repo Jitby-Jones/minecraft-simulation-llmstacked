@@ -25,18 +25,19 @@ import {
 describe('config files', () => {
   it('every config/*.yaml parses with the design defaults', () => {
     const cfg = loadAllConfig();
-    expect(cfg.models.tiers.L1.timeoutMs).toBe(2500);
+    expect(cfg.models.tiers.L1.timeoutMs).toBe(7000);
+    expect(cfg.models.tiers.L2.timeoutMs).toBe(8000);
     expect(cfg.models.tiers.L2.need).toContain('tool_calling');
     expect(cfg.models.llm.baseUrl).toBe('subscription');
     expect(cfg.models.llm.allowPaidKey).toBe(false);
     expect(cfg.models.embeddings.provider).toBe('local');
-    expect(cfg.world.mode).toBe('test');
+    expect(cfg.world.mode).toBe('live');
     expect(cfg.world.population.maxAlive).toBeGreaterThanOrEqual(cfg.world.population.minAlive);
     expect(cfg.world.chat.normalRange).toBe(15);
     expect(cfg.world.chat.whisperRange).toBe(5);
     expect(cfg.world.chat.shoutRange).toBe(48);
     expect(cfg.world.server.host).toBe('127.0.0.1');
-    expect(cfg.hub.rateLimit.rps).toBeLessThanOrEqual(20);
+    expect(cfg.hub.rateLimit.rps * 60 + cfg.hub.rateLimit.burst).toBeLessThanOrEqual(60);
     expect(cfg.hub.hub.host).toBe('127.0.0.1');
     expect(cfg.versions.minecraft.protocol).toBe(775);
     expect(cfg.versions.java.minMajor).toBe(25);
@@ -167,11 +168,15 @@ describe('hub protocol', () => {
   });
 
   it('never carries world or player information to bots (§8)', () => {
-    // Grants are bare yes/no answers (a speech token, an LLM slot, a fight slot under maxConcurrentFights).
+    // Grants are bare yes/no answers (a speech token, an LLM slot, a fight slot under maxConcurrentFights). The
+    // operator's debug controls are the operator's own hands: settings (tuning: switches, models, pause) and requests
+    // made by a person at the dashboard or `pnpm ctl` (debug), each one logged; the Hub never sends either by itself.
     const kinds = HubToBotSchema.options.map((o) => o.shape.t.value);
     expect(kinds.sort()).toEqual(
-      ['assign', 'budget', 'cautionShift', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant'].sort(),
+      ['assign', 'budget', 'cautionShift', 'debug', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant', 'tuning'].sort(),
     );
+    expect(parseHubToBot(JSON.stringify({ t: 'tuning', tuning: { off: ['romance'], models: { L2: 'm' }, paused: true } }))).toEqual({ t: 'tuning', tuning: { off: ['romance'], models: { L2: 'm' }, tiers: {}, paused: true } });
+    expect(parseHubToBot(JSON.stringify({ t: 'tuning', tuning: { off: ['teleport'] } }))).toBeNull();
     expect(parseHubToBot(JSON.stringify({ t: 'fightGrant', reqId: 'r1', ok: false, who: 'Rex' }))).toEqual({ t: 'fightGrant', reqId: 'r1', ok: false });
   });
 });

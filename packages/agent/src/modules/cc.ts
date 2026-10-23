@@ -8,6 +8,8 @@
 import {
   type ActionRecord,
   type AgentName,
+  type AgentState,
+  type BlockChange,
   type Commitment,
   type CommitmentDraft,
   type ConvId,
@@ -17,6 +19,7 @@ import {
   type Goal,
   type ItemStack,
   type Logger,
+  type SeenEntity,
   type Task,
 } from '@agora/shared';
 import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
@@ -33,12 +36,18 @@ import type { AgentStateStore } from '../state/store';
 import type { ActionAwareness } from './awareness';
 import { taskKey } from './awareness';
 import { buildPacket } from './bottleneck';
-import { evalCondition } from './conditions';
+import { evalCondition, held } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
+import { tidyDecision } from './decisionTidy';
+import { CHANGE_MS, describeChange } from '../perception/surroundings';
+import { routeItemTask } from './itemTasks';
 import { villageWorkOf } from '../social/village';
-import { deathNoticeMove, hungerMove, hurtMove, villageMove } from './villageMove';
+import { deathNoticeMove, foodMove, hungerMove, hurtMove, villageMove } from './villageMove';
+import { whyNotHide } from './hiding';
+import { isOff } from '../state/switches';
+import { planFinished } from './plan';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from './powerMove';
 import { ACCEPTANCE, DECLINE_LINES, FLIRT_BACK, GIFT_LINE, PROPOSAL, PROPOSE_RE, type RomanceView, isAdvance } from '../social/romanceWatch';
 import { FAMILY_HAPPY, FAMILY_NOT_YET, FAMILY_PROPOSAL, FAMILY_YES, type FamilyStep, type FamilyView, isFamilyAsk, isFamilyYes } from '../social/familyWatch';
@@ -52,6 +61,10 @@ export interface DecideContext {
   atOdds?: AgentName;
   /** §17.8: one we resent is alone or hurt, with others who resent them too: the call to rise comes first, mid-task too. */
   opening?: AgentName;
+  /** A block of ours around us changed just now (a wall of the shelter we are in broken, a hut's door): seen to mid-task too. */
+  change?: BlockChange;
+  /** §17.7: we have just begun to follow this person: a stroll begun before gives way to their side. */
+  leader?: AgentName;
 }
 
 export interface ValidationEnv {
@@ -68,6 +81,25 @@ export interface ValidationEnv {
   mayCourt?: (name: AgentName) => string | null;
   /** §19.3: null when we may ask them to start a family (our partner, and all else in place), else why not. */
   mayStartFamily?: (name: AgentName) => string | null;
+  /** Null when digging in to hide may be chosen now (badly scared, alone, far from anyone), else why not. */
+  mayHide?: () => string | null;
+  /** Null when a move there makes sense (near, or somewhere the agent knows), else why not (a made-up far place). */
+  mayGo?: (pos: { x: number; y: number; z: number }) => string | null;
+}
+
+/** A move farther than this goes only to somewhere the agent knows (home, the chest, a hut, a find). */
+export const FAR_MOVE = 160;
+
+/** Null when a move to `pos` makes sense for one in state `s`: near, or within 24 blocks of a place it knows. */
+export function whyNotGo(s: AgentState, pos: { x: number; y: number; z: number }): string | null {
+  const me = s.self.pos;
+  const dist = Math.hypot(pos.x - me.x, pos.z - me.z);
+  if (dist <= FAR_MOVE) return null;
+  const v = s.village;
+  const known = [v.home, v.chest?.pos, v.board, ...v.huts, ...v.finds.map((f) => f.pos)].filter((p): p is NonNullable<typeof p> => Boolean(p));
+  if (known.some((k) => Math.hypot(k.x - pos.x, k.z - pos.z) <= 24)) return null;
+  const home = v.home ? `; home is at ${Math.round(v.home.x)},${Math.round(v.home.y)},${Math.round(v.home.z)}` : '';
+  return `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)} is ${Math.round(dist)} blocks away and you know of nothing there: pick a place you can see or one you know${home}`;
 }
 
 /** Code checks on a schema-valid decision. Returns the reason it can't be used, or null. */
@@ -87,6 +119,8 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
     const parsed = skill.parseArgs(d.task.args);
     if (!parsed.ok) return `bad arguments for ${skill.name}: ${parsed.error}`;
     if (env.isStuck(skill.name, d.task.args)) return `you are stuck on ${skill.name} ${JSON.stringify(d.task.args)}; choose something else`;
+    const hiding = skill.name === 'shelter' ? (env.mayHide?.() ?? null) : null;
+    if (hiding) return `you can't dig in to hide now: ${hiding}`;
   }
   if ((d.option === 'talk' || d.option === 'follow' || d.option === 'court') && !d.target?.agent) return `option ${d.option} needs target.agent`;
   // §19.2: courting only whom one may court; a step in romance is with someone, by name.
@@ -101,6 +135,10 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
     if (why) return `you can't ${d.family.phase === 'propose' ? 'ask' : 'agree with'} ${d.family.with} to start a family: ${why}`;
   }
   if (d.option === 'move' && !d.target?.pos && !d.target?.agent) return 'option move needs target.pos or target.agent';
+  if (d.option === 'move' && d.target?.pos && env.mayGo) {
+    const why = env.mayGo(d.target.pos);
+    if (why) return why;
+  }
   const who = d.target?.agent;
   if (who && who !== env.me && ['talk', 'follow', 'help', 'trade', 'move', 'demand', 'recruit', 'court'].includes(d.option) && !env.canPerceive(who)) {
     return `you can't see or hear ${who} right now`;
@@ -134,6 +172,8 @@ export interface SocialChance {
   romance?: RomanceView;
   /** Families (§19.3–19.5): starting one, the bed ritual, children and parents. */
   family?: FamilyView;
+  /** The code default is the whole brain (no model, §22.4): it may hide when the gate allows (else that's the model's call). */
+  codeOnly?: boolean;
 }
 
 export interface ConflictView {
@@ -198,6 +238,8 @@ const WARN_EVERY_MS = 3 * 60_000;
 /** Options that are about a person: the same one with someone else is another option (an answer's person is only
  *  whom it is said to). */
 const WITH_SOMEONE: ReadonlySet<string> = new Set(['talk', 'trade', 'demand', 'recruit', 'follow', 'help']);
+/** Skills that are only a stroll or a look about: anything with a purpose comes before them. */
+const STROLLS: ReadonlySet<string> = new Set(['wander', 'lookAround']);
 
 /**
  * A fight with the same person to the same end (a brawl, or to the death) is the fight already under way, whatever
@@ -701,9 +743,15 @@ export function codeDecision(
     // Starving with nothing to eat: food before whatever we are doing.
     const food = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
     if (food) return food;
+    // A hole just made in what is ours (the shelter we are in, a hut): patched before going on.
+    const patched = ctx.change ? patchMove(s, isStuck) : null;
+    if (patched) return patched;
     // §17.8: the moment against one we resent (alone or hurt) is worth stopping work for: the others are called on.
     const moment = ctx.opening && pv ? rallyMove(s, pv) : null;
     if (moment) return moment;
+    // §17.7: one we have just begun to follow, while we stroll about: by their side from now on, wherever we are.
+    const keep = ctx.leader && ctx.leader === social?.power?.leader() && STROLLS.has(s.option?.skill ?? '') ? keepByLeader(s, ctx.leader, isStuck, `following ${ctx.leader} now`) : null;
+    if (keep) return keep;
     if (!ctx.atOdds || !social?.conflict) return null;
     // Someone we're at odds with came near: the one we swore to take on (with the others at hand), or the rungs.
     const move = (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking, social.power?.leader());
@@ -717,15 +765,26 @@ export function codeDecision(
   const fam = social?.family?.step() ?? null;
   const ritual = fam?.kind === 'sleep' ? familyMove(fam, isStuck) : null;
   if (ritual) return ritual;
-  // Survive the night (M1 shelter), dug in from dusk on, before the monsters come out at dark; a guard on duty stays
-  // out while fit for it.
+  // A hole in what is ours (the shelter we were in, a hut), still open: patched before the night's or the day's
+  // business.
+  const patched = patchMove(s, isStuck);
+  if (patched) return patched;
+  // The night is no reason to dig in (§16.3 caution, not a hole in the ground): back toward home if far from it, close
+  // to the others; a guard on duty stays out while fit for it. With a model, hiding is the model's call, and only for
+  // one badly scared, alone and far from anyone (the gate in validateDecision). Without one (no key, or the quota
+  // spent, §22.4) the code default is the whole brain, with no mind to choose better, and digs in at night as before
+  // (M1): out in the open, a village of code-only agents was shot down by skeletons night after night (21 deaths in
+  // M8's hour).
   const village = villageWorkOf(s.goals.current?.doneWhen);
   const onGuard = village === 'guard' && s.self.health >= 12 && s.drives.caution < 0.8;
-  if ((!s.self.isDay || s.self.time > DUSK) && !s.flags.inDanger && !onGuard && !isStuck('shelter', { untilMorning: true })) {
-    return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, dig in' };
+  const night = !s.self.isDay || s.self.time > DUSK;
+  const mayHide = Boolean(social?.codeOnly);
+  if (night && !s.flags.inDanger && !onGuard) {
+    const move = nightMove(s, isStuck, mayHide);
+    if (move) return move;
   }
   // Badly hurt: food, then lie low until healed; no work, no quarrels.
-  const hurt = hurtMove(s, { isStuck });
+  const hurt = hurtMove(s, { isStuck, mayHide });
   if (hurt) return hurt;
   // §19.5: a young child keeps to its parents, and parents to their young child; the question, when it's time.
   const kin = fam && fam.kind !== 'sleep' ? familyMove(fam, isStuck) : null;
@@ -760,9 +819,33 @@ export function codeDecision(
     const move = villageMove(s, village, { isStuck });
     if (move) return move;
   }
+  // The plan's step at hand (§4.2 module 10), by what its doneWhen asks: food, a look around, a talk with someone.
+  const goal = s.goals.current;
+  const doneWhen = goal?.doneWhen?.trim() ?? '';
+  if (/^inventoryHas:food\s*>=/i.test(doneWhen)) {
+    const food = foodMove(s, { isStuck }, goal?.text ?? 'getting food');
+    if (food) return food;
+  }
+  if (/^explored:\d+$/.test(doneWhen) && !isStuck('explore', { ...EXPLORE_ARGS })) {
+    return { option: 'explore', terminate: { maxSeconds: 120 }, rationale: `code default: ${goal?.text ?? 'looking around'}` };
+  }
+  const meet = /^talkedWith:([A-Za-z0-9_]{1,16})$/.exec(doneWhen)?.[1];
+  if (meet && meet !== s.self.username) {
+    const there = s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name === meet);
+    if (there) {
+      return {
+        option: 'talk',
+        target: { agent: meet },
+        speechIntent: { stance: 'chat', gist: `talk with ${meet}: what they are up to, and what you plan`, mayCommit: false },
+        terminate: { maxSeconds: 120 },
+        rationale: `code default: ${goal?.text ?? `talking with ${meet}`}`,
+      };
+    }
+    if (!isStuck('explore', { ...EXPLORE_ARGS })) return { option: 'explore', terminate: { maxSeconds: 90 }, rationale: `code default: looking for ${meet}` };
+  }
   // Work toward a goal with a machine-checkable target: obtain it (or the prerequisite it said to get first).
-  const want = s.goals.current?.doneWhen ? /^inventoryHas:([a-z0-9_]+)\s*>=\s*(\d+)$/i.exec(s.goals.current.doneWhen) : null;
-  if (want?.[1] && want[2]) {
+  const want = doneWhen ? /^inventoryHas:([a-z0-9_]+)\s*>=\s*(\d+)$/i.exec(doneWhen) : null;
+  if (want?.[1] && want[2] && want[1].toLowerCase() !== 'food') {
     // Follow only the latest attempt: once the prerequisite is in hand (or the ore found), go back to the goal itself.
     // Interruptions (an impulse, a reflex) are not results; after looking around, try the goal again.
     const last = [...s.actionLog].reverse().find((a) => ['obtain', 'prospect', 'explore'].includes(a.skill) && !a.error?.startsWith('aborted'));
@@ -782,9 +865,9 @@ export function codeDecision(
     if (!isStuck('obtain', { item, qty })) {
       return { option: 'work', task: { skill: 'obtain', args: { item, qty } }, terminate: { maxSeconds: 600 }, rationale: `code default: get ${item} for the goal` };
     }
-    // Stuck on it for a while (the mark lasts minutes): look around a little, then give it a rest before trying again.
+    // Stuck on it for a while (the mark lasts minutes): look around a little, then a stroll before trying again.
     const explored = s.actionLog.slice(-3).filter((a) => a.skill === 'explore').length;
-    if (explored >= 2) return { option: 'rest', terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal; a break before trying again' };
+    if (explored >= 2) return { option: 'work', task: { skill: 'wander', args: { radius: 12, seconds: 50 } }, terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal; a stroll before trying again' };
     return { option: 'explore', terminate: { maxSeconds: 60 }, rationale: 'code default: stuck on the goal, look around' };
   }
   // Nothing to work on: go and see whether what someone told us is true (§6.5).
@@ -797,18 +880,105 @@ export function codeDecision(
       rationale: `code default: ${claim.by} said there is ${claim.item} there; see for myself`,
     };
   }
-  // Or say hello to someone nearby (§6.2 conversations start from the talk option).
+  // Or say hello to someone nearby (§6.2 conversations start from the talk option): about our plan, if we haven't
+  // talked it over with them, since plans are made better by talking them through.
   const who = social?.candidates[0];
-  if (who && social.roll < s.self.persona.social.initiateChance) {
+  const plan = s.goals.plan;
+  const unshared = Boolean(plan && who && !planFinished(plan) && !plan.discussedWith.includes(who));
+  if (who && social.roll < s.self.persona.social.initiateChance * (unshared ? 1.5 : 1)) {
     return {
       option: 'talk',
       target: { agent: who },
-      speechIntent: { stance: 'chat', gist: `say hello to ${who} and chat a little`, mayCommit: false },
+      speechIntent: {
+        stance: 'chat',
+        gist: unshared && plan ? `say hello to ${who}; tell them what you mean to do (${plan.aim}) and ask what they are up to; maybe you can split the work` : `say hello to ${who} and chat a little`,
+        mayCommit: false,
+      },
       terminate: { maxSeconds: 90 },
-      rationale: `code default: nothing to do, ${who} is here`,
+      rationale: `code default: ${who} is here`,
     };
   }
+  // Nothing pressing: never just standing there. A follower keeps by the one it follows (§17.7). Anyone else strolls
+  // about looking at what there is (closer to home at night), and with a friend, a partner or kin in sight, about them:
+  // people with time on their hands keep company rather than walk off from it.
+  const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= COMPANY_RANGE);
+  const leader = social?.power?.leader() ?? null;
+  const keep = leader ? keepByLeader(s, leader, isStuck, 'nothing pressing') : null;
+  if (keep) return keep;
+  const friend = companyOf(s, people, social?.liking);
+  const stroll = { radius: friend || night ? 8 : 16, seconds: 45 + Math.round(social?.roll ?? 0.5) * 30, ...(friend ? { near: friend } : {}) };
+  if (!isStuck('wander', stroll)) return { option: 'work', task: { skill: 'wander', args: stroll }, terminate: { maxSeconds: stroll.seconds + 15 }, rationale: 'code default: nothing pressing; looking around' };
   return { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'code default: nothing to do' };
+}
+
+/** A change around us that is no emergency wakes the CC at most this often. */
+const NOTICE_EVERY_MS = 10_000;
+
+/** §17.7: a follower keeps by the one it follows, when they are in sight (within COMPANY_RANGE). */
+function keepByLeader(s: AgentStateStore['state'], leader: AgentName, isStuck: ValidationEnv['isStuck'], why: string): DecisionOutput | null {
+  const inSight = s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.visible && e.distance <= COMPANY_RANGE && e.name === leader);
+  if (!inSight || isStuck('follow', { agent: leader, distance: 3 })) return null;
+  return { option: 'follow', target: { agent: leader }, terminate: { maxSeconds: 60 }, rationale: `code default: ${why}; keeping by ${leader}` };
+}
+
+/** What a hole is patched with, best first. */
+const PATCH_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'sandstone', 'gravel', 'sand'];
+
+/**
+ * A hole in the shelter we are in or in a hut, still open: patched with a block we carry. Not with a monster in it
+ * (that is for the reflexes), nor from far off. (A block of ours someone took, a table say, is news, not a hole.)
+ */
+export function patchMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck']): DecisionOutput | null {
+  const t = Date.now();
+  // Kept until something else happens there (patched, by us or anyone): the latest still open.
+  const hole = [...s.perception.blockChanges].reverse().find((c) => c.kind === 'broken' && (c.ours === 'shelter' || c.ours === 'hut') && t - c.ts < CHANGE_MS);
+  if (!hole) return null;
+  const at = { x: hole.pos.x + 0.5, y: hole.pos.y, z: hole.pos.z + 0.5 };
+  const me = s.self.pos;
+  if (Math.hypot(me.x - at.x, me.y - at.y, me.z - at.z) > 5) return null;
+  if (s.perception.nearbyEntities.some((e) => e.kind === 'hostile' && Math.hypot(e.pos.x - at.x, e.pos.y - at.y, e.pos.z - at.z) <= 2)) return null;
+  const carried = (n: string) => s.self.inventory.some((i) => i.item === n);
+  const block = PATCH_BLOCKS.find(carried) ?? s.self.inventory.find((i) => i.item.endsWith('_planks'))?.item;
+  if (!block) return null;
+  const args = { block, x: hole.pos.x, y: hole.pos.y, z: hole.pos.z };
+  if (isStuck('place', args)) return null;
+  const what = hole.ours === 'shelter' ? 'in my shelter' : 'in the hut';
+  return { option: 'work', task: { skill: 'place', args }, terminate: { maxSeconds: 30 }, rationale: `code default: patching the hole ${what} (${hole.where})` };
+}
+
+/** Within this, someone in sight is company an idle stroll keeps about. */
+const COMPANY_RANGE = 32;
+
+/** The nearest of these people one would keep company with: a partner, kin, one we are drawn to, or a friend. */
+function companyOf(s: AgentStateStore['state'], people: readonly SeenEntity[], liking?: (name: AgentName) => number): AgentName | undefined {
+  const close = (n: AgentName) => {
+    const p = s.social[n];
+    return s.family.partner === n || Boolean(p?.kin) || (p?.romanticInterest ?? 0) >= 0.3 || (liking?.(n) ?? p?.sentiment ?? 5) >= 6.5;
+  };
+  return [...people].sort((a, b) => a.distance - b.distance).find((e) => close(e.name))?.name;
+}
+
+/**
+ * Night without digging in (§16.3): a code-only agent badly scared, alone and far from anyone may hide (the gate);
+ * otherwise, far from home, back toward it; with someone in sight farther off, over to them. Null: the day's
+ * business goes on (the reflexes deal with the monsters).
+ */
+function nightMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck'], mayHide: boolean): DecisionOutput | null {
+  if (mayHide && !isStuck('shelter', { untilMorning: true })) {
+    return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, and no mind to choose otherwise; digging in until morning' };
+  }
+  const home = s.village.home;
+  const p = s.self.pos;
+  if (home && Math.hypot(p.x - home.x, p.z - home.z) > 32) {
+    const args = { x: Math.round(home.x), y: Math.round(home.y), z: Math.round(home.z), range: 4 };
+    if (!isStuck('goTo', args)) return { option: 'work', task: { skill: 'goTo', args }, terminate: { maxSeconds: 120 }, rationale: 'code default: dark now; back home' };
+  }
+  const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player').sort((a, b) => a.distance - b.distance);
+  const nearest = people[0];
+  if (nearest && nearest.distance > 12 && !isStuck('goTo', { agent: nearest.name, range: 4 })) {
+    return { option: 'move', target: { agent: nearest.name }, terminate: { maxSeconds: 45 }, rationale: `code default: dark now; staying close to ${nearest.name}` };
+  }
+  return null;
 }
 
 export interface CCOptions {
@@ -863,7 +1033,18 @@ export interface CCOptions {
   now?: () => number;
 }
 
+/** The CC's last exchange with the model, for the operator (debug controls): what it saw and what came back. */
+export interface Exchange {
+  at: number;
+  reason: string;
+  tier: string;
+  packet: string;
+  replies: { model: string | null; text: string; error?: string; rejected?: string }[];
+}
+
 export class CognitiveController {
+  /** The last exchange with the model (debug controls). */
+  lastExchange: Exchange | null = null;
   private readonly flight = new SingleFlight<void>();
   private readonly offs: (() => void)[] = [];
   private beat: NodeJS.Timeout | null = null;
@@ -917,6 +1098,28 @@ export class CognitiveController {
     );
     this.offs.push(b.on('atOddsNearby', (e) => this.trigger(`${e.name} is here, and things are bad between you`, { atOdds: e.name, urgent: true })));
     this.offs.push(b.on('opening', (e) => this.trigger(`${e.name} is alone or hurt: a chance to deal with ${e.name} together`, { opening: e.name, urgent: true })));
+    // §17.7: one we now follow. Urgent, so it is seen to mid-task: a stroll gives way to their side; work goes on.
+    this.offs.push(
+      b.on('leaderChanged', (e) => {
+        if (e.leader) this.trigger(`you now follow ${e.leader}`, { leader: e.leader, urgent: true });
+      }),
+    );
+    // What changed around us: something of ours broken or opened, anything right beside us, or a blast is worth a
+    // decision now; at once if it opens the shelter we are in, or comes at night. (Blocks set down near a hut, a door
+    // shut: news for the packet only.)
+    let lastNoticed = -Infinity;
+    this.offs.push(
+      b.on('surroundingsChanged', (e) => {
+        const c = e.change;
+        const beside = c.where.startsWith('beside you') || c.where.startsWith('right ');
+        const ours = c.ours !== undefined && (c.kind === 'broken' || c.kind === 'opened');
+        if (!ours && !beside && c.by !== 'an explosion') return;
+        const urgent = c.ours === 'shelter' || c.by === 'an explosion' || (ours && !this.o.store.state.self.isDay);
+        if (!urgent && this.now() - lastNoticed < NOTICE_EVERY_MS) return;
+        lastNoticed = this.now();
+        this.trigger(`you noticed ${describeChange(c)} (at ${c.pos.x},${c.pos.y},${c.pos.z})`, { change: c, urgent });
+      }),
+    );
     this.offs.push(b.on('actionRecorded', (e) => this.onPromiseTaskResult(e.record)));
     // A promise that is settled (kept, broken or called off) has nothing left to do.
     this.offs.push(
@@ -926,7 +1129,7 @@ export class CognitiveController {
     );
     this.beat = setInterval(() => {
       const s = this.o.store.state;
-      if (s.flags.inDanger || this.o.executor.busy || this.flight.inFlight('cc')) return;
+      if (s.flags.inDanger || s.flags.paused || this.o.executor.busy || this.flight.inFlight('cc')) return;
       if (this.now() - this.lastDecisionAt >= (this.o.heartbeatMs ?? 30_000)) this.trigger(this.lastDecisionAt === 0 ? 'you just arrived' : 'checking in');
     }, 2000);
     this.beat.unref();
@@ -1022,18 +1225,25 @@ export class CognitiveController {
     if (tasks.length > 0) store.update('taskQueue', (q) => [...tasks, ...q].slice(0, this.o.levers().queueDepth + tasks.length), 'promise tasks');
   }
 
-  /** Validation context; an impulse's punch is judged as an impulse (§18.5: the gate at a lower bar). */
+  /** Validation context; an impulse's punch is judged as an impulse (§18.5: the gate at a lower bar). Modules the
+   *  operator switched off (fights, courting, families) refuse what they would have allowed. */
   private env(isStuck: ValidationEnv['isStuck'], impulse = false): ValidationEnv {
-    const c = this.o.conflict;
+    const s = this.o.store.state;
+    const c = isOff(s, 'conflict') ? undefined : this.o.conflict;
+    const romance = isOff(s, 'romance') ? null : this.o.romance;
+    const family = isOff(s, 'family') ? null : this.o.family;
     return {
       me: this.o.me,
       isStuck,
       canPerceive: this.o.canPerceive,
       ...(this.o.isPerson ? { isPerson: this.o.isPerson } : {}),
       ...(c ? { mayFight: (target: AgentName, intent: 'brawl' | 'lethal', joining?: boolean) => c.mayFight(target, impulse ? 'impulse' : intent, { joining: joining === true }) } : {}),
-      ...(this.o.romance ? { mayCourt: (name: AgentName) => this.o.romance?.mayCourt(name) ?? null } : {}),
-      ...(this.o.family ? { mayStartFamily: (name: AgentName) => this.o.family?.whyNotFamily(name) ?? null } : {}),
+      ...(this.o.romance ? { mayCourt: (name: AgentName) => (romance ? romance.mayCourt(name) : 'courting is switched off for you') } : {}),
+      ...(this.o.family ? { mayStartFamily: (name: AgentName) => (family ? family.whyNotFamily(name) : 'starting a family is switched off for you') } : {}),
       ...(this.o.learned ? { learnedSkill: (name: string) => this.o.learned?.find(name) ?? null } : {}),
+      // The gate is for a mind with a model; the code-only brain digs in at night (see codeDecision).
+      mayHide: () => (!this.o.llm || this.o.store.state.flags.codeOnly ? null : whyNotHide(this.o.store.state)),
+      mayGo: (pos) => whyNotGo(this.o.store.state, pos),
     };
   }
 
@@ -1045,10 +1255,40 @@ export class CognitiveController {
     return goal;
   }
 
+  /**
+   * The operator's decision (debug controls): tidied and checked like the model's, then carried out as any other
+   * (source 'operator'). Returns why it can't be used, or null once it is under way.
+   */
+  force(raw: unknown): string | null {
+    const isStuck = (skill: string, args: Record<string, unknown>) => this.o.awareness.isStuckOn(skill, args);
+    const parsed = DecisionOutputSchema.safeParse(this.tidy(raw));
+    if (!parsed.success) return parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    const why = validateDecision(parsed.data, this.env(isStuck));
+    if (why) return why;
+    this.apply(parsed.data, 'operator', {});
+    return null;
+  }
+
+  /** A decision as written (the model's, or the operator's), tidied and with its item task routed (itemTasks.ts). */
+  private tidy(raw: unknown): unknown {
+    const d = tidyDecision(raw, { me: this.o.me, isSkill: (n) => Boolean(getSkill(n) ?? this.o.learned?.find(n)) });
+    const task = typeof d === 'object' && d !== null ? (d as { task?: unknown }).task : undefined;
+    if (typeof task !== 'object' || task === null) return d;
+    const t = task as { skill: string; args: Record<string, unknown> };
+    return { ...(d as object), task: routeItemTask(t, (n) => getSkill(n)?.name ?? null, (item) => held(this.o.store.state, item)) };
+  }
+
+  /** The packet the CC would see if it decided now (debug controls). */
+  async packetNow(reason = 'the operator is looking'): Promise<string> {
+    const L = this.o.levers();
+    const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
+    return buildPacket({ state: this.o.store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], now: this.now() });
+  }
+
   /** A quirk or emotion takes over briefly (source 'impulse'); the CC resumes the plan when it ends. */
   impulse(out: DecisionOutput): boolean {
     const s = this.o.store.state;
-    if (s.flags.inDanger) return false;
+    if (s.flags.inDanger || s.flags.paused) return false;
     const env = this.env((k, a) => this.o.awareness.isStuckOn(k, a), true);
     if (validateDecision(out, env)) return false;
     this.apply(out, 'impulse', {});
@@ -1104,7 +1344,7 @@ export class CognitiveController {
     this.checkGoal();
     const { store, logger } = this.o;
     const s = store.state;
-    if (s.flags.inDanger) return;
+    if (s.flags.inDanger || s.flags.paused) return;
     const busy = this.o.executor.busy;
     if (busy && !ctx.urgent) return;
     const isStuck = (skill: string, args: Record<string, unknown>) => this.o.awareness.isStuckOn(skill, args);
@@ -1112,8 +1352,9 @@ export class CognitiveController {
     let out: DecisionOutput | null = null;
     let source: Decision['source'] = 'default';
     const L = this.o.levers();
-    if (this.o.llm && !s.flags.codeOnly) {
-      const tier = reason.startsWith('new goal') && L.planningBurst ? 'L3' : L.ccTier;
+    if (this.o.llm && !s.flags.codeOnly && !isOff(s, 'cc.llm')) {
+      // Plans are made by Goal Gen (L3); a decision is the next step, on the CC's own tier.
+      const tier = L.ccTier;
       const learned = this.o.learned?.offered() ?? [];
       const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${DECISION_FORMAT}`;
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
@@ -1123,6 +1364,8 @@ export class CognitiveController {
         { role: 'user', content: packet },
       ];
       const guard = store.guard(CC_POLICY);
+      const exchange: Exchange = { at: this.now(), reason, tier, packet, replies: [] };
+      this.lastExchange = exchange;
       try {
         for (let attempt = 0; attempt < 2 && !out; attempt++) {
           const r = await this.o.llm.call<DecisionOutput | null>({
@@ -1132,10 +1375,13 @@ export class CognitiveController {
             messages,
             schema: DecisionOutputSchema,
             schemaName: 'decision',
+            formatInPrompt: true,
+            prepare: (json) => this.tidy(json),
             fallback: () => null,
             signal: guard.signal,
             isStale: guard.isStale,
           });
+          exchange.replies.push(r.ok ? { model: r.model, text: r.text.slice(0, 2000) } : { model: null, text: '', error: `${r.reason}${r.error ? `: ${r.error}` : ''}` });
           if (!r.ok) {
             if (r.reason === 'stale' || r.reason === 'aborted') {
               logger.info({ module: 'cc', reason: guard.reason() }, 'decision went stale; dropped');
@@ -1151,6 +1397,8 @@ export class CognitiveController {
             break;
           }
           logger.info({ module: 'cc', why }, 'decision rejected by code checks');
+          const last = exchange.replies.at(-1);
+          if (last) last.rejected = why;
           // M10: a skill reached for that there is none of: the skill writer may write it (if it may write at all).
           const task = r.value.task;
           if (task && why.startsWith('there is no skill')) this.o.bus.emit({ type: 'skillWanted', name: task.skill, args: task.args, why: r.value.rationale });
@@ -1163,7 +1411,7 @@ export class CognitiveController {
     if (!out) {
       const candidates = this.o.socialCandidates?.() ?? [];
       const claim = this.o.claimToCheck?.();
-      const c = this.o.conflict;
+      const c = isOff(store.state, 'conflict') ? undefined : this.o.conflict;
       const t = this.now();
       const conflict: ConflictView | undefined = c && {
         rungOf: (n) => c.rungOf(n),
@@ -1198,9 +1446,10 @@ export class CognitiveController {
         ...(conflict ? { conflict } : {}),
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
         answered: this.answered,
-        ...(this.o.romance ? { romance: this.o.romance } : {}),
-        ...(this.o.family ? { family: this.o.family } : {}),
-        ...(this.o.power ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
+        codeOnly: !this.o.llm || store.state.flags.codeOnly,
+        ...(this.o.romance && !isOff(store.state, 'romance') ? { romance: this.o.romance } : {}),
+        ...(this.o.family && !isOff(store.state, 'family') ? { family: this.o.family } : {}),
+        ...(this.o.power && c ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),
       });
       source = 'default';
       // Going on with what is under way needs no new checks: a fight went through the gate when it began.
@@ -1216,7 +1465,7 @@ export class CognitiveController {
       }
     }
     if (!out) return;
-    this.apply(out, source, ctx);
+    this.apply(out, source, ctx, reason);
     // What they said to us is answered now.
     if (ctx.from) {
       for (const u of store.state.perception.heardSpeech) if (u.from === ctx.from && u.addressedToMe && (!ctx.convId || u.convId === ctx.convId)) this.answered.add(u.id);
@@ -1224,7 +1473,7 @@ export class CognitiveController {
     }
   }
 
-  private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext): void {
+  private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext, why?: string): void {
     const { store, bus, logger } = this.o;
     const now = this.now();
     const decision: Decision = { ...out, id: newId('d', now), createdAt: now, stateVersion: store.version, source };
@@ -1280,7 +1529,7 @@ export class CognitiveController {
       );
     }
     logger.info(
-      { module: 'cc', source, option: decision.option, task: decision.task, stance: decision.speechIntent?.stance, mayCommit: decision.speechIntent?.mayCommit, rationale: decision.rationale },
+      { module: 'cc', source, option: decision.option, task: decision.task, stance: decision.speechIntent?.stance, mayCommit: decision.speechIntent?.mayCommit, rationale: decision.rationale, ...(why ? { why } : {}) },
       'decision',
     );
     bus.emit({ type: 'decision', decision });

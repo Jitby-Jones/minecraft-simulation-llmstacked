@@ -17,6 +17,20 @@ describe('bench statistics', () => {
     expect(r).toMatchObject({ model: 'm', calls: 4, okRate: 0.75, jsonOkRate: 0.667, p50Ms: 200, p90Ms: 300, ttftP50Ms: 40, toolArgOkRate: 0.5 });
   });
 
+  it('one result per model and tier measured', () => {
+    const rs = summarizeBench([
+      { model: 'm', tier: 'L1', ms: 100, ok: true },
+      { model: 'm', tier: 'L3', ms: 900, ok: true },
+      { model: 'm', tier: 'L3', ms: 700, ok: true },
+    ]);
+    expect(rs.map((r) => [r.tier, r.calls, r.p50Ms])).toEqual([
+      ['L1', 1, 100],
+      ['L3', 2, 700],
+    ]);
+    const merged = mergeBench({ measuredAt: 'old', results: [{ model: 'm', tier: 'L2', calls: 1, okRate: 1, jsonOkRate: 1, p50Ms: 5, p90Ms: 5 }] }, rs, 'new');
+    expect(merged.results.map((r) => r.tier)).toEqual(['L1', 'L3', 'L2']);
+  });
+
   it('keeps earlier results for models not measured again', () => {
     const prev = { measuredAt: 'old', results: [{ model: 'a', calls: 1, okRate: 1, jsonOkRate: 1, p50Ms: 1, p90Ms: 1 }, { model: 'b', calls: 1, okRate: 0, jsonOkRate: 0, p50Ms: 0, p90Ms: 0 }] };
     const merged = mergeBench(prev, [{ model: 'b', calls: 2, okRate: 1, jsonOkRate: 1, p50Ms: 5, p90Ms: 6 }], 'new');

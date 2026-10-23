@@ -3,10 +3,11 @@
 //      is in sight, and then it can be mined.
 //   2. A told fact is recalled later: Bram tells Tobin where the diamonds are; the line drops out of working memory
 //      into SQLite; asked much later, Tobin's Talking gets it back through the local embedder and repeats it with
-//      attribution. Goal Gen picks Tobin's goal through L3. The model is a scripted stand-in (no key here).
-//   3. Code-only Pip runs on her own: Goal Gen's ladder gives a sensible chain (wooden pickaxe → stone tools →
-//      furnace → iron pickaxe, the iron hidden in the ground), and her quirks show: she picks the poppies she passes
-//      and hums when someone is near. Capped at 25 minutes.
+//      attribution. Goal Gen makes Tobin's plan through L3. The model is a scripted stand-in (no key here).
+//   3. Code-only Pip works through a plan on her own: given one the way an operator would (wooden pickaxe → stone
+//      tools → furnace → iron pickaxe, the iron hidden in the ground), the code default carries it out step by step,
+//      then she makes a plan of her own; and her quirks show: she picks the poppies she passes and hums when someone
+//      is near. Capped at 25 minutes.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,8 +29,9 @@ import { Agent, MemoryDB } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { countItem } from '@agora/agent/body/inventory';
+import { debugOp } from '@agora/agent/hub/debug';
 import { pushWorkmem } from '@agora/agent/state/workmem';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -137,14 +139,16 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
     fake.chat = ({ body }) => {
       const messages = body.messages as { role: string; content: string }[];
       const user = messages.at(-1)?.content ?? '';
-      const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const schema = schemaNameOf(body);
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I like an easy life and a good joke.' }) };
       if (schema === 'memory') return { text: JSON.stringify({ text: messages.at(-1)?.content.split('\n')[0]?.slice(2) ?? 'stuff happened' }) };
-      if (schema === 'goal') {
+      if (schema === 'plan') {
         goalCalls++;
         return {
           text: JSON.stringify(
-            goalCalls === 1 ? { keep: false, goal: { text: 'get stone tools', doneWhen: 'inventoryHas:stone_pickaxe>=1', why: 'less work later' } } : { keep: true },
+            goalCalls === 1
+              ? { keep: false, plan: { aim: 'better tools', steps: [{ text: 'get stone tools', doneWhen: 'inventoryHas:stone_pickaxe>=1' }, { text: 'look around', doneWhen: 'explored:2' }], why: 'less work later' } }
+              : { keep: true },
           ),
         };
       }
@@ -174,8 +178,9 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
     const agent = new Agent({ body, persona: persona('tobin'), username: 'Tobin', llm: rt.client, logger, world, memory: { db, embedder } });
     agent.start();
     try {
-      await waitFor(() => agent.store.state.goals.current?.text === 'get stone tools', 30_000, 'a goal from Goal Gen');
+      await waitFor(() => agent.store.state.goals.current?.text === 'get stone tools', 30_000, 'a plan from Goal Gen');
       expect(agent.store.state.goals.current?.doneWhen).toBe('inventoryHas:stone_pickaxe>=1');
+      expect(agent.store.state.goals.plan).toMatchObject({ aim: 'better tools', source: 'llm' });
       await server.cmd('tp Bram Tobin');
       await sleep(1000);
       await bram.say('Tobin, the diamonds are buried under the big oak by the lake.');
@@ -215,7 +220,7 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
     expect(goalCalls).toBeGreaterThanOrEqual(1);
   }, 300_000);
 
-  it('code-only: a sensible goal chain up to an iron pickaxe, with visible quirks', async () => {
+  it('code-only: works through a plan up to an iron pickaxe, then makes her own; visible quirks', async () => {
     const x = 600;
     const z = 0;
     await village(x, z, 44);
@@ -230,7 +235,7 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
       const p = parseProximityLine(m);
       if (p.kind === 'speech' && p.speaker === 'Pip') pipSaid.push(p.text);
     });
-    // Her own goal ladder (§7): the village's work, which since M8 comes first now and then, is M8's test.
+    // The village's work, which comes into plans now and then, is M8's test.
     const agent = new Agent({ body, persona: persona('pip'), username: 'Pip', llm: null, logger, world, memory: { db, embedder }, socialGoals: false });
     const decisions: string[] = [];
     agent.bus.on('decision', (e) => decisions.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option} ${JSON.stringify(e.decision.task?.args ?? {})}`));
@@ -238,6 +243,18 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
     agent.bus.on('actionRecorded', (e) => actions.push(`${e.record.skill}${JSON.stringify(e.record.args)}:${e.record.ok ? 'ok' : `FAIL(${e.record.error ?? ''})`}`));
     const started = Date.now();
     agent.start();
+    // The plan, given as an operator would (the dashboard's Plan box): the code default's own plans are drawn by
+    // chance, so this one is set to test a long chain of real work.
+    const given = await debugOp(agent, 'plan', {
+      aim: 'an iron pickaxe',
+      steps: [
+        { text: 'make a wooden pickaxe', doneWhen: 'inventoryHas:wooden_pickaxe>=1' },
+        { text: 'make a stone pickaxe', doneWhen: 'inventoryHas:stone_pickaxe>=1' },
+        { text: 'make a furnace', doneWhen: 'inventoryHas:furnace>=1' },
+        { text: 'make an iron pickaxe', doneWhen: 'inventoryHas:iron_pickaxe>=1' },
+      ],
+    });
+    expect(given.ok).toBe(true);
     // Bram keeps her company, floating just above her (creative), so there is someone to hum to.
     const company = setInterval(() => void server.cmd('execute at Pip run tp Bram ~ ~3 ~').catch(() => undefined), 15_000);
     try {
@@ -247,10 +264,12 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
         'the iron pickaxe goal done',
         2000,
       );
+      // The plan done, she makes one of her own (the code default's, drawn from her needs and leanings).
+      await waitFor(() => agent.store.state.goals.plan?.source === 'default', 30_000, 'a plan of her own');
     } finally {
       clearInterval(company);
       const goals = agent.store.state.goals.history.map((g) => `${g.text}:${g.status}`);
-      console.log(`[m4 chain] ${Math.round((Date.now() - started) / 1000)} s; goals: ${goals.join(' → ')}`);
+      console.log(`[m4 chain] ${Math.round((Date.now() - started) / 1000)} s; goals: ${goals.join(' → ')}; plan now: ${JSON.stringify(agent.store.state.goals.plan?.aim ?? null)}`);
       console.log(`[m4 chain] decisions (${decisions.length}): ${decisions.join(' | ')}`);
       console.log(`[m4 chain] actions (${actions.length}): ${actions.join(', ')}`);
       console.log(`[m4 chain] Pip said: ${pipSaid.join(' | ')}; poppies: ${countItem(body.bot, 'poppy')}; memories: ${db.count('recent')} recent, ${db.count('long')} long`);

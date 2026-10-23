@@ -4,20 +4,20 @@
 // signs are read and written the way a player would. Live behavior is in tests/live/m8-village.test.ts.
 
 import { describe, expect, it } from 'vitest';
-import { type ActionRecord, type AgentState, ModelsConfigSchema, type ObservedAction, PersonaSchema, loadPersonaPool, nullLogger } from '@agora/shared';
+import { type ActionRecord, type AgentState, ModelsConfigSchema, type ObservedAction, PersonaSchema, SeededRandom, loadPersonaPool, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import { AgentBus } from '@agora/agent/bus';
 import type { Body } from '@agora/agent/body/body';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
 import { Vec3 } from '@agora/agent/body/bot';
-import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles } from '@agora/agent/body/skills/village';
+import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles, isHutMaterial } from '@agora/agent/body/skills/village';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { Conversations } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
-import { codeGoal, villageFirst } from '@agora/agent/modules/goalGen';
+import { codePlan, villageFirst } from '@agora/agent/modules/goalGen';
 import { leversFor } from '@agora/agent/modules/levers';
 import { SocialGoalGen } from '@agora/agent/modules/socialGoalGen';
 import { Talking } from '@agora/agent/modules/talking';
@@ -309,14 +309,21 @@ describe('village work as goals (§6.8)', () => {
     expect(villageWorkOf('inventoryHas:log>=1')).toBeNull();
   });
 
-  it('once it has stone tools, the village comes first now and then: more for the loyal, less for the ambitious', () => {
-    let s = withInv(base(), { stone_pickaxe: 1 });
-    expect(codeGoal(s, 0)?.doneWhen).toBe('inventoryHas:furnace>=1');
-    s = { ...s, goals: { ...s.goals, social: [{ id: 'sg', text: 'bring logs to the village chest', kind: 'social', createdAt: 0, status: 'active', work: 'wood' }] } };
-    expect(codeGoal(s, 0)).toEqual({ text: 'bring logs to the village chest', doneWhen: 'villageWork:wood' });
-    expect(codeGoal(s, 0.99)?.doneWhen).toBe('inventoryHas:furnace>=1');
-    // Without stone tools, its own first steps still come first.
-    expect(codeGoal(withInv(s, {}), 0)?.doneWhen).toBe('inventoryHas:wooden_pickaxe>=1');
+  it('once it has stone tools, the village work comes up in its plans more often: more for the loyal, less for the ambitious', () => {
+    const social = [{ id: 'sg', text: 'bring logs to the village chest', kind: 'social' as const, createdAt: 0, status: 'active' as const, work: 'wood' }];
+    const draws = (s: AgentState, seed: number) => {
+      const rng = new SeededRandom(seed);
+      return Array.from({ length: 300 }, () => codePlan(s, () => rng.next()));
+    };
+    const withVillage = (s: AgentState) => ({ ...s, goals: { ...s.goals, social } });
+    const share = (s: AgentState) => draws(s, 7).filter((d) => d?.aim === 'bring logs to the village chest').length / 300;
+    const wren = withVillage(withInv(base(persona('wren')), { stone_pickaxe: 1 }));
+    const mira = withVillage(withInv(base(persona('mira')), { stone_pickaxe: 1 }));
+    expect(share(wren)).toBeGreaterThan(share(mira));
+    // Its step is the village work, checked by its doneWhen.
+    expect(draws(wren, 7).find((d) => d?.aim === 'bring logs to the village chest')?.steps[0]).toEqual({ text: 'bring logs to the village chest', doneWhen: 'villageWork:wood' });
+    // Without stone tools, its own first steps come first more often.
+    expect(share(withVillage(base(persona('wren'))))).toBeLessThan(share(wren));
     expect(villageFirst(base(persona('wren')))).toBeGreaterThan(villageFirst(base(persona('mira'))));
   });
 
@@ -362,6 +369,12 @@ describe('village work as goals (§6.8)', () => {
     expect(villageMove(s, 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'oak_door', qty: 1 } });
     expect(villageMove(withInv(s, { dirt: HUT_BLOCKS, oak_door: 1 }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
     expect(villageMove(withInv(s, { dirt: HUT_BLOCKS }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
+    // Planks of any wood build a hut (a savanna's acacia didn't count before).
+    expect(isHutMaterial('acacia_planks')).toBe(true);
+    expect(isHutMaterial('cherry_planks')).toBe(true);
+    expect(isHutMaterial('acacia_log')).toBe(false);
+    expect(villageMove(withInv(atHome(base()), { acacia_planks: HUT_BLOCKS }), 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'acacia_door', qty: 1 } });
+    expect(villageMove(withInv(atHome(base()), { acacia_planks: HUT_BLOCKS, acacia_door: 1 }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
   });
 
   it('scout: out exploring until it finds ore, then a sign at the board saying where', () => {
@@ -394,12 +407,12 @@ describe('village work as goals (§6.8)', () => {
     expect(unpostedDeath(posted)).toBeNull();
   });
 
-  it('a guard on duty stays out at night; everyone else digs in', () => {
+  it('a guard on duty stays out at night, and nobody else digs in just because it is dark', () => {
     let s = atHome(base(persona('wren'), 'Wren'));
     s = { ...s, self: { ...s.self, isDay: false }, goals: { ...s.goals, current: { id: 'g', text: 'keep the village safe from mobs', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'villageWork:guard' } } };
     expect(codeDecision(s, {}, false, never)?.task?.skill).toBe('patrol');
     const other = { ...s, goals: { ...s.goals, current: { ...s.goals.current!, doneWhen: 'villageWork:wood' } } };
-    expect(codeDecision(other, {}, false, never)?.task?.skill).toBe('shelter');
+    expect(codeDecision(other, {}, false, never)?.task?.skill).toBe('obtain');
   });
 
   it('the CC packet says the agent’s part in the village and the community goal', () => {
@@ -488,6 +501,26 @@ describe('where a hut goes (dug-up ground by home)', () => {
     const site = findHutSite(bot, new Vec3(0, 41, 0));
     expect(site).not.toBeNull();
     expect(hutSiteHoles(bot, site as Vec3)?.length).toBeLessThanOrEqual(HUT_HOLES);
+  });
+
+  it('on a hillside, finds the level patch above or below home\'s own height', () => {
+    // Ground rising a block every 2 east of home, levelling off at a terrace 5 up from x = 10 on.
+    const ground = (x: number) => (x < 0 ? 40 : x >= 10 ? 45 : 40 + Math.floor(x / 2));
+    const blockAt = (p: { x: number; y: number; z: number }) => (p.y <= ground(p.x) ? { name: 'dirt', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' });
+    const bot = { blockAt } as never;
+    // Home on the slope: nowhere level at its own height within reach west (the lowland is far), the terrace is.
+    const site = findHutSite(bot, new Vec3(6, 44, 0), 20, 4);
+    expect(site).not.toBeNull();
+    expect(hutSiteHoles(bot, site as Vec3)).toEqual([]);
+    expect([41, 46]).toContain(site?.y);
+  });
+
+  it('under trees, the ground is the ground, not the canopy', () => {
+    // Flat ground at 40 under a solid canopy of leaves at 46 (a dark forest): no hut on top of the trees.
+    const blockAt = (p: { x: number; y: number; z: number }) =>
+      p.y <= 40 ? { name: 'dirt', boundingBox: 'block' } : p.y === 46 ? { name: 'dark_oak_leaves', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' };
+    const site = findHutSite({ blockAt } as never, new Vec3(0, 41, 0));
+    expect(site?.y).toBe(41);
   });
 });
 
@@ -683,10 +716,14 @@ describe('staying alive in the village (§16.3: carry food)', () => {
     // Something to eat: the eat reflex eats it, and meanwhile we rest.
     expect(hurtMove(withInv(s, { porkchop: 2 }), v)?.option).toBe('rest');
     const fed = { ...s, self: { ...s.self, food: 19 }, perception: { ...s.perception, nearbyEntities: [slime] } };
-    expect(hurtMove(fed, v)?.task).toEqual({ skill: 'shelter', args: { untilMorning: false, untilHealed: true } });
+    // At home: resting there with an eye out. In a sealed hole only when hiding is allowed (alone, scared, far off).
+    expect(hurtMove(fed, v)?.option).toBe('rest');
+    expect(hurtMove(fed, { ...v, mayHide: true })?.task).toEqual({ skill: 'shelter', args: { untilMorning: false, untilHealed: true } });
+    // Far from home: back home to recover.
+    expect(hurtMove({ ...fed, self: { ...fed.self, pos: { x: 80, y: -60, z: 0 } } }, v)?.task).toEqual({ skill: 'goTo', args: { x: 0, y: -60, z: 0, range: 3 } });
     // A guard at one heart doesn't walk the edge of the village among the slimes.
     const guard = { ...fed, goals: { ...fed.goals, current: { id: 'g', text: 'keep the village safe', kind: 'current' as const, createdAt: 0, status: 'active' as const, doneWhen: 'villageWork:guard' } } };
-    expect(codeDecision(guard, {}, false, never)?.task?.skill).toBe('shelter');
+    expect(codeDecision(guard, {}, false, never)?.option).toBe('rest');
     const { villageMove } = await import('@agora/agent/modules/villageMove');
     expect(villageMove({ ...guard, self: { ...guard.self, health: 9 } }, 'guard', v)).toBeNull();
     expect(villageMove({ ...guard, self: { ...guard.self, health: 14 } }, 'guard', v)?.task?.skill).toBe('attack');

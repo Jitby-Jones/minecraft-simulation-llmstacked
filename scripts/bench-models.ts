@@ -20,6 +20,7 @@ import {
   startLlm,
   tierRuntimes,
 } from '@agora/llm';
+import { PLAN_FORMAT, PlanOutputSchema, tidyPlan } from '@agora/agent/modules/goalGen';
 import { type BenchSample, mergeBench, summarizeBench } from './lib/bench';
 
 const BENCH_FILE = path.join(repoRoot(), 'config', 'model-bench.json');
@@ -55,7 +56,6 @@ const Decision = z.object({
   rationale: z.string().max(200),
 });
 const Summary = z.object({ summary: z.string().min(1).max(400) });
-const Goals = z.object({ goals: z.array(z.object({ text: z.string().min(1), why: z.string() })).min(1).max(5) });
 
 const situations = [
   'It is early morning. You have 2 oak logs and nothing else. Bram is 6 blocks away chopping trees.',
@@ -65,7 +65,7 @@ const situations = [
   'Mira asked you where to find iron. You saw iron ore in the ravine east of the village yesterday.',
 ];
 
-function prompt(tier: TierName, i: number): { messages: ChatMessage[]; kind: 'decision' | 'summary' | 'goals' | 'talk' } {
+function prompt(tier: TierName, i: number): { messages: ChatMessage[]; kind: 'decision' | 'summary' | 'plan' | 'talk' } {
   const s = situations[i % situations.length] ?? '';
   const sys: ChatMessage = { role: 'system', content: 'You are Pip, a careful, friendly builder in a Minecraft village. Keep it short.' };
   if (tier === 'L1') {
@@ -85,7 +85,17 @@ function prompt(tier: TierName, i: number): { messages: ChatMessage[]; kind: 'de
       ],
     };
   }
-  return { kind: 'goals', messages: [sys, { role: 'user', content: `${s}\nPropose up to 3 goals for today as JSON {"goals": [{"text", "why"}]}.` }] };
+  // L3 plans (Goal Gen): its own prompt and format, as agents send them.
+  return {
+    kind: 'plan',
+    messages: [
+      {
+        role: 'system',
+        content: `${sys.content} You value hard work and friendship and want to build a proper home.\n\nMake your own plan for the next half hour or so: what you want to get done, as 2–6 concrete steps, your way. Think about what you have and see around you, the time of day, how you feel, what the others are doing and what you have talked over with them. Don't just do things in the usual order; do what fits you.\n${PLAN_FORMAT}`,
+      },
+      { role: 'user', content: `Why now: starting.\n${s}\nPeople you know: Bram (you feel 6/10; seems to want stone tools), Mira (you feel 7/10).\nYou have no plan yet.` },
+    ],
+  };
 }
 
 async function main(): Promise<void> {
@@ -137,10 +147,10 @@ async function main(): Promise<void> {
               fallback: () => '',
               onText: () => (ttft ??= Date.now() - t0),
             });
-            samples.push({ model, ms: Date.now() - t0, ok: r.ok, ttftMs: ttft });
+            samples.push({ model, tier, ms: Date.now() - t0, ok: r.ok, ttftMs: ttft });
             continue;
           }
-          const schema = p.kind === 'decision' ? Decision : p.kind === 'summary' ? Summary : Goals;
+          const schema = p.kind === 'decision' ? Decision : p.kind === 'summary' ? Summary : PlanOutputSchema;
           const r = await rt.client.call<unknown>({
             tier,
             module: 'bench',
@@ -148,6 +158,7 @@ async function main(): Promise<void> {
             model,
             messages: p.messages,
             schema,
+            ...(p.kind === 'plan' ? { schemaName: 'plan', formatInPrompt: true, prepare: tidyPlan } : {}),
             fallback: () => null,
           });
           const toolOk =
@@ -157,9 +168,9 @@ async function main(): Promise<void> {
                   return d.option !== 'work' || (d.task !== undefined && SKILLS.includes(d.task.skill));
                 })()
               : undefined;
-          samples.push({ model, ms: Date.now() - t0, ok: r.ok, json: r.ok, ...(toolOk !== undefined ? { toolOk } : {}) });
+          samples.push({ model, tier, ms: Date.now() - t0, ok: r.ok, json: r.ok, ...(toolOk !== undefined ? { toolOk } : {}) });
         }
-        const mine = summarizeBench(samples.filter((s) => s.model === model))[0];
+        const mine = summarizeBench(samples.filter((s) => s.model === model && s.tier === tier))[0];
         console.log(`  ${tier} ${model}: ok ${mine?.okRate} json ${mine?.jsonOkRate} p50 ${mine?.p50Ms} ms p90 ${mine?.p90Ms} ms`);
       }
     }

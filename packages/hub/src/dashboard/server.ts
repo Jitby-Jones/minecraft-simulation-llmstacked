@@ -5,7 +5,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
-import { transform } from 'esbuild';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 import type { Logger } from '@agora/shared';
 import type { Hub } from '../hub/hub';
 import type { DashboardModel } from './model';
@@ -37,10 +38,10 @@ const PAGE_HEADERS = {
 
 const asset = (file: string) => fs.readFileSync(new URL(`./client/${file}`, import.meta.url), 'utf8');
 
-/** The page's three files; the script is compiled from TypeScript once, at start. */
+/** The page's three files; the script (app.ts and what it imports) is bundled from TypeScript once, at start. */
 async function loadAssets(): Promise<{ html: string; css: string; js: string }> {
-  const js = await transform(asset('app.ts'), { loader: 'ts', format: 'iife', target: 'es2022', charset: 'utf8' });
-  return { html: asset('index.html'), css: asset('app.css'), js: js.code };
+  const out = await build({ entryPoints: [fileURLToPath(new URL('./client/app.ts', import.meta.url))], bundle: true, write: false, format: 'iife', target: 'es2022', charset: 'utf8', logLevel: 'silent' });
+  return { html: asset('index.html'), css: asset('app.css'), js: out.outputFiles[0]?.text ?? '' };
 }
 
 function sameToken(given: string, want: string): boolean {
