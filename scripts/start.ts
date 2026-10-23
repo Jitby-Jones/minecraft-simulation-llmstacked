@@ -25,12 +25,25 @@ import {
   repoRoot,
   seedFromString,
 } from '@agora/shared';
-import { type Embedder, KeyLockError, QuotaGovernor, createEmbedder, createGuardedFetch, evaluateKeyLock, fetchSubscriptionModels, fetchUsage } from '@agora/llm';
+import {
+  type Embedder,
+  KeyLockError,
+  type LlmRuntime,
+  QuotaGovernor,
+  createEmbedder,
+  createGuardedFetch,
+  evaluateKeyLock,
+  fetchSubscriptionModels,
+  fetchUsage,
+  loadBenchFile,
+  startLlm,
+} from '@agora/llm';
 import {
   DashboardModel,
   DashboardServer,
   Hub,
   type ManagedServer,
+  PersonaWriter,
   SkinService,
   Supervisor,
   TuningStore,
@@ -141,6 +154,12 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
       })
     : null;
   const pool = loadPersonaPool();
+  // The master model (§16.2, §20): writes each new person, and each child on the way, from numbers drawn by code. On
+  // the agents' shared rate limit, at the lowest priority; without a key, code's own words stand.
+  const master: LlmRuntime | null = key
+    ? await startLlm({ apiKey: key, config: models, logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), limiter: hub.tokens(), background: false, pollUsage: false })
+    : null;
+  const writer = master ? new PersonaWriter({ llm: master.client, logger, rng: new SeededRandom(seedFromString(`personas-${Date.now()}`)) }) : null;
   const supervisor = new Supervisor({
     hub,
     paths,
@@ -152,6 +171,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     rng: new SeededRandom(seedFromString(`${Date.now()}`)),
     ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
     ...(skins ? { skins } : {}),
+    ...(writer ? { writer } : {}),
   });
 
   let ending: Ending = 'stop';
@@ -192,6 +212,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     await dashboard?.close();
     detachDashboard();
     await hub.close();
+    master?.stop();
     governor?.stop();
     telemetry.end();
     await server?.stop();

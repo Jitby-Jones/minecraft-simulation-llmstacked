@@ -13,7 +13,7 @@ population:                # §19.7 — replaces agents.count. For a fixed N: in
   spawnRadius: 24
   starterKit: auto         # persona | none | auto (persona in test, none in live)
 
-personas: auto             # draw from personas/ pool, then generate new ones when exhausted
+personas: generated        # every new person drawn by code and written by the master model (L3); 'auto' = the personas/ pool first
 namePolicy: generated      # player-like unique names; never reuse a dead name
 
 community:

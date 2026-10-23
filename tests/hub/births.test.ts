@@ -2,7 +2,8 @@
 // room in the population, the couple's cooldown, nobody in their youth), and the supervisor acting on them with
 // in-process stand-in bots: the child comes after gestation with its parents' traits, its starting knowledge on its
 // first start, at the beds; a person playing as a partner is covered by our agent's report alone; a child on the way
-// survives a restart. Nothing of this is ever sent to a bot except the child's own assignment.
+// survives a restart; the child is drawn at conception and written by the master model while on the way (its birth
+// waits for that a little). Nothing of this is ever sent to a bot except the child's own assignment.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,7 +11,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type BirthFacts, HubConfigSchema, PersonaSchema, SeededRandom, SexDifferencesSchema, WorldConfigSchema, dataPaths, ensureDataDirs, nullLogger } from '@agora/shared';
 import { HashEmbedder } from '@agora/llm';
-import { type ConceptionReport, Hub, type Launcher, type RosterEntry, Supervisor, loadRoster, matchReport, whyNoBirth } from '@agora/hub';
+import { type ConceptionReport, Hub, type Launcher, type PersonaSource, type RosterEntry, Supervisor, type WriteContext, loadRoster, matchReport, whyNoBirth } from '@agora/hub';
 import { HubClient } from '@agora/agent/hub/client';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -88,7 +89,7 @@ describe('births in the supervisor (§19.3, §19.4)', () => {
     return { launcher, live, bot, conceive };
   }
 
-  async function setup(o: { gestationSec?: number; maxAlive?: number } = {}) {
+  async function setup(o: { gestationSec?: number; maxAlive?: number; writer?: PersonaSource } = {}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agora-births-'));
     cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
     const paths = ensureDataDirs(dataPaths(dir));
@@ -112,6 +113,7 @@ describe('births in the supervisor (§19.3, §19.4)', () => {
         logger: nullLogger(),
         rng: new SeededRandom(21),
         rcon: (cmd) => (rcon.push(cmd), Promise.resolve('')),
+        ...(o.writer ? { writer: o.writer } : {}),
       });
     const sup = mk();
     cleanups.push(() => sup.shutdown('test', 2000));
@@ -166,6 +168,40 @@ describe('births in the supervisor (§19.3, §19.4)', () => {
       { username: 'Ivy', name: 'Ivy', sex: 'female' },
       { username: 'Sam', name: 'Sam', sex: 'male' },
     ]);
+  }, 20_000);
+
+  it('the child is drawn at conception and written by the master model while on the way; its birth waits for it', async () => {
+    const asked: { draft: RosterEntry['persona']; ctx: WriteContext }[] = [];
+    const writer: PersonaSource = {
+      write: async (draft, ctx) => {
+        asked.push({ draft, ctx });
+        await wait(600); // longer than the gestation (0.2 s)
+        return { ...draft, name: 'Wren_S', description: 'Wren has her father’s patience and her mother’s laugh.' };
+      },
+    };
+    const r = await setup({ writer });
+    r.bots.conceive('Ned', 'Ivy', 'female');
+    r.bots.conceive('Ivy', 'Ned', 'male');
+    // Drawn at once: its numbers from its parents, its name kept for it.
+    await until(() => asked.length === 1);
+    const drawn = loadRoster(r.paths.roster).pendingBirths[0]?.persona;
+    expect(drawn).toMatchObject({ source: 'born', generation: 1, familyName: 'Stark' });
+    expect(loadRoster(r.paths.roster).usedNames).toContain(drawn?.name);
+    // The writer knows the parents, and the child's own name isn't taken from it.
+    expect(asked[0]?.ctx.parents?.map((p) => p.name).sort()).toEqual(['Ivy', 'Ned']);
+    expect(asked[0]?.ctx.takenNames.has(drawn?.name ?? '')).toBe(false);
+    expect(asked[0]?.ctx.takenNames.has('Ned')).toBe(true);
+    // Due before the writing is done: the birth waits for it.
+    await wait(300);
+    expect(r.sup.living).toHaveLength(2);
+    await until(() => r.sup.living.length === 3, 5000);
+    const child = r.sup.living.find((a) => a.parents);
+    expect(child?.username).toBe('Wren_S');
+    expect(child?.persona.description).toMatch(/^Wren has/);
+    // The name drawn at first is let go (nobody ever had it); the child's is kept.
+    const used = loadRoster(r.paths.roster).usedNames;
+    expect(used).toContain('Wren_S');
+    expect(used).not.toContain(drawn?.name);
   }, 20_000);
 
   it('a child on the way survives a restart, and no child comes when the population is full at birth', async () => {

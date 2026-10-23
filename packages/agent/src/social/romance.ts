@@ -148,9 +148,5 @@ export function pronounSex(text: string): Sex | null {
   return he === she ? null : he ? 'male' : 'female';
 }
 
-/**
- * §19.6: romance is PG. Nothing sexual, no innuendo: a line like that is never said. Words that are ordinary game
- * talk ("strip mine", "stripped logs", "naked without my armor") are left alone.
- */
-export const NOT_PG_RE =
-  /\b(sex|sexy|sexual(ly)?|nudes?|horny|kinky|fetish\w*|seduc\w*|undress\w*|lingerie|mak(e|ing) love|sleep(ing)? with (me|you|him|her)|turn(s|ed)? me on|hot body|thicc|boobs?|tits|genital\w*|orgasm\w*|erotic\w*|porn\w*|grope\w*|fondl\w*)\b/i;
+/** §19.6: romance is PG (the filter lives in shared, for the Hub's persona writer too). */
+export { NOT_PG_RE } from '@agora/shared';

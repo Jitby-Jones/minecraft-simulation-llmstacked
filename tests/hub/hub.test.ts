@@ -6,9 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { HubConfigSchema, PersonaSchema, SeededRandom, SexDifferencesSchema, WorldConfigSchema, agentDbPath, dataPaths, ensureDataDirs, nullLogger } from '@agora/shared';
+import { HubConfigSchema, type Persona, PersonaSchema, SeededRandom, SexDifferencesSchema, WorldConfigSchema, agentDbPath, dataPaths, ensureDataDirs, nullLogger } from '@agora/shared';
 import { HashEmbedder, type QuotaStatus } from '@agora/llm';
-import { Hub, type Launcher, Supervisor, loadRoster } from '@agora/hub';
+import { Hub, type Launcher, type PersonaSource, Supervisor, type WriteContext, loadRoster } from '@agora/hub';
 import { HubClient } from '@agora/agent/hub/client';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -222,6 +222,45 @@ describe('supervisor (§16.2, §16.3, §23.4)', () => {
     // Ada has a memory file to come back to; the others (no DB written here) start their memory afresh.
     expect(resumes.Ada).toBe(true);
     await sup2.shutdown('test', 3000);
+  }, 30_000);
+
+  it("with personas 'generated', every newcomer is drawn by code and written by the master model; if it fails, code's words stand", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agora-written-'));
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const paths = ensureDataDirs(dataPaths(dir));
+    const world = WorldConfigSchema.parse({ personas: 'generated', population: { initial: 3, minAlive: 3, maxAlive: 5, spawnStaggerSec: 0 } });
+    const hub = await startHub();
+    const bots = fakeBots(() => `ws://127.0.0.1:${hub.port}`);
+    const asked: { draft: Persona; ctx: WriteContext }[] = [];
+    const given = ['Oriel', 'Pell'];
+    const writer: PersonaSource = {
+      write: (draft, ctx) => {
+        asked.push({ draft, ctx });
+        const name = ctx.keepName ? draft.name : given[asked.length - 1];
+        if (!name) return Promise.reject(new Error('the model is away'));
+        return Promise.resolve({ ...draft, name, description: `${name} came over the hills.` });
+      },
+    };
+    const sup = new Supervisor({ hub, paths, world, sexDiffs: SexDifferencesSchema.parse({}), pool: [persona('Ada', 'female'), persona('Bram', 'male')], launcher: bots.launcher, logger: nullLogger(), rng: new SeededRandom(5), writer });
+    await sup.start();
+    await until(() => bots.live.size === 3 && [...bots.live.values()].every((b) => b.username));
+    // Nobody from the pool: each newcomer drawn by code and written, told who is here and every name taken.
+    expect(sup.living.map((a) => a.username).slice(0, 2)).toEqual(['Oriel', 'Pell']);
+    expect(sup.living.every((a) => a.persona.source === 'generated')).toBe(true);
+    expect(sup.living[0]?.persona.description).toBe('Oriel came over the hills.');
+    expect(asked[1]?.ctx.living.map((p) => p.name)).toEqual(['Oriel']);
+    expect(asked[1]?.ctx.takenNames.has('Oriel')).toBe(true);
+    // The third: the model was away, so code drew and worded it.
+    expect(sup.living[2]?.persona).toEqual(asked[2]?.draft);
+    // The operator's name is kept, and is told to the writer as such.
+    const added = await sup.addAgent({ name: 'Zed' });
+    expect(typeof added === 'string' ? added : added.username).toBe('Zed');
+    expect(asked[3]?.ctx.keepName).toBe(true);
+    // Two asked for at once with room for one (each written first): just the one comes in.
+    const both = await Promise.all([sup.addAgent(), sup.addAgent()]);
+    expect(both.filter((x) => typeof x === 'string')).toEqual([expect.stringMatching(/maxAlive/)]);
+    expect(sup.living).toHaveLength(5);
+    await sup.shutdown('test', 3000);
   }, 30_000);
 
   it('applies the extinction brake (§17.10): too many deaths in an hour make every agent more careful for a while', async () => {

@@ -7,7 +7,7 @@
 import { EventEmitter } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { type BotToHub, type HubConfig, type HubToBot, type Logger, parseBotToHub } from '@agora/shared';
-import { type Embedder, LocalRateLimiter, type QuotaStatus, agentDegrade, perAgentHourly } from '@agora/llm';
+import { type Embedder, LocalRateLimiter, type QuotaStatus, type TokenSource, agentDegrade, perAgentHourly } from '@agora/llm';
 
 export interface HubSession {
   id: number;
@@ -86,6 +86,11 @@ export class Hub extends EventEmitter<HubEvents> {
     this.now = o.now ?? Date.now;
     this.limiter = new LocalRateLimiter({ rps: o.config.rateLimit.rps, burst: o.config.rateLimit.burst, now: this.now });
     this.speech = new SpeechBucket(o.config.speech.globalPerSec, this.now);
+  }
+
+  /** The shared rate limit, for the Hub's own model calls (the persona writer): the bucket the agents draw on. */
+  tokens(): TokenSource {
+    return { acquire: (priority, signal) => this.limiter.acquire(priority, signal), backOff: () => this.limiter.backOff() };
   }
 
   get port(): number {

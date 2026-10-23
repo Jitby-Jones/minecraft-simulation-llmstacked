@@ -35,6 +35,10 @@ export const PendingBirthSchema = z.object({
   dueAt: z.number(),
   /** Parent → what the other parent believes of them, and their sex as seen (for a parent we have no persona for). */
   seen: z.record(z.string(), z.object({ model: z.record(z.string(), z.number()), sex: z.enum(['male', 'female', 'unknown']) })),
+  /** The child, drawn at conception (its numbers from its parents) and written by the master model while on the way. */
+  persona: PersonaSchema.optional(),
+  /** The master model has had its turn at writing the child (if not, it is written again after a restart). */
+  written: z.boolean().optional(),
 });
 export type PendingBirth = z.infer<typeof PendingBirthSchema>;
 

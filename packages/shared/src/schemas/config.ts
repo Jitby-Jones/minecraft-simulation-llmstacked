@@ -75,7 +75,8 @@ export const WorldConfigSchema = z
         starterKit: z.enum(['persona', 'none', 'auto']).default('auto'),
       })
       .prefault({}),
-    personas: z.union([z.literal('auto'), z.array(z.string().min(1))]).default('auto'),
+    /** 'generated': every new person drawn by code and written by the master model; 'auto': the personas/ pool first; or the pool ids to use first. */
+    personas: z.union([z.literal('auto'), z.literal('generated'), z.array(z.string().min(1))]).default('auto'),
     namePolicy: z.literal('generated').default('generated'),
     community: z
       .object({
