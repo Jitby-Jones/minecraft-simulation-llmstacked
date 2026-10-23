@@ -1098,9 +1098,10 @@ export class CognitiveController {
     );
     this.offs.push(b.on('atOddsNearby', (e) => this.trigger(`${e.name} is here, and things are bad between you`, { atOdds: e.name, urgent: true })));
     this.offs.push(b.on('opening', (e) => this.trigger(`${e.name} is alone or hurt: a chance to deal with ${e.name} together`, { opening: e.name, urgent: true })));
+    // §17.7: one we now follow. Urgent, so it is seen to mid-task: a stroll gives way to their side; work goes on.
     this.offs.push(
       b.on('leaderChanged', (e) => {
-        if (e.leader) this.trigger(`you now follow ${e.leader}`, { leader: e.leader });
+        if (e.leader) this.trigger(`you now follow ${e.leader}`, { leader: e.leader, urgent: true });
       }),
     );
     // What changed around us: something of ours broken or opened, anything right beside us, or a blast is worth a

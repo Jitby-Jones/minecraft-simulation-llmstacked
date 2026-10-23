@@ -218,6 +218,37 @@ describe('a fight decided again (§17.6)', () => {
   });
 });
 
+describe('a new follower out on a stroll (§17.7)', () => {
+  it('beginning to follow someone wakes the mind mid-stroll, and it keeps by them from then on; at work, the work goes on', async () => {
+    const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+    const follows = async (skill: string, args: Record<string, unknown>) => {
+      const s = world(meek, ['Rex']);
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 3)] }));
+      const bus = new AgentBus();
+      const body = { say: () => Promise.resolve(true), skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+      const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+      const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+      let leader: string | null = null;
+      const power = { leader: () => leader, coalition: (x: string) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [] };
+      const conflict = { rungOf: () => 0, fearOf: () => 0, mayFight: () => null };
+      const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: meek.name, levers: () => leversFor(0.5), awareness, executor, canPerceive: () => true, conflict, power, rng: () => 0.99 });
+      for (const m of [executor, cc]) m.start();
+      s.set('option', { decisionId: 'd0', option: 'work', startedAt: Date.now(), maxSeconds: 90, skill, args, status: 'running' }, 'under way');
+      await settle();
+      expect(executor.busy).toBe(true);
+      // Tib has just begun to follow Rex (right beside him at that moment).
+      leader = 'Rex';
+      bus.emit({ type: 'leaderChanged', leader: 'Rex', before: null });
+      await settle(100);
+      const d = s.state.decision;
+      for (const m of [cc, executor]) m.stop();
+      return d;
+    };
+    expect(await follows('wander', { radius: 16, seconds: 75 })).toMatchObject({ option: 'follow', target: { agent: 'Rex' }, rationale: 'code default: following Rex now; keeping by Rex' });
+    expect(await follows('obtain', { item: 'oak_log', qty: 32 })).toBeNull();
+  });
+});
+
 describe('a demand on its way (§17.7)', () => {
   it('is said before the next one; one that never got said is made again, and one said counts', async () => {
     const s = world(tyrant, ['Tib', 'Pia']);
