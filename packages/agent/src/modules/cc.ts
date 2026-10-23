@@ -749,9 +749,9 @@ export function codeDecision(
     // §17.8: the moment against one we resent (alone or hurt) is worth stopping work for: the others are called on.
     const moment = ctx.opening && pv ? rallyMove(s, pv) : null;
     if (moment) return moment;
-    // §17.7: one we have just begun to follow, while we stroll about: to their side.
-    const escort = ctx.leader && pv && STROLLS.has(s.option?.skill ?? '') ? escortMove(s, pv) : null;
-    if (escort) return escort;
+    // §17.7: one we have just begun to follow, while we stroll about: by their side from now on, wherever we are.
+    const keep = ctx.leader && ctx.leader === social?.power?.leader() && STROLLS.has(s.option?.skill ?? '') ? keepByLeader(s, ctx.leader, isStuck, `following ${ctx.leader} now`) : null;
+    if (keep) return keep;
     if (!ctx.atOdds || !social?.conflict) return null;
     // Someone we're at odds with came near: the one we swore to take on (with the others at hand), or the rungs.
     const move = (pv ? uprisingFight(s, pv) : null) ?? conflictMove(s, social.conflict, social.liking, social.power?.leader());
@@ -903,9 +903,8 @@ export function codeDecision(
   // people with time on their hands keep company rather than walk off from it.
   const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= COMPANY_RANGE);
   const leader = social?.power?.leader() ?? null;
-  if (leader && people.some((e) => e.name === leader) && !isStuck('follow', { agent: leader, distance: 3 })) {
-    return { option: 'follow', target: { agent: leader }, terminate: { maxSeconds: 60 }, rationale: `code default: nothing pressing; keeping by ${leader}` };
-  }
+  const keep = leader ? keepByLeader(s, leader, isStuck, 'nothing pressing') : null;
+  if (keep) return keep;
   const friend = companyOf(s, people, social?.liking);
   const stroll = { radius: friend || night ? 8 : 16, seconds: 45 + Math.round(social?.roll ?? 0.5) * 30, ...(friend ? { near: friend } : {}) };
   if (!isStuck('wander', stroll)) return { option: 'work', task: { skill: 'wander', args: stroll }, terminate: { maxSeconds: stroll.seconds + 15 }, rationale: 'code default: nothing pressing; looking around' };
@@ -914,6 +913,13 @@ export function codeDecision(
 
 /** A change around us that is no emergency wakes the CC at most this often. */
 const NOTICE_EVERY_MS = 10_000;
+
+/** §17.7: a follower keeps by the one it follows, when they are in sight (within COMPANY_RANGE). */
+function keepByLeader(s: AgentStateStore['state'], leader: AgentName, isStuck: ValidationEnv['isStuck'], why: string): DecisionOutput | null {
+  const inSight = s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.visible && e.distance <= COMPANY_RANGE && e.name === leader);
+  if (!inSight || isStuck('follow', { agent: leader, distance: 3 })) return null;
+  return { option: 'follow', target: { agent: leader }, terminate: { maxSeconds: 60 }, rationale: `code default: ${why}; keeping by ${leader}` };
+}
 
 /** What a hole is patched with, best first. */
 const PATCH_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'sandstone', 'gravel', 'sand'];

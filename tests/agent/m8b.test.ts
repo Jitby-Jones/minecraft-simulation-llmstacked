@@ -546,7 +546,7 @@ describe('tribute (§17.7)', () => {
     expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
   });
 
-  it('one who has just begun to follow, out on a stroll, goes to their side; not from work, nor when already by them', () => {
+  it('one who has just begun to follow, out on a stroll, keeps by them from then on; work with a purpose goes on', () => {
     const tib = world(meek, ['Rex']).state;
     const led: PowerView = { leader: () => 'Rex', coalition: (x) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false };
     const calm: ConflictView = { rungOf: () => 0, fearOf: () => 0, mayBrawl: never, warnedLately: never };
@@ -556,11 +556,13 @@ describe('tribute (§17.7)', () => {
       option: { decisionId: 'd0', option: 'work', startedAt: 0, maxSeconds: 90, skill, args: {}, status: 'running' },
     });
     const now = (s: AgentState, leader?: string) => codeDecision(s, leader ? { leader } : {}, true, never, { candidates: [], roll: 1, conflict: calm, power: led });
-    expect(now(doing('wander', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    expect(now(doing('wander', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' }, rationale: 'code default: following Rex now; keeping by Rex' });
     expect(now(doing('lookAround', 14), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
-    // Work with a purpose goes on; one already at their side stays strolling; and nothing new, nothing changes.
+    // Beside them just now is no reason to stroll off from them.
+    expect(now(doing('wander', 2), 'Rex')).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
+    // Work with a purpose goes on; one out of sight is no one to keep by; and nothing new, nothing changes.
     expect(now(doing('obtain', 14), 'Rex')).toBeNull();
-    expect(now(doing('wander', 4), 'Rex')).toBeNull();
+    expect(now(doing('wander', 40), 'Rex')).toBeNull();
     expect(now(doing('wander', 14))).toBeNull();
   });
 });

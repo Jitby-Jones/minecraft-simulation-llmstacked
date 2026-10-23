@@ -121,6 +121,8 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
     const t0 = Date.now();
     const heard = listen(Object.values(bodies), t0);
     const deaths: string[] = [];
+    // Who followed Rex in J, whenever (one may walk away from him later, as K is about).
+    const followedRex = new Set<string>();
     const agents = {} as Record<(typeof names)[number], Agent>;
     for (const n of names) {
       const body = bodies[n];
@@ -176,7 +178,10 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       const before = n === 'Rex' ? [paidBefore('Tib'), paidBefore('Pia')] : n === 'Tib' || n === 'Pia' ? [paidBefore(n)] : [];
       if (before.length > 0) a.store.update('commitments', (cs) => [...cs, ...before], 'paid Rex before');
       a.bus.on('rungChanged', (e) => void heard.timeline.push(`${heard.at()} ${n} → ${e.name}: rung ${e.from} → ${e.to}`));
-      a.bus.on('leaderChanged', (e) => void heard.timeline.push(`${heard.at()} ${n} ${e.leader ? `follows ${e.leader}` : `stops following ${e.before ?? ''}`}`));
+      a.bus.on('leaderChanged', (e) => {
+        if (e.leader === 'Rex') followedRex.add(n);
+        heard.timeline.push(`${heard.at()} ${n} ${e.leader ? `follows ${e.leader}` : `stops following ${e.before ?? ''}`}`);
+      });
       a.bus.on('defected', (e) => void heard.timeline.push(`${heard.at()} ${n} walks away from ${e.from} (${e.attackers.join(', ')} set upon them)`));
       a.bus.on('actionRecorded', (e) => {
         if (['duel', 'give'].includes(e.record.skill)) heard.timeline.push(`${heard.at()} ${n} ${e.record.skill}: ${e.record.observed}`);
@@ -205,13 +210,16 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       // Paid again, here and now (the seeded payment was the first).
       const paidAgain = () => (['Tib', 'Pia'] as const).filter((n) => agents[n].store.state.commitments.some((c) => c.coerced && c.debtor === n && c.creditor === 'Rex' && c.status === 'fulfilled' && c.createdAt >= t0));
       await waitFor(() => paidAgain().length >= 1, 900_000, 'a timid one paying Rex again', 1000);
-      await waitFor(() => (['Tib', 'Pia'] as const).some((n) => agents[n].power.leader() === 'Rex'), 60_000, 'a follower of Rex', 1000);
+      await waitFor(() => (['Tib', 'Pia'] as const).some((n) => followedRex.has(n)), 60_000, 'a follower of Rex', 1000);
       // The other timid one, given the time to pay twice as well.
-      await waitFor(() => (['Tib', 'Pia'] as const).every((n) => agents[n].power.leader() === 'Rex'), 360_000, 'both timid ones following Rex', 1000).catch(() => undefined);
-      const followers = (['Tib', 'Pia'] as const).filter((n) => agents[n].power.leader() === 'Rex');
+      await waitFor(() => (['Tib', 'Pia'] as const).every((n) => followedRex.has(n)), 360_000, 'both timid ones following Rex', 1000).catch(() => undefined);
+      // His followers: those who followed him in J, whether or not they still do. With his followers off at work, those
+      // he wronged may see him alone and rise before K sets it up (in every run so far they called for it within a
+      // minute), and a follower walks away from him then; at any one moment, both may be following, one, or neither.
+      const followers = (['Tib', 'Pia'] as const).filter((n) => followedRex.has(n));
       // Those who saw it know Rex leads (two followers), or at least that he collects tribute from one.
       const refused = (['Ann', 'Bo', 'Cyd'] as const).filter((n) => heard.lines.some((l) => l.who === n && /leave me alone|get lost|back off|no way|not giving|or we fight|keep your distance|don't push me/i.test(l.text)) || agents[n].store.state.social.Rex?.lastFight);
-      console.log(`[m8b J] followers ${followers.join(', ')}; the proud who stood up to Rex: ${refused.join(', ') || 'none'}`);
+      console.log(`[m8b J] followers ${followers.join(', ')} (following him now: ${followers.filter((n) => agents[n].power.leader() === 'Rex').join(', ') || 'none'}); the proud who stood up to Rex: ${refused.join(', ') || 'none'}`);
       expect(followers.length).toBeGreaterThanOrEqual(1);
       expect(agents.Rex.store.state.commitments.filter((c) => c.coerced && c.creditor === 'Rex' && c.createdAt >= t0).length).toBeGreaterThanOrEqual(1);
       expect(deaths).toEqual([]);
