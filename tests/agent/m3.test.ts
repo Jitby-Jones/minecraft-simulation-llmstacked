@@ -344,6 +344,34 @@ describe('Skill Executor termination (§4.4)', () => {
     ex.stop();
   });
 
+  it('a new option starts once the one it replaced has cleaned up (its last stop of motion cut the new walk short)', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const events: string[] = [];
+    const body = {
+      skill: () => ({ talkOverable: true }),
+      run: (skill: string, args: Record<string, unknown>, opts: { signal: AbortSignal }) =>
+        new Promise<SkillRunRecord>((resolve) => {
+          events.push(`start ${skill}`);
+          // Cleaning up after an abort takes a moment (stopping motion), as a skill's finally does.
+          opts.signal.addEventListener('abort', () => setTimeout(() => (events.push(`cleanup ${skill}`), resolve({ id: 'r', skill, args, expected: 'x', observed: 'interrupted', ok: false, mismatch: false, aborted: true, slip: null, startedAt: 0, durationMs: 1, error: 'aborted' })), 60), { once: true });
+        }),
+    } as unknown as Body;
+    const ex = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    ex.start();
+    s.set('option', { decisionId: 'd1', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'wander', args: {}, status: 'running' });
+    await wait(20);
+    s.set('option', { decisionId: 'd2', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'give', args: { to: 'Wit', item: 'bread', qty: 2 }, status: 'running' });
+    await wait(200);
+    expect(events).toEqual(['start wander', 'cleanup wander', 'start give']);
+    // Replaced again while waiting: only the latest runs.
+    s.set('option', { decisionId: 'd3', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'gather', args: {}, status: 'running' });
+    s.set('option', { decisionId: 'd4', option: 'work', startedAt: Date.now(), maxSeconds: 60, skill: 'obtain', args: {}, status: 'running' });
+    await wait(300);
+    expect(events.slice(3)).toEqual(['cleanup give', 'start obtain']);
+    ex.stop();
+  });
+
   it('is preempted by danger', async () => {
     const s = store();
     const bus = new AgentBus();

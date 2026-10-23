@@ -33,6 +33,8 @@ const ACTION_LOG = 30;
 const TALK_LIVE_MS = 15_000;
 /** A blow this recent between two others is a fight going on (a stroll stops to watch). */
 const FIGHT_SEEN_MS = 8_000;
+/** How long a new option waits for the one it replaced to clean up (its last stop of motion). */
+const SETTLE_MS = 1500;
 
 /** "that's enough", "we're done, thanks": the person being helped calls it off (§6.7). */
 export const HELP_DONE_RE = /\b(that'?s enough|enough|we'?re done|i'?m done|done now|all done|you can stop|stop now|that'?s all|that'?ll do|all good now)\b/i;
@@ -87,6 +89,9 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
 
 export class SkillExecutor {
   private current: { opt: ActiveOption; ac: AbortController; reason: string | null; skill?: string } | null = null;
+  /** Settles once the latest run, its skill's cleanup included, is over. */
+  private settled: Promise<void> = Promise.resolve();
+  private stopped = false;
   private readonly offs: (() => void)[] = [];
   private readonly now: () => number;
 
@@ -117,7 +122,16 @@ export class SkillExecutor {
       if (!opt || opt.status !== 'running') return;
       if (this.current?.opt.decisionId === opt.decisionId) return;
       if (this.current) this.abort('replaced by a new decision');
-      void this.run(opt);
+      // The one replaced cleans up first, a moment at most: its last stop of motion would cut this one's walk short
+      // (a gift tossed from where the walk was stopped, short of whom it was for). Replaced again meanwhile, or
+      // stopping: not run at all.
+      const before = this.settled;
+      this.settled = (async () => {
+        await Promise.race([before, new Promise((r) => setTimeout(r, SETTLE_MS))]);
+        const now = this.o.store.state.option;
+        if (this.stopped || now?.decisionId !== opt.decisionId || now.status !== 'running') return;
+        await this.run(opt);
+      })().catch((err: unknown) => this.o.logger.warn({ module: 'executor', err: String(err) }, 'option failed to run'));
     };
     this.o.store.on('change', onChange);
     this.offs.push(() => this.o.store.off('change', onChange));
@@ -144,6 +158,7 @@ export class SkillExecutor {
   }
 
   stop(): void {
+    this.stopped = true;
     this.abort('shutting down');
     for (const off of this.offs.splice(0)) off();
   }
