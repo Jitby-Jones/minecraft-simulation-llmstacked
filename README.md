@@ -63,6 +63,7 @@ links in a `.txt` file there. New agents pick from what you saved. `skins.exclud
 | `pnpm build:guard-plugin` / `pnpm build:skins-plugin` | Rebuilds `server-plugin/agora-guard` / `agora-skins` (needs a JDK 25) and prints its sha256 |
 | `pnpm run check` | Typecheck + lint + forbidden-strings (§22.2) + unit tests. Must be green after every change |
 | `pnpm test:live` | Live tests against a real, isolated Paper server (needs `AGORA_JAVA`) |
+| `AGORA_LIVE_LLM=1 pnpm test:live m2-nanogpt real-models` | The live tests that spend real subscription quota (needs `NANOGPT_API_KEY`): the subscription lock, and what only a model does (the bias audit, a trait annotation, a skill written by L3 and tried in the world) |
 
 ## Debug controls
 

@@ -66,6 +66,8 @@ export interface SkillContext {
   planDepth: number;
   /** Fighting ability 0..1 with growth (§21.3): technique in fights. */
   combat?: number;
+  /** Whom we are in a conversation with just now, if anyone (a stroll stops for it). */
+  talkingWith?: () => string | null;
 }
 
 export interface SkillDef<A> {

@@ -18,6 +18,7 @@ import {
   type Goal,
   type ItemStack,
   type Logger,
+  type SeenEntity,
   type Task,
 } from '@agora/shared';
 import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
@@ -879,10 +880,30 @@ export function codeDecision(
       rationale: `code default: ${who} is here`,
     };
   }
-  // Nothing pressing: never just standing there. A stroll about, looking at what there is (closer to home at night).
-  const stroll = { radius: night ? 8 : 16, seconds: 45 + Math.round(social?.roll ?? 0.5) * 30 };
+  // Nothing pressing: never just standing there. A follower keeps by the one it follows (§17.7). Anyone else strolls
+  // about looking at what there is (closer to home at night), and with a friend, a partner or kin in sight, about them:
+  // people with time on their hands keep company rather than walk off from it.
+  const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player' && e.visible && e.distance <= COMPANY_RANGE);
+  const leader = social?.power?.leader() ?? null;
+  if (leader && people.some((e) => e.name === leader) && !isStuck('follow', { agent: leader, distance: 3 })) {
+    return { option: 'follow', target: { agent: leader }, terminate: { maxSeconds: 60 }, rationale: `code default: nothing pressing; keeping by ${leader}` };
+  }
+  const friend = companyOf(s, people, social?.liking);
+  const stroll = { radius: friend || night ? 8 : 16, seconds: 45 + Math.round(social?.roll ?? 0.5) * 30, ...(friend ? { near: friend } : {}) };
   if (!isStuck('wander', stroll)) return { option: 'work', task: { skill: 'wander', args: stroll }, terminate: { maxSeconds: stroll.seconds + 15 }, rationale: 'code default: nothing pressing; looking around' };
   return { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'code default: nothing to do' };
+}
+
+/** Within this, someone in sight is company an idle stroll keeps about. */
+const COMPANY_RANGE = 32;
+
+/** The nearest of these people one would keep company with: a partner, kin, one we are drawn to, or a friend. */
+function companyOf(s: AgentStateStore['state'], people: readonly SeenEntity[], liking?: (name: AgentName) => number): AgentName | undefined {
+  const close = (n: AgentName) => {
+    const p = s.social[n];
+    return s.family.partner === n || Boolean(p?.kin) || (p?.romanticInterest ?? 0) >= 0.3 || (liking?.(n) ?? p?.sentiment ?? 5) >= 6.5;
+  };
+  return [...people].sort((a, b) => a.distance - b.distance).find((e) => close(e.name))?.name;
 }
 
 /**

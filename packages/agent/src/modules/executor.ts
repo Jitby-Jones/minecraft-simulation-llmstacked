@@ -193,6 +193,10 @@ export class SkillExecutor {
         ...(this.o.extraSkills ? { extraSkills: this.o.extraSkills() } : {}),
         ...(this.o.combat ? { combat: this.o.combat() } : {}),
         progress: (note) => store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, progress: note } : o), 'progress'),
+        talkingWith: () => {
+          const me = store.state.self.username;
+          return Object.values(store.state.conversations).find((c) => c.status === 'active')?.participants.find((n) => n !== me) ?? null;
+        },
       });
       ok = r.ok && !r.mismatch;
       rec = {

@@ -544,3 +544,87 @@ describe('water (§4.5): not drowning while the mind is busy deciding', () => {
     expect(wetAt(bot as unknown as Bot, 20, 0, 63)).toBe(false);
   });
 });
+
+describe('a stroll (wander): clear of those to keep away from, close to the one to keep by', () => {
+  /** Flat dry ground at y 63; Rex standing at `rex`. The first walk's goal is recorded, then the stroll is called off. */
+  async function firstWalk(rex: Vec3, args: Record<string, unknown>, seed = 1) {
+    const ac = new AbortController();
+    const goals: { x: number; z: number }[] = [];
+    const rexEntity = { id: 1, type: 'player', username: 'Rex', name: 'player', position: rex, height: 1.8 };
+    const bot = {
+      entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 },
+      entities: { 1: rexEntity },
+      players: { Rex: { username: 'Rex', entity: rexEntity } },
+      registry: { blocksArray: [] },
+      blockAt: (p: Vec3) => (Math.floor(p.y) < 64 ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }),
+      findBlocks: () => [],
+      nearestEntity: () => null,
+      lookAt: () => Promise.resolve(),
+      look: () => Promise.resolve(),
+      clearControlStates: () => undefined,
+      pathfinder: {
+        setMovements: () => undefined,
+        isMoving: () => false,
+        setGoal: () => undefined,
+        stop: () => undefined,
+        goto: (g: { x: number; z: number }) => {
+          goals.push({ x: g.x, z: g.z });
+          ac.abort();
+          return Promise.resolve();
+        },
+      },
+    };
+    const wander = getSkill('wander');
+    const parsed = wander?.parseArgs(args);
+    if (!wander || !parsed?.ok) throw new Error('wander args');
+    const ctx = { bot: bot as unknown as Bot, signal: ac.signal, logger: nullLogger(), rng: new SeededRandom(seed), movements: () => ({}) as never, knowsRecipe: () => true, say: async () => undefined, slip: null, home: null, progress: () => undefined, planDepth: 2 };
+    const r = await wander.run(ctx, parsed.args);
+    expect(r.ok).toBe(true);
+    return goals[0];
+  }
+
+  it('walks away from someone to keep clear of, when they are near', async () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const g = await firstWalk(new Vec3(6, 64, 0), { radius: 16, seconds: 30, avoid: ['Rex'] }, seed);
+      expect(g?.x).toBeLessThan(0);
+    }
+  });
+
+  it('stops for a talk: stays put and faces whoever it is talking with', async () => {
+    const ac = new AbortController();
+    const walks: unknown[] = [];
+    const looked: Vec3[] = [];
+    const rex = new Vec3(3, 64, 0);
+    const rexEntity = { id: 1, type: 'player', username: 'Rex', name: 'player', position: rex, height: 1.8 };
+    const bot = {
+      entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 },
+      entities: { 1: rexEntity },
+      players: { Rex: { username: 'Rex', entity: rexEntity } },
+      registry: { blocksArray: [] },
+      blockAt: (p: Vec3) => (Math.floor(p.y) < 64 ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }),
+      findBlocks: () => [],
+      nearestEntity: () => null,
+      lookAt: (p: Vec3) => (looked.push(p), Promise.resolve()),
+      look: () => Promise.resolve(),
+      clearControlStates: () => undefined,
+      pathfinder: { setMovements: () => undefined, isMoving: () => false, setGoal: () => undefined, stop: () => undefined, goto: (g: unknown) => (walks.push(g), Promise.resolve()) },
+    };
+    const wander = getSkill('wander');
+    const parsed = wander?.parseArgs({ radius: 16, seconds: 30 });
+    if (!wander || !parsed?.ok) throw new Error('wander args');
+    setTimeout(() => ac.abort(), 2500);
+    const ctx = { bot: bot as unknown as Bot, signal: ac.signal, logger: nullLogger(), rng: new SeededRandom(3), movements: () => ({}) as never, knowsRecipe: () => true, say: async () => undefined, slip: null, home: null, progress: () => undefined, planDepth: 2, talkingWith: () => 'Rex' };
+    const r = await wander.run(ctx, parsed.args);
+    expect(walks).toEqual([]);
+    expect(looked.length).toBeGreaterThanOrEqual(1);
+    expect(looked.every((p) => p.x === 3)).toBe(true);
+    expect(r.observed).toMatch(/stopped to talk with Rex/);
+  });
+
+  it('strolls about near the one it keeps by, wherever the stroll began', async () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const g = await firstWalk(new Vec3(30, 64, 10), { radius: 6, seconds: 30, near: 'Rex' }, seed);
+      expect(Math.hypot((g?.x ?? 0) - 30, (g?.z ?? 0) - 10)).toBeLessThanOrEqual(7);
+    }
+  });
+});

@@ -32,6 +32,8 @@ export interface RunOptions {
   planDepth?: number;
   /** Fighting ability with growth (§21.3). */
   combat?: number;
+  /** Whom we are in a conversation with just now, if anyone. */
+  talkingWith?: () => string | null;
 }
 
 const MAX_PLACED = 4000;
@@ -153,6 +155,7 @@ export class Body {
       planDepth: opts.planDepth,
       home: this.home,
       ...(opts.combat !== undefined ? { combat: opts.combat } : {}),
+      ...(opts.talkingWith ? { talkingWith: opts.talkingWith } : {}),
     });
   }
 

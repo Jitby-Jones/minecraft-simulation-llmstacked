@@ -542,6 +542,8 @@ describe('tribute (§17.7)', () => {
     expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid })?.option).toBe('move');
     const led: PowerView = { leader: () => 'Rex', coalition: (x) => ({ target: x, members: [], power: 0, against: 1, opening: false }), knownResenters: () => [], saidLately: () => false };
     expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })?.option).not.toBe('move');
+    // With nothing else to do, a follower keeps by the one it follows.
+    expect(codeDecision(t2, {}, false, never, { candidates: [], roll: 1, conflict: afraid, power: led })).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
   });
 });
 

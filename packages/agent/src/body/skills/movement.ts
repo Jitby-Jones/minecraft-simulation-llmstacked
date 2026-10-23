@@ -156,10 +156,19 @@ async function glance(ctx: SkillContext, within: number, at?: string): Promise<s
   return target?.what ?? null;
 }
 
+/** How near someone to keep clear of may come before a stroll turns away from them. */
+const SHUN_RANGE = 24;
+
 export const wander = defineSkill({
   name: 'wander',
-  description: 'wander {radius?, seconds?} — stroll around nearby at a walk, stopping to look at people, animals and things',
-  argsSchema: z.object({ radius: z.coerce.number().min(4).max(48).default(16), seconds: z.coerce.number().min(5).max(600).default(60) }),
+  description:
+    'wander {radius?, seconds?, near?, avoid?} — stroll around nearby at a walk, stopping to look at people, animals and things; near: a person to keep close to, avoid: people to keep clear of',
+  argsSchema: z.object({
+    radius: z.coerce.number().min(4).max(48).default(16),
+    seconds: z.coerce.number().min(5).max(600).default(60),
+    near: z.string().min(1).optional(),
+    avoid: z.array(z.string().min(1)).max(16).optional(),
+  }),
   talkOverable: true,
   slipKinds: [],
   expect: () => ({ kind: 'none' }),
@@ -168,29 +177,56 @@ export const wander = defineSkill({
     const start = bot.entity.position.clone();
     const end = Date.now() + args.seconds * 1000;
     const seen = new Set<string>();
+    const talked = new Set<string>();
     let walked = 0;
+    // Someone talking with us, in sight: a stroll is no reason to walk off from them.
+    const talkingTo = () => {
+      const who = ctx.talkingWith?.();
+      return who && findEntity(bot, who, 16) ? who : null;
+    };
     bot.pathfinder.setMovements(ctx.movements());
     try {
       while (Date.now() < end) {
         throwIfAborted(ctx.signal);
-        // The next spot: somewhere within the radius of where the stroll began, away from any monster in sight, and
-        // not off toward the edge of where we live (beyond MAX_ROAM from home it heads back).
+        // In a talk: stay put and face them while it lasts.
+        const partner = talkingTo();
+        if (partner) {
+          talked.add(partner);
+          await glance(ctx, 16, partner);
+          await waitMs(ctx, 1500 + ctx.rng.next() * 1500);
+          continue;
+        }
+        // The next spot: somewhere within the radius of where the stroll began (or of the one we keep close to), away
+        // from any monster or anyone to keep clear of in sight, and not off toward the edge of where we live (beyond
+        // MAX_ROAM from home it heads back).
         const me = bot.entity.position;
-        const threat = nearbyHostiles(bot, 16)[0];
+        const shunned = (args.avoid ?? [])
+          .map((n) => findEntity(bot, n, SHUN_RANGE))
+          .filter((e) => e !== null)
+          .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me))[0];
+        const threat = nearbyHostiles(bot, 16)[0] ?? shunned;
         let angle = threat ? Math.atan2(me.z - threat.position.z, me.x - threat.position.x) + (ctx.rng.next() - 0.5) : ctx.rng.next() * Math.PI * 2;
         const home = ctx.home;
-        if (home && Math.hypot(me.x - home.x, me.z - home.z) > MAX_ROAM * 0.75) angle = Math.atan2(home.z - me.z, home.x - me.x) + (ctx.rng.next() - 0.5);
+        const farOut = Boolean(home && Math.hypot(me.x - home.x, me.z - home.z) > MAX_ROAM * 0.75);
+        if (home && farOut) angle = Math.atan2(home.z - me.z, home.x - me.x) + (ctx.rng.next() - 0.5);
         const r = args.radius * (0.3 + 0.7 * ctx.rng.next());
-        const base = threat || (home && Math.hypot(me.x - home.x, me.z - home.z) > MAX_ROAM * 0.75) ? me : start;
+        const by = args.near ? findEntity(bot, args.near, 48) : null;
+        const base = threat || farOut ? me : (by?.position ?? start);
         angle = dryHeading(ctx, base, angle, r);
         const tx = Math.round(base.x + Math.cos(angle) * r);
         const tz = Math.round(base.z + Math.sin(angle) * r);
         const from = bot.entity.position.clone();
+        // A talk begun on the way stops the walk.
+        const listen = setInterval(() => {
+          if (talkingTo()) stopMotion(bot);
+        }, 1000);
         try {
           await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(tx, tz, 2)), 20_000), () => stopMotion(bot));
         } catch (err) {
           if (err instanceof SkillAbortedError) throw err;
           stopMotion(bot);
+        } finally {
+          clearInterval(listen);
         }
         walked += bot.entity.position.distanceTo(from);
         // A look around before going on.
@@ -206,8 +242,9 @@ export const wander = defineSkill({
     } finally {
       stopMotion(bot);
     }
-    const things = [...seen].slice(0, 6);
-    return { ok: true, observed: `strolled ${walked.toFixed(0)} blocks${things.length > 0 ? `, saw ${things.join(', ')}` : ''}` };
+    const things = [...seen].filter((x) => !talked.has(x)).slice(0, 6);
+    const talks = talked.size > 0 ? `, stopped to talk with ${[...talked].join(', ')}` : '';
+    return { ok: true, observed: `strolled ${walked.toFixed(0)} blocks${things.length > 0 ? `, saw ${things.join(', ')}` : ''}${talks}` };
   },
 });
 

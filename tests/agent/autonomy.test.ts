@@ -12,7 +12,7 @@ import { Feelings } from '@agora/agent/mind/feelings';
 import { buildPacket, dayPart, hunger } from '@agora/agent/modules/bottleneck';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { routeItemTask } from '@agora/agent/modules/itemTasks';
-import { validateDecision, whyNotGo } from '@agora/agent/modules/cc';
+import { codeDecision, validateDecision, whyNotGo } from '@agora/agent/modules/cc';
 import { Conversations } from '@agora/agent/modules/conversations';
 import { tidyDecision } from '@agora/agent/modules/decisionTidy';
 import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
@@ -20,6 +20,7 @@ import { HIGH_FEAR, whyNotHide } from '@agora/agent/modules/hiding';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking, cleanReply } from '@agora/agent/modules/talking';
 import { createInitialState } from '@agora/agent/state/initial';
+import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
 import { isOff } from '@agora/agent/state/switches';
 import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
@@ -161,6 +162,24 @@ describe('never standing frozen', () => {
     expect(getSkill('stroll')?.name).toBe('wander');
     expect(getSkill('rest')?.name).toBe('lookAround');
     expect(getSkill('lookAround')?.parseArgs({ seconds: 10, at: 'Bram' }).ok).toBe(true);
+  });
+
+  it('with nothing to do, a stroll keeps about a friend, a partner or kin in sight; with strangers, it goes where it likes', () => {
+    const near = (name: string, distance: number) => ({ id: distance, kind: 'player' as const, name, pos: { x: distance, y: 64, z: 0 }, distance, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false });
+    const idle = (o: { sentiment?: number; kin?: 'parent'; partner?: boolean; at?: number }) => {
+      const s = store();
+      s.update('self', (x) => ({ ...x, isDay: true, time: 1000 }));
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [near('Bram', o.at ?? 10), near('Cass', 5)] }));
+      s.update('social', (all) => ({ ...all, Bram: { ...newSocialProfile('Bram', persona, 0), sentiment: o.sentiment ?? 5, kin: o.kin ?? null } }));
+      if (o.partner) s.update('family', (f) => ({ ...f, partner: 'Bram' }));
+      return codeDecision(s.state, {}, false, () => false, { candidates: [], roll: 0.9 })?.task;
+    };
+    expect(idle({ sentiment: 8 })).toEqual({ skill: 'wander', args: { radius: 8, seconds: 75, near: 'Bram' } });
+    expect(idle({ kin: 'parent' })?.args.near).toBe('Bram');
+    expect(idle({ partner: true })?.args.near).toBe('Bram');
+    // Strangers (Cass, nearer) and the far-off are no company.
+    expect(idle({})).toEqual({ skill: 'wander', args: { radius: 16, seconds: 75 } });
+    expect(idle({ sentiment: 8, at: 40 })?.args.near).toBeUndefined();
   });
 });
 

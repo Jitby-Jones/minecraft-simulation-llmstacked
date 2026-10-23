@@ -361,7 +361,11 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       await waitFor(() => heard.lines.filter((l) => ['Dag', 'Eli', 'Fen'].includes(l.who) && GRUMBLE_RE.test(l.text)).length >= 1, 240_000, 'grumbling about Vex', 1000);
       await sleep(120_000);
       report();
-      expect(heard.lines.some((l) => RALLY_RE.test(l.text) || JOIN_RE.test(l.text))).toBe(false);
+      // Nobody rises against Vex: no call to it or joining one, and none from the three at all. (As in K, a call by
+      // Vex's side against one of them is not it: one who came strolling by and warned Vex off may be called out.)
+      const rising = (l: { who: string; text: string }) =>
+        ['Dag', 'Eli', 'Fen'].includes(l.who) ? RALLY_RE.test(l.text) || JOIN_RE.test(l.text) : RALLY_RE.exec(l.text)?.[1] === 'Vex' || JOIN_RE.exec(l.text)?.[1] === 'Vex';
+      expect(heard.lines.filter(rising)).toEqual([]);
       for (const n of ['Dag', 'Eli', 'Fen'] as const) {
         expect(agents[n].store.state.commitments.some((c) => c.what.kind === 'fight')).toBe(false);
         expect(agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Vex')).toBe(false);

@@ -138,6 +138,8 @@ export interface RunSkillDeps {
   combat?: number;
   /** How long to wait for trailing server updates before judging the postcondition (default 2000 ms). */
   settleMs?: number;
+  /** Whom we are in a conversation with just now, if anyone. */
+  talkingWith?: () => string | null;
 }
 
 export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkillDeps): Promise<SkillRunRecord> {
@@ -180,6 +182,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     planDepth: deps.planDepth ?? 6,
     home: deps.home ?? null,
     ...(deps.combat !== undefined ? { combat: deps.combat } : {}),
+    ...(deps.talkingWith ? { talkingWith: deps.talkingWith } : {}),
   };
   let ok = false;
   let observed: string;
