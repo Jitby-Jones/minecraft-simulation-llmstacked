@@ -191,5 +191,20 @@ describe('what the mind makes of it', () => {
     expect(codeDecision(state(), {}, true, () => false, { candidates: [], roll: 0.5 })).toBeNull();
     expect(codeDecision(state({ zombieAt: 2 }), {}, false, () => false, { candidates: [], roll: 0.5, codeOnly: true })?.task?.skill).not.toBe('place');
     expect(codeDecision(state({ blocks: 0 }), {}, false, () => false, { candidates: [], roll: 0.5, codeOnly: true })?.task?.skill).not.toBe('place');
+    // A block of ours someone took (a crafting table, say) is news, not a hole to fill.
+    const took = state();
+    const table: BlockChange = { ...hole, ours: 'placed', was: 'crafting_table', pos: { x: 1, y: 64, z: 0 } };
+    expect(codeDecision({ ...took, perception: { ...took.perception, blockChanges: [table] } }, {}, false, () => false, { candidates: [], roll: 0.5, codeOnly: true })?.task?.skill).not.toBe('place');
+  });
+
+  it("a hut's walls and roof are the hut's; the ground about it is not", async () => {
+    const x = watching({ sheltered: false });
+    // A hut on a rise, its door at y 65.
+    x.store.update('village', (v) => ({ ...v, huts: [{ x: 3, y: 65, z: 0 }] }));
+    x.change(4, 66, 1, 'cobblestone', 'air');
+    x.change(4, 64, -1, 'dirt', 'air');
+    await wait(500);
+    x.watch.stop();
+    expect(x.store.state.perception.blockChanges.map((c) => `${c.pos.y}:${c.ours ?? '-'}`).sort()).toEqual(['64:-', '66:hut']);
   });
 });

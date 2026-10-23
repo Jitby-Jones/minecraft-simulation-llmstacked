@@ -912,13 +912,13 @@ const NOTICE_EVERY_MS = 10_000;
 const PATCH_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'sandstone', 'gravel', 'sand'];
 
 /**
- * A hole in what is ours (the shelter we are in, a hut, what we built), still open: patched with a block we carry.
- * Not with a monster in it (that is for the reflexes), nor from far off.
+ * A hole in the shelter we are in or in a hut, still open: patched with a block we carry. Not with a monster in it
+ * (that is for the reflexes), nor from far off. (A block of ours someone took, a table say, is news, not a hole.)
  */
 export function patchMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck']): DecisionOutput | null {
   const t = Date.now();
   // Kept until something else happens there (patched, by us or anyone): the latest still open.
-  const hole = [...s.perception.blockChanges].reverse().find((c) => c.kind === 'broken' && (c.ours === 'shelter' || c.ours === 'hut' || c.ours === 'placed') && t - c.ts < CHANGE_MS);
+  const hole = [...s.perception.blockChanges].reverse().find((c) => c.kind === 'broken' && (c.ours === 'shelter' || c.ours === 'hut') && t - c.ts < CHANGE_MS);
   if (!hole) return null;
   const at = { x: hole.pos.x + 0.5, y: hole.pos.y, z: hole.pos.z + 0.5 };
   const me = s.self.pos;
@@ -929,7 +929,7 @@ export function patchMove(s: AgentStateStore['state'], isStuck: ValidationEnv['i
   if (!block) return null;
   const args = { block, x: hole.pos.x, y: hole.pos.y, z: hole.pos.z };
   if (isStuck('place', args)) return null;
-  const what = hole.ours === 'shelter' ? 'in my shelter' : hole.ours === 'hut' ? 'in the hut' : 'in what I built';
+  const what = hole.ours === 'shelter' ? 'in my shelter' : 'in the hut';
   return { option: 'work', task: { skill: 'place', args }, terminate: { maxSeconds: 30 }, rationale: `code default: patching the hole ${what} (${hole.where})` };
 }
 

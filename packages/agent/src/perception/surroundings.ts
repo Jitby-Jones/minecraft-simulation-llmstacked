@@ -175,7 +175,8 @@ export class SurroundingsWatch {
     if (kind !== 'placed' && sheltered && isShelterCell(feet, pos)) return 'shelter';
     const chest = s.village.chest?.pos;
     if (chest && keyOf(chest) === key) return 'chest';
-    if (s.village.huts.some((h) => Math.max(Math.abs(h.x - pos.x), Math.abs(h.z - pos.z)) <= 4 && Math.abs(h.y - pos.y) <= 4)) return 'hut';
+    // A hut's walls and roof: from its door's level up, not the ground around it.
+    if (s.village.huts.some((h) => Math.max(Math.abs(h.x - pos.x), Math.abs(h.z - pos.z)) <= 4 && pos.y >= h.y && pos.y <= h.y + 4)) return 'hut';
     if (kind !== 'placed' && this.o.placed.has(key)) return 'placed';
     return undefined;
   }
