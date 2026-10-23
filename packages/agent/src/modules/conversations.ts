@@ -195,6 +195,7 @@ export class Conversations {
       if (p !== this.o.me) this.cooldownUntil.set(p, this.now() + 60_000 + this.rng() * 60_000);
     }
     this.endedAt.set(convId, this.now());
+    this.o.logger.info({ module: 'conversations', with: conv.participants.filter((p) => p !== this.o.me), reason, turns: conv.turns }, 'conversation ended');
     this.write({ ...conv, status: 'ended', endedReason: reason }, `conversation ended: ${reason}`);
     this.o.bus.emit({ type: 'conversationEnded', convId, reason });
   }

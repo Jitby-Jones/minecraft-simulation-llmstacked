@@ -123,7 +123,8 @@ describe.skipIf(!liveJavaPath())('M9a live: romance', () => {
     const heard = listen(Object.values(bodies), t0);
     const agents: Record<string, Agent> = {};
     for (const [n, p, other] of [['Ned', ned, 'Ivy'], ['Ivy', ivy, 'Ned']] as const) {
-      // A low roll: an advance from someone one is drawn to is returned (§19.10 A), and hellos are said.
+      // A low roll: an advance from someone one is drawn to is returned (§19.10 A). (Whether a hello is said is the
+      // CC's own roll, not this one: one hello will do, since the one greeted says who they are in turn.)
       const a = new Agent({ body: bodies[n] as Body, persona: p, username: n, llm: null, logger: logger.child({ agent: n }), world, goalGen: false, socialGoals: false, rng: () => 0.1 });
       // Neighbors who get on well; neither knows yet what the other is.
       a.store.update('social', (all) => ({ ...all, [other]: knows(p, other, { sentiment: 8 }) }), 'history');

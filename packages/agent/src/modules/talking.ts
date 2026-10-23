@@ -17,7 +17,7 @@ import type { Conversations } from './conversations';
 import type { SkillExecutor } from './executor';
 import { topEmotion } from '../mind/emotions';
 import { OPINION_ASK_RE } from '../social/opinions';
-import { NOT_PG_RE } from '../social/romance';
+import { NOT_PG_RE, statedSex } from '../social/romance';
 import { ACCEPTANCE, BREAKUP_LINE, COMPLIMENTS, DECLINE_LINES, FLIRT_BACK, GIFT_LINE, PROPOSAL, REJECTION_LINES, isAdvance } from '../social/romanceWatch';
 import { FAMILY_HAPPY, FAMILY_NOT_YET, FAMILY_PROPOSAL, FAMILY_YES, isFamilyAsk } from '../social/familyWatch';
 import { parseTradeOffer } from '../social/trades';
@@ -480,7 +480,7 @@ export class Talking {
    * as worded, once per conversation (`said` tells what we already said there), and opens with the name of whom it
    * is for (`to`), so that one answers it and not whoever else is around (§6.2); after that the stance's own lines.
    */
-  private canned(asked: SpeechIntent, opening = false, said: (line: string) => boolean = () => false, to?: AgentName): string {
+  private canned(asked: SpeechIntent, opening = false, said: (line: string) => boolean = () => false, to?: AgentName, theyIntroduced = false): string {
     const persona = this.o.store.state.self.persona;
     const worded = this.worded(asked);
     const line = worded && to && !mentionsName(worded, to) ? `${to}, ${worded}` : worded;
@@ -494,8 +494,9 @@ export class Talking {
       const moodLines = FEELING_LINES[felt.name];
       if (moodLines) return moodLines[Math.floor(this.rng() * moodLines.length)] ?? '';
     }
-    // §19.1: a first hello to someone says who one is, as people do ("hey! I'm a gal who loves exploring").
-    if (opening && intent.stance === 'chat' && to && !this.introduced.has(to)) {
+    // §19.1: a first hello to someone says who one is, as people do ("hey! I'm a gal who loves exploring"); and one who
+    // has just said who they are is told in turn.
+    if ((opening || theyIntroduced) && intent.stance === 'chat' && to && !this.introduced.has(to)) {
       this.introduced.add(to);
       const hello = GREETINGS[Math.floor(this.rng() * GREETINGS.length)] ?? 'hey!';
       // "hi there", and then who one is: a stop between them.
@@ -533,7 +534,8 @@ export class Talking {
     const llm = isOff(s, 'talking.llm') ? null : this.o.llm;
     if (!llm) {
       const transcript = s.conversations[convId]?.transcript ?? [];
-      return this.canned(intent, incoming.length === 0 && transcript.length === 0, (line) => transcript.some((u) => u.from === this.o.me && u.text === line), to);
+      const theyIntroduced = incoming.some((u) => statedSex(u.text) !== null);
+      return this.canned(intent, incoming.length === 0 && transcript.length === 0, (line) => transcript.some((u) => u.from === this.o.me && u.text === line), to, theyIntroduced);
     }
     const conv = s.conversations[convId];
     const transcript = (conv?.transcript ?? []).slice(-8).map((u) => `${u.from === this.o.me ? 'You' : u.from}: ${u.text}`);

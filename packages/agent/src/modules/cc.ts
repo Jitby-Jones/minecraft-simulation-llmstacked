@@ -1465,7 +1465,7 @@ export class CognitiveController {
       }
     }
     if (!out) return;
-    this.apply(out, source, ctx);
+    this.apply(out, source, ctx, reason);
     // What they said to us is answered now.
     if (ctx.from) {
       for (const u of store.state.perception.heardSpeech) if (u.from === ctx.from && u.addressedToMe && (!ctx.convId || u.convId === ctx.convId)) this.answered.add(u.id);
@@ -1473,7 +1473,7 @@ export class CognitiveController {
     }
   }
 
-  private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext): void {
+  private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext, why?: string): void {
     const { store, bus, logger } = this.o;
     const now = this.now();
     const decision: Decision = { ...out, id: newId('d', now), createdAt: now, stateVersion: store.version, source };
@@ -1529,7 +1529,7 @@ export class CognitiveController {
       );
     }
     logger.info(
-      { module: 'cc', source, option: decision.option, task: decision.task, stance: decision.speechIntent?.stance, mayCommit: decision.speechIntent?.mayCommit, rationale: decision.rationale },
+      { module: 'cc', source, option: decision.option, task: decision.task, stance: decision.speechIntent?.stance, mayCommit: decision.speechIntent?.mayCommit, rationale: decision.rationale, ...(why ? { why } : {}) },
       'decision',
     );
     bus.emit({ type: 'decision', decision });
