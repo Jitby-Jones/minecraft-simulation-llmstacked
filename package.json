@@ -15,6 +15,7 @@
     "agent": "tsx scripts/agent.ts",
     "doctor": "tsx scripts/doctor.ts",
     "server-mode": "tsx scripts/server-mode.ts",
+    "test-mode": "tsx scripts/test-mode.ts",
     "chat-discovery": "tsx scripts/chat-discovery.ts",
     "build:guard-plugin": "tsx scripts/build-plugin.ts agora-guard",
     "build:skins-plugin": "tsx scripts/build-plugin.ts agora-skins",

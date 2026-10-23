@@ -34,7 +34,7 @@ import { Body } from '@agora/agent/body/body';
 import { MemoryDB } from '@agora/agent/memory/db';
 import { type RunningBot, runBot } from '@agora/agent/hub/runtime';
 import { statedWork } from '@agora/agent/social/roles';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -176,7 +176,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       const messages = body.messages as { role: string; content: string }[];
       const system = messages[0]?.content ?? '';
       const user = messages.at(-1)?.content ?? '';
-      const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const schema = schemaNameOf(body);
       const me = /You are (\w+)/.exec(system)?.[1] ?? /decide what (\w+) does/.exec(system)?.[1] ?? '';
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I like a chat.' }) };
       if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
@@ -250,7 +250,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     const fake = new FakeNanoGpt(standardModels());
     fake.chat = ({ body }) => {
       const messages = body.messages as { role: string; content: string }[];
-      const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const schema = schemaNameOf(body);
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I keep busy.' }) };
       if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
       if (schema === 'addressed') return { text: JSON.stringify({ addressedToMe: false }) };

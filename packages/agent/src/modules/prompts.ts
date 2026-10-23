@@ -20,21 +20,28 @@ export function personaCore(p: Persona, traitAnnotations: readonly string[] = []
 /** §16.3: said plainly to the modules that plan (the CC and Goal Gen). */
 export const DEATH_RULE = 'Death is permanent. If you die, you are gone forever.';
 
-export const DECISION_FORMAT = `Reply with one JSON object:
-{"option": "work|talk|move|follow|explore|rest|flee|help|trade|fight|court",
- "target": {"agent": "name", "pos": {"x":0,"y":0,"z":0}, "item": "name"},   (only what the option needs)
- "task": {"skill": "skill name", "args": {...}},                          (required for work and help)
- "speechIntent": {"stance": "agree|decline|negotiate|inform|ask|chat|apologize|hostile|threaten|flirt|propose|none", "gist": "what you are willing to say", "mayCommit": false},
- "commitmentsToCreate": [{"debtor": "you or them", "creditor": "...", "what": {"kind": "give|gather|meet|help|build|follow|custom", "item": "...", "qty": 1, "text": "..."}}],
- "trade": {"with": "name", "phase": "offer|accept|counter|decline", "give": [{"item": "...", "qty": 1}], "want": [{"item": "...", "qty": 1}]},   (only when trading; give is yours, want is theirs)
- "fight": {"target": "name", "intent": "brawl"},   (only with option fight: a brawl until someone yields)
- "romance": {"with": "name", "phase": "flirt|return|propose|accept|decline|breakup"},   (only when courting someone, or answering their advance; return is a compliment of theirs returned)
- "family": {"with": "name", "phase": "propose|accept|decline|warn", "about": "name"},   (with your partner: asking to start a family, or answering them; warn: telling your young child about someone to avoid)
- "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"},
- "rationale": "one sentence"}`;
+export const DECISION_FORMAT = `Reply with one JSON object. Put in only the fields your choice needs and leave the rest out entirely: no empty
+strings, no "none", no placeholders. Every reply has "option", "terminate" and "rationale".
+- "option": work | talk | move | follow | explore | rest | flee | help | trade | fight | court
+- "task": {"skill": "<a skill from the list>", "args": {...}}   (work and help need one)
+- "target": {"agent": "<name>"} or {"pos": {"x": 0, "y": 0, "z": 0}}   (whom or where: talk, follow, move, help, trade, court, fight)
+- "speechIntent": {"stance": "agree|decline|negotiate|inform|ask|chat|apologize|hostile|threaten|flirt|propose", "gist": "what you want to get across", "mayCommit": false}   (when you mean to say something)
+- "commitmentsToCreate": [{"debtor": "you or them", "creditor": "<name>", "what": {"kind": "give|gather|meet|help|build|follow|custom", "item": "...", "qty": 1, "text": "..."}}]   (only with mayCommit true, when you promise something)
+- "trade": {"with": "<name>", "phase": "offer|accept|counter|decline", "give": [{"item": "...", "qty": 1}], "want": [{"item": "...", "qty": 1}]}   (only when trading; give is yours, want is theirs)
+- "fight": {"target": "<name>", "intent": "brawl"}   (only with option fight: a brawl until someone yields)
+- "romance": {"with": "<name>", "phase": "flirt|return|propose|accept|decline|breakup"}   (only when courting someone, or answering their advance; return is a compliment of theirs returned)
+- "family": {"with": "<name>", "phase": "propose|accept|decline|warn", "about": "<name>"}   (only with your partner: asking to start a family, or answering them; warn: telling your young child about someone to avoid)
+- "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"}   (until is optional)
+- "rationale": one sentence, why.
+Examples:
+{"option": "work", "task": {"skill": "gather", "args": {"item": "oak_log", "qty": 8}}, "terminate": {"maxSeconds": 300, "until": "inventoryHas:oak_log>=8"}, "rationale": "I need wood before anything else."}
+{"option": "talk", "target": {"agent": "Mira"}, "speechIntent": {"stance": "ask", "gist": "ask what she is planning and whether we could split the work", "mayCommit": false}, "terminate": {"maxSeconds": 90}, "rationale": "Two of us get more done with a shared plan."}
+{"option": "explore", "terminate": {"maxSeconds": 120}, "rationale": "I want to see what lies past those trees."}`;
 
 export const DECISION_RULES = `Rules:
-- Choose what to do next. Work toward your current goal unless something more important is happening.
+- You are your own person: look at what is around you, how you feel and what you want, and choose what to do next. Work toward your plan unless something more important is happening; change the plan when it stops making sense.
+- Don't stand around. With nothing pressing, look around: explore or wander nearby, see what is there, talk to someone, or start something useful.
+- Night is dangerous but it is not a reason to hide: stay close to others or near home, keep clear of monsters, keep working where it is safe. Digging in to hide (the shelter skill) is for when you are badly scared and alone, far from anyone.
 - Set mayCommit to true only when you really intend to do what you agree to, starting now. Otherwise talk without promising.
 - If you keep failing at something, do something different.
 - Trades are talked through: offer what you give for what you want; accepting (with mayCommit) binds both of you, and each hands their part over in person.

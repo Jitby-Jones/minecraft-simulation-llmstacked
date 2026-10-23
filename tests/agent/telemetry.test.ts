@@ -38,6 +38,15 @@ describe('telemetry (M7)', () => {
     r.stop();
   });
 
+  it('a conversation is reported with whom we talked: the others, not ourselves among them', () => {
+    const r = rig();
+    r.sent.length = 0;
+    r.store.update('conversations', () => ({ c1: { convId: 'c1', participants: ['Pip', 'Rex', 'Ann'], startedAt: 0, lastActivity: 0, turns: 4, myTurns: 2, lastEmbeds: [], status: 'ended', transcript: [], initiatedByMe: true, nudged: false } }));
+    r.bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
+    expect(r.sent.find((x) => x.kind === 'conversation')?.data).toEqual({ convId: 'c1', with: ['Rex', 'Ann'], reason: 'turn cap', turns: 4, startedAt: 0 });
+    r.stop();
+  });
+
   it('reports decisions with why, actions, fights and our own lines, and commitments once', () => {
     const r = rig();
     r.sent.length = 0;

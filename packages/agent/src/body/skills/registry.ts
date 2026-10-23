@@ -8,7 +8,7 @@ import { gather, mine, pickup } from './gathering';
 import { place, shelter } from './building';
 import { obtain } from './planner';
 import { prospect } from './prospecting';
-import { explore, flee, follow, goTo, look, wait } from './movement';
+import { explore, flee, follow, goTo, look, lookAround, wait, wander } from './movement';
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
 import { build, hunt, patrol, sign } from './village';
@@ -18,6 +18,8 @@ export const SKILLS: readonly AnySkill[] = [
   goTo,
   follow,
   explore,
+  wander,
+  lookAround,
   flee,
   look,
   wait,
@@ -60,8 +62,13 @@ const ALIASES: Readonly<Record<string, string>> = {
   fetch: 'obtain',
   dig: 'mine',
   stay: 'wait',
-  rest: 'wait',
-  idle: 'wait',
+  rest: 'lookAround',
+  idle: 'lookAround',
+  watch: 'lookAround',
+  observe: 'lookAround',
+  look_around: 'lookAround',
+  stroll: 'wander',
+  walk_around: 'wander',
   store: 'deposit',
   take: 'withdraw',
   fight: 'attack',
@@ -77,7 +84,6 @@ const ALIASES: Readonly<Record<string, string>> = {
   wear: 'equip',
   hold: 'equip',
   run: 'flee',
-  wander: 'explore',
   prospecting: 'prospect',
   tunnel: 'prospect',
   search_ore: 'prospect',

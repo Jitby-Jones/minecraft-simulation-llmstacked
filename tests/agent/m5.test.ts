@@ -140,8 +140,12 @@ describe('code-only social defaults (§6.2, §22.4)', () => {
     const never = () => false;
     const hello = codeDecision(s, {}, false, never, { candidates: ['Bram'], roll: 0.1 });
     expect(hello).toMatchObject({ option: 'talk', target: { agent: 'Bram' }, speechIntent: { stance: 'chat', mayCommit: false } });
-    expect(codeDecision(s, {}, false, never, { candidates: ['Bram'], roll: 0.9 })?.option).toBe('rest');
-    expect(codeDecision(s, {}, false, never, { candidates: [], roll: 0 })?.option).toBe('rest');
+    // Otherwise a stroll, looking around: never just standing there.
+    expect(codeDecision(s, {}, false, never, { candidates: ['Bram'], roll: 0.9 })?.task?.skill).toBe('wander');
+    expect(codeDecision(s, {}, false, never, { candidates: [], roll: 0 })?.task?.skill).toBe('wander');
+    // With a plan not yet talked over, the hello is about it.
+    const planned = { ...s, goals: { ...s.goals, plan: { id: 'p', aim: 'build a hut', steps: [{ text: 'gather logs', status: 'doing' as const }], createdAt: 0, updatedAt: 0, discussedWith: [], source: 'llm' as const } } };
+    expect(codeDecision(planned, {}, false, never, { candidates: ['Bram'], roll: 0.1 })?.speechIntent?.gist).toMatch(/tell them what you mean to do \(build a hut\)/);
   });
 
   it('ends a talk option when its conversation ends', async () => {

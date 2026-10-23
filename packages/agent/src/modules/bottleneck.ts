@@ -4,6 +4,7 @@
 
 import type { AgentState, Utterance } from '@agora/shared';
 import type { MindLevers } from './levers';
+import { describePlan } from './plan';
 
 export interface PacketInput {
   state: AgentState;
@@ -36,6 +37,11 @@ export function buildPacket(i: PacketInput): string {
   out.push(`About you: ${s.selfSummary || 'nothing notable yet.'}`);
 
   const g = s.goals.current;
+  const plan = s.goals.plan;
+  if (plan) {
+    const talked = plan.discussedWith.length > 0 ? ` (talked over with ${plan.discussedWith.join(', ')})` : ' (not talked over with anyone yet)';
+    out.push(`Your plan: ${describePlan(plan)}${talked}`);
+  }
   out.push(`Current goal: ${g ? g.text : 'none set'}${g?.parent ? ` (part of: ${s.goals.history.find((h) => h.id === g.parent)?.text ?? g.parent})` : ''}`);
   const village = s.goals.social.filter((x) => x.status === 'active');
   if (village.length > 0 || s.goals.community) {

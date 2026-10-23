@@ -1,0 +1,212 @@
+// Real-model robustness and self-sufficient agents: decisions as subscription models actually write them (every
+// field filled in), whole spoken lines (never cut off mid-sentence, never a failed model's draft), wandering and
+// looking around instead of standing frozen, and hiding only for one badly scared, alone and far from anyone.
+
+import { describe, expect, it } from 'vitest';
+import { DecisionOutputSchema, ModelsConfigSchema, PersonaSchema, dropUnfinished, fitWords, nullLogger, sentences } from '@agora/shared';
+import { LocalRateLimiter, startLlm } from '@agora/llm';
+import type { Body } from '@agora/agent/body/body';
+import { getSkill } from '@agora/agent/body/skills/registry';
+import { AgentBus } from '@agora/agent/bus';
+import { Feelings } from '@agora/agent/mind/feelings';
+import { validateDecision } from '@agora/agent/modules/cc';
+import { Conversations } from '@agora/agent/modules/conversations';
+import { tidyDecision } from '@agora/agent/modules/decisionTidy';
+import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
+import { HIGH_FEAR, whyNotHide } from '@agora/agent/modules/hiding';
+import { leversFor } from '@agora/agent/modules/levers';
+import { Talking, cleanReply } from '@agora/agent/modules/talking';
+import { createInitialState } from '@agora/agent/state/initial';
+import { AgentStateStore } from '@agora/agent/state/store';
+import { isOff } from '@agora/agent/state/switches';
+import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+
+const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['curious'], speech: { style: 'chatty', maxWords: 12, catchphrases: [] } });
+const store = () => new AgentStateStore(createInitialState({ persona, username: 'Pip', now: 0 }));
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const tidy = (raw: unknown) => tidyDecision(raw, { me: 'Pip', isSkill: (n) => getSkill(n) !== null });
+const env = { me: 'Pip', isStuck: () => false, canPerceive: () => true };
+
+describe('decisions as subscription models write them', () => {
+  it('a reply with every field filled in (as asked for in json_schema mode) is tidied to the decision it meant', () => {
+    // minimax/minimax-m3, verbatim from a probe of the real subscription API.
+    const raw = JSON.parse(
+      '{"option":"work","target":{"agent":"oak_log","pos":{"x":0,"y":0,"z":0},"item":""},"task":{"skill":"gather","args":{"item":"oak_log","qty":4}},"speechIntent":{"stance":"none","gist":"","mayCommit":false,"volume":"whisper"},"commitmentsToCreate":[],"trade":{"with":"Mira","phase":"offer","give":[{"item":"oak_log","qty":4}],"want":[{"item":"cobblestone","qty":16}]},"fight":{"target":"zombie","intent":"brawl","withAllies":[],"joining":false,"reason":""},"romance":{"with":"Mira","phase":"flirt","reaction":"politeDecline"},"family":{"with":"Mira","phase":"propose","about":"Bram"},"terminate":{"maxSeconds":120,"until":"inventoryHas:oak_log>=4"},"rationale":"Gather oak logs first to establish a resource base."}',
+    ) as unknown;
+    const d = DecisionOutputSchema.parse(tidy(raw));
+    expect(d).toEqual({ option: 'work', target: { agent: 'oak_log' }, task: { skill: 'gather', args: { item: 'oak_log', qty: 4 } }, terminate: { maxSeconds: 120, until: 'inventoryHas:oak_log>=4' }, rationale: 'Gather oak logs first to establish a resource base.' });
+    expect(validateDecision(d, env)).toBeNull();
+    // Untidied, it would have been asking Mira to start a family and fighting a zombie.
+    expect(DecisionOutputSchema.safeParse(raw).success).toBe(false);
+  });
+
+  it('placeholders go ("none", "", 0,0,0, a skill for a talk), what was meant is kept, a missing time limit gets one', () => {
+    const d = tidy({ option: 'talk', target: { agent: 'Mira', item: '', pos: { x: 0, y: 0, z: 0 } }, task: { skill: 'chat', args: {} }, speechIntent: { stance: 'ask', gist: 'what are you building?' }, family: { with: 'none', phase: 'propose' }, terminate: { maxSeconds: 0, until: '' }, rationale: 'curious' });
+    expect(d).toEqual({ option: 'talk', target: { agent: 'Mira' }, speechIntent: { stance: 'ask', gist: 'what are you building?', mayCommit: false }, terminate: { maxSeconds: 90 }, rationale: 'curious' });
+    // An option named by its skill is work with that skill; a move's place given only in its task is its target.
+    expect(tidy({ option: 'gather', task: undefined, terminate: { maxSeconds: 60 }, rationale: '' })).toMatchObject({ option: 'work', task: { skill: 'gather', args: {} } });
+    expect(tidy({ option: 'move', task: { skill: 'goTo', args: { x: 4, y: 70, z: -2 } }, terminate: { maxSeconds: 30 }, rationale: 'there' })).toMatchObject({ option: 'move', target: { pos: { x: 4, y: 70, z: -2 } } });
+    expect(tidy({ option: 'follow', task: { skill: 'follow', args: { agent: 'Bram' } }, terminate: { maxSeconds: 30 }, rationale: '' })).toMatchObject({ target: { agent: 'Bram' } });
+    // A real fight, courtship or trade stays.
+    expect(tidy({ option: 'fight', fight: { target: 'Rex', intent: 'brawl' }, terminate: { maxSeconds: 60 }, rationale: '' })).toMatchObject({ fight: { target: 'Rex', intent: 'brawl', withAllies: [] } });
+    expect(tidy({ option: 'court', target: { agent: 'Mira' }, romance: { with: 'Mira', phase: 'flirt', reaction: '' }, terminate: { maxSeconds: 60 }, rationale: '' })).toMatchObject({ romance: { with: 'Mira', phase: 'flirt' } });
+    expect(tidy({ option: 'trade', target: { agent: 'Bram' }, trade: { with: 'Bram', phase: 'offer', give: [{ item: 'bread', qty: 2 }], want: [{ item: 'oak_log', qty: 8 }] }, terminate: { maxSeconds: 60 }, rationale: '' })).toMatchObject({ trade: { with: 'Bram' } });
+    // A task naming nothing real for work stays, and is refused with the reason (one retry, told why).
+    const work = DecisionOutputSchema.parse(tidy({ option: 'work', task: { skill: 'teleport', args: {} }, terminate: { maxSeconds: 60 }, rationale: '' }));
+    expect(validateDecision(work, env)).toMatch(/no skill "teleport"/);
+  });
+});
+
+describe('whole lines (no cut-off speech)', () => {
+  it('fits a reply to about its word budget in whole sentences; only one overlong sentence is cut, at a clause', () => {
+    expect(sentences('Hello, Pip. I am gathering timber! Measure twice')).toEqual(['Hello, Pip.', 'I am gathering timber!', 'Measure twice']);
+    // 1.5 × the budget, whole sentences: the third doesn't fit, so it goes (never half of it).
+    expect(fitWords('Hello, Pip. I am gathering timber today. A sturdy foundation requires quality wood and patience.', 8)).toBe('Hello, Pip. I am gathering timber today.');
+    expect(fitWords('Not much over there, just trees and stone, what are you looking for?', 12)).toBe('Not much over there, just trees and stone, what are you looking for?');
+    const long = 'I have been walking around these hills all morning looking for a good place to build, and the river bend by the birch trees looks perfect for a hut with a garden and a dock for fishing';
+    const cut = fitWords(long, 10);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(cut.split(' ').length).toBeLessThanOrEqual(15);
+    // A reply that ran out of tokens mid-sentence loses only the unfinished sentence.
+    expect(dropUnfinished('Getting oak for the house. I will need about twenty more and then')).toBe('Getting oak for the house.');
+    expect(dropUnfinished('not yet')).toBe('not yet');
+  });
+
+  it('a wrapped line is joined; a line written as someone else is dropped', () => {
+    expect(cleanReply('Hello Pip, working on anything\nnew today?', 'Oswin', 20)).toBe('Hello Pip, working on anything new today?');
+    expect(cleanReply('Oswin: Sure thing.\nPip: great!', 'Oswin', 20)).toBe('Sure thing.');
+    expect(cleanReply('"ooh, logs? why?"\nsecond line', 'Pip', 20)).toBe('ooh, logs? why?');
+  });
+
+  it("a model that stalls after its first sentence went out: that sentence was the line, the next model's draft isn't tacked on", async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const tiers = { tiers: { L1: { timeoutMs: 300, maxTokens: 200, need: ['structured_output'] }, L2: { timeoutMs: 300, maxTokens: 500, need: ['structured_output', 'tool_calling'] }, L3: { timeoutMs: 600, maxTokens: 2000, need: ['structured_output'] } } };
+    let n = 0;
+    fake.chat = () => (++n === 1 ? { chunks: ['Hello there, Bram. ', 'I was just about to'], chunkDelayMs: 1500 } : { text: 'Something else entirely. With more words.' });
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse(tiers), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const said: string[] = [];
+    const body = { say: (t: string) => Promise.resolve(said.push(t) > 0), skill: () => null, run: () => Promise.reject(new Error('unused')) } as unknown as Body;
+    const conversations = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0 });
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const talking = new Talking({ store: s, bus, body, logger: nullLogger(), llm: rt.client, conversations, executor, me: 'Pip', rng: () => 0 });
+    conversations.start();
+    talking.start();
+    bus.emit({ type: 'heard', utterance: { id: 'u', convId: '', from: 'Bram', to: ['Pip'], text: 'hey Pip, nice weather', ts: Date.now(), pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+    for (let i = 0; i < 80 && fake.chatRequests().length < 2; i++) await wait(50);
+    await wait(300);
+    expect(said).toEqual(['Hello there, Bram.']);
+    expect(fake.chatRequests()).toHaveLength(2);
+    // The lines are written with L2 by default (a small model's come late and short).
+    expect(rt.router.chain('L2')).toContain(String(fake.chatRequests()[0]?.body?.model));
+    talking.stop();
+    conversations.stop();
+  });
+});
+
+describe('streamed replies and timeouts', () => {
+  const tiers = { tiers: { L1: { timeoutMs: 300, maxTokens: 200, need: ['structured_output'] }, L2: { timeoutMs: 300, maxTokens: 500, need: ['structured_output', 'tool_calling'] }, L3: { timeoutMs: 600, maxTokens: 2000, need: ['structured_output'] } } };
+  const run = async (reply: { chunks: string[]; chunkDelayMs: number }) => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => reply;
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse(tiers), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const pieces: string[] = [];
+    const r = await rt.client.call<string>({ tier: 'L2', module: 'talking', agent: 'Pip', messages: [{ role: 'user', content: 'hi' }], fallback: () => 'canned', onText: (d) => pieces.push(d) });
+    return { r, fake };
+  };
+
+  it('the timeout is for the first piece: a slow but steady stream comes through whole; a stalled one fails over', async () => {
+    // Four pieces 200 ms apart: 600 ms in all, twice the 300 ms timeout, but never a gap as long as it.
+    const steady = await run({ chunks: ['One. ', 'Two. ', 'Three. ', 'Four.'], chunkDelayMs: 200 });
+    expect(steady.r.ok && steady.r.value).toBe('One. Two. Three. Four.');
+    const stalled = await run({ chunks: ['One. ', 'Two.'], chunkDelayMs: 900 });
+    expect(stalled.r.ok).toBe(false);
+    expect(stalled.r.value).toBe('canned');
+  });
+});
+
+describe('the operator’s routing in the client (debug controls)', () => {
+  it('a model a tier tries first, a tier a module uses instead, and every call off', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: 'ok' });
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const ask = (module: 'talking' | 'cc', tier: 'L1' | 'L2' | 'L3' = 'L1') => rt.client.call<string>({ tier, module, agent: 'Pip', messages: [{ role: 'user', content: 'hi' }], fallback: () => 'fallback' });
+    const head = rt.router.chain('L2')[1] ?? '';
+    rt.client.setRouting({ tierModel: { L2: head }, moduleTier: { talking: 'L2' } });
+    expect(rt.client.chainFor('L2')[0]).toBe(head);
+    await ask('talking', 'L1');
+    expect(fake.chatRequests().at(-1)?.body?.model).toBe(head);
+    // A model that isn't on the subscription list is never tried.
+    rt.client.setRouting({ tierModel: { L2: 'openai/gpt-paid-only' } });
+    expect(rt.client.chainFor('L2')).not.toContain('openai/gpt-paid-only');
+    rt.client.setRouting({ off: true });
+    const before = fake.chatRequests().length;
+    const r = await ask('cc');
+    expect(r.ok === false && r.reason).toBe('disabled');
+    expect(fake.chatRequests()).toHaveLength(before);
+  });
+});
+
+describe('never standing frozen', () => {
+  it('rest and a talk keep an eye on things (facing the one we talk to); the new skills are on offer', () => {
+    const opt = (option: 'rest' | 'talk' | 'yield', targetAgent?: string) => ({ decisionId: 'd', option, startedAt: 0, maxSeconds: 30, status: 'running' as const, ...(targetAgent ? { targetAgent } : {}) });
+    expect(skillForOption(opt('rest'), () => true)).toEqual({ skill: 'lookAround', args: { seconds: 30 } });
+    expect(skillForOption(opt('talk', 'Bram'), () => true)).toEqual({ skill: 'lookAround', args: { seconds: 30, at: 'Bram' } });
+    expect(skillForOption(opt('talk', 'Bram'), () => false)).toEqual({ skill: 'goTo', args: { agent: 'Bram', range: 4 } });
+    expect(getSkill('wander')?.name).toBe('wander');
+    expect(getSkill('stroll')?.name).toBe('wander');
+    expect(getSkill('rest')?.name).toBe('lookAround');
+    expect(getSkill('lookAround')?.parseArgs({ seconds: 10, at: 'Bram' }).ok).toBe(true);
+  });
+});
+
+describe('hiding is for one badly scared, alone and far from anyone', () => {
+  const person = (name: string, distance: number) => ({ id: 1, kind: 'player' as const, name, pos: { x: distance, y: 64, z: 0 }, distance, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false });
+  const zombie = (distance: number) => ({ id: 2, kind: 'hostile' as const, name: 'zombie', pos: { x: distance, y: 64, z: 0 }, distance, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false });
+
+  it('the gate: not with people near or in sight, not close to home, not without real fear', () => {
+    const base = createInitialState({ persona, username: 'Pip', now: 0 });
+    const far = { ...base, self: { ...base.self, pos: { x: 200, y: 64, z: 0 } }, village: { ...base.village, home: { x: 0, y: 64, z: 0 } } };
+    const scared = { ...far, emotions: { ...far.emotions, fear: HIGH_FEAR + 0.1 } };
+    expect(whyNotHide(scared)).toBeNull();
+    expect(whyNotHide(far)).toMatch(/not scared enough/);
+    expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 10)] } })).toMatch(/not alone/);
+    expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 30)] } })).toMatch(/people in sight/);
+    expect(whyNotHide({ ...scared, self: { ...scared.self, pos: { x: 20, y: 64, z: 0 } } })).toMatch(/close to home/);
+  });
+
+  it('alone in the dark with monsters about, fear creeps up; with company it does not', async () => {
+    const run = async (company: boolean) => {
+      const s = store();
+      let t = 0;
+      s.update('self', (x) => ({ ...x, isDay: false }), 'night');
+      s.update('perception', (p) => ({ ...p, nearbyEntities: [zombie(8), zombie(12), ...(company ? [person('Bram', 5)] : [])] }), 'seen');
+      const f = new Feelings({ store: s, bus: new AgentBus(), logger: nullLogger(), me: 'Pip', tickMs: 5, now: () => t });
+      f.start();
+      for (let i = 0; i < 6; i++) {
+        t += 10_001;
+        await wait(12);
+      }
+      f.stop();
+      return s.state.emotions.fear;
+    };
+    const alone = await run(false);
+    expect(alone).toBeGreaterThan(0.2);
+    expect(await run(true)).toBeLessThan(0.05);
+  });
+});
+
+describe('module switches (debug controls)', () => {
+  it('a switched-off module is off; "llm" switches off every model call', () => {
+    const s = store();
+    expect(isOff(s.state, 'goalGen')).toBe(false);
+    s.update('flags', (f) => ({ ...f, off: ['goalGen'] }), 'switch');
+    expect(isOff(s.state, 'goalGen')).toBe(true);
+    expect(isOff(s.state, 'cc.llm')).toBe(false);
+    s.update('flags', (f) => ({ ...f, off: ['llm'] }), 'switch');
+    expect(isOff(s.state, 'cc.llm')).toBe(true);
+    expect(isOff(s.state, 'talking.llm')).toBe(true);
+    expect(isOff(s.state, 'reflection')).toBe(false);
+  });
+});

@@ -16,6 +16,8 @@ export type AppraisalEvent =
   | { kind: 'threatened' }
   | { kind: 'praised' }
   | { kind: 'witnessedFight' }
+  // Alone in the dark with monsters about (none of one's people near): fear creeps up, the more of them the more.
+  | { kind: 'aloneInDark'; hostiles: number }
   // §19.2 romance: nerves near a crush, an advance welcomed (or ours returned), one unwanted, turned down,
   // jealousy, and a partner's death.
   | { kind: 'nearCrush' }
@@ -88,6 +90,9 @@ export function appraise(e: EmotionState, ev: AppraisalEvent, p: Persona, combat
       break;
     case 'witnessedFight':
       d.fear = 0.15;
+      break;
+    case 'aloneInDark':
+      d.fear = Math.min(0.2, 0.06 * ev.hostiles) * (0.5 + p.drives.caution);
       break;
     case 'nearCrush':
       d.joy = 0.12;

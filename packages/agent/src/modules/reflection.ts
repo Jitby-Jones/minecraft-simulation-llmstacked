@@ -25,6 +25,7 @@ import { NOT_PG_RE } from '../social/romance';
 import { pushWorkmem } from '../state/workmem';
 import type { MindLevers } from './levers';
 import { personaCore } from './prompts';
+import { isOff } from '../state/switches';
 
 export const CORRECTION_KINDS = ['hearsay', 'scapegoat', 'idol', 'crowd', 'first_impression'] as const;
 export type CorrectionKind = (typeof CORRECTION_KINDS)[number];
@@ -248,7 +249,7 @@ export class Reflection {
   async run(reason: string): Promise<void> {
     const s = this.o.store.state;
     // Arousal blocks reflection (§18.2); so does danger.
-    if (this.stopped || s.flags.inDanger || s.emotions.arousal >= CALM) return;
+    if (this.stopped || s.flags.inDanger || isOff(s, 'reflection') || s.emotions.arousal >= CALM) return;
     const suspects = auditCandidates(s);
     let corrections: Suspect[] = suspects;
     if (suspects.length > 0 && this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('reflection')) {
@@ -288,7 +289,7 @@ export class Reflection {
   async annotate(): Promise<void> {
     const t = this.now();
     const s = this.o.store.state;
-    if (this.stopped || t - this.annotatedAt < ANNOTATE_EVERY_MS) return;
+    if (this.stopped || isOff(s, 'reflection') || t - this.annotatedAt < ANNOTATE_EVERY_MS) return;
     const found = formativeExperiences(s).slice(0, 3);
     const top = found[0];
     if (!top) return;

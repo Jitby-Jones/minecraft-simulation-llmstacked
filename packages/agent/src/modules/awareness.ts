@@ -73,7 +73,7 @@ export class ActionAwareness {
     const key = taskKey(r.skill, r.args);
     const t = this.now();
     // Loop cap (§13 rule 6): the same task "succeeding" instantly over and over changes nothing.
-    if (r.ok && r.durationMs < 1500 && r.skill !== 'wait' && r.skill !== 'say' && r.skill !== 'look') {
+    if (r.ok && r.durationMs < 1500 && !['wait', 'say', 'look', 'lookAround', 'wander'].includes(r.skill)) {
       const xs = [...(this.instant.get(key) ?? []), t].filter((x) => t - x < 120_000);
       this.instant.set(key, xs);
       if (xs.length >= 3) {
@@ -100,7 +100,7 @@ export class ActionAwareness {
       }
       return;
     }
-    if (r.skill === 'wait') return;
+    if (r.skill === 'wait' || r.skill === 'lookAround') return;
     const why = r.error ?? `expected ${r.expected}, saw ${r.observed}`;
     if (r.error?.startsWith('aborted') || r.error === 'time is up') return;
     const w = r.progressed && GATHERING.has(r.skill) ? 0.5 : 1;

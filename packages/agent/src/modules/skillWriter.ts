@@ -17,6 +17,7 @@ import { SLOW_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
 import { personaCore } from './prompts';
+import { isOff } from '../state/switches';
 
 const ReplySchema = z.object({ skill: SkillDraftSchema.nullable() });
 type Reply = z.infer<typeof ReplySchema>;
@@ -100,6 +101,7 @@ export class SkillWriter {
   async whyOff(): Promise<string | null> {
     const c = this.o.config;
     if (!c.enabled) return 'the skill writer is off (skillWriter.enabled)';
+    if (isOff(this.o.store.state, 'skillWriter')) return 'the skill writer is switched off for this agent';
     if (!this.o.privateServer) return 'skills are only written on a private server';
     if (this.o.intelligence < c.minIntelligence) return 'not clever enough to write skills';
     if (!this.o.llm) return 'no model to write with';

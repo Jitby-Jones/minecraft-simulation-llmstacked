@@ -27,7 +27,7 @@ import { withGrievance } from '@agora/agent/social/math';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 
 const LIMITS = { memoryMb: 16, cpuMs: 200, wallMs: 5000, maxCalls: 5 };
 const ada = PersonaSchema.parse({ name: 'Ada', sex: 'female', traits: ['inventive'], abilities: { intelligence: 0.9 } });
@@ -365,7 +365,7 @@ describe('the CC and the skills it wrote', () => {
     const fake = new FakeNanoGpt(standardModels());
     let n = 0;
     fake.chat = ({ body }) => {
-      const name = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const name = schemaNameOf(body);
       if (name !== 'decision') return { text: '{"summary":"ok"}' };
       n++;
       return n === 1

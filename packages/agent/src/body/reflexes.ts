@@ -54,6 +54,8 @@ export interface ReflexHooks {
   onSoftResume?: (kind: 'eat' | 'armor' | 'unstick' | 'pickup') => void;
   /** True when no skill is driving the body: the collect reflex may walk over nearby drops (§6.6). */
   isIdle: () => boolean;
+  /** Nothing at all under way (the mind deciding what's next): the head turns about now and then, as people's do. */
+  between?: () => boolean;
   /** Whether a drop is ours to take (not what someone else is digging or dropping). Default: yes. */
   mayPickUp?: (item: Entity) => boolean;
   /** Someone else hit a mob that was after us. */
@@ -101,6 +103,8 @@ export function cannedBusyLine(source: string): string {
 
 export class ReflexController {
   mode: ReflexMode = 'idle';
+  private lastGlance = 0;
+  private glanceEvery = 3000;
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private lastThreatAt = 0;
@@ -655,6 +659,19 @@ export class ReflexController {
     }
     if (!idle) return;
     if (await this.pickupNearbyDrop()) return;
+    // Between options (thinking what to do next), not frozen: a glance at someone near, or just around.
+    if (this.hooks.between?.() && now - this.lastGlance > this.glanceEvery) {
+      this.lastGlance = now;
+      this.glanceEvery = 2000 + Math.random() * 3000;
+      const me = bot.entity.position;
+      const someone = Object.values(bot.players)
+        .map((p) => p.entity)
+        .filter((e): e is Entity => Boolean(e) && e !== bot.entity && e.position.distanceTo(me) <= 10)
+        .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me))[0];
+      const look = someone && Math.random() < 0.7 ? bot.lookAt(someone.position.offset(0, someone.height ?? 1.6, 0), false) : bot.look(bot.entity.yaw + (Math.random() - 0.5) * 1.6, (Math.random() - 0.6) * 0.4, false);
+      await look.catch(() => undefined);
+      return;
+    }
     if (now - this.lastArmorCheck > 10_000) {
       this.lastArmorCheck = now;
       this.busy = true;

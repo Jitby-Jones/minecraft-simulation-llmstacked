@@ -2,9 +2,13 @@
 # (GET https://nano-gpt.com/api/subscription/v1/models). `auto` picks from that list (§22.3):
 # first from config/model-bench.json (written by `pnpm bench-models`), otherwise by heuristics.
 tiers:
-  L1: { primary: auto, fallbacks: [auto], timeoutMs: 2500, maxTokens: 200, need: [structured_output] }
+  L1: { primary: auto, fallbacks: [auto], timeoutMs: 5000, maxTokens: 200, need: [structured_output] }
   L2: { primary: auto, fallbacks: [auto], timeoutMs: 6000, maxTokens: 500, need: [structured_output, tool_calling] }
   L3: { primary: auto, fallbacks: [auto], timeoutMs: 45000, maxTokens: 2000, need: [structured_output] }
+
+# The tier agents' lines are written with. L1 models are quick but small ones cut lines short or miss the
+# timeout; L2 writes whole, in-character lines in 1–3 s.
+speech: { tier: L2 }
 
 # §22.5: local by default (all-MiniLM-L6-v2, served once by the Hub). nanogpt only if subscription-covered.
 embeddings: { provider: local }
@@ -15,3 +19,4 @@ llm:
   expectedRuntimeHoursPerWeek: 30  # for quota allocation (§22.4)
   allowlistRefreshHours: 6
   usagePollSec: 300
+  structuredOutput: object         # object: JSON reply, schema in the prompt | schema: the API's json_schema format

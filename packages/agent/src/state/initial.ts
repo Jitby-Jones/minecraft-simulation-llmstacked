@@ -37,7 +37,7 @@ export function createInitialState(o: InitialStateOptions): AgentState {
     perception: { nearbyEntities: [], nearbyBlocksOfInterest: [], heardSpeech: [], observedActions: [], systemEvents: [] },
     workmem: [],
     selfSummary: '',
-    goals: { life: [...p.lifeGoals], current: null, social: [], history: [] },
+    goals: { life: [...p.lifeGoals], current: null, plan: null, social: [], history: [] },
     village: { home: null, chest: null, huts: [], board: null, signs: [], threats: [], finds: [] },
     decision: null,
     option: null,

@@ -165,6 +165,61 @@ export class Supervisor {
     }
   }
 
+  /**
+   * Debug controls: one more agent now, counted in the population. From the persona pool by id or name, or
+   * generated (of the sex asked for, if any); a name asked for is used when it is a valid one nobody has had.
+   * Returns the new entry, or why not.
+   */
+  async addAgent(o: { persona?: string; name?: string; sex?: Sex } = {}): Promise<RosterEntry | string> {
+    const max = this.o.world.population.maxAlive;
+    if (this.living.length >= max) return `the population is at maxAlive (${max}); raise population.maxAlive in config/world.yaml`;
+    const used = this.usedNames();
+    if (o.name && (!isValidUsername(o.name) || used.has(o.name))) return `"${o.name}" can't be used: names are 3–16 letters, digits or _, and never reused`;
+    let persona: Persona;
+    if (o.persona) {
+      const want = o.persona.toLowerCase();
+      const p = this.o.pool.find((x) => (x.id ?? '').toLowerCase() === want || x.name.toLowerCase() === want);
+      if (!p) return `no persona "${o.persona}" in personas/ (try one of: ${this.o.pool.map((x) => x.id ?? x.name).join(', ')})`;
+      persona = p;
+    } else {
+      persona = generatePersona({ rng: this.o.rng, world: this.o.world, sexDiffs: this.o.sexDiffs, takenNames: used, ...(o.sex ? { sex: o.sex } : {}) });
+    }
+    if (o.name) persona = { ...persona, name: o.name };
+    this.target = Math.min(max, Math.max(this.target, this.living.length) + 1);
+    this.o.logger.info({ module: 'supervisor', persona: persona.id ?? persona.name, name: o.name ?? null, target: this.target }, 'agent added by the operator');
+    return this.spawnNew(persona);
+  }
+
+  /**
+   * Debug controls: an agent leaves for good (says goodbye and logs off; its memory stays with the roster entry, not
+   * the graveyard), and the population it was counted in is one smaller, so nobody replaces it.
+   */
+  retireAgent(username: string): string | null {
+    const entry = this.living.find((a) => a.username.toLowerCase() === username.toLowerCase());
+    if (!entry) return `no living agent ${username}`;
+    entry.status = 'retired';
+    this.target = Math.max(0, this.target - 1);
+    this.save();
+    this.publishSkins();
+    const session = this.o.hub.bySlot(entry.slot);
+    // Not connected (starting up, or stuck): its process is stopped instead.
+    if (session) session.send({ t: 'retire', reason: 'removed by the operator' });
+    else this.running.get(entry.slot)?.proc.kill('SIGTERM');
+    this.o.logger.info({ module: 'supervisor', agent: entry.username, target: this.target }, 'agent removed by the operator');
+    return null;
+  }
+
+  /** Debug controls: the agent's process saves and stops, and starts again as the same agent (from its snapshot). */
+  restartAgent(username: string): string | null {
+    const entry = this.living.find((a) => a.username.toLowerCase() === username.toLowerCase());
+    if (!entry) return `no living agent ${username}`;
+    const run = this.running.get(entry.slot);
+    if (!run) return `${entry.username} is not running right now`;
+    run.proc.kill('SIGTERM');
+    this.o.logger.info({ module: 'supervisor', agent: entry.username }, 'agent restarted by the operator');
+    return null;
+  }
+
   /** `ctl population <n>` (§16.2): adds agents now, or retires the newest ones. */
   setPopulation(n: number): void {
     const max = this.o.world.population.maxAlive;
@@ -211,8 +266,7 @@ export class Supervisor {
     return generatePersona({ rng: this.o.rng, world: this.o.world, sexDiffs: this.o.sexDiffs, takenNames: this.usedNames(), ...(wantSex ? { sex: wantSex } : {}) });
   }
 
-  private async spawnNew(): Promise<RosterEntry> {
-    const persona = this.nextPersona();
+  private async spawnNew(persona: Persona = this.nextPersona()): Promise<RosterEntry> {
     const used = this.usedNames();
     const username = isValidUsername(persona.name) && !used.has(persona.name) ? persona.name : generateUsername(persona.name, used, this.o.rng);
     const entry: RosterEntry = { username, persona, slot: `a${this.roster.nextSlot}`, bornAt: this.now(), status: 'alive', kitGiven: false, placed: false };

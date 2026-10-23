@@ -336,7 +336,7 @@ describe('the code default at odds with someone (§17.5 rungs 0–3)', () => {
     expect(decide(view(1))?.speechIntent?.stance).toBe('hostile');
     expect(decide(view(2))?.speechIntent?.stance).toBe('threaten');
     expect(decide(view(3, { mayBrawl: () => false }))?.speechIntent?.stance).toBe('threaten');
-    expect(decide(view(2, { warnedLately: () => true }))?.option).toBe('rest');
+    expect(decide(view(2, { warnedLately: () => true }))?.task?.skill).toBe('wander');
   });
 
   it('rung 0: keeps away from someone feared and disliked close by, not from a friend or the far-off', () => {
@@ -345,8 +345,8 @@ describe('the code default at odds with someone (§17.5 rungs 0–3)', () => {
     expect(d?.option).toBe('move');
     expect(d?.target?.agent).toBe('Rex');
     expect(d?.target?.pos?.x).toBeLessThan(0);
-    expect(decide(scared, 7)?.option).toBe('rest');
-    expect(decide(scared, 3, 10)?.option).toBe('rest');
+    expect(decide(scared, 7)?.task?.skill).toBe('wander');
+    expect(decide(scared, 3, 10)?.task?.skill).toBe('wander');
   });
 });
 

@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type ActionRecord, type AgentState, type DecisionOutput, ModelsConfigSchema, PersonaSchema, type Quirk, type Utterance, dataPaths, loadVersionsConfig, nullLogger } from '@agora/shared';
+import { type ActionRecord, type AgentState, type DecisionOutput, ModelsConfigSchema, PersonaSchema, type Quirk, SeededRandom, type Utterance, dataPaths, loadVersionsConfig, nullLogger } from '@agora/shared';
 import { HashEmbedder, LocalEmbedder, LocalRateLimiter, cosine, fromBlob, startLlm, toBlob } from '@agora/llm';
 import type { Body } from '@agora/agent/body/body';
 import { AgentBus } from '@agora/agent/bus';
@@ -16,7 +16,7 @@ import { Conversations } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking } from '@agora/agent/modules/talking';
-import { GoalGen, codeGoal } from '@agora/agent/modules/goalGen';
+import { GoalGen, codePlan } from '@agora/agent/modules/goalGen';
 import { QuirkRunner } from '@agora/agent/modules/quirkRunner';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
@@ -41,10 +41,6 @@ function memoryFor(s: AgentStateStore, opts: { recentCap?: number; now?: () => n
   const bus = new AgentBus();
   const memory = new Memory({ store: s, bus, logger: nullLogger(), db, embedder: new HashEmbedder(), llm: null, me: 'Pip', ...opts });
   return { db, bus, memory };
-}
-
-function withInventory(s: AgentState, items: Record<string, number>): AgentState {
-  return { ...s, self: { ...s.self, inventory: Object.entries(items).map(([item, qty]) => ({ item, qty })) } };
 }
 
 describe('embeddings (§22.5)', () => {
@@ -168,38 +164,84 @@ describe('memory: Summarize-and-Forget (§4.7)', () => {
   });
 });
 
-describe('goal generation (§4.2 module 10)', () => {
-  it('code ladder: wooden pickaxe → stone tools → furnace → iron pickaxe → cobblestone → life goals', () => {
+describe('planning (§4.2 module 10, Goal Gen)', () => {
+  const explorer = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['curious'], values: ['exploration', 'fun'], big5: { openness: 0.95, conscientiousness: 0.2 }, lifeGoals: ['map the whole valley'] });
+  const worker = PersonaSchema.parse({ name: 'Bram', sex: 'male', traits: ['stubborn'], values: ['hard work', 'success'], big5: { openness: 0.15, conscientiousness: 0.9 }, lifeGoals: ['run the best mine'] });
+  const firstAims = (p: typeof persona, seed: number, n = 300) => {
+    const rng = new SeededRandom(seed);
+    const s = createInitialState({ persona: p, username: p.name, now: 0 });
+    const counts = new Map<string, number>();
+    for (let i = 0; i < n; i++) {
+      const aim = codePlan(s, () => rng.next())?.aim ?? 'none';
+      counts.set(aim, (counts.get(aim) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  it('the code default makes a plan from needs and leanings, by chance: not one fixed ladder', () => {
     const base = createInitialState({ persona, username: 'Pip', now: 0 });
-    expect(codeGoal(base)).toEqual({ text: 'make a wooden pickaxe', doneWhen: 'inventoryHas:wooden_pickaxe>=1' });
-    expect(codeGoal(withInventory(base, { wooden_pickaxe: 1 }))?.doneWhen).toBe('inventoryHas:stone_pickaxe>=1');
-    expect(codeGoal(withInventory(base, { stone_pickaxe: 1 }))?.doneWhen).toBe('inventoryHas:furnace>=1');
-    expect(codeGoal(withInventory(base, { stone_pickaxe: 1, furnace: 1 }))?.doneWhen).toBe('inventoryHas:iron_pickaxe>=1');
-    expect(codeGoal(withInventory(base, { iron_pickaxe: 1, furnace: 1, cobblestone: 40 }))).toEqual({ text: 'build a lighthouse by the sea' });
-    const busy = { ...base, goals: { ...base.goals, current: { id: 'g', text: 'x', kind: 'current' as const, createdAt: 0, status: 'active' as const } } };
-    expect(codeGoal(busy)).toBeNull();
+    // The first aim, the least of each amount: tools when there are none, then another aim's first step after it.
+    const p0 = codePlan(base, () => 0);
+    expect(p0?.aim).toBe('get some tools together');
+    expect(p0?.steps).toEqual([
+      { text: 'gather 5 logs', doneWhen: 'inventoryHas:log>=5' },
+      { text: 'make a wooden pickaxe', doneWhen: 'inventoryHas:wooden_pickaxe>=1' },
+      { text: 'make a stone pickaxe', doneWhen: 'inventoryHas:stone_pickaxe>=1' },
+      { text: 'make a stone axe', doneWhen: 'inventoryHas:stone_axe>=1' },
+      { text: 'gather 10 logs for building', doneWhen: 'inventoryHas:log>=10' },
+    ]);
+    // Different people want different things first; and nobody goes through the same plan every time.
+    const e = firstAims(explorer, 1);
+    const w = firstAims(worker, 1);
+    expect((e.get('see what is out there') ?? 0) / 300).toBeGreaterThan((w.get('see what is out there') ?? 0) / 300 + 0.1);
+    expect((w.get('get some tools together') ?? 0) / 300).toBeGreaterThan((e.get('get some tools together') ?? 0) / 300 + 0.1);
+    expect(e.size).toBeGreaterThanOrEqual(3);
+    expect(w.size).toBeGreaterThanOrEqual(3);
+    // Hungry with nothing to eat, food comes up far more often.
+    const hungry = { ...base, self: { ...base.self, food: 6 } };
+    const rng = new SeededRandom(3);
+    const food = Array.from({ length: 200 }, () => codePlan(hungry, () => rng.next())?.aim).filter((a) => a === 'find something to eat').length;
+    expect(food).toBeGreaterThan(60);
+    // A plan with steps left is kept.
+    const planned = { ...base, goals: { ...base.goals, plan: { id: 'p', aim: 'x', steps: [{ text: 'a', status: 'doing' as const }], createdAt: 0, updatedAt: 0, discussedWith: [], source: 'default' as const } } };
+    expect(codePlan(planned, () => 0)).toBeNull();
   });
 
-  it('code-only: sets the next ladder goal', async () => {
+  it('code-only: makes a plan and works through it, step by step, the step at hand being the current goal', async () => {
     const s = store();
+    const bus = new AgentBus();
     const set: [string, string | undefined][] = [];
-    const gg = new GoalGen({ store: s, bus: new AgentBus(), logger: nullLogger(), llm: null, me: 'Pip', setGoal: (t, d) => set.push([t, d]) });
+    const gg = new GoalGen({
+      store: s,
+      bus,
+      logger: nullLogger(),
+      llm: null,
+      me: 'Pip',
+      rng: () => 0,
+      setGoal: (t, d) => {
+        set.push([t, d]);
+        s.update('goals', (g) => ({ ...g, current: { id: `g${set.length}`, text: t, kind: 'current', createdAt: 0, status: 'active', ...(d ? { doneWhen: d } : {}) } }), 'goal');
+      },
+    });
+    gg.start();
     await gg.run('starting');
-    expect(set).toEqual([['make a wooden pickaxe', 'inventoryHas:wooden_pickaxe>=1']]);
+    expect(set).toEqual([['gather 5 logs', 'inventoryHas:log>=5']]);
+    expect(s.state.goals.plan).toMatchObject({ aim: 'get some tools together', source: 'default' });
+    expect(s.state.goals.plan?.steps.map((x) => x.status)).toEqual(['doing', 'todo', 'todo', 'todo', 'todo']);
+    // The step done: on to the next one.
+    bus.emit({ type: 'goalDone', goal: { id: 'g1', text: 'gather 5 logs', kind: 'current', createdAt: 0, status: 'done' } });
+    expect(set.at(-1)).toEqual(['make a wooden pickaxe', 'inventoryHas:wooden_pickaxe>=1']);
+    expect(s.state.goals.plan?.steps.map((x) => x.status)).toEqual(['done', 'doing', 'todo', 'todo', 'todo']);
+    gg.stop();
   });
 
-  it('with a model: L3 goal with a checked doneWhen; an unparseable doneWhen is dropped; keep means keep', async () => {
+  it('with a model: an L3 plan with checked doneWhens (one code cannot check gets time on it); keep means keep', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const replies = [
-      { keep: false, goal: { text: 'build a small hut by the lake', doneWhen: 'inventoryHas:oak_planks>=20', why: 'I want a home' } },
-      { keep: false, goal: { text: 'make friends with Bram', doneWhen: 'whenever it feels right', why: 'he seems kind' } },
+      { keep: false, plan: { aim: 'build a small hut by the lake', steps: [{ text: 'cut planks', doneWhen: 'inventoryHas:oak_planks>=20' }, { text: 'make friends with Bram', doneWhen: 'whenever it feels right' }, { text: 'find a nice spot', doneWhen: '' }], why: 'I want a home' } },
       { keep: true },
     ];
-    const tiers: string[] = [];
-    fake.chat = (c) => {
-      tiers.push(c.model);
-      return { text: JSON.stringify(replies.shift()) };
-    };
+    fake.chat = () => ({ text: JSON.stringify(replies.shift()) });
     const rt = await startLlm({ apiKey: 'test', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 50 }) });
     try {
       const s = store();
@@ -217,20 +259,67 @@ describe('goal generation (§4.2 module 10)', () => {
       });
       await gg.run('starting');
       await gg.run('periodic');
-      await gg.run('periodic');
-      expect(set).toEqual([
-        ['build a small hut by the lake', 'inventoryHas:oak_planks>=20'],
-        ['make friends with Bram', undefined],
+      expect(set).toEqual([['cut planks', 'inventoryHas:oak_planks>=20']]);
+      expect(s.state.goals.plan?.steps).toEqual([
+        { text: 'cut planks', doneWhen: 'inventoryHas:oak_planks>=20', status: 'doing' },
+        { text: 'make friends with Bram', doneWhen: 'spent:6', status: 'todo' },
+        { text: 'find a nice spot', doneWhen: 'spent:6', status: 'todo' },
       ]);
-      expect(fake.chatRequests()).toHaveLength(3);
+      expect(s.state.goals.plan).toMatchObject({ aim: 'build a small hut by the lake', why: 'I want a home', source: 'llm' });
+      expect(fake.chatRequests()).toHaveLength(2);
       const sys = String((fake.chatRequests()[0]?.body?.messages as { content: string }[] | undefined)?.[0]?.content);
-      expect(sys).toContain('Choose your next concrete goal');
+      expect(sys).toContain('Make your own plan');
+      expect(sys).toContain("Don't just do things in the usual order");
+      // The second time it is asked whether the plan still holds, and it does.
+      const sys2 = String((fake.chatRequests()[1]?.body?.messages as { content: string }[] | undefined)?.[0]?.content);
+      expect(sys2).toContain('If your current plan is still right');
     } finally {
       rt.stop();
     }
   });
 
-  it('without a model, a goal not finished in 20 minutes (longer, given to sunk costs) is given up for the next one', async () => {
+  it('after a talk, what was said is weighed into the plan (L2), and the plan counts as talked over', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    let n = 0;
+    fake.chat = () => {
+      n++;
+      return { text: JSON.stringify(n === 1 ? { keep: false, plan: { aim: 'build a house with Bram', steps: [{ text: 'mine cobblestone while Bram cuts wood', doneWhen: 'inventoryHas:cobblestone>=24' }], why: 'Bram said he would cut the wood' } } : { keep: true }) };
+    };
+    const rt = await startLlm({ apiKey: 'test', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 50 }) });
+    try {
+      const s = store();
+      const bus = new AgentBus();
+      const set: string[] = [];
+      let t = 1_000_000;
+      const gg = new GoalGen({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', now: () => t, setGoal: (x, d) => {
+        set.push(x);
+        s.update('goals', (g) => ({ ...g, current: { id: `g${set.length}`, text: x, kind: 'current', createdAt: t, status: 'active', ...(d ? { doneWhen: d } : {}) } }), 'goal');
+      } });
+      gg.start();
+      gg.install({ id: 'p0', aim: 'build a house', steps: [{ text: 'gather 20 logs', doneWhen: 'inventoryHas:log>=20', status: 'todo' }], createdAt: 0, updatedAt: 0, discussedWith: [], source: 'default' }, 'test');
+      const line = (from: string, text: string, ts: number): Utterance => ({ id: `u${ts}`, convId: 'c1', from, to: [], text, ts, pos: null, volume: 'normal', outOfSight: false, addressedToMe: from !== 'Pip' });
+      s.update('conversations', () => ({ c1: { convId: 'c1', participants: ['Pip', 'Bram'], startedAt: t, lastActivity: t, turns: 3, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [line('Pip', "I'm going to gather logs for a house.", t), line('Bram', "I'll cut the wood, you get the stone.", t + 1), line('Pip', 'deal, stone it is.', t + 2)], initiatedByMe: true, nudged: false } }), 'talk');
+      bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
+      await until(() => set.length === 2);
+      expect(set).toEqual(['gather 20 logs', 'mine cobblestone while Bram cuts wood']);
+      expect(s.state.goals.plan).toMatchObject({ aim: 'build a house with Bram', discussedWith: ['Bram'], why: 'Bram said he would cut the wood' });
+      const asked = fake.chatRequests()[0]?.body?.messages as { content: string }[];
+      expect(asked[0]?.content).toContain('You just talked with Bram');
+      expect(asked[1]?.content).toContain("Bram: I'll cut the wood, you get the stone.");
+      // At most every 90 s; a talk that changes nothing still counts as talked over.
+      t += 100_000;
+      s.update('conversations', (c) => ({ ...c, c2: { ...(c.c1 as NonNullable<typeof c.c1>), convId: 'c2', participants: ['Pip', 'Mira'], transcript: [line('Pip', 'hi Mira', t), line('Mira', 'hello!', t + 1)] } }), 'talk');
+      bus.emit({ type: 'conversationEnded', convId: 'c2', reason: 'went quiet' });
+      await until(() => (s.state.goals.plan?.discussedWith.length ?? 0) === 2);
+      expect(s.state.goals.plan?.discussedWith).toEqual(['Bram', 'Mira']);
+      expect(set).toHaveLength(2);
+      gg.stop();
+    } finally {
+      rt.stop();
+    }
+  });
+
+  it('without a model, a step not finished in 20 minutes (longer, given to sunk costs) is given up for the next one', async () => {
     let t = 0;
     const s = store();
     const set: string[] = [];
@@ -241,22 +330,36 @@ describe('goal generation (§4.2 module 10)', () => {
       llm: null,
       me: 'Pip',
       now: () => t,
+      rng: () => 0,
       setGoal: (text) => {
         set.push(text);
         s.update('goals', (g) => ({ ...g, current: { id: `g${set.length}`, text, kind: 'current', createdAt: t, status: 'active' } }), 'goal');
       },
     });
-    s.update('goals', (g) => ({ ...g, current: { id: 'g0', text: 'tame a wolf', kind: 'current', createdAt: 0, status: 'active' } }), 'goal');
+    gg.install({ id: 'p0', aim: 'tame a pet', steps: [{ text: 'tame a wolf', status: 'todo' }, { text: 'find a cat', status: 'todo' }], createdAt: 0, updatedAt: 0, discussedWith: [], source: 'default' }, 'test');
+    expect(set).toEqual(['tame a wolf']);
     t = 19 * 60_000;
     await gg.run('periodic');
-    expect(set).toEqual([]);
+    expect(set).toEqual(['tame a wolf']);
     // §18.4 sunk cost (0.4 here): held on to for 20 × 1.2 = 24 minutes.
     t = 23 * 60_000;
     await gg.run('periodic');
-    expect(set).toEqual([]);
+    expect(set).toEqual(['tame a wolf']);
     t = 25 * 60_000;
     await gg.run('periodic');
-    expect(set).toEqual(['make a wooden pickaxe']);
+    expect(set).toEqual(['tame a wolf', 'find a cat']);
+    expect(s.state.goals.plan?.steps.map((x) => x.status)).toEqual(['dropped', 'doing']);
+    // The last step gone stale too: a new plan.
+    t = 50 * 60_000;
+    await gg.run('periodic');
+    expect(set.at(-1)).toBe('gather 5 logs');
+    // A goal set from outside the plan (the operator) is left alone until it is done or stale.
+    s.update('goals', (g) => ({ ...g, current: { id: 'op', text: 'dig a moat', kind: 'current', createdAt: t, status: 'active' } }), 'operator');
+    await gg.run('periodic');
+    expect(s.state.goals.current?.text).toBe('dig a moat');
+    t += 30 * 60_000;
+    await gg.run('periodic');
+    expect(s.state.goals.current?.text).toBe('gather 5 logs');
   });
 
   it('nothing runs into a stopped agent: a run asked for soon is dropped, and memory read after its database closed finds nothing', async () => {

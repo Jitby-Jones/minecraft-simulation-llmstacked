@@ -12,6 +12,37 @@ export type DegradeLevel = z.infer<typeof DegradeLevelSchema>;
 export const PerceivedTraitsSchema = z.record(z.string(), z.number().min(0).max(1));
 export type PerceivedTraits = z.infer<typeof PerceivedTraitsSchema>;
 
+/** Modules the operator can switch off for an agent (debug controls). */
+export const TUNABLE_MODULES = [
+  'llm',
+  'cc.llm',
+  'talking.llm',
+  'goalGen',
+  'socialGoals',
+  'reflection',
+  'selfMonitor',
+  'impulses',
+  'conflict',
+  'romance',
+  'family',
+  'skillWriter',
+] as const;
+export const TunableModuleSchema = z.enum(TUNABLE_MODULES);
+export type TunableModule = z.infer<typeof TunableModuleSchema>;
+
+/**
+ * The operator's debug settings for an agent (or for all of them): modules switched off, the model a tier tries
+ * first and the tier a module uses (subscription models only, §22.3), and whether the agent is paused (no decisions;
+ * the reflexes still keep it alive). Kept by the Hub across restarts; never anything about the world.
+ */
+export const TuningSchema = z.object({
+  off: z.array(TunableModuleSchema).default([]),
+  models: z.partialRecord(TierNameSchema, z.string().min(1)).default({}),
+  tiers: z.partialRecord(LlmModuleSchema, TierNameSchema).default({}),
+  paused: z.boolean().default(false),
+});
+export type Tuning = z.infer<typeof TuningSchema>;
+
 export const HubToBotSchema = z.discriminatedUnion('t', [
   z.object({
     t: z.literal('assign'),
@@ -42,6 +73,10 @@ export const HubToBotSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('snapshot'), reqId: z.string() }),
   z.object({ t: z.literal('retire'), reason: z.string() }),
   z.object({ t: z.literal('shutdown'), reason: z.string() }),
+  /** The operator's debug settings for this agent (sent on start and on every change). */
+  z.object({ t: z.literal('tuning'), tuning: TuningSchema }),
+  /** An operator's debug request (inspect, memory, goal, plan, decide, …); answered with debugResult. */
+  z.object({ t: z.literal('debug'), reqId: z.string(), op: z.string().min(1).max(40), args: z.record(z.string(), z.unknown()).default({}) }),
 ]);
 export type HubToBot = z.infer<typeof HubToBotSchema>;
 
@@ -127,6 +162,7 @@ export const BotToHubSchema = z.discriminatedUnion('t', [
     data: z.record(z.string(), z.unknown()),
   }),
   z.object({ t: z.literal('bye'), username: z.string(), reason: z.string() }),
+  z.object({ t: z.literal('debugResult'), reqId: z.string(), ok: z.boolean(), message: z.string(), data: z.unknown().optional() }),
 ]);
 export type BotToHub = z.infer<typeof BotToHubSchema>;
 

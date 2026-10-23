@@ -150,7 +150,7 @@ export const DecisionOutputSchema = z.object({
 });
 export type DecisionOutput = z.infer<typeof DecisionOutputSchema>;
 
-export type DecisionSource = 'llm' | 'default' | 'reflex' | 'impulse' | 'script';
+export type DecisionSource = 'llm' | 'default' | 'reflex' | 'impulse' | 'script' | 'operator';
 
 export interface Decision extends DecisionOutput {
   id: string;

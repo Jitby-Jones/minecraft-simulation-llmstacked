@@ -61,7 +61,8 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     case 'demand':
     case 'recruit':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
-      return { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 600) } };
+      // While talking: facing them, an eye on what's around.
+      return { skill: 'lookAround', args: { seconds: Math.min(opt.maxSeconds, 600), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
     // A fight is a duel until someone yields (the conflict gate let it through, §17.5).
     case 'fight':
       if (opt.skill) return { skill: opt.skill, args: opt.args ?? {} };
@@ -71,11 +72,12 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     // §19.2 courting: walk over, then the small gift (a give task) or a moment while the line is said.
     case 'court':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 3 } };
-      return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'wait', args: { seconds: Math.min(opt.maxSeconds, 60) } };
+      return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'lookAround', args: { seconds: Math.min(opt.maxSeconds, 60), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
+    // Resting is not standing frozen: one stays put and keeps an eye on what's around (on whom we face, if anyone).
     case 'yield':
     case 'apologize':
     case 'rest':
-      return { skill: 'wait', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120) } };
+      return { skill: 'lookAround', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
   }
 }
 
@@ -95,7 +97,7 @@ export class SkillExecutor {
   /** Nothing physical going on (resting or just looking around): upkeep reflexes like picking things up may run. */
   get idleBody(): boolean {
     const skill = this.current?.skill ?? this.current?.opt.skill;
-    return this.current === null || skill === 'wait' || skill === 'look';
+    return this.current === null || skill === 'wait' || skill === 'look' || skill === 'lookAround' || skill === 'wander';
   }
 
   /** The running option's skill can continue during a conversation (§6.2 busy matrix). */
@@ -210,7 +212,7 @@ export class SkillExecutor {
       logger.info({ module: 'executor', skill: r.skill, args: r.args, ok, expected: r.expected, observed: r.observed, error: rec.error, ms: r.durationMs, slip: r.slip }, 'action');
       bus.emit({ type: 'actionRecorded', record: rec });
       if ((opt.option === 'talk' || opt.option === 'trade' || (opt.option === 'court' && !opt.skill)) && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted) {
-        step = { skill: 'wait', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)) } };
+        step = { skill: 'lookAround', args: { seconds: Math.max(1, Math.round((opt.startedAt + opt.maxSeconds * 1000 - this.now()) / 1000)), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
         continue;
       }
       if ((opt.option === 'help' || opt.option === 'court') && leg === 0 && step.skill === 'goTo' && ok && !ac.signal.aborted && opt.skill) {

@@ -4,8 +4,8 @@
 // `needsDecision`; the CC's speechIntent then drives the real answer. Reply timing follows the busy matrix; lines
 // that arrive while a reply is pending are answered together (batching).
 
-import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, capWords, mentionsName } from '@agora/shared';
-import type { ChatMessage, LlmClient } from '@agora/llm';
+import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, countWords, dropUnfinished, endsSentence, fitWords, mentionsName } from '@agora/shared';
+import type { ChatMessage, LlmClient, TierName } from '@agora/llm';
 import { SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
@@ -22,6 +22,8 @@ import { ACCEPTANCE, BREAKUP_LINE, COMPLIMENTS, DECLINE_LINES, FLIRT_BACK, GIFT_
 import { FAMILY_HAPPY, FAMILY_NOT_YET, FAMILY_PROPOSAL, FAMILY_YES, isFamilyAsk } from '../social/familyWatch';
 import { parseTradeOffer } from '../social/trades';
 import { NO_PROMISE_RULE, PG_RULE, STRICT_NO_PROMISE_RULE, personaCore, talkRules } from './prompts';
+import { planText } from './plan';
+import { isOff } from '../state/switches';
 
 export const PROMISE_RE =
   /\b(i'?ll|i will|i can do (that|it)|sure,? i can|deal\b(?!\s+with)|i promise|you got it|i'?m on it|on it\b|consider it done|will do\b|count me in|leave it to me|i'?ll (bring|get|give|grab|fetch|help|build|make|meet))\b/i;
@@ -67,13 +69,26 @@ export function needsDecision(text: string): boolean {
   return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null || isAdvance(text) || isFamilyAsk(text);
 }
 
-/** One clean chat line from a model reply: no "Name:" prefix, no quotes, no commands, capped. */
-export function cleanReply(raw: string, me: string, maxWords: number): string {
-  let t = (raw.split('\n').find((l) => l.trim().length > 0) ?? '').trim();
-  t = t.replace(new RegExp(`^(${me}|me|you)\\s*[:>»-]\\s*`, 'i'), '');
+/** A line of a reply as said: no "Name:" prefix, no quotes around it, no command slash. */
+function cleanLine(line: string, me: string): string {
+  let t = line.trim().replace(new RegExp(`^(${me}|me|you)\\s*[:>»-]\\s*`, 'i'), '');
   t = t.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, '').trim();
-  t = t.replace(/^[/\\]+/, '');
-  return capWords(t, maxWords);
+  return t.replace(/^[/\\]+/, '');
+}
+
+/**
+ * One clean chat line from a model reply: no "Name:" prefix, no quotes, no commands, about `maxWords` words in whole
+ * sentences (a line is never cut off mid-sentence just for running long). The first line of the reply, with the
+ * next ones when it breaks off mid-sentence (a wrapped line), but never a line that reads as someone else's turn.
+ */
+export function cleanReply(raw: string, me: string, maxWords: number): string {
+  const lines = raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  let t = cleanLine(lines[0] ?? '', me);
+  for (const next of lines.slice(1, 3)) {
+    if (endsSentence(t) || /^[A-Za-z0-9_]{2,16}\s*[:>»]\s/.test(next)) break;
+    t = `${t} ${cleanLine(next, me)}`;
+  }
+  return fitWords(t, maxWords);
 }
 
 const GREETINGS: readonly string[] = ['hey!', 'hi there', 'hello!', 'oh, hey', 'hey, how is it going?'];
@@ -133,6 +148,8 @@ export interface TalkingOptions {
   now?: () => number;
   /** How long a lull must be before a line nobody asked for (tests shorten it). */
   lullMs?: number;
+  /** The tier lines are written with (models.yaml speech.tier; L2 by default). */
+  tier?: TierName;
 }
 
 interface Pending {
@@ -510,7 +527,7 @@ export class Talking {
   private async compose(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName): Promise<string> {
     const s = this.o.store.state;
     const persona = s.self.persona;
-    const llm = this.o.llm;
+    const llm = isOff(s, 'talking.llm') ? null : this.o.llm;
     if (!llm) {
       const transcript = s.conversations[convId]?.transcript ?? [];
       return this.canned(intent, incoming.length === 0 && transcript.length === 0, (line) => transcript.some((u) => u.from === this.o.me && u.text === line), to);
@@ -534,11 +551,20 @@ export class Talking {
       return `You feel ${Math.round(p.sentiment)}/10 about ${name}${p.trust < 0.35 ? ' and don\u2019t trust them much' : ''}.${p.summary ? ` ${p.summary}` : ''}${promises.length > 0 ? ` ${promises.join('; ')}.` : ''}`;
     });
     const feeling = feelingText(s.emotions);
+    // Who else is around (a group talk names whom a line is for), the time of day, and what we're about.
+    const around = s.perception.nearbyEntities
+      .filter((e) => e.kind === 'player' && !partners.includes(e.name) && e.distance <= 24)
+      .slice(0, 4)
+      .map((e) => `${e.name} (${Math.round(e.distance)} m)`);
+    const goal = s.goals.current?.text;
+    const plan = planText(s);
     const user = [
-      `Right now you are: ${activity}.`,
+      `Right now you are: ${activity}. It is ${s.self.isDay ? 'day' : 'night'}.`,
+      plan ? `Your plan: ${plan}` : goal ? `What you're working toward: ${goal}.` : '',
       s.selfSummary ? `About you: ${s.selfSummary}` : '',
       feeling ? `You feel ${feeling}; let it show in how you talk.` : '',
       ...about,
+      around.length > 0 ? `Also nearby: ${around.join(', ')}.` : '',
       onMind.length > 0 ? `On your mind: ${onMind.join('; ')}` : '',
       remembered.length > 0 ? `You remember:\n${remembered.map((m) => `- ${m}`).join('\n')}` : '',
       `What you want to get across: ${intent.stance} — ${intent.gist}`,
@@ -551,6 +577,7 @@ export class Talking {
     const rule = intent.mayCommit ? `You may agree to this: ${intent.gist}` : NO_PROMISE_RULE;
     const system = (extra: string) => `${personaCore(persona, s.traitAnnotations)}\n\n${talkRules(persona.speech.maxWords)}\n${rule}${extra ? `\n${extra}` : ''}`;
     const guard = this.o.store.guard(talkPolicy(convId));
+    const max = persona.speech.maxWords;
     try {
       // §19.6: a draft that isn't PG is written again once, told so; then a neutral line.
       let notPg = false;
@@ -560,12 +587,14 @@ export class Talking {
           { role: 'user', content: user },
         ];
         // §5: stream, and send the first sentence as soon as it is complete (if it passes the guards). When chiming
-        // in, it still yields to anyone who answered first (§6.2 floor control).
-        const st: { buf: string; first: string | null; sent: Promise<boolean> | null } = { buf: '', first: null, sent: null };
+        // in, it still yields to anyone who answered first (§6.2 floor control). A model that fails partway is
+        // replaced by the next one; what the failed one streamed was only a draft, so it is dropped, unless its
+        // first sentence already went out: then that sentence was the line.
+        const st: { buf: string; first: string | null; sent: Promise<boolean> | null; broken: boolean } = { buf: '', first: null, sent: null, broken: false };
         const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
         const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) : undefined;
         const r = await llm.call<string>({
-          tier: 'L1',
+          tier: this.o.tier ?? 'L2',
           module: 'talking',
           agent: this.o.me,
           messages,
@@ -573,25 +602,31 @@ export class Talking {
           signal: guard.signal,
           isStale: guard.isStale,
           temperature: 0.8,
+          onRetry: () => {
+            if (st.first) st.broken = true;
+            else st.buf = '';
+          },
           onText: (d) => {
+            if (st.broken) return;
             st.buf += d;
             if (st.first !== null) return;
             const m = /^(.{8,}?[.!?])(\s|$)/s.exec(st.buf.trimStart());
             if (!m?.[1]) return;
-            const sentence = cleanReply(m[1], persona.name, persona.speech.maxWords);
+            const sentence = cleanReply(m[1], persona.name, max);
             st.first = this.passes(sentence, intent) ? sentence : '';
             if (st.first) st.sent = this.send(convId, sentence, intent.volume, stillWanted);
           },
         });
         if (!r.ok && (r.reason === 'stale' || r.reason === 'aborted')) return '';
-        const text = cleanReply(r.value, persona.name, persona.speech.maxWords);
         if (st.sent && st.first) {
-          if (!(await st.sent)) return '';
-          const at = text.indexOf(st.first);
-          const budget = Math.max(1, persona.speech.maxWords - st.first.split(' ').length);
-          const rest = cleanReply(text.slice(at >= 0 ? at + st.first.length : st.first.length), persona.name, budget);
-          return rest && this.passes(rest, intent) && /[a-z]/i.test(rest) ? rest : '';
+          if (!(await st.sent) || st.broken || !r.ok) return '';
+          // The rest of the reply, after the sentence already said: whole sentences only.
+          const full = cleanReply(r.truncated ? dropUnfinished(r.value) : r.value, persona.name, max);
+          const at = full.indexOf(st.first);
+          const rest = at < 0 ? '' : full.slice(at + st.first.length).trim();
+          return rest && countWords(st.first) + countWords(rest) <= Math.max(8, Math.round(max * 1.5)) && this.passes(rest, intent) && /[a-z]/i.test(rest) ? rest : '';
         }
+        const text = r.ok ? cleanReply(r.truncated ? dropUnfinished(r.value) : r.value, persona.name, max) : r.value;
         if (this.passes(text, intent)) return text;
         notPg = NOT_PG_RE.test(text);
         if (notPg) this.o.logger.info({ module: 'talking' }, 'draft was not PG; writing it again');

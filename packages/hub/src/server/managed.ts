@@ -39,7 +39,10 @@ export function preflightServer(opts: ManagedServerOptions): PreflightResult {
   const mode = readModeState(opts.paths);
   if (!mode) problems.push('server files not generated: run `pnpm run setup`');
   else if (mode.mode !== opts.world.mode) {
-    problems.push(`config/world.yaml says mode ${opts.world.mode} but the server is set up for ${mode.mode}: run \`pnpm server-mode ${opts.world.mode}\``);
+    const on = opts.world.mode === 'test';
+    problems.push(
+      `test mode is ${on ? 'on' : 'off'} in config/world.yaml (mode ${opts.world.mode}), but the server's world "${mode.levelName}" was set up with it ${on ? 'off' : 'on'}: run \`pnpm test-mode ${on ? 'on' : 'off'}\` (add --new-world if that world was already played: ${on ? '' : 'hardcore needs a fresh world; '}the old one is kept), or \`pnpm test-mode ${on ? 'off' : 'on'}\` to keep it as it is`,
+    );
   }
   const opBots = opsContainingBots(opts.paths, opts.botNames);
   if (opBots.length > 0) problems.push(`bot usernames are op (never allowed, §13 rule 10): ${opBots.join(', ')}`);

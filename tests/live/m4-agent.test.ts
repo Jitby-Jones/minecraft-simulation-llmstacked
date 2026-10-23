@@ -29,7 +29,7 @@ import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { countItem } from '@agora/agent/body/inventory';
 import { pushWorkmem } from '@agora/agent/state/workmem';
-import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -137,7 +137,7 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
     fake.chat = ({ body }) => {
       const messages = body.messages as { role: string; content: string }[];
       const user = messages.at(-1)?.content ?? '';
-      const schema = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+      const schema = schemaNameOf(body);
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I like an easy life and a good joke.' }) };
       if (schema === 'memory') return { text: JSON.stringify({ text: messages.at(-1)?.content.split('\n')[0]?.slice(2) ?? 'stuff happened' }) };
       if (schema === 'goal') {

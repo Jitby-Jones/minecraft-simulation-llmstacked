@@ -2,7 +2,7 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
+import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
 import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
@@ -74,6 +74,8 @@ export interface AgentOptions {
   fightSlot?: { acquire(): Promise<boolean>; release(): void };
   /** Born in-world (§19.4): what it starts out knowing, and when its youth ends. */
   birth?: { facts: BirthFacts; youthUntil: number };
+  /** The tier Talking writes lines with (models.yaml speech.tier). */
+  speechTier?: 'L1' | 'L2' | 'L3';
   /** §19.3: the bed ritual done beside our partner: the Hub is told (conception), with what we believe of them. */
   onConception?: (c: { partner: AgentName; bedPos: Vec3; partnerModel: Record<string, number>; partnerSex: Sex | 'unknown' }) => void;
   now?: () => number;
@@ -177,6 +179,7 @@ export class Agent {
       me: username,
       ...(mem ? { recall: (text: string, k: number) => mem.relevantTo(text, k) } : {}),
       rungOf: (name) => this.conflict.rungOf(name),
+      ...(o.speechTier ? { tier: o.speechTier } : {}),
       now,
     });
     this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
@@ -589,6 +592,7 @@ export class Agent {
       },
       settled: (name, since) => this.conflict.settled(name, since),
       isIdle: () => this.executor.idleBody,
+      between: () => !this.executor.busy,
       mayPickUp: (item) => this.perception.mayPickUp(item.id),
       fearBoost: (source) => this.biases.fearBoost(source),
       onAllyAttacked: (ally, by) => {
@@ -635,6 +639,28 @@ export class Agent {
 
   get name(): AgentName {
     return this.o.username;
+  }
+
+  /** The body and the model client, for the operator's debug requests (hub/debug.ts). */
+  get bodyOf(): Body {
+    return this.o.body;
+  }
+
+  get llm(): LlmClient | null {
+    return this.o.llm;
+  }
+
+  /**
+   * The operator's debug settings (the Hub's tuning message): modules switched off, the agent paused or let go on,
+   * and which models it uses. Pausing stops what it is doing; the reflexes still keep it alive.
+   */
+  applyTuning(t: Tuning): void {
+    const was = this.store.state.flags.paused === true;
+    this.store.update('flags', (f) => ({ ...f, off: [...t.off], paused: t.paused }), 'tuning');
+    this.o.llm?.setRouting({ off: t.off.includes('llm'), tierModel: t.models, moduleTier: t.tiers });
+    if (t.paused && !was) this.executor.abort('paused by the operator');
+    if (!t.paused && was) this.cc.trigger('you can go on now', { urgent: true });
+    this.o.logger.info({ module: 'agent', off: t.off, paused: t.paused, models: t.models, tiers: t.tiers }, 'tuning');
   }
 
   /** §18.4.1 fearLevel = max(fear, caution above its baseline, fear of the leader we follow). */

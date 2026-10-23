@@ -9,6 +9,7 @@ import type { AgentBus } from '../bus';
 import { SUMMARY_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { personaCore } from './prompts';
+import { isOff } from '../state/switches';
 
 const SummarySchema = z.object({ summary: z.string().min(1).max(1200) });
 
@@ -78,6 +79,7 @@ export class SelfMonitor {
   }
 
   async run(): Promise<void> {
+    if (isOff(this.o.store.state, 'selfMonitor')) return;
     this.lastRun = this.now();
     this.lastWorkmemVersion = this.o.store.facetVersion('workmem');
     const s = this.o.store.state;

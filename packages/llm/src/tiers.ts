@@ -73,7 +73,7 @@ function autoOrder(tier: TierName, candidates: ModelInfo[], spec: TierSpec, benc
   let restSorted: ModelInfo[];
   switch (tier) {
     case 'L1':
-      // Fastest measured, else the cheapest-listed; models that may think by default come last (2.5 s budget).
+      // Fastest measured, else the cheapest-listed; models that may think by default come last (5 s budget).
       measuredSorted = [...measured].sort((a, b) => (benched.get(a.id)?.p50Ms ?? 0) - (benched.get(b.id)?.p50Ms ?? 0));
       restSorted = [...rest].sort((a, b) => slow(a) - slow(b) || byPrice(a, b));
       break;
@@ -89,10 +89,12 @@ function autoOrder(tier: TierName, candidates: ModelInfo[], spec: TierSpec, benc
       break;
     }
     case 'L3':
-      // Largest: reasoning-flagged, then the priciest-listed, then the longest context.
+      // Largest: reasoning-flagged, then the priciest-listed, then the longest context. A :thinking variant comes
+      // after the rest: it often runs past even the 45 s budget (35–45 s replies are common).
       measuredSorted = [...measured].sort((a, b) => price(b) - price(a));
       restSorted = [...rest].sort(
         (a, b) =>
+          Number(a.thinking) - Number(b.thinking) ||
           Number(b.capabilities.has('reasoning')) - Number(a.capabilities.has('reasoning')) ||
           (Number.isFinite(price(b)) ? price(b) : -1) - (Number.isFinite(price(a)) ? price(a) : -1) ||
           (b.contextLength ?? 0) - (a.contextLength ?? 0) ||

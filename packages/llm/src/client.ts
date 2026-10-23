@@ -34,7 +34,7 @@ export interface LlmUsage {
 export type FallbackReason = 'code-only' | 'budget' | 'disabled' | 'stale' | 'aborted' | 'failed';
 
 export type LlmResult<T> =
-  | { ok: true; source: 'llm'; value: T; text: string; model: string; tier: TierName; usage: LlmUsage; ms: number; attempts: number }
+  | { ok: true; source: 'llm'; value: T; text: string; model: string; tier: TierName; usage: LlmUsage; ms: number; attempts: number; truncated?: boolean }
   | { ok: false; source: 'fallback'; value: T; reason: FallbackReason; error?: string; ms: number; attempts: number };
 
 export interface LlmCallOptions<T> {
@@ -55,8 +55,41 @@ export interface LlmCallOptions<T> {
   temperature?: number;
   /** Streams text replies (Talking): called with each new piece. */
   onText?: (delta: string) => void;
+  /** Called before another model is tried after a failed attempt (a stream's pieces so far were from the failed one). */
+  onRetry?: () => void;
   /** A specific model (bench, tests). Must be on the allowlist. */
   model?: string;
+  /**
+   * The prompt already describes the reply's JSON (the CC's decision format): the schema itself isn't appended, only
+   * a line asking for that object.
+   */
+  formatInPrompt?: boolean;
+  /** Tidies the parsed JSON before validation (placeholders a model filled in for fields it didn't need). */
+  prepare?: (json: unknown) => unknown;
+}
+
+/**
+ * The operator's routing for one agent (debug controls): every model call off (the code defaults run), the model a
+ * tier tries first, and the tier a module uses instead of the one it asks for. Subscription models only: a model not
+ * on the allowlist is never sent anything (§22.3).
+ */
+export interface Routing {
+  off?: boolean;
+  tierModel?: Partial<Record<TierName, string>>;
+  moduleTier?: Partial<Record<ModuleName, TierName>>;
+}
+
+/**
+ * How structured replies are asked for. `object`: a JSON-object reply, the schema given in the prompt. `schema`: the
+ * API's json_schema format for models that list structured output. Subscription models asked for a json_schema
+ * reply fill in every optional field, mostly with empty strings (a goal of "", a fight with "zombie"), so `object` is
+ * the default.
+ */
+export type StructuredMode = 'object' | 'schema';
+
+/** The line that asks for a structured reply; `name` in parentheses (tests read it to tell the callers apart). */
+export function replyFormatLine(name: string, schemaJson: string | null): string {
+  return schemaJson === null ? `Reply with only the JSON object (${name}) described above.` : `Reply with only a JSON object (${name}) matching this JSON schema:\n${schemaJson}`;
 }
 
 export interface TierRuntime extends TierSpec {
@@ -76,6 +109,8 @@ export interface LlmClientDeps {
   activeAgents?: () => number;
   onCost?: (r: CostRecord) => void;
   circuit?: CircuitBreaker;
+  /** How structured replies are asked for (default `object`). */
+  structured?: StructuredMode;
   now?: () => number;
 }
 
@@ -86,6 +121,8 @@ const SCHEMA_FAIL_WINDOW_MS = 30 * 60_000;
 interface Reply {
   text: string;
   usage: LlmUsage;
+  /** The reply stopped at max_tokens. */
+  truncated?: boolean;
 }
 
 class AttemptError extends Error {
@@ -126,6 +163,7 @@ export class LlmClient {
   private readonly circuit: CircuitBreaker;
   private readonly now: () => number;
   private readonly schemaFails = new Map<string, number[]>();
+  private route: Routing = {};
 
   constructor(private readonly deps: LlmClientDeps) {
     this.now = deps.now ?? Date.now;
@@ -142,6 +180,22 @@ export class LlmClient {
     });
   }
 
+  /** Sets the operator's routing (replaces the previous one). */
+  setRouting(r: Routing): void {
+    this.route = { ...r };
+  }
+
+  get routing(): Routing {
+    return this.route;
+  }
+
+  /** The models a tier would try, in order, as routed now (for the dashboard). */
+  chainFor(tier: TierName): string[] {
+    const first = this.route.tierModel?.[tier];
+    const chain = this.deps.router.chain(tier);
+    return first && this.deps.router.allowlist.has(first) ? [first, ...chain.filter((m) => m !== first)] : [...chain];
+  }
+
   async call<T>(o: LlmCallOptions<T>): Promise<LlmResult<T>> {
     const t0 = this.now();
     let attempts = 0;
@@ -155,13 +209,15 @@ export class LlmClient {
       attempts,
     });
     if (o.signal?.aborted) return fallback('aborted');
+    if (this.route.off) return fallback('disabled', 'model calls switched off by the operator');
 
     // Layer 4: quota ladder, then the agent's own hourly share.
     const q = this.deps.governor.status;
     const effects = ladder(q.level);
     if (!effects.enabled(o.module)) return fallback(q.codeOnly ? 'code-only' : 'disabled', q.reason);
     const share = this.deps.governor.perAgentHourly(this.deps.activeAgents?.() ?? 1);
-    const tier = applyAgentDegrade(effects.tier(o.tier, o.module), agentDegrade(this.deps.meter.spentThisHour(o.agent), share));
+    const asked = this.route.moduleTier?.[o.module] ?? o.tier;
+    const tier = applyAgentDegrade(effects.tier(asked, o.module), agentDegrade(this.deps.meter.spentThisHour(o.agent), share));
     if (tier === null) return fallback(q.codeOnly ? 'code-only' : 'budget', q.codeOnly ? q.reason : 'hourly share used up');
 
     // Layer 3: only allowlisted models, refused before anything is sent.
@@ -172,7 +228,7 @@ export class LlmClient {
       chain = [id];
     } else {
       if (this.deps.router.codeOnly) return fallback('code-only', 'no subscription model fits any tier');
-      chain = this.deps.router.chain(tier).filter((m) => !this.circuit.isOpen(m));
+      chain = this.chainFor(tier).filter((m) => !this.circuit.isOpen(m));
       if (chain.length === 0) return fallback('failed', `every ${tier} model is circuit-broken`);
     }
     const spec = this.deps.specs[tier];
@@ -190,6 +246,7 @@ export class LlmClient {
         if (o.model !== undefined) throw new ModelNotInSubscription(model);
         continue; // removed since the chain was read
       }
+      if (attempts > 0) o.onRetry?.();
       attempts++;
       const started = this.now();
       try {
@@ -197,7 +254,7 @@ export class LlmClient {
         this.record(o, tier, model, r.usage, this.now() - started, true);
         this.circuit.success(model);
         if (o.signal?.aborted || o.isStale?.()) return fallback(o.isStale?.() ? 'stale' : 'aborted', 'state moved on');
-        return { ok: true, source: 'llm', value: r.value, text: r.text, model, tier, usage: r.usage, ms: this.now() - t0, attempts };
+        return { ok: true, source: 'llm', value: r.value, text: r.text, model, tier, usage: r.usage, ms: this.now() - t0, attempts, ...(r.truncated ? { truncated: true } : {}) };
       } catch (err) {
         if (err instanceof ForbiddenEndpointError || err instanceof ForbiddenOptionError || err instanceof ModelNotInSubscription) throw err;
         const usage = err instanceof AttemptError ? err.usage : { inputTokens: 0, outputTokens: 0 };
@@ -279,21 +336,25 @@ export class LlmClient {
     this.deps.onCost?.(r);
   }
 
-  private async attempt<T>(o: LlmCallOptions<T>, model: string, spec: TierRuntime): Promise<{ value: T; text: string; usage: LlmUsage }> {
+  private async attempt<T>(o: LlmCallOptions<T>, model: string, spec: TierRuntime): Promise<{ value: T; text: string; usage: LlmUsage; truncated?: boolean }> {
     if (!o.schema) {
       const r = await this.request(o, model, spec, o.messages, undefined);
-      return { value: r.text as T, text: r.text, usage: r.usage };
+      return { value: r.text as T, text: r.text, usage: r.usage, ...(r.truncated ? { truncated: true } : {}) };
     }
     const schema = o.schema;
-    const native = this.deps.router.allowlist.get(model)?.capabilities.has('structured_output') ?? false;
-    const format = native
-      ? { type: 'json_schema' as const, json_schema: { name: o.schemaName ?? 'reply', schema: jsonSchemaOf(schema), strict: false } }
-      : { type: 'json_object' as const };
+    const name = o.schemaName ?? 'reply';
+    const native = (this.deps.structured ?? 'object') === 'schema' && (this.deps.router.allowlist.get(model)?.capabilities.has('structured_output') ?? false);
+    const format = native ? { type: 'json_schema' as const, json_schema: { name, schema: jsonSchemaOf(schema), strict: false } } : { type: 'json_object' as const };
+    // The reply format goes at the end of the system prompt (a system message after the conversation confuses some).
+    const line = replyFormatLine(name, o.formatInPrompt ? null : JSON.stringify(jsonSchemaOf(schema)));
+    const [head, ...rest] = o.messages;
     const messages: ChatMessage[] = native
       ? [...o.messages]
-      : [...o.messages, { role: 'system', content: `Reply with only a JSON object matching this JSON schema:\n${JSON.stringify(jsonSchemaOf(schema))}` }];
+      : head?.role === 'system'
+        ? [{ role: 'system', content: `${head.content}\n\n${line}` }, ...rest]
+        : [{ role: 'system', content: line }, ...o.messages];
     const first = await this.request(o, model, spec, messages, format);
-    const p1 = this.validate(first.text, schema);
+    const p1 = this.validate(first.text, schema, o.prepare);
     if (p1.ok) return { value: p1.value, text: first.text, usage: first.usage };
     // One repair retry with the validation error (§4.3).
     const repair: ChatMessage[] = [
@@ -308,15 +369,17 @@ export class LlmClient {
       throw new AttemptError(this.toLlmError(err, model, o.signal), first.usage);
     }
     const usage = { inputTokens: first.usage.inputTokens + second.usage.inputTokens, outputTokens: first.usage.outputTokens + second.usage.outputTokens };
-    const p2 = this.validate(second.text, schema);
+    const p2 = this.validate(second.text, schema, o.prepare);
     if (p2.ok) return { value: p2.value, text: second.text, usage };
+    this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, reply: second.text.slice(0, 600) }, 'reply still invalid after repair');
     throw new AttemptError(new LlmError('schema_invalid', `invalid reply after repair: ${p2.error}`, { model }), usage);
   }
 
-  private validate<T>(text: string, schema: z.ZodType<T>): { ok: true; value: T } | { ok: false; error: string } {
+  private validate<T>(text: string, schema: z.ZodType<T>, prepare?: (json: unknown) => unknown): { ok: true; value: T } | { ok: false; error: string } {
     let json: unknown;
     try {
       json = extractJson(text);
+      if (prepare) json = prepare(json);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -331,32 +394,16 @@ export class LlmClient {
     messages: readonly ChatMessage[],
     format: { type: 'json_object' } | { type: 'json_schema'; json_schema: Record<string, unknown> } | undefined,
   ): Promise<Reply> {
-    const timeout = AbortSignal.timeout(spec.timeoutMs);
-    const signal = o.signal ? AbortSignal.any([o.signal, timeout]) : timeout;
     const base = {
       model,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       max_tokens: Math.min(o.maxTokens ?? spec.maxTokens, spec.maxTokens),
       ...(o.temperature !== undefined ? { temperature: o.temperature } : {}),
     };
+    if (o.onText && !format) return this.stream(o, model, spec, messages, base);
+    const timeout = AbortSignal.timeout(spec.timeoutMs);
+    const signal = o.signal ? AbortSignal.any([o.signal, timeout]) : timeout;
     try {
-      if (o.onText && !format) {
-        const stream = await this.openai.chat.completions.create(
-          { ...base, stream: true, stream_options: { include_usage: true } },
-          { signal, timeout: spec.timeoutMs },
-        );
-        let text = '';
-        let usage: LlmUsage | null = null;
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta?.content ?? '';
-          if (delta) {
-            text += delta;
-            o.onText(delta);
-          }
-          if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
-        }
-        return { text, usage: usage ?? { inputTokens: estimateTokens(messages), outputTokens: Math.ceil(text.length / 4) } };
-      }
       // NanoGPT only reports usage on non-streaming calls when asked (`include_usage`).
       const body = { ...base, ...(format ? { response_format: format } : {}), include_usage: true };
       const res = await this.openai.chat.completions.create(body as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming, {
@@ -368,11 +415,57 @@ export class LlmClient {
         ? { inputTokens: res.usage.prompt_tokens, outputTokens: res.usage.completion_tokens }
         : { inputTokens: estimateTokens(messages), outputTokens: Math.ceil(text.length / 4) };
       if (!text.trim()) throw new AttemptError(new LlmError('provider', 'empty reply', { model }), usage);
-      return { text, usage };
+      return { text, usage, truncated: res.choices[0]?.finish_reason === 'length' };
     } catch (err) {
       if (err instanceof AttemptError) throw err;
       if (timeout.aborted && !o.signal?.aborted) throw new LlmError('timeout', `no reply within ${spec.timeoutMs} ms`, { model });
       throw err;
+    }
+  }
+
+  /**
+   * A streamed text reply (Talking). The tier's timeout is for the first piece to arrive; after that the stream may
+   * take up to three times as long in all, with no pause between pieces longer than the timeout. A reply cut off by a
+   * timeout once it was under way is a failure like any other: what streamed so far was only ever a draft.
+   */
+  private async stream(o: LlmCallOptions<unknown>, model: string, spec: TierRuntime, messages: readonly ChatMessage[], base: Record<string, unknown>): Promise<Reply> {
+    const ac = new AbortController();
+    const signal = o.signal ? AbortSignal.any([o.signal, ac.signal]) : ac.signal;
+    let why = `no reply within ${spec.timeoutMs} ms`;
+    const cut = (reason: string) => () => {
+      why = reason;
+      ac.abort(new Error(reason));
+    };
+    let gap = setTimeout(cut(`no reply within ${spec.timeoutMs} ms`), spec.timeoutMs);
+    const total = setTimeout(cut(`the reply took over ${spec.timeoutMs * 3} ms`), spec.timeoutMs * 3);
+    try {
+      const stream = await this.openai.chat.completions.create(
+        { ...(base as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming), stream: true, stream_options: { include_usage: true } },
+        { signal, timeout: spec.timeoutMs * 3 },
+      );
+      let text = '';
+      let usage: LlmUsage | null = null;
+      let truncated = false;
+      for await (const chunk of stream) {
+        clearTimeout(gap);
+        gap = setTimeout(cut(`the reply stalled for ${spec.timeoutMs} ms`), spec.timeoutMs);
+        const delta = chunk.choices[0]?.delta?.content ?? '';
+        if (delta) {
+          text += delta;
+          o.onText?.(delta);
+        }
+        if (chunk.choices[0]?.finish_reason === 'length') truncated = true;
+        if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
+      }
+      if (ac.signal.aborted && !o.signal?.aborted) throw new LlmError('timeout', why, { model });
+      return { text, usage: usage ?? { inputTokens: estimateTokens(messages), outputTokens: Math.ceil(text.length / 4) }, truncated };
+    } catch (err) {
+      if (err instanceof AttemptError || err instanceof LlmError) throw err;
+      if (ac.signal.aborted && !o.signal?.aborted) throw new LlmError('timeout', why, { model });
+      throw err;
+    } finally {
+      clearTimeout(gap);
+      clearTimeout(total);
     }
   }
 

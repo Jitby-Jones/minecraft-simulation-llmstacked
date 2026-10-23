@@ -1,5 +1,8 @@
 # World, population and behavior config (DESIGN.md §16, §17.10, §19.7, §20, §21.5).
-mode: test                 # test (hard, simulated permadeath) | live (hardcore, new world required)
+# Test mode off (live): hardcore, real permadeath for everyone, no starter kits. Test mode on (test): hard, a death
+# ends the agent's life all the same but the server doesn't enforce it, agents start with their kit.
+# Switch with `pnpm test-mode on|off` (or `pnpm ctl test-mode on|off`, or the dashboard); hardcore needs a fresh world.
+mode: live                 # test | live
 
 population:                # §19.7 — replaces agents.count. For a fixed N: initial = minAlive = maxAlive = N
   initial: 6               # spawned at world start, 50/50 male/female

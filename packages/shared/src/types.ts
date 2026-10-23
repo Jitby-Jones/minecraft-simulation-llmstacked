@@ -94,7 +94,8 @@ export interface SystemEvent {
   cause?: string;
 }
 
-export type MemorySource = 'self_observed' | `told_by:${string}` | 'inferred' | 'reflection';
+/** Where a memory came from; `operator` is one the operator wrote or edited (debug controls). */
+export type MemorySource = 'self_observed' | `told_by:${string}` | 'inferred' | 'reflection' | 'operator';
 
 export interface WorkItem {
   id: string;
@@ -121,6 +122,33 @@ export interface Goal {
   work?: string;
   /** Someone the goal is with or for. */
   with?: AgentName;
+}
+
+/** One step of an agent's plan: a goal in the agent's own words, checked by code when it has a `doneWhen`. */
+export interface PlanStep {
+  text: string;
+  /** Machine-checkable completion (the `doneWhen` grammar); without one the step is done when the agent says so. */
+  doneWhen?: string;
+  status: 'todo' | 'doing' | 'done' | 'dropped';
+}
+
+/**
+ * The agent's own plan (what it means to get done over the next half hour or so, as a few steps). It makes it
+ * itself, and changes it as it goes and after talking things over with others; the current step is its current goal.
+ */
+export interface Plan {
+  id: string;
+  /** What the plan is for, in the agent's own words. */
+  aim: string;
+  steps: PlanStep[];
+  createdAt: number;
+  updatedAt: number;
+  /** Why it was made or last changed ("Mira cuts the wood, so I'll get the stone"). */
+  why?: string;
+  /** Whom it has been talked over with. */
+  discussedWith: AgentName[];
+  /** Who made it: the model, the code default, or the operator (debug controls). */
+  source: 'llm' | 'default' | 'operator';
 }
 
 export interface Task {
@@ -428,6 +456,10 @@ export interface AgentFlags {
   codeOnly: boolean;
   degrade: DegradeLevel;
   inCrowd: boolean;
+  /** Modules the operator switched off (debug controls, TUNABLE_MODULES). */
+  off?: string[];
+  /** The operator paused the agent: no decisions (the reflexes still keep it alive). */
+  paused?: boolean;
 }
 
 export interface SelfState {
@@ -471,6 +503,8 @@ export interface AgentState {
   goals: {
     life: string[];
     current: Goal | null;
+    /** The agent's own plan; its current step is `current`. */
+    plan?: Plan | null;
     social: Goal[];
     community?: string;
     history: Goal[];

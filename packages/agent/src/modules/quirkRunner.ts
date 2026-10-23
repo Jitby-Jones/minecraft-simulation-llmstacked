@@ -14,6 +14,7 @@ import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
 import type { CognitiveController } from './cc';
 import type { SkillExecutor } from './executor';
+import { isOff } from '../state/switches';
 
 export interface QuirkRunnerOptions {
   store: AgentStateStore;
@@ -70,6 +71,7 @@ export class QuirkRunner {
 
   private tick(): void {
     const s = this.o.store.state;
+    if (isOff(s, 'impulses')) return;
     const now = this.now();
     this.o.quirks.forEach((q, i) => {
       switch (q.hook) {

@@ -22,6 +22,7 @@ import { MemoryDB } from '../memory/db';
 import { restoreSnapshot, saveSnapshot } from '../state/snapshot';
 import { HubClient } from './client';
 import { startTelemetry } from './telemetry';
+import { debugOp } from './debug';
 
 export interface RunBotOptions {
   hubUrl: string;
@@ -106,6 +107,7 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     world: o.world,
     governor: rt?.governor,
     memory: { db, embedder },
+    speechTier: o.models.speech.tier,
     fightSlot: { acquire: () => hub.fightSlot(), release: () => hub.fightDone() },
     // §19.4: born in-world, on its first start (a restart resumes from the snapshot instead).
     ...(a.birthFacts && !a.resume ? { birth: { facts: a.birthFacts, youthUntil: Date.now() + o.world.reproduction.youthSec * 1000 } } : {}),
@@ -117,6 +119,15 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     logger.info({ module: 'agent', offlineMs: offline }, offline === null ? 'no snapshot to resume from' : 'resumed');
   }
   agent.start();
+  // The operator's debug settings and requests (the dashboard, `pnpm ctl agent`): outside the simulation, logged.
+  hub.on('tuning', (m) => agent.applyTuning(m.tuning));
+  hub.on('debug', (m) => {
+    logger.info({ module: 'debug', op: m.op }, 'operator request');
+    void debugOp(agent, m.op, m.args).then(
+      (r) => hub.send({ t: 'debugResult', reqId: m.reqId, ...r }),
+      (err: unknown) => hub.send({ t: 'debugResult', reqId: m.reqId, ok: false, message: err instanceof Error ? err.message : String(err) }),
+    );
+  });
   hub.send({ t: 'ready', username: a.username });
   // The dashboard's view of this agent (M7): sent to the Hub, never to another bot.
   const stopTelemetry = startTelemetry({ agent, bot: body.bot, send: (kind, data) => hub.send({ t: 'telemetry', kind, ts: Date.now(), data }) });

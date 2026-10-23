@@ -1,7 +1,7 @@
 // Config file schemas with the design's defaults. Nested objects use .prefault({}) so inner defaults apply.
 
 import { z } from 'zod';
-import { Unit } from './common';
+import { TierNameSchema, Unit } from './common';
 
 // ---------------------------------------------------------------------------------------------------------------
 // config/models.yaml (§5, §22.3, §22.7)
@@ -22,11 +22,13 @@ export const ModelsConfigSchema = z
   .object({
     tiers: z
       .object({
-        L1: TierConfigSchema.prefault({ timeoutMs: 2500, maxTokens: 200, need: ['structured_output'] }),
+        L1: TierConfigSchema.prefault({ timeoutMs: 5000, maxTokens: 200, need: ['structured_output'] }),
         L2: TierConfigSchema.prefault({ timeoutMs: 6000, maxTokens: 500, need: ['structured_output', 'tool_calling'] }),
         L3: TierConfigSchema.prefault({ timeoutMs: 45000, maxTokens: 2000, need: ['structured_output'] }),
       })
       .prefault({}),
+    /** What agents speak with: the tier lines are written with (a small model's lines come late and short). */
+    speech: z.object({ tier: TierNameSchema.default('L2') }).prefault({}),
     embeddings: z
       .object({
         provider: z.enum(['local', 'nanogpt']).default('local'),
@@ -40,6 +42,9 @@ export const ModelsConfigSchema = z
         expectedRuntimeHoursPerWeek: z.number().positive().max(168).default(30),
         allowlistRefreshHours: z.number().positive().default(6),
         usagePollSec: z.number().int().min(30).default(300),
+        /** How structured replies are asked for: a JSON object with the schema in the prompt, or the API's json_schema
+         *  format (subscription models fill every optional field of one with empty strings). */
+        structuredOutput: z.enum(['object', 'schema']).default('object'),
       })
       .prefault({}),
   })
@@ -239,9 +244,9 @@ export const HubConfigSchema = z.object({
     .prefault({}),
   rateLimit: z
     .object({
-      /** NanoGPT allows 25 rps per account; keep headroom (§5). */
-      rps: z.number().positive().max(25).default(20),
-      burst: z.number().positive().default(20),
+      /** NanoGPT's subscription takes 60 text requests a minute per key: 0.9/s with a burst of 5 stays under it (§5). */
+      rps: z.number().positive().max(25).default(0.9),
+      burst: z.number().positive().default(5),
       queueTimeoutMs: z.number().int().positive().default(15000),
     })
     .prefault({}),

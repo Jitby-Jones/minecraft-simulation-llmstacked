@@ -9,6 +9,8 @@ import { FOOD_ITEM, type VillageKind } from '../social/village';
 
 export interface VillageMoveCtx {
   isStuck: (skill: string, args: Record<string, unknown>) => boolean;
+  /** Digging in to hide may be chosen (the code-only brain, badly scared, alone and far from anyone: hiding.ts). */
+  mayHide?: boolean;
 }
 
 const held = (s: AgentState, re: RegExp) => s.self.inventory.filter((i) => re.test(i.item)).reduce((a, i) => a + i.qty, 0);
@@ -99,7 +101,8 @@ export const HURT = 8;
 
 /**
  * Badly hurt (§16.3: death is permanent): food first, since no health comes back below 18 food; then lie low until
- * healed, in a sealed hole if a hostile mob is about, else resting where we are. The eat reflex does the eating.
+ * healed: back home if it is far, else resting where we are, with an eye out. In a sealed hole only when hiding is
+ * allowed (alone, badly scared and far from anyone, hiding.ts) and a hostile mob is about. The eat reflex eats.
  */
 export function hurtMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | null {
   if (s.self.health > HURT) return null;
@@ -107,8 +110,13 @@ export function hurtMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | nul
   if (food) return food;
   const mob = s.perception.nearbyEntities.some((e) => e.kind === 'hostile' && e.distance <= 24);
   const hide = { untilMorning: false, untilHealed: true };
-  if (mob && s.self.food >= 18 && !v.isStuck('shelter', hide)) return work('shelter', hide, 200, 'badly hurt, lying low until I heal');
-  return v.isStuck('wait', { seconds: 30 }) ? null : { option: 'rest', terminate: { maxSeconds: 30 }, rationale: 'code default: badly hurt, resting until I heal' };
+  if (v.mayHide && mob && s.self.food >= 18 && !v.isStuck('shelter', hide)) return work('shelter', hide, 200, 'badly hurt and alone, lying low until I heal');
+  const home = s.village.home;
+  if (home && dist(s.self.pos, home) > 24) {
+    const args = { x: Math.round(home.x), y: Math.round(home.y), z: Math.round(home.z), range: 3 };
+    if (!v.isStuck('goTo', args)) return work('goTo', args, 120, 'badly hurt, going home to recover');
+  }
+  return { option: 'rest', terminate: { maxSeconds: 30 }, rationale: 'code default: badly hurt, resting until I heal' };
 }
 
 /** What can be eaten, raw or cooked. */
@@ -122,15 +130,20 @@ export const EDIBLE = /^(bread|apple|golden_apple|cooked_\w+|beef|porkchop|mutto
 export function hungerMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | null {
   const hungry = s.self.health <= HURT ? 17 : 12;
   if (s.self.food > hungry || s.self.inventory.some((i) => EDIBLE.test(i.item))) return null;
+  return foodMove(s, v, 'hungry');
+}
+
+/** Getting food (a plan's step, or hunger): from the village chest if it had some, else an animal in sight, else a look around. */
+export function foodMove(s: AgentState, v: VillageMoveCtx, why = 'getting food'): DecisionOutput | null {
   const chest = s.village.chest;
   const stocked = chest?.contents ? Object.entries(chest.contents).filter(([k, n]) => EDIBLE.test(k) && n > 0).sort((a, b) => b[1] - a[1])[0] : undefined;
   if (chest && stocked) {
     const args = { item: stocked[0], qty: Math.min(4, stocked[1]), x: chest.pos.x, y: chest.pos.y, z: chest.pos.z };
-    if (!v.isStuck('withdraw', args)) return work('withdraw', args, 120, `hungry: ${stocked[0]} from the village chest`);
+    if (!v.isStuck('withdraw', args)) return work('withdraw', args, 120, `${why}: ${stocked[0]} from the village chest`);
   }
   const prey = s.perception.nearbyEntities.find((e) => e.kind === 'passive' && ANIMAL.test(e.name) && e.visible && e.distance <= 24);
-  if (prey && !v.isStuck('hunt', { qty: 2 })) return work('hunt', { qty: 2 }, 120, `hungry: hunting a ${prey.name}`);
-  return v.isStuck('explore', { distance: 32 }) ? null : { option: 'explore', terminate: { maxSeconds: 90 }, rationale: 'code default: hungry, looking for food' };
+  if (prey && !v.isStuck('hunt', { qty: 2 })) return work('hunt', { qty: 2 }, 120, `${why}: hunting a ${prey.name}`);
+  return v.isStuck('explore', { distance: 32 }) ? null : { option: 'explore', terminate: { maxSeconds: 90 }, rationale: `code default: ${why}, looking for food` };
 }
 
 /**
