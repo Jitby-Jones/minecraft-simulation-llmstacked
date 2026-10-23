@@ -98,6 +98,11 @@ describe('the master model writes a new person (§16.2, §20)', () => {
     expect(sparks.every((s) => s.length === 2)).toBe(true);
     expect(new Set(sparks.map((s) => s[0])).size).toBe(6);
     expect(new Set(sparks.map((s) => s[1])).size).toBe(6);
+    // Nor the way the story is told, nor the letter the name begins with.
+    const told = x.asked.map((a) => /Tell their story (.+)\. Their given name begins with ([A-Z])\.$/m.exec(a.user)?.slice(1, 3) ?? []);
+    expect(told.every((t) => t.length === 2)).toBe(true);
+    expect(new Set(told.map((t) => t[0])).size).toBe(6);
+    expect(new Set(told.map((t) => t[1])).size).toBe(6);
   });
 
   it('a name already had is made new, and the story names them by it', async () => {
@@ -129,6 +134,7 @@ describe('the master model writes a new person (§16.2, §20)', () => {
     x.stop();
     expect(p.name).toBe('Quill');
     expect(x.asked[0]?.user).toMatch(/called Quill \(keep that name\)/);
+    expect(x.asked[0]?.user).not.toMatch(/given name begins with/);
   });
 
   it('a child: written from its parents, its family initial on its name, born and of the next generation', async () => {

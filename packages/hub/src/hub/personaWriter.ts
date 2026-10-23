@@ -97,6 +97,22 @@ const CRAFTS = [
   'played the flute',
 ];
 
+/** How the story is told, drawn by code: left to itself, the model builds each one alike ("grew up in…; now arrives…"). */
+const ANGLES = [
+  'through a habit of theirs',
+  'through something they are proud of',
+  'through what they miss most',
+  'through a day that changed them',
+  'through what they do first each morning',
+  'through what people notice about them first',
+  'through a mistake they learned from',
+  'through someone who shaped them',
+  'through what makes them laugh',
+  'through what they always carry',
+];
+/** The letter a given name begins with, drawn by code: the model has favourite names, world after world. */
+const INITIALS = 'ABCDEFGHIJKLMNOPRSTVWY'.split('');
+
 /** Every prompt the person thinks with starts with their story (prompts.ts personaCore): kept short. */
 const STORY_MAX = 300;
 
@@ -129,11 +145,11 @@ export function describeNumbers(p: Persona): string {
 }
 
 const RULES = `You write people for a village in a world of blocky hills, forests and caves, one new person at a time. Write them from their numbers (each 0..1, 0.5 is average): a high number shows plainly in who they are, an average one not at all. Their sex decides only their name and how others speak of them, never their character. Make them their own person, unlike the people already here: a fresh name, their own way of talking, their own wants. Plain, warm words, PG. No famous people, no real places, nothing about games or machines.
-JSON: {"givenName": "a first name, letters only, 3-12 letters, not one already taken", "traits": ["3 to 5 words for their character"], "description": "1 or 2 short sentences, under 220 characters: who they are and where they come from, in the third person", "speechStyle": "how they talk, a few words to follow 'talks', like 'quick and teasing' or 'slowly, weighing each word'", "catchphrases": ["0 to 2 short things they often say, a few words each, in their own voice"], "values": ["2 or 3 things they care about most, a word or two each"], "lifeGoals": ["2 or 3 things they want to do here, each starting with a verb, plain and doable: building, farming, mining, crafting, exploring, trading, friends and family"], "insecurities": ["0 to 2 sore spots: a few words for what stings them to hear, like 'being called lazy' or 'looking foolish'"]}`;
+JSON: {"givenName": "a first name, letters only, 3-12 letters, not one already taken", "traits": ["3 to 5 words for their character"], "description": "1 or 2 short sentences, under 220 characters, in the third person, starting with their name: who they are, told the way asked", "speechStyle": "how they talk, a few words to follow 'talks', like 'quick and teasing' or 'slowly, weighing each word'", "catchphrases": ["0 to 2 short things they often say, a few words each, in their own voice"], "values": ["2 or 3 things they care about most, a word or two each"], "lifeGoals": ["2 or 3 things they want to do here, each starting with a verb, plain and doable: building, farming, mining, crafting, exploring, trading, friends and family"], "insecurities": ["0 to 2 sore spots: a few words for what stings them to hear, like 'being called lazy' or 'looking foolish'"]}`;
 
 export class PersonaWriter {
   /** The sparks drawn for the last few people, not drawn again for a while. */
-  private readonly recent = { origins: [] as string[], crafts: [] as string[] };
+  private readonly recent = { origins: [] as string[], crafts: [] as string[], angles: [] as string[], initials: [] as string[] };
 
   constructor(private readonly o: PersonaWriterOptions) {}
 
@@ -213,10 +229,12 @@ export class PersonaWriter {
       lines.push(`${a.name}: ${parentLine(a)}`, `${b.name}: ${parentLine(b)}`);
       lines.push(`The child's own numbers (from the parents): ${describeNumbers(draft)}.`);
       lines.push(`Something of their own: they love to watch how others ${this.spark(CRAFTS, this.recent.crafts)}.`);
+      lines.push(`Their given name begins with ${this.spark(INITIALS, this.recent.initials)}.`);
     } else {
       lines.push(`A new ${who} arrives in the village${ctx.keepName ? `, called ${draft.name} (keep that name)` : ''}.`);
       lines.push(`Their numbers: ${describeNumbers(draft)}.`);
       lines.push(`A spark to start from (use it or not): ${draft.sex === 'female' ? 'she' : 'he'} ${this.spark(ORIGINS, this.recent.origins)}, and once ${this.spark(CRAFTS, this.recent.crafts)}.`);
+      lines.push(`Tell their story ${this.spark(ANGLES, this.recent.angles)}.${ctx.keepName ? '' : ` Their given name begins with ${this.spark(INITIALS, this.recent.initials)}.`}`);
     }
     const taken = [...ctx.takenNames].slice(-80);
     if (taken.length > 0) lines.push(`Names already taken: ${taken.join(', ')}.`);
