@@ -10,7 +10,7 @@ import { AgentBus } from '@agora/agent/bus';
 import type { Body } from '@agora/agent/body/body';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
 import { Vec3 } from '@agora/agent/body/bot';
-import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles } from '@agora/agent/body/skills/village';
+import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles, isHutMaterial } from '@agora/agent/body/skills/village';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
@@ -369,6 +369,12 @@ describe('village work as goals (§6.8)', () => {
     expect(villageMove(s, 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'oak_door', qty: 1 } });
     expect(villageMove(withInv(s, { dirt: HUT_BLOCKS, oak_door: 1 }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
     expect(villageMove(withInv(s, { dirt: HUT_BLOCKS }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
+    // Planks of any wood build a hut (a savanna's acacia didn't count before).
+    expect(isHutMaterial('acacia_planks')).toBe(true);
+    expect(isHutMaterial('cherry_planks')).toBe(true);
+    expect(isHutMaterial('acacia_log')).toBe(false);
+    expect(villageMove(withInv(atHome(base()), { acacia_planks: HUT_BLOCKS }), 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'acacia_door', qty: 1 } });
+    expect(villageMove(withInv(atHome(base()), { acacia_planks: HUT_BLOCKS, acacia_door: 1 }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
   });
 
   it('scout: out exploring until it finds ore, then a sign at the board saying where', () => {

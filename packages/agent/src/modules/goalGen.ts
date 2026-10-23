@@ -15,6 +15,7 @@ import { SLOW_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { evalCondition } from './conditions';
 import { advancePlan, beginNext, currentStep, describePlan, planFinished } from './plan';
+import { dayPart } from './bottleneck';
 import { DEATH_RULE, personaCore } from './prompts';
 import { EDIBLE } from './villageMove';
 import { isOff } from '../state/switches';
@@ -48,7 +49,7 @@ const OPEN_STEP_MIN = 6;
 /** A talk is weighed into the plan at most this often. */
 const REFINE_EVERY_MS = 90_000;
 
-const PLAN_FORMAT = `Each step has "text" (in your words) and, when code can check it, "doneWhen": inventoryHas:<item>>=<n> (having things; "log", "planks", "food" count any kind), villageWork:<kind> (your part in the village, as given), explored:<n> (looking around n times), talkedWith:<name> (a talk with them), spent:<minutes> (time on it).
+export const PLAN_FORMAT = `Each step has "text" (in your words) and, when code can check it, "doneWhen": inventoryHas:<item>>=<n> (having things; "log", "planks", "food" count any kind), villageWork:<kind> (your part in the village, as given), explored:<n> (looking around n times), talkedWith:<name> (a talk with them), spent:<minutes> (time on it).
 JSON: {"keep": false, "plan": {"aim": "...", "steps": [{"text": "...", "doneWhen": "..."}], "why": "..."}}`;
 
 /** Empty parts of a model's plan (a doneWhen of "" or "none", an empty why) taken out before validation. */
@@ -343,7 +344,7 @@ export class GoalGen {
     return [
       `Why now: ${reason}.`,
       `About you: ${s.selfSummary || 'nothing notable yet.'}`,
-      `You: health ${Math.round(s.self.health)}/20, food ${s.self.food}/20. It is ${s.self.isDay ? 'day' : 'night'}. Carrying: ${inv}.`,
+      `You: health ${Math.round(s.self.health)}/20, food ${s.self.food}/20. It is ${dayPart(s.self.time, s.self.isDay)}. Carrying: ${inv}.`,
       seen.length > 0 ? `Around you: ${seen.join(', ')}.` : 'Nobody and nothing special around you.',
       s.goals.plan ? `Your plan now: ${describePlan(s.goals.plan)}` : 'You have no plan yet.',
       history.length > 0 ? `Recent goals: ${history.join('; ')}` : '',

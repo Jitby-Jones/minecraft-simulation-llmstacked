@@ -25,6 +25,8 @@ export interface BenchFile {
   measuredAt: string;
   results: readonly {
     model: string;
+    /** The tier it was measured on, with that tier's prompts: it orders that tier only. None: every tier (older files). */
+    tier?: TierName;
     calls: number;
     okRate: number;
     jsonOkRate: number;
@@ -58,7 +60,10 @@ function fits(m: ModelInfo, need: readonly Capability[]): boolean {
 
 /** Auto ordering for one tier; earlier = preferred. */
 function autoOrder(tier: TierName, candidates: ModelInfo[], spec: TierSpec, bench: BenchFile | null | undefined): ModelInfo[] {
-  const benched = new Map((bench?.results ?? []).map((r) => [r.model, r]));
+  // A model fast at planning isn't thereby good for this tier's prompts: only what was measured here (or for every
+  // tier) counts, this tier's own measurement first.
+  const results = bench?.results ?? [];
+  const benched = new Map([...results.filter((r) => r.tier === undefined), ...results.filter((r) => r.tier === tier)].map((r) => [r.model, r]));
   const json = spec.need.includes('structured_output');
   const good = (m: ModelInfo) => {
     const r = benched.get(m.id);
@@ -73,12 +78,12 @@ function autoOrder(tier: TierName, candidates: ModelInfo[], spec: TierSpec, benc
   let restSorted: ModelInfo[];
   switch (tier) {
     case 'L1':
-      // Fastest measured, else the cheapest-listed; models that may think by default come last (5 s budget).
+      // Fastest measured, else the cheapest-listed; models that may think by default come last (7 s budget).
       measuredSorted = [...measured].sort((a, b) => (benched.get(a.id)?.p50Ms ?? 0) - (benched.get(b.id)?.p50Ms ?? 0));
       restSorted = [...rest].sort((a, b) => slow(a) - slow(b) || byPrice(a, b));
       break;
     case 'L2': {
-      // Mid-sized: around the 60th price percentile, plain models first (6 s budget).
+      // Mid-sized: around the 60th price percentile, plain models first (8 s budget).
       const sorted = [...rest].sort(byPrice);
       const finite = (m: ModelInfo) => (Number.isFinite(price(m)) ? price(m) : 1e6);
       const pivot = sorted[Math.floor(sorted.length * 0.6)];

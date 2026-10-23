@@ -100,7 +100,19 @@ export const hunt = defineSkill({
 // --- build a hut ----------------------------------------------------------------------------------------------------
 
 /** Blocks a hut can be made of, best first. */
-export const HUT_MATERIALS = ['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'stone_bricks', 'dirt'] as const;
+/** What a hut is built of, in the order used: stone, then planks of any wood (acacia in a savanna), then dirt. */
+export const HUT_MATERIALS = ['cobblestone', 'cobbled_deepslate', 'stone_bricks', 'planks', 'dirt'] as const;
+const hutRank = (name: string): number => HUT_MATERIALS.indexOf((name.endsWith('_planks') ? 'planks' : name) as (typeof HUT_MATERIALS)[number]);
+/** A block a hut can be built of. */
+export const isHutMaterial = (name: string): boolean => hutRank(name) >= 0;
+
+/** The hut block to place next: the first kind in HUT_MATERIALS' order that we carry. */
+function hutBlock(bot: Bot): string | undefined {
+  return bot.inventory
+    .items()
+    .filter((i) => isHutMaterial(i.name))
+    .sort((a, b) => hutRank(a.name) - hutRank(b.name))[0]?.name;
+}
 const DOORS = /_door$/;
 
 /** A 5×5 hut: walls three high with a doorway in the middle of one side, then a flat roof, rim first. */
@@ -174,7 +186,7 @@ export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): V
 function buildingBlocks(bot: Bot): number {
   return bot.inventory
     .items()
-    .filter((i) => (HUT_MATERIALS as readonly string[]).includes(i.name))
+    .filter((i) => isHutMaterial(i.name))
     .reduce((a, i) => a + i.count, 0);
 }
 
@@ -196,7 +208,7 @@ export const build = defineSkill({
     // The holes in the ground first, so the floor is whole.
     for (const hole of hutSiteHoles(bot, corner) ?? []) {
       throwIfAborted(ctx.signal);
-      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      const block = hutBlock(bot);
       if (!block) break;
       await placeItemAt(ctx, block, hole).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
@@ -214,7 +226,7 @@ export const build = defineSkill({
       if (i === firstRoof) await gotoNear(ctx, corner.offset(2, 0, 2), 0.8, 20_000).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
       });
-      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      const block = hutBlock(bot);
       if (!block) break;
       try {
         await placeItemAt(ctx, block, target);
@@ -230,7 +242,7 @@ export const build = defineSkill({
       throwIfAborted(ctx.signal);
       const target = corner.plus(cell);
       if (isSolid(bot.blockAt(target))) continue;
-      const block = HUT_MATERIALS.find((m) => bot.inventory.items().some((it) => it.name === m));
+      const block = hutBlock(bot);
       if (!block) break;
       await gotoNear(ctx, target, 3, 10_000).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;

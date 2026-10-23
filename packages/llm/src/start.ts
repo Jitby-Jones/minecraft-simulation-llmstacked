@@ -25,6 +25,7 @@ const BenchFileSchema = z.object({
   results: z.array(
     z.object({
       model: z.string(),
+      tier: z.enum(['L1', 'L2', 'L3']).optional(),
       calls: z.number().int().nonnegative(),
       okRate: z.number().min(0).max(1),
       jsonOkRate: z.number().min(0).max(1),

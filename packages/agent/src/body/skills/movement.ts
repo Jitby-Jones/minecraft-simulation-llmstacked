@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import { Vec3 } from 'vec3';
-import { findEntity, nearbyHostiles } from '../world';
+import { findEntity, nearbyHostiles, wetAt } from '../world';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
 
@@ -75,6 +75,20 @@ export const follow = defineSkill({
 
 /** How far exploring may take a bot from where it first appeared. */
 const MAX_ROAM = 96;
+/** Turns tried, nearest first, for a heading whose end isn't in water. */
+const DRY_TURNS = [0, 0.6, -0.6, 1.2, -1.2, 1.9, -1.9, Math.PI];
+
+/**
+ * The heading nearest `angle` whose walk of `r` from `from` ends on dry ground (a walk that ends in a lake leaves one
+ * treading water, waiting for the next thought). `angle` itself if none does or nothing there is loaded.
+ */
+function dryHeading(ctx: SkillContext, from: Vec3, angle: number, r: number): number {
+  for (const turn of DRY_TURNS) {
+    const a = angle + turn;
+    if (!wetAt(ctx.bot, from.x + Math.cos(a) * r, from.z + Math.sin(a) * r, from.y)) return a;
+  }
+  return angle;
+}
 
 export const explore = defineSkill({
   name: 'explore',
@@ -92,6 +106,7 @@ export const explore = defineSkill({
     if (home && Math.hypot(start.x + Math.cos(angle) * args.distance - home.x, start.z + Math.sin(angle) * args.distance - home.z) > MAX_ROAM) {
       angle = Math.atan2(home.z - start.z, home.x - start.x) + (ctx.rng.next() - 0.5) * (Math.PI / 1.5);
     }
+    angle = dryHeading(ctx, start, angle, args.distance);
     const tx = Math.round(start.x + Math.cos(angle) * args.distance);
     const tz = Math.round(start.z + Math.sin(angle) * args.distance);
     bot.pathfinder.setMovements(ctx.movements());
@@ -167,6 +182,7 @@ export const wander = defineSkill({
         if (home && Math.hypot(me.x - home.x, me.z - home.z) > MAX_ROAM * 0.75) angle = Math.atan2(home.z - me.z, home.x - me.x) + (ctx.rng.next() - 0.5);
         const r = args.radius * (0.3 + 0.7 * ctx.rng.next());
         const base = threat || (home && Math.hypot(me.x - home.x, me.z - home.z) > MAX_ROAM * 0.75) ? me : start;
+        angle = dryHeading(ctx, base, angle, r);
         const tx = Math.round(base.x + Math.cos(angle) * r);
         const tz = Math.round(base.z + Math.sin(angle) * r);
         const from = bot.entity.position.clone();
@@ -236,7 +252,7 @@ export const flee = defineSkill({
     const dir = away.norm() < 0.1 ? new Vec3(1, 0, 0) : away.normalize();
     const target = me.plus(dir.scaled(args.distance));
     bot.setControlState('sprint', true);
-    bot.pathfinder.setMovements(ctx.movements());
+    bot.pathfinder.setMovements(ctx.movements(true));
     try {
       await abortable(
         ctx.signal,

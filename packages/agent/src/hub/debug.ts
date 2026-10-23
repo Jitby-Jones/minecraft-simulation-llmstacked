@@ -141,6 +141,11 @@ export async function debugOp(agent: Agent, op: string, args: Record<string, unk
     case 'replan': {
       if (!agent.goalGen) return { ok: false, message: 'this agent has no planner' };
       agent.store.update('goals', (g) => ({ ...g, plan: null, current: null }), 'operator asked for a new plan');
+      // L3 can take most of a minute: the plan shows up in inspect (and on the dashboard) once it is made.
+      if (args.wait !== true && args.wait !== 'true') {
+        agent.goalGen.soon('the operator asked for a new plan', 0);
+        return { ok: true, message: 'making a new plan (inspect shows it once it is made)' };
+      }
       await agent.goalGen.run('the operator asked for a new plan');
       const p = s().goals.plan;
       return p ? { ok: true, message: `new plan: ${describePlan(p)}` } : { ok: false, message: 'no plan came of it' };

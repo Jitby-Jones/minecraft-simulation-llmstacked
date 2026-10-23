@@ -92,7 +92,9 @@ describe('conditions, levers and the packet (§4.3, §4.4, §21.1)', () => {
     }));
     expect(evalCondition('inventoryHas:oak_log>=5', s)).toBe(true);
     expect(evalCondition('inventoryHas:log>=8', s)).toBe(true);
-    expect(evalCondition('inventoryHas:oak_log>5', s)).toBe(false);
+    // A kind of wood counts any wood (the birch too): all serve alike.
+    expect(evalCondition('inventoryHas:oak_log>5', s)).toBe(true);
+    expect(evalCondition('inventoryHas:oak_log>8', s)).toBe(false);
     expect(evalCondition('agentInRange:Bram', s)).toBe(true);
     expect(evalCondition('agentLeftRange:Bram', s)).toBe(false);
     expect(evalCondition('timeIs:night', s)).toBe(true);

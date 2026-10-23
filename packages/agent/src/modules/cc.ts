@@ -8,6 +8,7 @@
 import {
   type ActionRecord,
   type AgentName,
+  type AgentState,
   type Commitment,
   type CommitmentDraft,
   type ConvId,
@@ -33,11 +34,12 @@ import type { AgentStateStore } from '../state/store';
 import type { ActionAwareness } from './awareness';
 import { taskKey } from './awareness';
 import { buildPacket } from './bottleneck';
-import { evalCondition } from './conditions';
+import { evalCondition, held } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 import { tidyDecision } from './decisionTidy';
+import { routeItemTask } from './itemTasks';
 import { villageWorkOf } from '../social/village';
 import { deathNoticeMove, foodMove, hungerMove, hurtMove, villageMove } from './villageMove';
 import { whyNotHide } from './hiding';
@@ -74,6 +76,23 @@ export interface ValidationEnv {
   mayStartFamily?: (name: AgentName) => string | null;
   /** Null when digging in to hide may be chosen now (badly scared, alone, far from anyone), else why not. */
   mayHide?: () => string | null;
+  /** Null when a move there makes sense (near, or somewhere the agent knows), else why not (a made-up far place). */
+  mayGo?: (pos: { x: number; y: number; z: number }) => string | null;
+}
+
+/** A move farther than this goes only to somewhere the agent knows (home, the chest, a hut, a find). */
+export const FAR_MOVE = 160;
+
+/** Null when a move to `pos` makes sense for one in state `s`: near, or within 24 blocks of a place it knows. */
+export function whyNotGo(s: AgentState, pos: { x: number; y: number; z: number }): string | null {
+  const me = s.self.pos;
+  const dist = Math.hypot(pos.x - me.x, pos.z - me.z);
+  if (dist <= FAR_MOVE) return null;
+  const v = s.village;
+  const known = [v.home, v.chest?.pos, v.board, ...v.huts, ...v.finds.map((f) => f.pos)].filter((p): p is NonNullable<typeof p> => Boolean(p));
+  if (known.some((k) => Math.hypot(k.x - pos.x, k.z - pos.z) <= 24)) return null;
+  const home = v.home ? `; home is at ${Math.round(v.home.x)},${Math.round(v.home.y)},${Math.round(v.home.z)}` : '';
+  return `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)} is ${Math.round(dist)} blocks away and you know of nothing there: pick a place you can see or one you know${home}`;
 }
 
 /** Code checks on a schema-valid decision. Returns the reason it can't be used, or null. */
@@ -109,6 +128,10 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
     if (why) return `you can't ${d.family.phase === 'propose' ? 'ask' : 'agree with'} ${d.family.with} to start a family: ${why}`;
   }
   if (d.option === 'move' && !d.target?.pos && !d.target?.agent) return 'option move needs target.pos or target.agent';
+  if (d.option === 'move' && d.target?.pos && env.mayGo) {
+    const why = env.mayGo(d.target.pos);
+    if (why) return why;
+  }
   const who = d.target?.agent;
   if (who && who !== env.me && ['talk', 'follow', 'help', 'trade', 'move', 'demand', 'recruit', 'court'].includes(d.option) && !env.canPerceive(who)) {
     return `you can't see or hear ${who} right now`;
@@ -1121,6 +1144,7 @@ export class CognitiveController {
       ...(this.o.family ? { mayStartFamily: (name: AgentName) => (family ? family.whyNotFamily(name) : 'starting a family is switched off for you') } : {}),
       ...(this.o.learned ? { learnedSkill: (name: string) => this.o.learned?.find(name) ?? null } : {}),
       mayHide: () => whyNotHide(this.o.store.state),
+      mayGo: (pos) => whyNotGo(this.o.store.state, pos),
     };
   }
 
@@ -1138,12 +1162,21 @@ export class CognitiveController {
    */
   force(raw: unknown): string | null {
     const isStuck = (skill: string, args: Record<string, unknown>) => this.o.awareness.isStuckOn(skill, args);
-    const parsed = DecisionOutputSchema.safeParse(tidyDecision(raw, { me: this.o.me, isSkill: (n) => Boolean(getSkill(n) ?? this.o.learned?.find(n)) }));
+    const parsed = DecisionOutputSchema.safeParse(this.tidy(raw));
     if (!parsed.success) return parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     const why = validateDecision(parsed.data, this.env(isStuck));
     if (why) return why;
     this.apply(parsed.data, 'operator', {});
     return null;
+  }
+
+  /** A decision as written (the model's, or the operator's), tidied and with its item task routed (itemTasks.ts). */
+  private tidy(raw: unknown): unknown {
+    const d = tidyDecision(raw, { me: this.o.me, isSkill: (n) => Boolean(getSkill(n) ?? this.o.learned?.find(n)) });
+    const task = typeof d === 'object' && d !== null ? (d as { task?: unknown }).task : undefined;
+    if (typeof task !== 'object' || task === null) return d;
+    const t = task as { skill: string; args: Record<string, unknown> };
+    return { ...(d as object), task: routeItemTask(t, (n) => getSkill(n)?.name ?? null, (item) => held(this.o.store.state, item)) };
   }
 
   /** The packet the CC would see if it decided now (debug controls). */
@@ -1244,7 +1277,7 @@ export class CognitiveController {
             schema: DecisionOutputSchema,
             schemaName: 'decision',
             formatInPrompt: true,
-            prepare: (json) => tidyDecision(json, { me: this.o.me, isSkill: (n) => Boolean(getSkill(n) ?? this.o.learned?.find(n)) }),
+            prepare: (json) => this.tidy(json),
             fallback: () => null,
             signal: guard.signal,
             isStale: guard.isStale,

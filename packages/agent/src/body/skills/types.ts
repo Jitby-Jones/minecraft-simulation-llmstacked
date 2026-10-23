@@ -49,8 +49,8 @@ export interface SkillContext {
   signal: AbortSignal;
   logger: Logger;
   rng: Random;
-  /** Quirk-adjusted pathfinder movements (§7 pathCost). */
-  movements: () => Movements;
+  /** Quirk-adjusted pathfinder movements (§7 pathCost): a walk, or with `sprint` a run (running away). */
+  movements: (sprint?: boolean) => Movements;
   /** Recipe knowledge gate (§21.2): false = "I don't know how to make that". */
   knowsRecipe: (item: string) => boolean;
   /** Rate-limited speech port (§6.2). */

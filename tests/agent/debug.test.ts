@@ -65,8 +65,12 @@ describe('an operator’s debug requests to one agent', () => {
     expect(set.ok).toBe(true);
     expect(store.state.goals.plan).toMatchObject({ aim: 'a lookout tower', source: 'operator', steps: [{ text: 'gather 16 logs', status: 'doing' }, { text: 'build it tall', doneWhen: 'spent:6', status: 'todo' }] });
     expect(store.state.goals.current?.text).toBe('gather 16 logs');
-    const fresh = await debugOp(a, 'replan', {});
+    const fresh = await debugOp(a, 'replan', { wait: true });
     expect(fresh.ok).toBe(true);
+    expect(store.state.goals.plan?.source).toBe('default');
+    // Without waiting, it answers at once and plans in the background.
+    expect(await debugOp(a, 'replan', {})).toMatchObject({ ok: true, message: expect.stringContaining('making a new plan') as string });
+    for (let i = 0; i < 50 && !store.state.goals.plan; i++) await new Promise((r) => setTimeout(r, 10));
     expect(store.state.goals.plan?.source).toBe('default');
     expect((await debugOp(a, 'plan.clear', {})).ok).toBe(true);
     expect(store.state.goals.plan).toBeNull();

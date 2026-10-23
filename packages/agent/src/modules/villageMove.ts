@@ -4,7 +4,7 @@
 // has seen is used (§13 rule 4): its home, the chest it saw, the mobs and animals in sight, the ore it found.
 
 import type { AgentState, DecisionOutput, Vec3 } from '@agora/shared';
-import { HUT_BLOCKS, HUT_MATERIALS } from '../body/skills/village';
+import { HUT_BLOCKS, isHutMaterial } from '../body/skills/village';
 import { FOOD_ITEM, type VillageKind } from '../social/village';
 
 export interface VillageMoveCtx {
@@ -13,12 +13,13 @@ export interface VillageMoveCtx {
   mayHide?: boolean;
 }
 
-const held = (s: AgentState, re: RegExp) => s.self.inventory.filter((i) => re.test(i.item)).reduce((a, i) => a + i.qty, 0);
+const held = (s: AgentState, re: { test(name: string): boolean }) => s.self.inventory.filter((i) => re.test(i.item)).reduce((a, i) => a + i.qty, 0);
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const ANIMAL = /^(cow|pig|sheep|chicken)$/;
 const RAW_MEAT = /^(beef|porkchop|mutton|chicken)$/;
 const COOKED: Readonly<Record<string, string>> = { beef: 'cooked_beef', porkchop: 'cooked_porkchop', mutton: 'cooked_mutton', chicken: 'cooked_chicken' };
-const BUILDING = new RegExp(`^(${HUT_MATERIALS.join('|')})$`);
+/** Blocks a hut can be built of (any wood's planks among them). */
+const BUILDING = { test: isHutMaterial };
 
 const work = (skill: string, args: Record<string, unknown>, maxSeconds: number, rationale: string): DecisionOutput => ({
   option: 'work',
@@ -66,7 +67,10 @@ export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx)
     case 'build': {
       const blocks = held(s, BUILDING);
       if (blocks >= HUT_BLOCKS) {
-        if (held(s, /_door$/) === 0 && held(s, /_planks$/) + 4 * held(s, /_(log|stem)$/) >= 6 && !v.isStuck('obtain', { item: 'oak_door', qty: 1 })) return obtain('oak_door', 1, 'a door for the hut', 240);
+        // A door of the wood we have (acacia planks make no oak door).
+        const wood = s.self.inventory.map((i) => /^(?!stripped_)(\w+?)_(planks|log|stem)$/.exec(i.item)?.[1]).find(Boolean) ?? 'oak';
+        const door = `${wood}_door`;
+        if (held(s, /_door$/) === 0 && held(s, /_planks$/) + 4 * held(s, /_(log|stem)$/) >= 6 && !v.isStuck('obtain', { item: door, qty: 1 })) return obtain(door, 1, 'a door for the hut', 240);
         return v.isStuck('build', { structure: 'hut' }) ? null : work('build', { structure: 'hut' }, 900, 'building a hut for the village');
       }
       // Obtain counts what is held: the dirt we have plus what's still missing.

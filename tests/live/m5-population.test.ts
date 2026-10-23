@@ -179,7 +179,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       const schema = schemaNameOf(body);
       const me = /You are (\w+)/.exec(system)?.[1] ?? /decide what (\w+) does/.exec(system)?.[1] ?? '';
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I like a chat.' }) };
-      if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
+      if (schema === 'plan') return { text: JSON.stringify({ keep: true }) };
       if (schema === 'addressed') return { text: JSON.stringify({ addressedToMe: false }) };
       if (schema === 'decision') {
         const other = me === 'Juno' ? 'Rook' : 'Juno';
@@ -252,7 +252,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
       const messages = body.messages as { role: string; content: string }[];
       const schema = schemaNameOf(body);
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I keep busy.' }) };
-      if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
+      if (schema === 'plan') return { text: JSON.stringify({ keep: true }) };
       if (schema === 'addressed') return { text: JSON.stringify({ addressedToMe: false }) };
       if (schema === 'decision') return { text: JSON.stringify({ option: 'rest', terminate: { maxSeconds: 60 }, rationale: 'resting' }) };
       return { text: messages.length > 0 ? 'I have a few logs to spare' : 'hm' };

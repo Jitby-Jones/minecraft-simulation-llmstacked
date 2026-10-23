@@ -5,6 +5,7 @@
 import type { AgentState, Utterance } from '@agora/shared';
 import type { MindLevers } from './levers';
 import { describePlan } from './plan';
+import { EDIBLE } from './villageMove';
 
 export interface PacketInput {
   state: AgentState;
@@ -61,10 +62,24 @@ export function buildPacket(i: PacketInput): string {
 
   const self = s.self;
   out.push(
-    `You: health ${Math.round(self.health)}/20, food ${self.food}/20, ${self.isDay ? 'daytime' : 'night'}, at ${Math.round(self.pos.x)},${Math.round(self.pos.y)},${Math.round(self.pos.z)}${s.flags.inDanger ? ', IN DANGER' : ''}.`,
+    `You: health ${Math.round(self.health)}/20, food ${self.food}/20, ${dayPart(self.time, self.isDay)}, at ${Math.round(self.pos.x)},${Math.round(self.pos.y)},${Math.round(self.pos.z)}${s.flags.inDanger ? ', IN DANGER' : ''}.`,
   );
   const inv = self.inventory.map((st) => `${st.qty} ${st.item}`).join(', ');
   out.push(`Carrying: ${inv || 'nothing'}${self.equipped ? ` (holding ${self.equipped})` : ''}.`);
+  // Hunger said plainly: a number alone was let slide until an agent starved.
+  const hungerLine = hunger(s);
+  if (hungerLine) out.push(hungerLine);
+  // Where home is: without it a model's "head home" went to a made-up 0,64,0, hundreds of blocks off.
+  const home = s.village.home;
+  if (home) {
+    const far = Math.round(Math.hypot(home.x - self.pos.x, home.z - self.pos.z));
+    const chest = s.village.chest?.pos;
+    // Huts, by their doors: where to be at night.
+    const huts = s.village.huts.slice(0, 3).map((d) => `${d.x},${d.y},${d.z}`);
+    out.push(
+      `Home (the village): ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}; ${huts.length > 0 ? `huts with doors at ${huts.join(' and ')}` : 'no huts yet'}.`,
+    );
+  }
 
   const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player').slice(0, L.people);
   if (people.length > 0) {
@@ -102,4 +117,26 @@ export function buildPacket(i: PacketInput): string {
   out.push(`Why you are deciding now: ${i.reason}.`);
   out.push(`Weigh ${L.candidates} different options before you choose.`);
   return out.join('\n');
+}
+
+/** A line about hunger once it matters: hungry with nothing to eat, or starving (null: fed, or food at hand). */
+export function hunger(s: AgentState): string | null {
+  const food = s.self.food;
+  if (food > 8) return null;
+  const meal = s.self.inventory.find((i) => EDIBLE.test(i.item));
+  if (meal) return food <= 4 ? `You are starving: eat the ${meal.item} you carry.` : null;
+  return food <= 4
+    ? 'You are starving and carry nothing to eat: without food soon you will die. Food comes before anything else now.'
+    : 'You are getting hungry and carry nothing to eat: find food soon (an animal, apples from oak leaves, berries, or ask someone).';
+}
+
+/**
+ * The time of day as one plans by it: daytime; evening, with how long until dark (night is 13000–23000 of the day's
+ * 24000 ticks, a minute being 1200); night, with how long until it gets light.
+ */
+export function dayPart(time: number, isDay: boolean): string {
+  const t = ((time % 24000) + 24000) % 24000;
+  const min = (ticks: number) => Math.max(1, Math.round(ticks / 1200));
+  if (isDay) return t >= 9600 && t < 13000 ? `evening, dark in about ${min(13000 - t)} min` : 'daytime';
+  return t >= 13000 && t < 23000 ? `night, light in about ${min(23000 - t)} min` : 'night';
 }

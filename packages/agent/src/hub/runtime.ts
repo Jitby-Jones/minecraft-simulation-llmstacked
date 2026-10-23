@@ -13,8 +13,9 @@ import {
   agentDbPath,
   createLogger,
   getNanoGptKey,
+  repoRoot,
 } from '@agora/shared';
-import { type LlmRuntime, startLlm } from '@agora/llm';
+import { type LlmRuntime, loadBenchFile, startLlm } from '@agora/llm';
 import { Agent } from '../agent';
 import { Body } from '../body/body';
 import { inventoryStacks } from '../body/inventory';
@@ -75,6 +76,8 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
       apiKey: key,
       config: o.models,
       logger,
+      // `pnpm bench-models`' measurements order the tiers (§22.3), as `pnpm run doctor` shows them.
+      bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger),
       limiter: hub.tokenSource(),
       pollUsage: false,
       ...(o.fetch ? { fetch: o.fetch } : {}),

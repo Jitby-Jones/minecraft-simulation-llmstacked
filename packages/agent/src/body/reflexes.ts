@@ -1,11 +1,12 @@
 // L0 reflexes (§4.5) — never an LLM. Run at 4 Hz and on damage events:
 //   hazards (lava/fire, drowning) → threats (fight or flee: a caution-driven health threshold, creepers, and a
-//   damage race we would lose) → defend allies (hook: sentiment ≥ 7) → idle upkeep (eat, pick up, armor) → unstick.
+//   damage race we would lose) → defend allies (hook: sentiment ≥ 7) → treading water when idle in it, and swimming
+//   ashore → idle upkeep (eat, pick up, armor) → unstick.
 // Reflexes preempt the Skill Executor through hooks; the agent sets flags.inDanger and a canned busy line.
 
 import { type Logger, type Quirk, clamp } from '@agora/shared';
 import type { Bot } from 'mineflayer';
-import pathfinderPkg from 'mineflayer-pathfinder';
+import pathfinderPkg, { type Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { type AttackKind, SwingTracker } from './attribution';
@@ -15,7 +16,8 @@ import { reflexDelta } from './quirks';
 import { bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { bestFood, eatNow, equipBestArmor } from './skills/survival';
-import { canSee, entityHealth, entityLabel, isEnclosed, isHostile, isPlayer, isSolid } from './world';
+import { createMovements } from './plugins';
+import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isPlayer, isSolid } from './world';
 
 const { goals } = pathfinderPkg;
 
@@ -23,8 +25,23 @@ export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim';
 
 /** Mobs that shoot (fleeing across open ground from them only gives them a target). */
 const ARCHERS = new Set(['skeleton', 'stray', 'bogged', 'pillager']);
+/** A mob that shoots is a threat this far off, once it can see us: its range, not arm's length. */
+const SHOT_RANGE = 16;
+
+/** It hits from afar: an archer, or a drowned with a trident (it throws it from the water). */
+export function shoots(e: Entity): boolean {
+  if (ARCHERS.has(e.name ?? '')) return true;
+  const ent = e as unknown as { heldItem?: { name: string } | null; equipment?: ({ name: string } | null | undefined)[] };
+  return e.name === 'drowned' && (ent.heldItem?.name ?? ent.equipment?.[0]?.name) === 'trident';
+}
 /** Having called a fight off on someone, we fight on if they come back for more this soon after. */
 const CALLED_OFF_MS = 30_000;
+/** A head under water this long is a hazard, whatever the air reading says (air lasts 15 s). */
+const SUBMERGED_MS = 6000;
+/** In the water this long with nothing to do: out to the nearest shore. */
+const ASHORE_AFTER_MS = 8000;
+/** Swimming for a shore this long without getting out: another look for one. */
+const ASHORE_RETRY_MS = 20_000;
 
 export interface DangerInfo {
   kind: 'fight' | 'flee' | 'hazard' | 'defend';
@@ -119,6 +136,15 @@ export class ReflexController {
   private readonly dealt = new Map<number, { dealt: number; last: number; at: number; calledOffAt?: number }>();
   private readonly stuckResets: number[] = [];
   private currentSource = '';
+  /** Since when the head has been under water, and the body in it with nothing driving it (null: not now). */
+  private underSince: number | null = null;
+  private wetSince: number | null = null;
+  /** Holding jump to keep the head above water. */
+  private treading = false;
+  /** The shore being swum for, and since when. */
+  private ashore: { at: Vec3; since: number } | null = null;
+  /** Movements for running away (made the first time). */
+  private running: Movements | null = null;
   readonly swings: SwingTracker;
 
   constructor(
@@ -239,6 +265,44 @@ export class ReflexController {
     return head?.name === 'water';
   }
 
+  private inWater(): boolean {
+    const e = this.bot.entity as unknown as { isInWater?: boolean };
+    return e.isInWater === true || this.bot.blockAt(this.bot.entity.position)?.name === 'water';
+  }
+
+  /**
+   * In the water with nothing driving the body: tread water, head up (a player holds jump, or sinks; a long wait for
+   * the next thought would drown them), and after a while with nothing to do, swim for the nearest shore: straight
+   * there, facing it with forward and jump held, as a player swims (the pathfinder plans no way through deep water).
+   * Tick by tick, so a threat still comes first.
+   */
+  private tread(now: number): void {
+    const bot = this.bot;
+    const adrift = this.hooks.isIdle() && !bot.pathfinder.isMoving() && this.inWater();
+    if (!adrift) {
+      if (this.treading) bot.setControlState('jump', false);
+      if (this.ashore) bot.setControlState('forward', false);
+      this.treading = false;
+      this.wetSince = null;
+      this.ashore = null;
+      return;
+    }
+    this.wetSince ??= now;
+    // Every tick: something else (a stop, an unstick) may have let go of it.
+    bot.setControlState('jump', true);
+    this.treading = true;
+    if (now - this.wetSince < ASHORE_AFTER_MS) return;
+    // A shore picked again now and then: one that can't be climbed out onto is given up for another look.
+    if (!this.ashore || now - this.ashore.since > ASHORE_RETRY_MS) {
+      const spot = this.safeSpot(6) ?? this.shoreSpot();
+      this.ashore = spot ? { at: spot, since: now } : null;
+      if (spot) this.logger.info({ module: 'reflex', shore: spot.toString() }, 'swimming ashore');
+    }
+    if (!this.ashore) return;
+    void bot.lookAt(this.ashore.at.offset(0.5, 1, 0.5), true).catch(() => undefined);
+    bot.setControlState('forward', true);
+  }
+
   private onFire(): boolean {
     const meta = (this.bot.entity as unknown as { metadata?: unknown[] }).metadata;
     const flags = typeof meta?.[0] === 'number' ? meta[0] : 0;
@@ -289,6 +353,44 @@ export class ReflexController {
     return best;
   }
 
+  /**
+   * The nearest dry ground across open water: along 16 headings, the first column within 32 blocks whose top isn't
+   * water, with room to stand on it (a lake wider than `safeSpot` looks).
+   */
+  private shoreSpot(): Vec3 | null {
+    const me = this.bot.entity.position;
+    let best: Vec3 | null = null;
+    let bestR = Infinity;
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      for (let r = 2; r <= 32 && r < bestR; r++) {
+        const x = Math.floor(me.x + Math.cos(a) * r);
+        const z = Math.floor(me.z + Math.sin(a) * r);
+        let top: Vec3 | null = null;
+        let unloaded = false;
+        for (let y = Math.floor(me.y) + 4; y >= Math.floor(me.y) - 6; y--) {
+          const b = this.bot.blockAt(new Vec3(x, y, z));
+          if (!b) {
+            unloaded = true;
+            break;
+          }
+          if (b.name === 'water' || b.name === 'lava' || !isAirLike(b)) {
+            top = b.name === 'water' || b.name === 'lava' ? null : new Vec3(x, y + 1, z);
+            break;
+          }
+        }
+        if (unloaded) break;
+        if (!top) continue;
+        if (isAirLike(this.bot.blockAt(top)) && isAirLike(this.bot.blockAt(top.offset(0, 1, 0)))) {
+          best = top;
+          bestR = r;
+        }
+        break;
+      }
+    }
+    return best;
+  }
+
   /** Hostiles that matter now. While fleeing, anything chasing within 16 blocks still counts. */
   private threats(radius = this.opts.threatRadius ?? 6): Entity[] {
     const t = Date.now();
@@ -301,7 +403,7 @@ export class ReflexController {
       const d = e.position.distanceTo(me);
       // Creepers matter a bit farther away; anything within 3 blocks is a threat even behind a wall corner, but not
       // one under the floor or over the ceiling (a mob in a tunnel below can't reach us).
-      const r = e.name === 'creeper' ? radius + 2 : radius;
+      const r = e.name === 'creeper' ? radius + 2 : shoots(e) ? Math.max(radius, SHOT_RANGE) : radius;
       const seen = d <= r && canSee(this.bot, e, r + 1);
       if (seen || (d <= 3 && !sealed && Math.abs(e.position.y - me.y) < 2)) out.set(e.id, e);
     }
@@ -325,8 +427,10 @@ export class ReflexController {
     if (health <= fleeAt) return true;
     if (threats.some((e) => e.name === 'creeper' && e.position.distanceTo(me) <= 5)) return true;
     if (threats.some((e) => e.name === 'warden')) return true;
-    // Archers shoot whoever runs across open ground: armed and well enough, close in on them instead.
-    if (threats.every((e) => ARCHERS.has(e.name ?? '')) && bestWeapon(this.bot)) return false;
+    // Archers shoot whoever runs across open ground: armed and well enough, close in on them instead. Not on a
+    // drowned: closing in on one is going into the water after it.
+    if (threats.every((e) => shoots(e) && e.name !== 'drowned') && bestWeapon(this.bot)) return false;
+    if (threats.some((e) => e.name === 'drowned' && shoots(e))) return true;
     const players = threats.filter(isPlayer);
     if (players.some((p) => !this.hooks.mayFightBack(p.username ?? ''))) return true;
     // A damage race we would lose before reaching the flee threshold: cautious people want a wider margin.
@@ -436,6 +540,8 @@ export class ReflexController {
       }
       this.mode = 'flee';
       this.fleePlannedAt = 0;
+      // Running away is a run: the skills walk (sprinting costs food).
+      this.bot.pathfinder.setMovements((this.running ??= createMovements(this.bot, this.hooks.quirks(), { sprint: true })));
       this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);
       const person = threats.find((t) => isPlayer(t) && t.username);
       if (person?.username) this.hooks.onYield?.(person.username);
@@ -454,7 +560,7 @@ export class ReflexController {
    * one out of their line of fire (a tree or a wall between) if there is such a point, nearer ones first.
    */
   private fleeSpot(threats: Entity[]): Vec3 | null {
-    const archers = threats.filter((t) => ARCHERS.has(t.name ?? ''));
+    const archers = threats.filter(shoots);
     const away = this.fleeSpotAway(threats);
     if (archers.length === 0) return away;
     const me = this.bot.entity.position;
@@ -566,14 +672,21 @@ export class ReflexController {
       }
       return;
     }
-    if (this.headInWater() && bot.oxygenLevel < 8) {
+    // Drowning. The air reading alone isn't to be trusted: in a live run three agents drowned without this firing
+    // (why is not known; in a test lake the reading falls as it should), so a head under water long enough counts too.
+    const now = Date.now();
+    const under = this.headInWater();
+    const since = under ? (this.underSince ?? now) : null;
+    this.underSince = since;
+    if (since !== null && (bot.oxygenLevel < 8 || now - since >= SUBMERGED_MS)) {
       this.mode = 'swim';
       this.announce('hazard', 'water');
       bot.setControlState('jump', true);
       return;
     }
     if (this.mode === 'escape' || this.mode === 'swim') {
-      if (this.mode === 'swim' && bot.oxygenLevel < 15 && this.headInWater()) return;
+      // Swimming up until the head is out of the water.
+      if (this.mode === 'swim' && under) return;
       this.clear('out of danger');
       return;
     }
@@ -615,7 +728,6 @@ export class ReflexController {
       return;
     }
     // 3. Defend allies.
-    const now = Date.now();
     for (const [id, a] of this.allyAttacks) {
       const cur = bot.entities[id];
       if (!cur || now - a.ts > 6000 || cur.position.distanceTo(bot.entity.position) > 16 || (cur.username && this.hooks.settled?.(cur.username, a.ts))) {
@@ -634,6 +746,7 @@ export class ReflexController {
       return;
     }
     if (this.mode !== 'idle') return;
+    this.tread(now);
     // 5. Upkeep (eat, pick up, armor) only while no skill holds the hands: an equip in the middle of a skill's
     // equip-then-use would place bread instead of dirt. Starving is the exception; the skill is asked to yield.
     const eatAt = (this.opts.eatAt ?? 14) + reflexDelta(this.hooks.quirks(), 'eat');

@@ -22,8 +22,8 @@ export const ModelsConfigSchema = z
   .object({
     tiers: z
       .object({
-        L1: TierConfigSchema.prefault({ timeoutMs: 5000, maxTokens: 200, need: ['structured_output'] }),
-        L2: TierConfigSchema.prefault({ timeoutMs: 6000, maxTokens: 500, need: ['structured_output', 'tool_calling'] }),
+        L1: TierConfigSchema.prefault({ timeoutMs: 7000, maxTokens: 200, need: ['structured_output'] }),
+        L2: TierConfigSchema.prefault({ timeoutMs: 8000, maxTokens: 500, need: ['structured_output', 'tool_calling'] }),
         L3: TierConfigSchema.prefault({ timeoutMs: 45000, maxTokens: 2000, need: ['structured_output'] }),
       })
       .prefault({}),

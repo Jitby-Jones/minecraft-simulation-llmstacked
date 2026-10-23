@@ -88,7 +88,7 @@ describe.skipIf(!liveJavaPath())('M6 live: social model, commitments and deaths'
       const user = messages.at(-1)?.content ?? '';
       const schema = schemaNameOf(body);
       if (schema === 'summary') return { text: JSON.stringify({ summary: 'I build things.' }) };
-      if (schema === 'goal') return { text: JSON.stringify({ keep: true }) };
+      if (schema === 'plan') return { text: JSON.stringify({ keep: true }) };
       if (schema === 'addressed') return { text: JSON.stringify({ addressedToMe: false }) };
       if (schema === 'social') return { text: JSON.stringify({ sentimentDelta: 0.3, summary: 'Pip seems helpful.' }) };
       if (schema === 'promises') {

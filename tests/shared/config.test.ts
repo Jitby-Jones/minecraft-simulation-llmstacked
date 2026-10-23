@@ -25,7 +25,8 @@ import {
 describe('config files', () => {
   it('every config/*.yaml parses with the design defaults', () => {
     const cfg = loadAllConfig();
-    expect(cfg.models.tiers.L1.timeoutMs).toBe(5000);
+    expect(cfg.models.tiers.L1.timeoutMs).toBe(7000);
+    expect(cfg.models.tiers.L2.timeoutMs).toBe(8000);
     expect(cfg.models.tiers.L2.need).toContain('tool_calling');
     expect(cfg.models.llm.baseUrl).toBe('subscription');
     expect(cfg.models.llm.allowPaidKey).toBe(false);

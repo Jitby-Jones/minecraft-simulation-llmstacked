@@ -59,6 +59,7 @@ export class Body {
   readonly placed = new Set<string>();
   private quirks: readonly Quirk[];
   private cachedMovements: Movements | null = null;
+  private cachedRun: Movements | null = null;
 
   private constructor(
     readonly bot: Bot,
@@ -100,9 +101,12 @@ export class Body {
   setQuirks(quirks: readonly Quirk[]): void {
     this.quirks = quirks;
     this.cachedMovements = null;
+    this.cachedRun = null;
   }
 
-  movements(): Movements {
+  /** A walk, or with `sprint` a run (running away: sprinting costs food). */
+  movements(sprint = false): Movements {
+    if (sprint) return (this.cachedRun ??= createMovements(this.bot, this.quirks, { sprint: true }));
     this.cachedMovements ??= createMovements(this.bot, this.quirks);
     return this.cachedMovements;
   }
@@ -139,7 +143,7 @@ export class Body {
       logger: this.logger,
       rng: this.rng,
       signal: opts.signal ?? new AbortController().signal,
-      movements: () => this.movements(),
+      movements: (sprint?: boolean) => this.movements(sprint),
       knowsRecipe: opts.knowsRecipe ?? (() => true),
       say: async (text, volume, urgent) => {
         await this.say(text, volume, [], undefined, urgent);

@@ -1,9 +1,11 @@
 # LLM tiers (DESIGN.md §5, §22). Model IDs must come from the NanoGPT subscription list
 # (GET https://nano-gpt.com/api/subscription/v1/models). `auto` picks from that list (§22.3):
 # first from config/model-bench.json (written by `pnpm bench-models`), otherwise by heuristics.
+# Timeouts from live runs with five agents: replies have a long tail (L1 p90 3.8 s, some past 5 s; L2 p90 3.3 s,
+# some past 6 s), and a timed-out try costs a whole second try on the next model.
 tiers:
-  L1: { primary: auto, fallbacks: [auto], timeoutMs: 5000, maxTokens: 200, need: [structured_output] }
-  L2: { primary: auto, fallbacks: [auto], timeoutMs: 6000, maxTokens: 500, need: [structured_output, tool_calling] }
+  L1: { primary: auto, fallbacks: [auto], timeoutMs: 7000, maxTokens: 200, need: [structured_output] }
+  L2: { primary: auto, fallbacks: [auto], timeoutMs: 8000, maxTokens: 500, need: [structured_output, tool_calling] }
   L3: { primary: auto, fallbacks: [auto], timeoutMs: 45000, maxTokens: 2000, need: [structured_output] }
 
 # The tier agents' lines are written with. L1 models are quick but small ones cut lines short or miss the

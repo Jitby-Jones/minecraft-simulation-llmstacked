@@ -181,6 +181,17 @@ export function isAirLike(b: Block | null): boolean {
   return Boolean(b && b.boundingBox === 'empty' && !['water', 'lava'].includes(b.name));
 }
 
+/** Whether a walk to (x, z) would end in water or lava: the first block down from above `y` that isn't air. */
+export function wetAt(bot: Bot, x: number, z: number, y: number): boolean {
+  for (let dy = 12; dy >= -16; dy--) {
+    const b = bot.blockAt(new Vec3(Math.floor(x), Math.floor(y) + dy, Math.floor(z)));
+    // Not loaded: nothing to go by.
+    if (!b) return false;
+    if (!isAirLike(b)) return ['water', 'lava', 'bubble_column'].includes(b.name);
+  }
+  return false;
+}
+
 /** A spot within `radius` where a block can be placed (air with solid ground below), excluding our own column. */
 export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
   const me = bot.entity.position.floored();

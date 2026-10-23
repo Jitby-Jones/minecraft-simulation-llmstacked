@@ -9,7 +9,10 @@ import type { Body } from '@agora/agent/body/body';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { AgentBus } from '@agora/agent/bus';
 import { Feelings } from '@agora/agent/mind/feelings';
-import { validateDecision } from '@agora/agent/modules/cc';
+import { buildPacket, dayPart, hunger } from '@agora/agent/modules/bottleneck';
+import { evalCondition } from '@agora/agent/modules/conditions';
+import { routeItemTask } from '@agora/agent/modules/itemTasks';
+import { validateDecision, whyNotGo } from '@agora/agent/modules/cc';
 import { Conversations } from '@agora/agent/modules/conversations';
 import { tidyDecision } from '@agora/agent/modules/decisionTidy';
 import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
@@ -208,5 +211,84 @@ describe('module switches (debug controls)', () => {
     expect(isOff(s.state, 'cc.llm')).toBe(true);
     expect(isOff(s.state, 'talking.llm')).toBe(true);
     expect(isOff(s.state, 'reflection')).toBe(false);
+  });
+});
+
+describe('hunger said plainly (an agent starved with "food 3/20" in its packet)', () => {
+  const at = (food: number, carrying: { item: string; qty: number }[] = []) => {
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    return { ...s, self: { ...s.self, food, inventory: carrying } };
+  };
+  it('fed, or hungry with food at hand: nothing to say', () => {
+    expect(hunger(at(18))).toBeNull();
+    expect(hunger(at(7, [{ item: 'bread', qty: 2 }]))).toBeNull();
+  });
+  it('hungry with nothing to eat: find food; starving: food before anything else', () => {
+    expect(hunger(at(7))).toMatch(/hungry and carry nothing to eat: find food soon/);
+    expect(hunger(at(3))).toMatch(/starving .* Food comes before anything else/);
+    expect(hunger(at(3, [{ item: 'apple', qty: 1 }]))).toBe('You are starving: eat the apple you carry.');
+  });
+});
+
+describe('the model says what to get; code works out how (item tasks to obtain)', () => {
+  const canon = (n: string) => getSkill(n)?.name ?? null;
+  const route = (skill: string, args: Record<string, unknown>) => routeItemTask({ skill, args }, canon);
+  it('a craft goes to obtain (which gets the ingredients and the table first)', () => {
+    expect(route('craft', { item: 'crafting_table', qty: 1 })).toEqual({ skill: 'obtain', args: { item: 'crafting_table', qty: 1 } });
+    expect(route('craft', { item: 'oak_planks', qty: 80 })).toEqual({ skill: 'obtain', args: { item: 'planks', qty: 64 } });
+  });
+  it('a mine of ore, stone or wood gets what it drops, the pickaxe first if need be', () => {
+    expect(route('mine', { block: 'iron_ore', qty: 3 })).toEqual({ skill: 'obtain', args: { item: 'raw_iron', qty: 3 } });
+    expect(route('dig', { block: 'deepslate_coal_ore' })).toEqual({ skill: 'obtain', args: { item: 'coal', qty: 1 } });
+    expect(route('mine', { block: 'cobblestone', qty: 8 })).toEqual({ skill: 'obtain', args: { item: 'cobblestone', qty: 8 } });
+    expect(route('mine', { block: 'stone', qty: 3 })).toEqual({ skill: 'obtain', args: { item: 'cobblestone', qty: 3 } });
+    expect(route('mine', { block: 'birch_log', qty: 2 })).toEqual({ skill: 'obtain', args: { item: 'log', qty: 2 } });
+    expect(route('mine', { block: 'sand', qty: 4 })).toEqual({ skill: 'mine', args: { block: 'sand', qty: 4 } });
+  });
+  it('a gather of something no block drops is obtained; a kind of wood is any wood', () => {
+    expect(route('gather', { item: 'stick', qty: 4 })).toEqual({ skill: 'obtain', args: { item: 'stick', qty: 4 } });
+    expect(route('gather', { item: 'wooden_pickaxe' })).toEqual({ skill: 'obtain', args: { item: 'wooden_pickaxe', qty: 1 } });
+    expect(route('chop', { item: 'oak_log', qty: 8 })).toEqual({ skill: 'gather', args: { item: 'log', qty: 8 } });
+    expect(route('gather', { item: 'dirt', qty: 16 })).toEqual({ skill: 'gather', args: { item: 'dirt', qty: 16 } });
+    expect(route('obtain', { item: 'spruce_planks', qty: 4 })).toEqual({ skill: 'obtain', args: { item: 'planks', qty: 4 } });
+  });
+  it('a craft, a mine or a gather gets that many more: obtain is told to have what is held and those', () => {
+    const holding = (item: string) => (item === 'torch' ? 4 : item === 'cobblestone' ? 60 : 0);
+    expect(routeItemTask({ skill: 'craft', args: { item: 'torch', qty: 4 } }, canon, holding)).toEqual({ skill: 'obtain', args: { item: 'torch', qty: 8 } });
+    expect(routeItemTask({ skill: 'mine', args: { block: 'stone', qty: 16 } }, canon, holding)).toEqual({ skill: 'obtain', args: { item: 'cobblestone', qty: 64 } });
+  });
+  it('a crafting table goes where there is room; a wall block stays where it was put', () => {
+    expect(route('place', { block: 'crafting_table', x: 257, y: 62, z: 613 })).toEqual({ skill: 'place', args: { block: 'crafting_table' } });
+    expect(route('place', { block: 'cobblestone', x: 1, y: 64, z: 2 })).toEqual({ skill: 'place', args: { block: 'cobblestone', x: 1, y: 64, z: 2 } });
+    expect(route('say', { text: 'hi' })).toEqual({ skill: 'say', args: { text: 'hi' } });
+  });
+  it('a kind of wood counts as any wood in a condition (inventoryHas:oak_log is met by birch logs)', () => {
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    const held = { ...s, self: { ...s.self, inventory: [{ item: 'birch_log', qty: 4 }] } };
+    expect(evalCondition('inventoryHas:oak_log>=4', held)).toBe(true);
+    expect(evalCondition('inventoryHas:oak_planks>=1', held)).toBe(false);
+  });
+});
+
+describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389 blocks off)', () => {
+  const s0 = createInitialState({ persona, username: 'Pip', now: 0 });
+  const s = { ...s0, self: { ...s0.self, pos: { x: 218, y: 66, z: 448 } }, village: { ...s0.village, home: { x: 220, y: 66, z: 450 } } };
+  it('near, or somewhere it knows: fine; far and unknown: refused, with where home is', () => {
+    expect(whyNotGo(s, { x: 240, y: 64, z: 480 })).toBeNull();
+    expect(whyNotGo({ ...s, self: { ...s.self, pos: { x: 600, y: 66, z: 448 } } }, { x: 221, y: 66, z: 452 })).toBeNull();
+    expect(whyNotGo(s, { x: 0, y: 64, z: 0 })).toBe('0,64,0 is 498 blocks away and you know of nothing there: pick a place you can see or one you know; home is at 220,66,450');
+  });
+  it('the packet says where home is', () => {
+    const packet = buildPacket({ state: s, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
+    expect(packet).toContain('Home (the village): 220,66,450, 3 m away; no huts yet.');
+    const withHut = buildPacket({ state: { ...s, village: { ...s.village, huts: [{ x: 224, y: 66, z: 452 }] } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
+    expect(withHut).toContain('huts with doors at 224,66,452.');
+  });
+  it('the time of day as one plans by it: how long until dark, or until light', () => {
+    expect(dayPart(3000, true)).toBe('daytime');
+    expect(dayPart(10600, true)).toBe('evening, dark in about 2 min');
+    expect(dayPart(12900, true)).toBe('evening, dark in about 1 min');
+    expect(dayPart(14000, false)).toBe('night, light in about 8 min');
+    expect(dayPart(23500, false)).toBe('night');
   });
 });
