@@ -88,7 +88,13 @@ The dashboard (`http://localhost:8080`) has a **Controls** card and, for the age
 - set a feeling;
 - switch modules off;
 - choose the model per tier, for everyone or for one agent;
-- pause and resume everyone, and turn test mode on and off.
+- pause and resume everyone, and turn test mode on and off;
+- restart or stop the whole system (each after a confirm).
+
+The **Server console** card shows what the Minecraft server prints and runs commands on it as its own console does
+(`time set day`, `tp Pip 0 80 0`; the slash is optional, the up arrow brings back earlier ones). It is the same as
+`pnpm ctl rcon`, with the same refusals: op and chat spying only for the owner in `config/world.yaml`. The agents
+never see the commands typed.
 
 Settings are kept in `DATA_DIR/agents/tuning.json`. Models must be on the subscription list (DESIGN.md §22).
 
