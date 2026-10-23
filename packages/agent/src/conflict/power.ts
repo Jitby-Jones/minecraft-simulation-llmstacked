@@ -41,6 +41,11 @@ export const LIVE_MARGIN = 1.3;
 const WRONG_MERGE_MS = 10_000;
 /** Seen alone or hurt: the moment to rise against them lasts this long (§17.8). */
 const OPENING_MS = 2 * 60_000;
+/**
+ * Seen alone this long, not for a moment, is alone: a follower a few steps off, or just catching up with him, is no
+ * moment to rise.
+ */
+const ALONE_MS = 4000;
 /** Resentment enough to rally others (§17.8, as mayRally): a moment against them is worth stopping work for. */
 const OPENING_RESENTMENT = 0.5;
 /** A blow of ours or an ally's this recent explains the target's hurt. */
@@ -100,6 +105,8 @@ export class PowerWatch {
   private readonly defied = new Map<AgentName, Map<AgentName, number>>();
   /** When someone was last seen alone or hurt. */
   private readonly openings = new Map<AgentName, number>();
+  /** Since when each person has been seen with nobody near (ALONE_MS). */
+  private readonly aloneSince = new Map<AgentName, number>();
   /** When we last said we stand by our leader against whom ("how:names"). */
   private readonly stoodBy = new Map<string, number>();
   /** When we last woke the CC for a moment against each person. */
@@ -117,6 +124,12 @@ export class PowerWatch {
 
   start(): void {
     const b = this.o.bus;
+    // One we follow who has died is followed no more.
+    this.offs.push(
+      b.on('peerDied', (e) => {
+        if (e.name === this.following) this.leave(e.name, `${e.name} died`);
+      }),
+    );
     // Wrongs seen: an attack, a demand made of someone. The wronged resent the wrongdoer.
     this.offs.push(
       b.on('observedAction', (e) => {
@@ -292,11 +305,14 @@ export class PowerWatch {
     const alone = them
       ? !s.perception.nearbyEntities.some((e) => e.kind === 'player' && e.name !== target && !members.includes(e.name) && Math.hypot(e.pos.x - them.pos.x, e.pos.z - them.pos.z) <= TOGETHER)
       : false;
+    if (!alone) this.aloneSince.delete(target);
+    else if (!this.aloneSince.has(target)) this.aloneSince.set(target, t);
+    const aloneAWhile = alone && t - (this.aloneSince.get(target) ?? t) >= ALONE_MS;
     // Hurt by something other than us (one of us at them in a fight they're winning is no weakness of theirs).
     const ourBlow = [...(this.blows.get(target) ?? new Map<AgentName, number>())].some(([n, at]) => (n === this.o.me || members.includes(n)) && t - at < OUR_BLOW_MS);
     const hurt = Boolean(them?.hurtRecently) && !ourBlow;
     // Seen alone or hurt: the moment lasts a while (time to call on the others), not just while it's so.
-    if (them && (alone || hurt)) this.openings.set(target, t);
+    if (them && (aloneAWhile || hurt)) this.openings.set(target, t);
     return { target, members, power, against, opening: t - (this.openings.get(target) ?? -Infinity) < OPENING_MS };
   }
 

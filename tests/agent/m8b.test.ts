@@ -675,6 +675,20 @@ describe('followers and leaders, as onlookers see them (§17.7)', () => {
     expect(w.pw.leader()).toBeNull();
   });
 
+  it('one we follow who dies is followed no more; someone else dying changes nothing', () => {
+    const w = watch(meek);
+    const paid = (i: number): Commitment => ({ ...pact('Tib', 'Rex', 'x'), id: `p${i}`, what: { kind: 'give', item: 'bread', qty: 3, text: '3 bread' }, coerced: true, status: 'fulfilled', resolvedAt: w.t.now - i * 60_000 });
+    w.s.update('commitments', () => [paid(1), paid(2)]);
+    w.fears.Rex = 0.8;
+    w.tick();
+    expect(w.pw.leader()).toBe('Rex');
+    w.bus.emit({ type: 'peerDied', name: 'Bo', cause: 'was slain by Zombie', witnessed: true });
+    expect(w.pw.leader()).toBe('Rex');
+    w.bus.emit({ type: 'peerDied', name: 'Rex', cause: 'was slain by Ann', witnessed: true, killer: 'Ann' });
+    expect(w.pw.leader()).toBeNull();
+    expect(w.s.state.social.Rex?.allegiance).toBeUndefined();
+  });
+
   it('blows by two within a minute are a group setting upon the leader; a minute apart, two fights', () => {
     const at = (gap: number) => {
       const w = watch(meek);
@@ -758,6 +772,9 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(told).toEqual([]); // nobody we know of resents Rex too
     s.update('heardOpinions', () => [{ speaker: 'Bo', target: 'Rex', valence: -0.7, ts: t.now }]);
     tick();
+    expect(told).toEqual([]); // alone for a moment is not yet alone
+    t.now += 4000;
+    tick();
     tick();
     expect(told).toEqual(['Rex']); // once; Cy we resent, but nobody else does
     t.now += 2 * 60_000;
@@ -802,7 +819,9 @@ describe('grudges, gossip and coalitions (§17.8)', () => {
     expect(c.against).toBeCloseTo(0.6 + 2 * FOLLOWER_WEIGHT);
     expect(c.opening).toBe(false); // not in sight
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Bo', 3)] }));
-    expect(w.pw.coalition('Rex').opening).toBe(true); // in sight, nobody but us near Rex
+    expect(w.pw.coalition('Rex').opening).toBe(false); // in sight, nobody but us near Rex: for a moment, not yet
+    w.t.now += 4000;
+    expect(w.pw.coalition('Rex').opening).toBe(true); // seen alone a while
     // The moment lasts a while (time to call on the others), then it's gone while Rex has company.
     w.s.update('perception', (p) => ({ ...p, nearbyEntities: [ent('Rex', 14), ent('Di', 16)] }));
     expect(w.pw.coalition('Rex').opening).toBe(true);
