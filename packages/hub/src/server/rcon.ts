@@ -22,6 +22,8 @@ export class RconClient {
   private buffer = Buffer.alloc(0);
   private nextId = 1;
   private pending = new Map<number, { resolve: (body: string) => void; reject: (err: Error) => void }>();
+  /** Settles when the last command sent is answered (or given up on). */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly host: string,
@@ -77,12 +79,21 @@ export class RconClient {
     this.pending.clear();
   }
 
-  async command(cmd: string, timeoutMs = 10000): Promise<string> {
-    if (!this.socket) throw new Error('rcon not connected');
-    const id = this.nextId++;
-    const res = new Promise<string>((resolve, reject) => this.pending.set(id, { resolve, reject }));
-    this.socket.write(encode(id, TYPE_COMMAND, cmd));
-    return withTimeout(res, timeoutMs, `rcon command timeout: ${cmd}`);
+  /**
+   * One command at a time, each after the last one's answer (or its timeout). The server reads a single packet per
+   * read: commands sent together can arrive in one, the rest is lost, and the server drops the connection.
+   */
+  command(cmd: string, timeoutMs = 10000): Promise<string> {
+    const send = async (): Promise<string> => {
+      if (!this.socket) throw new Error('rcon not connected');
+      const id = this.nextId++;
+      const res = new Promise<string>((resolve, reject) => this.pending.set(id, { resolve, reject }));
+      this.socket.write(encode(id, TYPE_COMMAND, cmd));
+      return withTimeout(res, timeoutMs, `rcon command timeout: ${cmd}`);
+    };
+    const p = this.queue.then(send, send);
+    this.queue = p.catch(() => undefined);
+    return p;
   }
 
   close(): void {
