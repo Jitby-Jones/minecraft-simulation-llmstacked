@@ -3,7 +3,7 @@
 // tests/live/death.test.ts.
 
 import { describe, expect, it } from 'vitest';
-import type { Bot } from 'mineflayer';
+import type { Bot } from '@agora/agent/body/bot';
 import { ModelsConfigSchema, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import { haltable } from '@agora/agent/agent';
