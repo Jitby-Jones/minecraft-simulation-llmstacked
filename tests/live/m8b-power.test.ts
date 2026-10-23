@@ -363,9 +363,16 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       }
     };
     for (const n of names) agents[n].start();
-    // His two followers always at his side (the premise, kept as K keeps its followers away): whatever else they do,
-    // they are brought back beside him.
+    // The premise, kept as K keeps its followers away: his two followers always at his side, and he and the three
+    // where the scene put them, in sight of each other and out of earshot. Whatever else they do, they are brought
+    // back. (Left to stroll, the two groups drift out of each other's sight, or into each other and a brawl: what L
+    // asks is whom fear holds back, not where strolls lead.)
     const atHisSide = setInterval(() => {
+      for (const n of ['Vex', 'Dag', 'Eli', 'Fen'] as const) {
+        const p = bodies[n].bot.entity?.position;
+        const [dx, dz] = spots[n];
+        if (p && Math.hypot(p.x - (x + dx), p.z - dz) > 4) void server.cmd(`tp ${n} ${x + dx} ${Y} ${dz}`).catch(() => undefined);
+      }
       void server.cmd('execute at Vex run tp Lin ~1 ~ ~1').catch(() => undefined);
       void server.cmd('execute at Vex run tp Moe ~-1 ~ ~1').catch(() => undefined);
     }, 8000);
