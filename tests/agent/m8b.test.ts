@@ -892,6 +892,8 @@ describe('the code default for power (§17.7, §17.8)', () => {
   it('a follower keeps close to the leader', () => {
     expect(escortMove(state([ent('Rex', 20)]), ctx({ leader: 'Rex' }))).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
     expect(escortMove(state([ent('Rex', 5)]), ctx({ leader: 'Rex' }))).toBeNull();
+    // Seen with him (within 6) is by him: one 7 blocks off goes back to his side.
+    expect(escortMove(state([ent('Rex', 7)]), ctx({ leader: 'Rex' }))).toMatchObject({ option: 'follow', target: { agent: 'Rex' } });
     expect(escortMove(state([ent('Rex', 20)]), ctx())).toBeNull();
   });
 
