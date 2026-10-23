@@ -233,7 +233,8 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       for (const n of followers) await server.cmd(`tp ${n} ${x + 80} ${Y} 60`);
       await server.cmd(`tp Rex ${x} ${Y} 0`);
       for (const n of ['Ann', 'Bo', 'Cyd']) await server.cmd(`tp ${n} ${x + (n === 'Ann' ? 6 : n === 'Bo' ? 7 : 5)} ${Y} ${n === 'Cyd' ? -4 : 3}`);
-      await server.cmd('effect give Rex minecraft:instant_damage 1 0');
+      // Badly hurt (12 of his 20): in iron, a little hurt he outlasts three with stone swords, and calls each brawl off.
+      await server.cmd('effect give Rex minecraft:instant_damage 1 1');
       const kAt = Date.now();
       heard.timeline.push(`${heard.at()} -- Rex alone and hurt (followers away) --`);
       // They stay away for his whole outing: a follower walking back to him is sent off again, until it starts.
@@ -446,6 +447,12 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
     });
     g.start();
     w.start();
+    // The premise, as L keeps its scene: Wit is there to see it. Left to stroll, she may be out of sight by the time it
+    // comes to blows; brought back where the scene put her if she strays.
+    const there = setInterval(() => {
+      const p = wit.bot.entity?.position;
+      if (p && Math.hypot(p.x - (x + 2), p.z - 6) > 4) void server.cmd(`tp Wit ${x + 2} ${Y} 6`).catch(() => undefined);
+    }, 4000);
     try {
       await waitFor(() => g.conflict.rungOf('Pell') >= 4, 180_000, 'the lethal rung', 500);
       await waitFor(() => pellDied, 120_000, 'Pell dead', 500);
@@ -461,6 +468,7 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       expect(yielded).toBe(true);
       expect(b?.weight ?? 0).toBeGreaterThanOrEqual(1);
     } finally {
+      clearInterval(there);
       await g.stop();
       await w.stop();
       for (const b of [gorm, pell, wit]) await b.disconnect();
