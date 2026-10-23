@@ -26,6 +26,9 @@ export function connectBody(opts: BodyOptions): Promise<Bot> {
     auth: 'offline',
     viewDistance: opts.viewDistance ?? 'tiny',
     hideErrors: true,
+    // A life ends at death (§16.3): the body stays where it fell, not respawned at the spawn or as a spectator to act on
+    // for the moment the process takes to end (owner request, 2026-10-24).
+    respawn: false,
     // Leave chat-pattern matching off; we parse ProximityChat! system lines ourselves (§15.3).
     chatLengthLimit: 256,
   });

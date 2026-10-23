@@ -3,7 +3,7 @@
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
 import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
-import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
+import type { Embedder, LlmCallOptions, LlmClient, LlmResult, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
 import { Memory } from './memory/memory';
@@ -130,9 +130,14 @@ export class Agent {
   private readonly calledOffAt = new Map<AgentName, number>();
   private readonly fightCapReached: () => boolean;
   private readonly offs: (() => void)[] = [];
+  /** Aborted at death: every model call of this agent, under way or to come, ends there. */
+  private readonly halting = new AbortController();
+  private dead = false;
+  private modulesHalted = false;
 
   constructor(private readonly o: AgentOptions) {
-    const { body, persona, username, llm, logger } = o;
+    const { body, persona, username, logger } = o;
+    const llm = o.llm ? haltable(o.llm, this.halting.signal) : null;
     const now = o.now ?? Date.now;
     const world = o.world ?? WorldConfigSchema.parse({});
     const sw = world.skillWriter;
@@ -748,7 +753,15 @@ export class Agent {
     return lines;
   }
 
+  /** Died (owner request, 2026-10-24). */
+  get isDead(): boolean {
+    return this.dead;
+  }
+
   start(): void {
+    const onDeath = (): void => this.die();
+    this.o.body.bot.on('death', onDeath);
+    this.offs.push(() => this.o.body.bot.off('death', onDeath));
     this.o.body.reflexes.start();
     this.perception.start();
     // Before the deed watch: it forgets a block we set down once someone breaks it.
@@ -784,8 +797,33 @@ export class Agent {
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
+  /**
+   * A death ends every activity at once (owner request, 2026-10-24; §16.3): the body stops and says nothing more,
+   * every module stops and every model call is cut off. Perception still hears the death's cause for the report, and
+   * memory is written when the process ends (stop()).
+   */
+  die(): void {
+    if (this.dead) return;
+    this.dead = true;
+    this.halting.abort(new Error('died'));
+    this.o.body.halt();
+    this.haltModules();
+    this.o.logger.info({ module: 'agent' }, 'died: every activity stopped');
+  }
+
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.haltModules();
+    this.memory?.stop();
+    await this.memory?.flush();
+    this.perception.stop();
+    for (const off of this.offs.splice(0)) off();
+  }
+
+  /** Every module but memory (written last) and perception (it hears a death's cause): once only. */
+  private haltModules(): void {
+    if (this.modulesHalted) return;
+    this.modulesHalted = true;
     this.skillWriter.stop();
     this.family.stop();
     this.romance.stop();
@@ -809,16 +847,12 @@ export class Agent {
     this.roles.stop();
     this.goalGen?.stop();
     this.cc.stop();
-    this.memory?.stop();
-    await this.memory?.flush();
     this.selfMonitor.stop();
     this.talking.stop();
     this.executor.stop();
     this.awareness.stop();
     this.conversations.stop();
-    this.perception.stop();
     this.o.body.reflexes.stop();
-    for (const off of this.offs.splice(0)) off();
   }
 
   /**
@@ -864,4 +898,18 @@ export class Agent {
   setGoal(text: string, doneWhen?: string): void {
     this.cc.setGoal(text, doneWhen);
   }
+}
+
+/**
+ * The agent's model client, cut off at `halt`: a call made after it, or under way when it comes, ends there as an
+ * aborted call (its fallback), as a call's own signal would end it.
+ */
+export function haltable(llm: LlmClient, halt: AbortSignal): LlmClient {
+  return new Proxy(llm, {
+    get(target, prop) {
+      if (prop === 'call') return <T>(opts: LlmCallOptions<T>): Promise<LlmResult<T>> => target.call({ ...opts, signal: opts.signal ? AbortSignal.any([opts.signal, halt]) : halt });
+      const v: unknown = Reflect.get(target, prop, target);
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+    },
+  });
 }

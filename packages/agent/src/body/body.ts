@@ -61,6 +61,8 @@ export class Body {
   home: Vec3 | null = null;
   /** Blocks this body placed ("x,y,z", oldest first): someone breaking them is a deed against us (§6.3). */
   readonly placed = new Set<string>();
+  /** Died: it does nothing more (owner request, 2026-10-24). */
+  dead = false;
   private quirks: readonly Quirk[];
   private cachedMovements: Movements | null = null;
   private cachedRun: Movements | null = null;
@@ -124,8 +126,27 @@ export class Body {
     return (await this.chat.say(text, volume, listeners, stillWanted, urgent)).sent;
   }
 
+  /**
+   * A death ends everything at once (owner request, 2026-10-24): walking, digging, fighting, using an item and the
+   * reflexes stop, and nothing more is said. The body is left where it fell; it never respawns (`respawn: false`).
+   */
+  halt(): void {
+    if (this.dead) return;
+    this.dead = true;
+    this.chat.silence();
+    this.reflexes.stop();
+    const b = this.bot as Bot & { pathfinder?: { setGoal(g: null): void; stop(): void }; pvp?: { stop(): void } };
+    for (const stop of [() => b.pathfinder?.setGoal(null), () => b.pathfinder?.stop(), () => b.pvp?.stop(), () => b.clearControlStates(), () => b.stopDigging(), () => b.deactivateItem()]) {
+      try {
+        stop();
+      } catch {
+        // already still
+      }
+    }
+  }
+
   async run(skillName: string, args: unknown, opts: RunOptions = {}): Promise<SkillRunRecord> {
-    const skill = getSkill(skillName) ?? opts.extraSkills?.find((s) => s.name === skillName) ?? null;
+    const skill = this.dead ? null : (getSkill(skillName) ?? opts.extraSkills?.find((s) => s.name === skillName) ?? null);
     if (!skill) {
       return {
         id: 'unknown',
@@ -136,7 +157,7 @@ export class Body {
         ok: false,
         mismatch: false,
         aborted: false,
-        error: `unknown skill ${skillName}`,
+        error: this.dead ? 'dead' : `unknown skill ${skillName}`,
         slip: null,
         startedAt: Date.now(),
         durationMs: 0,
