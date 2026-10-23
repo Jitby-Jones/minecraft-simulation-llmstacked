@@ -92,7 +92,9 @@ describe('an operator’s debug requests to one agent', () => {
     store.update('flags', (f) => ({ ...f, off: ['romance'] }), 'switch');
     const r = await debugOp(a, 'inspect', {});
     expect(r.ok).toBe(true);
-    const d = r.data as { packet: string; goals: { planText: string }; modules: { name: string; on: boolean }[]; chains: unknown; lastExchange: unknown };
+    const d = r.data as { persona: Record<string, unknown>; packet: string; goals: { planText: string }; modules: { name: string; on: boolean }[]; chains: unknown; lastExchange: unknown };
+    // Who they are, as written (by hand, or by the master model for a newcomer): their story and sore spots too.
+    expect(d.persona).toMatchObject({ name: 'Pip', source: 'pool', traits: ['curious'], description: '', lifeGoals: ['map the valley'], insecurities: [] });
     expect(d.packet).toContain('Your plan: explore: 1. look around the hills (doing now) (not talked over with anyone yet)');
     expect(d.goals.planText).toBe('explore: 1. look around the hills (doing now)');
     expect(d.modules.find((m) => m.name === 'romance')).toEqual({ name: 'romance', on: false });
