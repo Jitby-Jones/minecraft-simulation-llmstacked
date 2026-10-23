@@ -547,12 +547,12 @@ describe('water (§4.5): not drowning while the mind is busy deciding', () => {
 
 describe('a stroll (wander): clear of those to keep away from, close to the one to keep by', () => {
   /** Flat dry ground at y 63; Rex standing at `rex`. The first walk's goal is recorded, then the stroll is called off. */
-  async function firstWalk(rex: Vec3, args: Record<string, unknown>, seed = 1) {
+  async function firstWalk(rex: Vec3, args: Record<string, unknown>, seed = 1, home: Vec3 | null = null, at = new Vec3(0, 64, 0)) {
     const ac = new AbortController();
     const goals: { x: number; z: number }[] = [];
     const rexEntity = { id: 1, type: 'player', username: 'Rex', name: 'player', position: rex, height: 1.8 };
     const bot = {
-      entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 },
+      entity: { id: 0, position: at, height: 1.8 },
       entities: { 1: rexEntity },
       players: { Rex: { username: 'Rex', entity: rexEntity } },
       registry: { blocksArray: [] },
@@ -577,11 +577,19 @@ describe('a stroll (wander): clear of those to keep away from, close to the one 
     const wander = getSkill('wander');
     const parsed = wander?.parseArgs(args);
     if (!wander || !parsed?.ok) throw new Error('wander args');
-    const ctx = { bot: bot as unknown as Bot, signal: ac.signal, logger: nullLogger(), rng: new SeededRandom(seed), movements: () => ({}) as never, knowsRecipe: () => true, say: async () => undefined, slip: null, home: null, progress: () => undefined, planDepth: 2 };
+    const ctx = { bot: bot as unknown as Bot, signal: ac.signal, logger: nullLogger(), rng: new SeededRandom(seed), movements: () => ({}) as never, knowsRecipe: () => true, say: async () => undefined, slip: null, home, progress: () => undefined, planDepth: 2 };
     const r = await wander.run(ctx, parsed.args);
     expect(r.ok).toBe(true);
     return goals[0];
   }
+
+  it('about home, potters about it: a stroll after a stroll does not drift off', async () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      // 20 blocks out from home, the next spot is within the radius of home, not of where it stands.
+      const g = await firstWalk(new Vec3(-30, 64, 0), { radius: 16, seconds: 30 }, seed, new Vec3(0, 64, 0), new Vec3(20, 64, 0));
+      expect(Math.hypot(g?.x ?? 99, g?.z ?? 99)).toBeLessThanOrEqual(17);
+    }
+  });
 
   it('walks away from someone to keep clear of, when they are near', async () => {
     for (const seed of [1, 2, 3, 4, 5]) {

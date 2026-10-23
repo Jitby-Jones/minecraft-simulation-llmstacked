@@ -196,9 +196,10 @@ export const wander = defineSkill({
           await waitMs(ctx, 1500 + ctx.rng.next() * 1500);
           continue;
         }
-        // The next spot: somewhere within the radius of where the stroll began (or of the one we keep close to), away
-        // from any monster or anyone to keep clear of in sight, and not off toward the edge of where we live (beyond
-        // MAX_ROAM from home it heads back).
+        // The next spot: somewhere within the radius of the one we keep close to, else of home when we are about it
+        // (one with nothing to do potters about where one lives, rather than drifting off a stroll at a time), else
+        // of where the stroll began; away from any monster or anyone to keep clear of in sight, and not off toward
+        // the edge of where we live (beyond MAX_ROAM from home it heads back).
         const me = bot.entity.position;
         const shunned = (args.avoid ?? [])
           .map((n) => findEntity(bot, n, SHUN_RANGE))
@@ -211,7 +212,8 @@ export const wander = defineSkill({
         if (home && farOut) angle = Math.atan2(home.z - me.z, home.x - me.x) + (ctx.rng.next() - 0.5);
         const r = args.radius * (0.3 + 0.7 * ctx.rng.next());
         const by = args.near ? findEntity(bot, args.near, 48) : null;
-        const base = threat || farOut ? me : (by?.position ?? start);
+        const aboutHome = home && Math.hypot(me.x - home.x, me.z - home.z) <= args.radius * 2 ? home : null;
+        const base = threat || farOut ? me : (by?.position ?? aboutHome ?? start);
         angle = dryHeading(ctx, base, angle, r);
         const tx = Math.round(base.x + Math.cos(angle) * r);
         const tz = Math.round(base.z + Math.sin(angle) * r);
