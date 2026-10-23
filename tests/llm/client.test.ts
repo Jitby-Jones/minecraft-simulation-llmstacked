@@ -187,6 +187,32 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(fake.chatRequests().filter((q) => q.body?.model === first).length).toBe(before);
   });
 
+  it('takes a rate token for every request it sends: a fallback model’s and a repair’s too (NanoGPT counts each)', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    let tokens = 0;
+    const counting = {
+      acquire: () => {
+        tokens++;
+        return Promise.resolve();
+      },
+      rate: 10_000,
+    };
+    const rt = await startLlm({ apiKey: 'test-key', config: ModelsConfigSchema.parse(fastTiers), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: counting });
+    const [first] = rt.router.chain('L2');
+    // The first model times out, the second answers wrongly once and then rightly: three requests, three tokens.
+    let wrong = true;
+    fake.chat = ({ model }) => {
+      if (model === first) return { text: GOOD, delayMs: 2000 };
+      if (!wrong) return { text: GOOD };
+      wrong = false;
+      return { text: '{"option":"dance"}' };
+    };
+    const r = await ask(rt);
+    expect(r.ok).toBe(true);
+    expect(fake.chatRequests()).toHaveLength(3);
+    expect(tokens).toBe(3);
+  });
+
   it('refreshes the allowlist on "model not found" and hot-swaps when a model disappears', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const rt = await runtime(fake);

@@ -751,12 +751,15 @@ export function codeDecision(
   const ritual = fam?.kind === 'sleep' ? familyMove(fam, isStuck) : null;
   if (ritual) return ritual;
   // The night is no reason to dig in (§16.3 caution, not a hole in the ground): back toward home if far from it, close
-  // to the others; a guard on duty stays out while fit for it. Hiding is for one badly scared, alone and far from
-  // anyone, and the model's call; the code default hides only as the whole brain (no model), under the same gate.
+  // to the others; a guard on duty stays out while fit for it. With a model, hiding is the model's call, and only for
+  // one badly scared, alone and far from anyone (the gate in validateDecision). Without one (no key, or the quota
+  // spent, §22.4) the code default is the whole brain, with no mind to choose better, and digs in at night as before
+  // (M1): out in the open, a village of code-only agents was shot down by skeletons night after night (21 deaths in
+  // M8's hour).
   const village = villageWorkOf(s.goals.current?.doneWhen);
   const onGuard = village === 'guard' && s.self.health >= 12 && s.drives.caution < 0.8;
   const night = !s.self.isDay || s.self.time > DUSK;
-  const mayHide = Boolean(social?.codeOnly) && whyNotHide(s) === null;
+  const mayHide = Boolean(social?.codeOnly);
   if (night && !s.flags.inDanger && !onGuard) {
     const move = nightMove(s, isStuck, mayHide);
     if (move) return move;
@@ -889,7 +892,7 @@ export function codeDecision(
  */
 function nightMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck'], mayHide: boolean): DecisionOutput | null {
   if (mayHide && !isStuck('shelter', { untilMorning: true })) {
-    return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: alone and scared in the dark; hiding until morning' };
+    return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, and no mind to choose otherwise; digging in until morning' };
   }
   const home = s.village.home;
   const p = s.self.pos;
@@ -1143,7 +1146,8 @@ export class CognitiveController {
       ...(this.o.romance ? { mayCourt: (name: AgentName) => (romance ? romance.mayCourt(name) : 'courting is switched off for you') } : {}),
       ...(this.o.family ? { mayStartFamily: (name: AgentName) => (family ? family.whyNotFamily(name) : 'starting a family is switched off for you') } : {}),
       ...(this.o.learned ? { learnedSkill: (name: string) => this.o.learned?.find(name) ?? null } : {}),
-      mayHide: () => whyNotHide(this.o.store.state),
+      // The gate is for a mind with a model; the code-only brain digs in at night (see codeDecision).
+      mayHide: () => (!this.o.llm || this.o.store.state.flags.codeOnly ? null : whyNotHide(this.o.store.state)),
       mayGo: (pos) => whyNotGo(this.o.store.state, pos),
     };
   }

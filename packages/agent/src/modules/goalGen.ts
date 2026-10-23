@@ -234,6 +234,7 @@ export class GoalGen {
   start(): void {
     this.offs.push(this.o.bus.on('goalDone', (e) => this.stepDone(e.goal.text)));
     this.offs.push(this.o.bus.on('conversationEnded', (e) => this.afterTalk(e.convId)));
+    this.offs.push(this.o.bus.on('peerDied', (e) => this.forget(e.name)));
     this.scheduleNext();
     if (!this.o.store.state.goals.current) this.soon('starting', 1500);
   }
@@ -283,6 +284,20 @@ export class GoalGen {
     }
     const next = advancePlan(plan, 'done', this.now());
     this.install(next, `step done: ${text}`);
+    if (planFinished(next)) this.soon('plan finished', 2000);
+  }
+
+  /** Someone died: a step of talking with them can't be done any more, and is dropped (one hung on for 25 minutes). */
+  private forget(name: string): void {
+    const plan = this.o.store.state.goals.plan;
+    if (!plan) return;
+    const about = (st: PlanStep) => (st.status === 'todo' || st.status === 'doing') && st.doneWhen?.toLowerCase() === `talkedwith:${name.toLowerCase()}`;
+    if (!plan.steps.some(about)) return;
+    const cur = currentStep(plan);
+    let next: Plan = { ...plan, steps: plan.steps.map((st) => (about(st) && st !== cur ? { ...st, status: 'dropped' as const } : st)) };
+    if (cur && about(cur)) next = advancePlan(next, 'dropped', this.now());
+    this.o.logger.info({ module: 'goal', who: name }, 'dropped what was about someone who died');
+    this.install(next, `${name} died`);
     if (planFinished(next)) this.soon('plan finished', 2000);
   }
 

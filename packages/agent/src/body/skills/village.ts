@@ -159,9 +159,22 @@ export function hutSiteHoles(bot: Bot, c: Vec3): Vec3[] | null {
   return holes;
 }
 
+/** Solid, but no ground to build on: a tree's canopy or trunk. */
+const NOT_GROUND = /_(leaves|log|wood|stem)$|^(vine|brown_mushroom_block|red_mushroom_block|mushroom_stem)$/;
+
+/** The top of the ground at (x, z) within 8 blocks of height `y`: a solid block with room above it (null: none). */
+function groundAt(bot: Bot, x: number, z: number, y: number): number | null {
+  for (let yy = y + 8; yy >= y - 8; yy--) {
+    const b = bot.blockAt(new Vec3(x, yy, z));
+    if (isSolid(b) && !NOT_GROUND.test(b?.name ?? '') && free(bot, new Vec3(x, yy + 1, z))) return yy;
+  }
+  return null;
+}
+
 /**
  * The nearest corner near `center` with level, solid ground under 5×5 (a few shallow holes are filled), room for
- * 5×5×4 and a free cell all round; of those at the same distance, the one with the fewest holes.
+ * 5×5×4 and a free cell all round; of those at the same distance, the one with the fewest holes. The height follows
+ * the ground (on a hillside the level patch is rarely at home's own height).
  */
 export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): Vec3 | null {
   const base = center.floored();
@@ -170,8 +183,11 @@ export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): V
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-        for (const dy of [0, 1, -1]) {
-          const c = base.offset(dx, dy, dz);
+        // The ground under the middle of the hut sets its height (home's own as well, as before).
+        const g = groundAt(bot, base.x + dx + 2, base.z + dz + 2, base.y - 1);
+        const heights = [...new Set([...(g === null ? [] : [g + 1, g + 2, g]), base.y, base.y + 1, base.y - 1])];
+        for (const y of heights) {
+          const c = new Vec3(base.x + dx, y, base.z + dz);
           const holes = hutSiteHoles(bot, c);
           if (holes && (!best || holes.length < best.holes)) best = { c, holes: holes.length };
           if (best?.holes === 0) return best.c;

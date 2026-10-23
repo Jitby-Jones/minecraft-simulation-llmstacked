@@ -502,6 +502,26 @@ describe('where a hut goes (dug-up ground by home)', () => {
     expect(site).not.toBeNull();
     expect(hutSiteHoles(bot, site as Vec3)?.length).toBeLessThanOrEqual(HUT_HOLES);
   });
+
+  it('on a hillside, finds the level patch above or below home\'s own height', () => {
+    // Ground rising a block every 2 east of home, levelling off at a terrace 5 up from x = 10 on.
+    const ground = (x: number) => (x < 0 ? 40 : x >= 10 ? 45 : 40 + Math.floor(x / 2));
+    const blockAt = (p: { x: number; y: number; z: number }) => (p.y <= ground(p.x) ? { name: 'dirt', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' });
+    const bot = { blockAt } as never;
+    // Home on the slope: nowhere level at its own height within reach west (the lowland is far), the terrace is.
+    const site = findHutSite(bot, new Vec3(6, 44, 0), 20, 4);
+    expect(site).not.toBeNull();
+    expect(hutSiteHoles(bot, site as Vec3)).toEqual([]);
+    expect([41, 46]).toContain(site?.y);
+  });
+
+  it('under trees, the ground is the ground, not the canopy', () => {
+    // Flat ground at 40 under a solid canopy of leaves at 46 (a dark forest): no hut on top of the trees.
+    const blockAt = (p: { x: number; y: number; z: number }) =>
+      p.y <= 40 ? { name: 'dirt', boundingBox: 'block' } : p.y === 46 ? { name: 'dark_oak_leaves', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' };
+    const site = findHutSite({ blockAt } as never, new Vec3(0, 41, 0));
+    expect(site?.y).toBe(41);
+  });
 });
 
 describe('the ground by home is left whole for huts', () => {

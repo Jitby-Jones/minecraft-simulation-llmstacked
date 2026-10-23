@@ -233,18 +233,19 @@ export class LlmClient {
     }
     const spec = this.deps.specs[tier];
 
-    try {
-      await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
-    } catch {
-      return fallback('aborted');
-    }
-
     let lastError = '';
     for (const model of chain) {
       if (attempts >= ATTEMPTS) break;
       if (!this.deps.router.allowlist.has(model)) {
         if (o.model !== undefined) throw new ModelNotInSubscription(model);
         continue; // removed since the chain was read
+      }
+      // Each try is a request against the key's limit (60 a minute, NanoGPT counts every one, a timed-out one and a
+      // fallback model's alike): a rate token each, not one for the whole call.
+      try {
+        await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
+      } catch {
+        return fallback('aborted');
       }
       if (attempts > 0) o.onRetry?.();
       attempts++;
@@ -364,6 +365,8 @@ export class LlmClient {
     ];
     let second: Reply;
     try {
+      // The repair is a request of its own: another token.
+      await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
       second = await this.request(o, model, spec, repair, format);
     } catch (err) {
       throw new AttemptError(this.toLlmError(err, model, o.signal), first.usage);

@@ -362,6 +362,35 @@ describe('planning (§4.2 module 10, Goal Gen)', () => {
     expect(s.state.goals.current?.text).toBe('gather 5 logs');
   });
 
+  it('someone died: a step of talking with them is dropped for the next one (one hung on for 25 minutes)', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const set: string[] = [];
+    const gg = new GoalGen({
+      store: s,
+      bus,
+      logger: nullLogger(),
+      llm: null,
+      me: 'Pip',
+      now: () => 0,
+      rng: () => 0,
+      setGoal: (text) => {
+        set.push(text);
+        s.update('goals', (g) => ({ ...g, current: { id: `g${set.length}`, text, kind: 'current', createdAt: 0, status: 'active' } }), 'goal');
+      },
+    });
+    gg.start();
+    gg.install(
+      { id: 'p0', aim: 'friends', steps: [{ text: 'find out what Oswin is up to', doneWhen: 'talkedWith:Oswin', status: 'todo' }, { text: 'look around', doneWhen: 'explored:2', status: 'todo' }, { text: 'tell Oswin about it', doneWhen: 'talkedWith:Oswin', status: 'todo' }], createdAt: 0, updatedAt: 0, discussedWith: [], source: 'default' },
+      'test',
+    );
+    expect(set).toEqual(['find out what Oswin is up to']);
+    bus.emit({ type: 'peerDied', name: 'Oswin', cause: 'was slain by Zombie', witnessed: false });
+    expect(set.at(-1)).toBe('look around');
+    expect(s.state.goals.plan?.steps.map((x) => x.status)).toEqual(['dropped', 'doing', 'dropped']);
+    gg.stop();
+  });
+
   it('nothing runs into a stopped agent: a run asked for soon is dropped, and memory read after its database closed finds nothing', async () => {
     const s = store();
     const db = new MemoryDB(':memory:');

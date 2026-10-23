@@ -159,13 +159,15 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     // Out after dark far from home: back home.
     const away = withState((x) => ({ ...x, self: { ...x.self, isDay: false, pos: { x: 100, y: 64, z: 0 } }, village: { ...x.village, home: { x: 0, y: 64, z: 0 } } }));
     expect(codeDecision(away, {}, false, never)?.task).toEqual({ skill: 'goTo', args: { x: 0, y: 64, z: 0, range: 4 } });
-    // Hiding is for one badly scared, alone and far from anyone, and the code default does it only as the whole brain.
+    // With a model, hiding is the model's call (gated below); a decision of the code default's never hides.
     const scared = { ...away, emotions: { ...away.emotions, fear: 0.8 } };
-    expect(codeDecision(scared, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
     expect(codeDecision(scared, {}, false, never, { candidates: [], roll: 0.9 })?.task?.skill).toBe('goTo');
     const bram = { id: 7, kind: 'player' as const, name: 'Bram', pos: { x: 110, y: 64, z: 0 }, distance: 10, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
     const company = { ...scared, perception: { ...scared.perception, nearbyEntities: [bram] } };
-    expect(codeDecision(company, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).not.toBe('shelter');
+    // The code-only brain (no model at all) digs in at night, with others or not: without a mind to choose better, it
+    // was that or be shot down in the open (M8's village).
+    expect(codeDecision(company, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
+    expect(codeDecision(night, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
     // A shelter the model chose goes through the same gate.
     const env = { me: 'Pip', isStuck: never, canPerceive: () => true, mayHide: () => whyNotHide(company) };
     expect(validateDecision({ option: 'work', task: { skill: 'shelter', args: {} }, terminate: { maxSeconds: 600 }, rationale: 'scared' }, env)).toMatch(/can't dig in to hide now: you are not alone/);
