@@ -2,7 +2,7 @@
 // say, who thinks what of whom, and what it all costs; and the operator's controls (controls.ts). Every name and
 // line comes from the bots, so all of it goes into the page as text (textContent), never as markup.
 
-import { renderAgentDebug, renderControls } from './controls';
+import { renderAgentDebug, renderConsole, renderControls } from './controls';
 
 interface Quota {
   level: number;
@@ -678,6 +678,7 @@ try {
   // no storage
 }
 
+renderConsole($('console'));
 void refresh();
 void refreshSocial();
 setInterval(() => void refresh(), 2000);

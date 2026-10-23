@@ -19,3 +19,4 @@ export * from './skins/service';
 export * from './dashboard/model';
 export * from './dashboard/server';
 export * from './dashboard/control';
+export * from './dashboard/console';

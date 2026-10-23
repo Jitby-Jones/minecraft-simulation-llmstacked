@@ -1,10 +1,12 @@
-// What `pnpm ctl` can do to the running system (§23.3): status, stop, restart, save, population, mode, say, rcon.
-// The handler only drives infrastructure (the supervisor, the server console, the Hub's snapshot request); it never
-// tells a bot anything about the world. `say` is an ordinary server message every player in range of chat sees.
+// What `pnpm ctl` can do to the running system (§23.3): status, stop, restart, save, population, mode, say, rcon, and
+// the dashboard's console (the server's output since a line). The handler only drives infrastructure (the
+// supervisor, the server console, the Hub's snapshot request); it never tells a bot anything about the world. `say` is
+// an ordinary server message every player in range of chat sees.
 
 import { LLM_MODULES, type LlmModule, type Sex, TUNABLE_MODULES, type TierName, type TunableModule } from '@agora/shared';
 import type { QuotaStatus } from '@agora/llm';
 import type { TuningStore } from '../hub/tuning';
+import type { ConsoleLog } from './console';
 import type { ControlHandler, ControlResult } from './server';
 
 export interface ControlDeps {
@@ -23,6 +25,8 @@ export interface ControlDeps {
   snapshotAll: () => Promise<number>;
   /** The server console; absent when this process doesn't run the server. */
   rcon?: (cmd: string) => Promise<string>;
+  /** What the server printed, and the commands run with their answers (the dashboard's console). */
+  console?: ConsoleLog;
   serverState: () => string;
   quota: () => QuotaStatus | null;
   dashboardUrl: string;
@@ -157,12 +161,29 @@ export function controlHandler(d: ControlDeps): ControlHandler {
       case 'rcon': {
         const missing = needRcon();
         if (missing) return missing;
-        const c = args.join(' ').trim();
+        // As typed in the game's chat or not: the slash is optional.
+        const c = args.join(' ').trim().replace(/^\//, '');
         if (!c) return { ok: false, message: 'no command' };
+        d.console?.push('in', c);
         const refused = grantRefusal(c, d.owner);
-        if (refused) return { ok: false, message: refused };
-        const out = (await d.rcon?.(c)) ?? '';
-        return { ok: true, message: out.trim() || '(no output)' };
+        if (refused) {
+          d.console?.push('out', refused);
+          return { ok: false, message: refused };
+        }
+        try {
+          const out = ((await d.rcon?.(c)) ?? '').trim() || '(no output)';
+          d.console?.push('out', out);
+          return { ok: true, message: out };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          d.console?.push('out', message);
+          return { ok: false, message };
+        }
+      }
+      case 'console': {
+        if (!d.console) return { ok: false, message: 'the server console is not available (started with --no-server?)' };
+        const since = Number(args[0] ?? 0);
+        return { ok: true, message: '', data: d.console.since(Number.isFinite(since) && since > 0 ? since : 0) };
       }
       default: {
         const dbg = d.debug;

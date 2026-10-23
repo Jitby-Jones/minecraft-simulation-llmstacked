@@ -39,6 +39,7 @@ import {
   startLlm,
 } from '@agora/llm';
 import {
+  ConsoleLog,
   DashboardModel,
   DashboardServer,
   Hub,
@@ -114,6 +115,8 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
 
   let server: ManagedServer | null = null;
   let serverState = 'not managed here (--no-server)';
+  // The dashboard's console: what the server prints, and the commands run from the page with their answers.
+  const consoleLog = new ConsoleLog();
   if (!process.argv.includes('--no-server')) {
     server = await startManagedServer({
       paths,
@@ -123,6 +126,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
       logger,
       botNames: readRosterNames(paths),
     });
+    server.paper.on('line', (line: string) => consoleLog.push('server', line));
     serverState = 'running';
   }
 
@@ -241,7 +245,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
           supervisor,
           online: () => new Set(hub.list().map((s) => s.username).filter((n): n is string => Boolean(n))),
           snapshotAll: () => hub.snapshotAll(),
-          ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
+          ...(server ? { rcon: (c: string) => server.rcon.command(c), console: consoleLog } : {}),
           serverState: () => serverState,
           quota: () => governor?.status ?? null,
           dashboardUrl: url,
