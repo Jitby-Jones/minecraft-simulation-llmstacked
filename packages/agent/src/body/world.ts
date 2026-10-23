@@ -234,6 +234,47 @@ export function isEnclosed(bot: Bot, feet: Vec3 = bot.entity.position.floored())
   return wallsAround(bot, feet) && isSolid(bot.blockAt(feet.offset(0, 2, 0)));
 }
 
+const COMPASS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'] as const;
+
+/** Where a block is from where one stands, in words ("beside you to the north, at head height", "3 m to the east"). */
+export function whereFrom(feet: { x: number; y: number; z: number }, p: { x: number; y: number; z: number }): string {
+  const dx = p.x - feet.x;
+  const dy = p.y - feet.y;
+  const dz = p.z - feet.z;
+  const flat = Math.hypot(dx, dz);
+  if (flat < 0.5) return dy >= 2 ? 'right over your head' : dy < 0 ? 'right under your feet' : 'where you stand';
+  const dir = COMPASS[(Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) + 8) % 8] ?? 'east';
+  const level = dy >= 2 ? ', up high' : dy === 1 ? ', at head height' : dy === 0 ? ', at your feet' : ', below you';
+  return flat <= 1.5 ? `beside you to the ${dir}${level}` : `${Math.round(flat)} m to the ${dir}${dy >= 2 || dy < 0 ? level : ''}`;
+}
+
+/** The cells of a dug-in shelter around the feet: the roof first, then the four sides at head and at feet height. */
+const SHELTER_CELLS: readonly [number, number, number][] = [
+  [0, 2, 0],
+  [1, 1, 0],
+  [-1, 1, 0],
+  [0, 1, 1],
+  [0, 1, -1],
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
+
+/** Whether `p` is one of the cells of a dug-in shelter around feet at `feet` (its walls and its roof). */
+export function isShelterCell(feet: { x: number; y: number; z: number }, p: { x: number; y: number; z: number }): boolean {
+  return SHELTER_CELLS.some(([x, y, z]) => feet.x + x === p.x && feet.y + y === p.y && feet.z + z === p.z);
+}
+
+/** The first part of a shelter around us that is gone (the roof, a wall), in words; null while it is whole. */
+export function shelterHole(bot: Bot, feet: Vec3 = bot.entity.position.floored()): string | null {
+  for (const [x, y, z] of SHELTER_CELLS) {
+    const p = feet.offset(x, y, z);
+    if (!isSolid(bot.blockAt(p))) return whereFrom(feet, p);
+  }
+  return null;
+}
+
 export function isNight(bot: Bot): boolean {
   const t = bot.time.timeOfDay;
   return t >= 13000 && t < 23000;

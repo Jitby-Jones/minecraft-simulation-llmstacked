@@ -32,6 +32,7 @@ import { ClaimChecker } from './social/claims';
 import { CommitmentTracker } from './social/commitments';
 import { DeathWatch } from './social/deaths';
 import { DeedWatch } from './social/deeds';
+import { SurroundingsWatch } from './perception/surroundings';
 import { TradeTracker } from './social/trades';
 import { CATEGORIES, gearScore, normalizeItemName } from './body/items';
 import { BiasWatch } from './mind/biasWatch';
@@ -102,6 +103,8 @@ export class Agent {
   readonly deaths: DeathWatch;
   readonly claims: ClaimChecker;
   readonly deeds: DeedWatch;
+  /** What changed around us (a broken shelter wall, a door, a block set down). */
+  readonly surroundings: SurroundingsWatch;
   readonly trades: TradeTracker;
   readonly feelings: Feelings;
   readonly mind: Mind;
@@ -498,6 +501,7 @@ export class Agent {
     this.offs.push(() => body.bot.off('messagestr', ownYield));
     // Notable deeds move sentiment by code (§6.3 rule 2).
     this.deeds = new DeedWatch({ bot: body.bot, store: this.store, social: this.social, me: username, placed: body.placed, now });
+    this.surroundings = new SurroundingsWatch({ bot: body.bot, store: this.store, bus: this.bus, logger, me: username, placed: body.placed, inShelter: () => this.store.state.option?.skill === 'shelter', now });
     this.offs.push(
       this.bus.on('observedAction', (e) => {
         const a = e.action;
@@ -747,6 +751,8 @@ export class Agent {
   start(): void {
     this.o.body.reflexes.start();
     this.perception.start();
+    // Before the deed watch: it forgets a block we set down once someone breaks it.
+    this.surroundings.start();
     this.conversations.start();
     this.awareness.start();
     this.executor.start();
@@ -792,6 +798,7 @@ export class Agent {
     this.feelings.stop();
     this.trades.stop();
     this.deeds.stop();
+    this.surroundings.stop();
     this.claims.stop();
     this.deaths.stop();
     this.commitments.stop();

@@ -165,9 +165,17 @@ describe('code-only social defaults (§6.2, §22.4)', () => {
     bus.on('optionTerminated', (e) => ends.push(`${e.reason}|${String(e.ok)}`));
     const ex = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
     ex.start();
-    s.set('option', { decisionId: 'd', option: 'talk', startedAt: Date.now(), maxSeconds: 60, targetAgent: 'Bram', status: 'running' });
+    const started = Date.now();
+    s.set('option', { decisionId: 'd', option: 'talk', startedAt: started, maxSeconds: 60, targetAgent: 'Bram', status: 'running' });
     await wait(50);
-    s.update('conversations', (cs) => ({ ...cs, c1: { convId: 'c1', participants: ['Cass', 'Bram'], startedAt: 0, lastActivity: 0, turns: 4, myTurns: 2, lastEmbeds: [], status: 'ended', transcript: [], initiatedByMe: true, nudged: false } }));
+    // An older talk with Bram, gone quiet before we decided to talk to him again, ending now: not this one.
+    const conv = (id: string, lastActivity: number) => ({ convId: id, participants: ['Cass', 'Bram'], startedAt: 0, lastActivity, turns: 4, myTurns: 2, lastEmbeds: [], status: 'ended' as const, transcript: [], initiatedByMe: true, nudged: true });
+    s.update('conversations', (cs) => ({ ...cs, c0: conv('c0', started - 30_000) }));
+    bus.emit({ type: 'conversationEnded', convId: 'c0', reason: 'partner silent' });
+    await wait(100);
+    expect(ends).toEqual([]);
+    // The talk we had since: over when it is.
+    s.update('conversations', (cs) => ({ ...cs, c1: conv('c1', started + 40) }));
     bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
     for (let i = 0; i < 40 && ends.length === 0; i++) await wait(25);
     expect(ends).toEqual(['conversation over|true']);

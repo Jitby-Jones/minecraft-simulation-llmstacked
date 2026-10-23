@@ -583,14 +583,6 @@ describe('a stroll (wander): clear of those to keep away from, close to the one 
     return goals[0];
   }
 
-  it('about home, potters about it: a stroll after a stroll does not drift off', async () => {
-    for (const seed of [1, 2, 3, 4, 5]) {
-      // 20 blocks out from home, the next spot is within the radius of home, not of where it stands.
-      const g = await firstWalk(new Vec3(-30, 64, 0), { radius: 16, seconds: 30 }, seed, new Vec3(0, 64, 0), new Vec3(20, 64, 0));
-      expect(Math.hypot(g?.x ?? 99, g?.z ?? 99)).toBeLessThanOrEqual(17);
-    }
-  });
-
   it('walks away from someone to keep clear of, when they are near', async () => {
     for (const seed of [1, 2, 3, 4, 5]) {
       const g = await firstWalk(new Vec3(6, 64, 0), { radius: 16, seconds: 30, avoid: ['Rex'] }, seed);

@@ -1,8 +1,9 @@
 // With the key: the parts of the design only a model does, against the real subscription models (§22.8). Reflection's
-// bias audit (M8c, §18.6) and its trait annotation (M10, §7 evolution), run through Reflection itself; and a skill
-// written by L3 (M10, §1.4) and tried out in the world on a Paper server, everything else scripted (the CC is told to
-// reach for a skill there is none of). Spends real subscription quota, so it only runs with NANOGPT_API_KEY set AND
-// AGORA_LIVE_LLM=1, through the same subscription lock and model measurements as the agents.
+// bias audit (M8c, §18.6) and its trait annotation (M10, §7 evolution), run through Reflection itself; a skill written
+// by L3 (M10, §1.4) and tried out in the world on a Paper server, everything else scripted (the CC is told to reach
+// for a skill there is none of); and an agent on the real model whose shelter is broken open at night (owner request:
+// agents should see what changes around them and react). Spends real subscription quota, so it only runs with
+// NANOGPT_API_KEY set AND AGORA_LIVE_LLM=1, through the same subscription lock and model measurements as the agents.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,8 @@ import { type Embedder, type LlmCallOptions, type LlmResult, type LlmRuntime, Lo
 import { Agent, MemoryDB } from '@agora/agent';
 import { AgentBus } from '@agora/agent/bus';
 import { Body } from '@agora/agent/body/body';
+import { Vec3 } from '@agora/agent/body/bot';
+import { isEnclosed } from '@agora/agent/body/world';
 import { countItem } from '@agora/agent/body/inventory';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Reflection, formativeExperiences } from '@agora/agent/modules/reflection';
@@ -132,7 +135,7 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
     expect(s.state.growth.evolved?.length).toBeGreaterThanOrEqual(1);
   }, 120_000);
 
-  describe.skipIf(!liveJavaPath())('a skill written by L3, in the world', () => {
+  describe.skipIf(!liveJavaPath())('in the world', () => {
     let server: LiveServer;
 
     beforeAll(async () => {
@@ -143,6 +146,58 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
     afterAll(async () => {
       await server?.stop();
     });
+
+    it('a wall of her shelter knocked out at night: her model is told, and sees to it', async () => {
+      const x = 1700;
+      const Y = -60;
+      await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+      // A stone cell round her, two high, roofed: the shelter she is in.
+      await server.cmd(`fill ${x - 1} ${Y - 1} -1 ${x + 1} ${Y + 2} 1 minecraft:cobblestone hollow`);
+      const body = await Body.connect({ host: server.host, port: server.port, username: 'Bea', version: versions.minecraft.version, logger });
+      await server.cmd(`tp Bea ${x + 0.5} ${Y} 0.5`);
+      await server.cmd('clear Bea');
+      await server.cmd('give Bea minecraft:cobblestone 16');
+      await server.cmd('give Bea minecraft:bread 4');
+      await server.cmd('time set 18000');
+      await sleep(2000);
+      const bea = new Agent({
+        body,
+        persona: PersonaSchema.parse({ name: 'Bea', sex: 'female', traits: ['careful', 'practical'], social: { initiateChance: 0 }, abilities: { intelligence: 0.8 } }),
+        username: 'Bea',
+        llm: rt.client,
+        logger,
+        world: WorldConfigSchema.parse({}),
+        goalGen: false,
+        socialGoals: false,
+      });
+      const decisions: { at: number; source: string; option: string; task?: string; rationale: string }[] = [];
+      bea.bus.on('decision', (e) => void decisions.push({ at: Date.now(), source: e.decision.source, option: e.decision.option, task: e.decision.task ? `${e.decision.task.skill} ${JSON.stringify(e.decision.task.args)}` : undefined, rationale: e.decision.rationale }));
+      bea.start();
+      try {
+        await waitFor(() => isEnclosed(body.bot), 20_000, 'Bea walled in', 500);
+        await sleep(4000);
+        const feet = body.bot.entity.position.floored();
+        const hole = feet.offset(1, 1, 0);
+        const knocked = Date.now();
+        await server.cmd(`setblock ${hole.x} ${hole.y} ${hole.z} air`);
+        await waitFor(() => bea.store.state.perception.blockChanges.some((c) => c.ours === 'shelter'), 10_000, 'the hole noticed', 250);
+        // Her model decides with it in front of it.
+        const after = () => decisions.find((d) => d.at > knocked && d.source === 'llm');
+        await waitFor(after, 90_000, "her model's decision after the hole", 500);
+        const ex = bea.cc.lastExchange;
+        const told = ex?.packet.split('\n').filter((l) => /Why you are deciding now|Changes around you|of your shelter/.test(l)).join(' | ');
+        console.log(`[real aware] told: ${told}\n[real aware] decided: ${JSON.stringify(after())}\n[real aware] reply: ${ex?.replies.at(-1)?.model ?? '-'} ${ex?.replies.at(-1)?.text.slice(0, 400) ?? ''}`);
+        const d = after();
+        expect(ex?.packet).toMatch(new RegExp(`Changes around you:\\n {2}the cobblestone of your shelter beside you to the east, at head height was broken, at ${hole.x},${hole.y},${hole.z}`));
+        // Seen to: the hole patched by her, or a fight or getting away (with nobody and nothing there, patching is it).
+        const patched = await waitFor(() => body.bot.blockAt(new Vec3(hole.x, hole.y, hole.z))?.name !== 'air' || null, 60_000, 'the hole patched', 500).catch(() => null);
+        console.log(`[real aware] patched: ${patched ? body.bot.blockAt(new Vec3(hole.x, hole.y, hole.z))?.name : 'no'}; decisions: ${decisions.map((x) => `${x.source}:${x.option}${x.task ? ` ${x.task}` : ''} (${x.rationale})`).join(' | ')}`);
+        expect(Boolean(patched) || ['flee', 'fight'].includes(d?.option ?? '')).toBe(true);
+      } finally {
+        await bea.stop();
+        await body.disconnect();
+      }
+    }, 300_000);
 
     it('wants a skill it lacks, L3 writes it, it is tried in the world and kept, and used again', async () => {
       const x = 1500;

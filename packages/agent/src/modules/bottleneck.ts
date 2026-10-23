@@ -5,6 +5,7 @@
 import type { AgentState, Utterance } from '@agora/shared';
 import type { MindLevers } from './levers';
 import { describePlan } from './plan';
+import { describeChange, recentChanges } from '../perception/surroundings';
 import { EDIBLE } from './villageMove';
 
 export interface PacketInput {
@@ -99,6 +100,9 @@ export function buildPacket(i: PacketInput): string {
   if (threats.length > 0) out.push(`Hostile mobs: ${threats.map((t) => `${t.name} ${Math.round(t.distance)} m`).join(', ')}.`);
   const blocks = s.perception.nearbyBlocksOfInterest.slice(0, 6);
   if (blocks.length > 0) out.push(`You can see: ${blocks.map((b) => `${b.name} ${b.distance} m`).join(', ')}.`);
+  // What changed around us lately (a wall of our shelter broken, a door, a block set down): ours first.
+  const changes = recentChanges(s.perception.blockChanges, now);
+  if (changes.length > 0) out.push(`Changes around you:\n${changes.map((c) => `  ${describeChange(c)}, at ${c.pos.x},${c.pos.y},${c.pos.z} (${ago(now - c.ts)})`).join('\n')}`);
 
   const convIds = new Set(Object.values(s.conversations).filter((c) => c.status !== 'ended').map((c) => c.convId));
   const heard = s.perception.heardSpeech.filter((u) => u.addressedToMe || convIds.has(u.convId)).slice(-6);

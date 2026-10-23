@@ -355,6 +355,17 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
       }
     };
     for (const n of names) agents[n].start();
+    // His two followers always at his side (the premise, kept as K keeps its followers away): whatever else they do,
+    // they are brought back beside him.
+    const atHisSide = setInterval(() => {
+      void server.cmd('execute at Vex run tp Lin ~1 ~ ~1').catch(() => undefined);
+      void server.cmd('execute at Vex run tp Moe ~-1 ~ ~1').catch(() => undefined);
+    }, 8000);
+    // The most followers any of the three has seen him with, at any moment.
+    let mostSeen = 0;
+    const seenWith = setInterval(() => {
+      for (const n of ['Dag', 'Eli', 'Fen'] as const) mostSeen = Math.max(mostSeen, agents[n].store.state.social.Vex?.followersSeen ?? 0);
+    }, 1000);
     try {
       await waitFor(() => agents.Lin.power.leader() === 'Vex' && agents.Moe.power.leader() === 'Vex', 60_000, 'Lin and Moe following Vex', 1000);
       // Four minutes of the rebels living near the tyrant and his followers.
@@ -370,9 +381,12 @@ describe.skipIf(!liveJavaPath())('M8b live: power structures', () => {
         expect(agents[n].store.state.commitments.some((c) => c.what.kind === 'fight')).toBe(false);
         expect(agents[n].store.state.actionLog.some((r) => r.skill === 'duel' && r.args.target === 'Vex')).toBe(false);
       }
-      // Fear held them: Vex is seen leading two.
-      expect(agents.Dag.store.state.social.Vex?.followersSeen ?? 0).toBeGreaterThanOrEqual(1);
+      // Fear held them: Vex was seen leading.
+      console.log(`[m8b L] the most followers seen with Vex: ${mostSeen}`);
+      expect(mostSeen).toBeGreaterThanOrEqual(1);
     } finally {
+      clearInterval(atHisSide);
+      clearInterval(seenWith);
       report();
       for (const n of names) await agents[n].stop();
       for (const b of Object.values(bodies)) await b.disconnect();

@@ -125,13 +125,16 @@ export class SkillExecutor {
         if (opt?.option === 'help' && opt.targetAgent === e.utterance.from && HELP_DONE_RE.test(e.utterance.text)) this.abort('they said done');
       }),
     );
-    // A talk option is over when its conversation is.
+    // A talk option is over when its conversation is: one with them that had a line since the option began. An
+    // older one going quiet just as we decided to talk to them again is not it (its end would cut off what we meant
+    // to say).
     this.offs.push(
       this.o.bus.on('conversationEnded', (e) => {
         const opt = this.current?.opt;
         const who = opt?.targetAgent;
         if (opt?.option !== 'talk' || !who) return;
-        if (this.o.store.state.conversations[e.convId]?.participants.includes(who)) this.abort('conversation over');
+        const conv = this.o.store.state.conversations[e.convId];
+        if (conv?.participants.includes(who) && conv.lastActivity >= opt.startedAt) this.abort('conversation over');
       }),
     );
   }

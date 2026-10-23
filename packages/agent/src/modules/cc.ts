@@ -9,6 +9,7 @@ import {
   type ActionRecord,
   type AgentName,
   type AgentState,
+  type BlockChange,
   type Commitment,
   type CommitmentDraft,
   type ConvId,
@@ -40,6 +41,7 @@ import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
 import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
 import { tidyDecision } from './decisionTidy';
+import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
 import { villageWorkOf } from '../social/village';
 import { deathNoticeMove, foodMove, hungerMove, hurtMove, villageMove } from './villageMove';
@@ -59,6 +61,8 @@ export interface DecideContext {
   atOdds?: AgentName;
   /** §17.8: one we resent is alone or hurt, with others who resent them too: the call to rise comes first, mid-task too. */
   opening?: AgentName;
+  /** A block of ours around us changed just now (a wall of the shelter we are in broken, a hut's door): seen to mid-task too. */
+  change?: BlockChange;
 }
 
 export interface ValidationEnv {
@@ -735,6 +739,9 @@ export function codeDecision(
     // Starving with nothing to eat: food before whatever we are doing.
     const food = s.self.food <= 6 ? hungerMove(s, { isStuck }) : null;
     if (food) return food;
+    // A hole just made in what is ours (the shelter we are in, a hut): patched before going on.
+    const patched = ctx.change ? patchMove(s, isStuck) : null;
+    if (patched) return patched;
     // §17.8: the moment against one we resent (alone or hurt) is worth stopping work for: the others are called on.
     const moment = ctx.opening && pv ? rallyMove(s, pv) : null;
     if (moment) return moment;
@@ -751,6 +758,10 @@ export function codeDecision(
   const fam = social?.family?.step() ?? null;
   const ritual = fam?.kind === 'sleep' ? familyMove(fam, isStuck) : null;
   if (ritual) return ritual;
+  // A hole in what is ours (the shelter we were in, a hut), still open: patched before the night's or the day's
+  // business.
+  const patched = patchMove(s, isStuck);
+  if (patched) return patched;
   // The night is no reason to dig in (§16.3 caution, not a hole in the ground): back toward home if far from it, close
   // to the others; a guard on duty stays out while fit for it. With a model, hiding is the model's call, and only for
   // one badly scared, alone and far from anyone (the gate in validateDecision). Without one (no key, or the quota
@@ -892,6 +903,34 @@ export function codeDecision(
   const stroll = { radius: friend || night ? 8 : 16, seconds: 45 + Math.round(social?.roll ?? 0.5) * 30, ...(friend ? { near: friend } : {}) };
   if (!isStuck('wander', stroll)) return { option: 'work', task: { skill: 'wander', args: stroll }, terminate: { maxSeconds: stroll.seconds + 15 }, rationale: 'code default: nothing pressing; looking around' };
   return { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'code default: nothing to do' };
+}
+
+/** A change around us that is no emergency wakes the CC at most this often. */
+const NOTICE_EVERY_MS = 10_000;
+
+/** What a hole is patched with, best first. */
+const PATCH_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'sandstone', 'gravel', 'sand'];
+
+/**
+ * A hole in what is ours (the shelter we are in, a hut, what we built), still open: patched with a block we carry.
+ * Not with a monster in it (that is for the reflexes), nor from far off.
+ */
+export function patchMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck']): DecisionOutput | null {
+  const t = Date.now();
+  // Kept until something else happens there (patched, by us or anyone): the latest still open.
+  const hole = [...s.perception.blockChanges].reverse().find((c) => c.kind === 'broken' && (c.ours === 'shelter' || c.ours === 'hut' || c.ours === 'placed') && t - c.ts < CHANGE_MS);
+  if (!hole) return null;
+  const at = { x: hole.pos.x + 0.5, y: hole.pos.y, z: hole.pos.z + 0.5 };
+  const me = s.self.pos;
+  if (Math.hypot(me.x - at.x, me.y - at.y, me.z - at.z) > 5) return null;
+  if (s.perception.nearbyEntities.some((e) => e.kind === 'hostile' && Math.hypot(e.pos.x - at.x, e.pos.y - at.y, e.pos.z - at.z) <= 2)) return null;
+  const carried = (n: string) => s.self.inventory.some((i) => i.item === n);
+  const block = PATCH_BLOCKS.find(carried) ?? s.self.inventory.find((i) => i.item.endsWith('_planks'))?.item;
+  if (!block) return null;
+  const args = { block, x: hole.pos.x, y: hole.pos.y, z: hole.pos.z };
+  if (isStuck('place', args)) return null;
+  const what = hole.ours === 'shelter' ? 'in my shelter' : hole.ours === 'hut' ? 'in the hut' : 'in what I built';
+  return { option: 'work', task: { skill: 'place', args }, terminate: { maxSeconds: 30 }, rationale: `code default: patching the hole ${what} (${hole.where})` };
 }
 
 /** Within this, someone in sight is company an idle stroll keeps about. */
@@ -1046,6 +1085,22 @@ export class CognitiveController {
     );
     this.offs.push(b.on('atOddsNearby', (e) => this.trigger(`${e.name} is here, and things are bad between you`, { atOdds: e.name, urgent: true })));
     this.offs.push(b.on('opening', (e) => this.trigger(`${e.name} is alone or hurt: a chance to deal with ${e.name} together`, { opening: e.name, urgent: true })));
+    // What changed around us: something of ours broken or opened, anything right beside us, or a blast is worth a
+    // decision now; at once if it opens the shelter we are in, or comes at night. (Blocks set down near a hut, a door
+    // shut: news for the packet only.)
+    let lastNoticed = -Infinity;
+    this.offs.push(
+      b.on('surroundingsChanged', (e) => {
+        const c = e.change;
+        const beside = c.where.startsWith('beside you') || c.where.startsWith('right ');
+        const ours = c.ours !== undefined && (c.kind === 'broken' || c.kind === 'opened');
+        if (!ours && !beside && c.by !== 'an explosion') return;
+        const urgent = c.ours === 'shelter' || c.by === 'an explosion' || (ours && !this.o.store.state.self.isDay);
+        if (!urgent && this.now() - lastNoticed < NOTICE_EVERY_MS) return;
+        lastNoticed = this.now();
+        this.trigger(`you noticed ${describeChange(c)} (at ${c.pos.x},${c.pos.y},${c.pos.z})`, { change: c, urgent });
+      }),
+    );
     this.offs.push(b.on('actionRecorded', (e) => this.onPromiseTaskResult(e.record)));
     // A promise that is settled (kept, broken or called off) has nothing left to do.
     this.offs.push(

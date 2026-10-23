@@ -194,13 +194,20 @@ describe.skipIf(!liveJavaPath())('M9b live: families', () => {
       // After gestation: the child, at the beds, greeting its parents by name.
       const child = await waitFor(() => loadRoster(paths.roster).agents.find((a) => a.parents), 120_000, 'the child born', 1000);
       const kid = await waitFor(() => agentOf(child.username), 120_000, 'the child running', 500);
-      // Where it came into the world (it may stroll off before the checks below).
-      const born = await waitFor(() => (kid.store.state.self.pos.x !== 0 ? { ...kid.store.state.self.pos } : null), 30_000, 'where the child is', 100);
+      // Where it came into the world: how near the beds it came once there (it arrives at the spawn and is brought to
+      // the beds, and may stroll off after).
+      let nearest = Infinity;
+      const where = setInterval(() => {
+        const p = kid.store.state.self.pos;
+        nearest = Math.min(nearest, Math.hypot(p.x - (x + 1), p.z - 0.5));
+      }, 250);
+      where.unref();
       await waitFor(() => heard.lines.some((l) => l.who === child.username && /hi (dad|mom)/.test(l.text)), 60_000, 'the child greeting its parents', 500);
       await waitFor(() => agentOf('Ned')?.store.state.family.children.includes(child.username) && agentOf('Ivy')?.store.state.family.children.includes(child.username), 90_000, 'both parents knowing their child', 500);
       report();
       // Born at the beds.
-      expect(Math.hypot(born.x - (x + 1), born.z - 0.5)).toBeLessThan(6);
+      clearInterval(where);
+      expect(nearest).toBeLessThan(6);
       // Its traits within the parents' range ± noise (one child: nearly all of them).
       const p = child.persona;
       const within = NUMERIC_TRAIT_KEYS.filter((k) => getTrait(p, k) >= 0.35 - 0.25 && getTrait(p, k) <= 0.65 + 0.25).length;

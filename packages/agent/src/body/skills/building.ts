@@ -5,7 +5,7 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, wallsAround } from '../world';
+import { audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, wallsAround } from '../world';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -75,6 +75,11 @@ export const place = defineSkill({
     return { ok: true, observed: `placed ${args.block} at ${target.x},${target.y},${target.z}` };
   },
 });
+
+/** A shelter broken open while we waited in it: what the mind is told. */
+function breached(hole: string): { ok: false; observed: string; error: string } {
+  return { ok: false, observed: `the shelter was broken open: a hole ${hole}`, error: 'shelter breached' };
+}
 
 function diggableForShelter(bot: Bot, b: Block | null): boolean {
   if (!b || !isSolid(b)) return false;
@@ -262,11 +267,20 @@ export const shelter = defineSkill({
     if (args.untilHealed) {
       // Health only comes back with food at 18 or more; hungry again, it's time to go and find some.
       const until = Date.now() + HEAL_MAX_MS;
-      while (bot.health < HEALED && bot.food >= 18 && Date.now() < until) await waitMs(ctx, 1000);
+      while (bot.health < HEALED && bot.food >= 18 && Date.now() < until) {
+        await waitMs(ctx, 1000);
+        const hole = shelterHole(bot);
+        if (hole) return breached(hole);
+      }
       return climbOut(ctx, bot.health >= HEALED ? 'healed up' : 'rested');
     }
     if (!args.untilMorning) return { ok: true, observed: 'dug in and sealed the top' };
-    while (!isDaytime(bot)) await waitMs(ctx, 1000);
+    // Waiting for day, and watching the walls: a shelter broken open is no shelter, and the mind must know.
+    while (!isDaytime(bot)) {
+      await waitMs(ctx, 1000);
+      const hole = shelterHole(bot);
+      if (hole) return breached(hole);
+    }
     return climbOut(ctx);
   },
 });

@@ -37,6 +37,25 @@ export interface BlockNote {
   seenAt: number;
 }
 
+/**
+ * A block that changed around us, as the agent could tell it (a wall it stands against, a block in sight): broken,
+ * set down, or a door opened or shut; who was at it, if anyone; and whether it was ours.
+ */
+export interface BlockChange {
+  pos: Vec3;
+  kind: 'broken' | 'placed' | 'opened' | 'closed';
+  /** What was there, and what is there now. */
+  was: string;
+  now: string;
+  /** Who was at it: a person, a mob ("a zombie"), or "an explosion"; left out if nobody was seen at it. */
+  by?: string;
+  /** Ours: part of the shelter we are in, of a hut of the village, the village chest, or a block we set down. */
+  ours?: 'shelter' | 'hut' | 'chest' | 'placed';
+  /** Where, from where we stood, in words: "beside you to the north, at head height". */
+  where: string;
+  ts: number;
+}
+
 export interface Utterance {
   id: string;
   convId: ConvId;
@@ -489,6 +508,8 @@ export interface Perception {
   heardSpeech: Utterance[];
   observedActions: ObservedAction[];
   systemEvents: SystemEvent[];
+  /** ring buffer: blocks that changed around us lately (a broken shelter wall, a door, a block set down). */
+  blockChanges: BlockChange[];
 }
 
 export interface AgentState {
@@ -588,6 +609,8 @@ export type AgentEvent =
   /** M10: a skill the agent wrote did what it said on its trial, and is kept. */
   | { type: 'skillLearned'; name: string; description: string }
   /** M10, §7 evolution: reflection found the agent changed ("has grown wary of strangers since being robbed"). */
-  | { type: 'traitAnnotated'; text: string };
+  | { type: 'traitAnnotated'; text: string }
+  /** A block around us changed, as we could tell it (perception/surroundings.ts). */
+  | { type: 'surroundingsChanged'; change: BlockChange };
 
 export type AgentEventType = AgentEvent['type'];

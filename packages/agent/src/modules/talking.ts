@@ -441,8 +441,11 @@ export class Talking {
    */
   private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName, wanted?: () => boolean): Promise<void> {
     await this.flight.run(convId, async () => {
-      const conv = this.o.conversations.get(convId);
+      let conv = this.o.conversations.get(convId);
+      // An opening line whose conversation ended meanwhile (it had gone quiet): said in a new one.
+      if ((!conv || conv.status === 'ended') && incoming.length === 0 && to && (wanted?.() ?? true)) conv = this.o.conversations.open(to, true);
       if (!conv || conv.status === 'ended') return;
+      convId = conv.convId;
       // Chiming in (floor control): someone else may have answered while we were thinking or typing.
       const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
       const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) && (wanted?.() ?? true) : wanted;
