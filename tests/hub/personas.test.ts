@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { ModelsConfigSchema, NUMERIC_TRAIT_KEYS, type Persona, PersonaSchema, SeededRandom, SexDifferencesSchema, WorldConfigSchema, generatePersona, getTrait, inheritPersona, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
-import { PersonaWriter, describeNumbers } from '@agora/hub';
+import { PersonaWriter, clipStory, describeNumbers } from '@agora/hub';
 import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
 
 const world = WorldConfigSchema.parse({});
@@ -19,7 +19,7 @@ const written = {
   catchphrases: ['well, look at that'],
   values: ['freedom', 'friendship'],
   lifeGoals: ['find the source of the river', 'build a boat of her own'],
-  insecurities: ['worries she never finishes things'],
+  insecurities: ['being called flighty'],
 };
 
 async function writer(reply: (n: number) => unknown) {
@@ -46,7 +46,7 @@ describe('the master model writes a new person (§16.2, §20)', () => {
     const draft = draftOf();
     const p = await x.w.write(draft, { takenNames: new Set(['Bram']), living: [PersonaSchema.parse({ name: 'Bram', sex: 'male', traits: ['steady'], description: 'Bram keeps to himself.' })] });
     x.stop();
-    expect(p).toMatchObject({ name: 'Talia', id: 'gen-talia', source: 'generated', traits: ['wry', 'restless', 'generous'], values: ['freedom', 'friendship'], insecurities: ['worries she never finishes things'] });
+    expect(p).toMatchObject({ name: 'Talia', id: 'gen-talia', source: 'generated', traits: ['wry', 'restless', 'generous'], values: ['freedom', 'friendship'], insecurities: ['being called flighty'] });
     expect(p.speech).toMatchObject({ style: 'quick and teasing', catchphrases: ['well, look at that'] });
     expect(sameNumbers(p, draft)).toBe(true);
     expect(p.quirks).toEqual(draft.quirks);
@@ -58,6 +58,46 @@ describe('the master model writes a new person (§16.2, §20)', () => {
     expect(x.asked[0]?.user).toMatch(/A spark to start from/);
     expect(x.asked[0]?.user).toMatch(/Names already taken: Bram/);
     expect(x.asked[0]?.user).toMatch(/- Bram: steady; Bram keeps to himself/);
+  });
+
+  it('shaped for where it goes: a short story in every prompt, a way of talking after "You talk", sore spots an insult can hit', async () => {
+    const long =
+      'Talia grew up on a windy coast mending nets for her uncle, who taught her every knot there is. She left to see what lies inland, and found she liked the hills. She laughs easily, shares what she has, and forgets nothing anyone has done for her. Nobody has ever seen her angry, though many have tried their best.';
+    const x = await writer(() => ({
+      ...written,
+      description: long,
+      speechStyle: 'Quick and teasing.',
+      catchphrases: ['well, look at that', 'a knot that holds is a knot that was tied with patience and care, my uncle said'],
+      lifeGoals: ['Find the source of the river.', 'build a boat of her own'],
+      insecurities: ['Being called flighty', 'worries that her need to keep moving makes her seem unreliable to others'],
+    }));
+    const p = await x.w.write(draftOf(), { takenNames: new Set(), living: [] });
+    x.stop();
+    // 311 characters: the last sentence goes.
+    expect(p.description).toBe('Talia grew up on a windy coast mending nets for her uncle, who taught her every knot there is. She left to see what lies inland, and found she liked the hills. She laughs easily, shares what she has, and forgets nothing anyone has done for her.');
+    expect(p.speech.style).toBe('quick and teasing');
+    expect(p.speech.catchphrases).toEqual(['well, look at that']);
+    expect(p.lifeGoals).toEqual(['find the source of the river', 'build a boat of her own']);
+    expect(p.insecurities).toEqual(['being called flighty']);
+    // The rules ask for them so.
+    expect(x.asked[0]?.system).toMatch(/under 220 characters/);
+    expect(x.asked[0]?.system).toMatch(/what stings them to hear/);
+  });
+
+  it('a story too long is cut at a sentence, or at a word when even the first is too long', () => {
+    expect(clipStory('One. Two two. Three three three.', 14)).toBe('One. Two two.');
+    expect(clipStory('Short.', 14)).toBe('Short.');
+    expect(clipStory('A first sentence that will not fit at all', 20)).toBe('A first sentence…');
+  });
+
+  it('no two newcomers in a row share a past: a spark is not drawn again for a while', async () => {
+    const x = await writer(() => written);
+    for (let i = 0; i < 6; i++) await x.w.write(draftOf(10 + i), { takenNames: new Set(), living: [] });
+    x.stop();
+    const sparks = x.asked.map((a) => /A spark to start from \(use it or not\): (?:she|he) (.+), and once (.+)\.$/m.exec(a.user)?.slice(1, 3) ?? []);
+    expect(sparks.every((s) => s.length === 2)).toBe(true);
+    expect(new Set(sparks.map((s) => s[0])).size).toBe(6);
+    expect(new Set(sparks.map((s) => s[1])).size).toBe(6);
   });
 
   it('a name already had is made new, and the story names them by it', async () => {

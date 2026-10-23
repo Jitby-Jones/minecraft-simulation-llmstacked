@@ -43,15 +43,16 @@ export interface WriteContext {
   signal?: AbortSignal;
 }
 
+// Lenient where code can trim (a long story, one doubt too many): a call isn't wasted over it.
 const WrittenSchema = z.object({
   givenName: z.string().min(2).max(14),
-  traits: z.array(z.string().min(2).max(30)).min(3).max(5),
-  description: z.string().min(40).max(500),
-  speechStyle: z.string().min(3).max(80),
-  catchphrases: z.array(z.string().min(2).max(60)).max(2).default([]),
-  values: z.array(z.string().min(2).max(30)).min(2).max(3),
-  lifeGoals: z.array(z.string().min(5).max(100)).min(2).max(3),
-  insecurities: z.array(z.string().min(3).max(60)).max(2).default([]),
+  traits: z.array(z.string().min(2).max(40)).min(2).max(6),
+  description: z.string().min(40).max(900),
+  speechStyle: z.string().min(3).max(120),
+  catchphrases: z.array(z.string().min(2).max(120)).max(4).default([]),
+  values: z.array(z.string().min(2).max(40)).min(1).max(5),
+  lifeGoals: z.array(z.string().min(5).max(160)).min(1).max(5),
+  insecurities: z.array(z.string().min(3).max(120)).max(4).default([]),
 });
 export type Written = z.infer<typeof WrittenSchema>;
 
@@ -96,6 +97,27 @@ const CRAFTS = [
   'played the flute',
 ];
 
+/** Every prompt the person thinks with starts with their story (prompts.ts personaCore): kept short. */
+const STORY_MAX = 300;
+
+/** The story cut at the last sentence that fits in `max` (at least the first sentence, cut at a word if need be). */
+export function clipStory(text: string, max = STORY_MAX): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (t.length <= max) return t;
+  const sentences = t.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [];
+  let out = '';
+  for (const x of sentences) {
+    if ((out + x).trim().length > max) break;
+    out += x;
+  }
+  if (out.trim()) return out.trim();
+  const cut = t.slice(0, max - 1);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 1))}…`;
+}
+
+/** "Brisk and plain." → "brisk and plain" (it follows "You talk" and "Your life goals:"). */
+const lowerFirst = (x: string) => x.trim().replace(/[.;]+$/, '').replace(/^(?!I\b)[A-Z](?![A-Z])/, (c) => c.toLowerCase());
+
 function level(v: number): string {
   return v >= 0.8 ? 'very high' : v >= 0.62 ? 'high' : v > 0.38 ? 'about average' : v > 0.2 ? 'low' : 'very low';
 }
@@ -107,9 +129,12 @@ export function describeNumbers(p: Persona): string {
 }
 
 const RULES = `You write people for a village in a world of blocky hills, forests and caves, one new person at a time. Write them from their numbers (each 0..1, 0.5 is average): a high number shows plainly in who they are, an average one not at all. Their sex decides only their name and how others speak of them, never their character. Make them their own person, unlike the people already here: a fresh name, their own way of talking, their own wants. Plain, warm words, PG. No famous people, no real places, nothing about games or machines.
-JSON: {"givenName": "a first name, letters only, 3-12 letters, not one already taken", "traits": ["3 to 5 words for their character"], "description": "2 or 3 sentences: who they are and where they come from, in the third person", "speechStyle": "how they talk, a few words", "catchphrases": ["0 to 2 short things they often say"], "values": ["2 or 3 things they care about most"], "lifeGoals": ["2 or 3 things they want from life here, plain and doable in this world"], "insecurities": ["0 to 2 things they are unsure about in themselves"]}`;
+JSON: {"givenName": "a first name, letters only, 3-12 letters, not one already taken", "traits": ["3 to 5 words for their character"], "description": "1 or 2 short sentences, under 220 characters: who they are and where they come from, in the third person", "speechStyle": "how they talk, a few words to follow 'talks', like 'quick and teasing' or 'slowly, weighing each word'", "catchphrases": ["0 to 2 short things they often say, a few words each, in their own voice"], "values": ["2 or 3 things they care about most, a word or two each"], "lifeGoals": ["2 or 3 things they want to do here, each starting with a verb, plain and doable: building, farming, mining, crafting, exploring, trading, friends and family"], "insecurities": ["0 to 2 sore spots: a few words for what stings them to hear, like 'being called lazy' or 'looking foolish'"]}`;
 
 export class PersonaWriter {
+  /** The sparks drawn for the last few people, not drawn again for a while. */
+  private readonly recent = { origins: [] as string[], crafts: [] as string[] };
+
   constructor(private readonly o: PersonaWriterOptions) {}
 
   /** The draft (code's numbers and words), written by the model; the draft as it is if the model's words won't do. */
@@ -146,12 +171,14 @@ export class PersonaWriter {
       ...draft,
       id: `${draft.source === 'born' ? 'born' : 'gen'}-${name.toLowerCase()}`,
       name,
-      traits: w.traits.map((t) => t.toLowerCase()),
-      description: story,
-      speech: { ...draft.speech, style: w.speechStyle, catchphrases: w.catchphrases },
-      values: w.values.map((v) => v.toLowerCase()),
-      lifeGoals: w.lifeGoals,
-      insecurities: w.insecurities,
+      traits: w.traits.slice(0, 5).map((t) => t.toLowerCase()),
+      description: clipStory(story),
+      // Said as they are, now and then (talking.ts): short ones only.
+      speech: { ...draft.speech, style: lowerFirst(w.speechStyle), catchphrases: w.catchphrases.filter((c) => c.length <= 60).slice(0, 2) },
+      values: w.values.slice(0, 3).map((v) => v.toLowerCase()),
+      lifeGoals: w.lifeGoals.slice(0, 3).map(lowerFirst),
+      // Each word of a sore spot is one an insult can hit (mind/feelings.ts): a few words, not a sentence.
+      insecurities: w.insecurities.filter((x) => x.trim().split(/\s+/).length <= 5).slice(0, 2).map(lowerFirst),
     });
     this.o.logger.info({ module: 'persona', model: r.model, name, traits: persona.traits, source: persona.source }, 'persona written');
     return persona;
@@ -167,6 +194,15 @@ export class PersonaWriter {
     return generateUsername(given, taken, this.o.rng);
   }
 
+  /** One of `list`, not one drawn for the last few people (half the list), so newcomers in a row don't share a past. */
+  private spark(list: readonly string[], recent: string[]): string {
+    const fresh = list.filter((x) => !recent.includes(x));
+    const s = pick(this.o.rng, fresh.length > 0 ? fresh : list);
+    recent.push(s);
+    if (recent.length > Math.floor(list.length / 2)) recent.shift();
+    return s;
+  }
+
   private ask(draft: Persona, ctx: WriteContext): string {
     const who = draft.sex === 'female' ? 'woman' : 'man';
     const lines: string[] = [];
@@ -176,11 +212,11 @@ export class PersonaWriter {
       lines.push(`A ${draft.sex === 'female' ? 'girl' : 'boy'} is born to ${a.name} and ${b.name}${fam}. Write the person the child will grow into, young now: whom they take after, and how they differ.`);
       lines.push(`${a.name}: ${parentLine(a)}`, `${b.name}: ${parentLine(b)}`);
       lines.push(`The child's own numbers (from the parents): ${describeNumbers(draft)}.`);
-      lines.push(`Something of their own: they love to watch how others ${pick(this.o.rng, CRAFTS)}.`);
+      lines.push(`Something of their own: they love to watch how others ${this.spark(CRAFTS, this.recent.crafts)}.`);
     } else {
       lines.push(`A new ${who} arrives in the village${ctx.keepName ? `, called ${draft.name} (keep that name)` : ''}.`);
       lines.push(`Their numbers: ${describeNumbers(draft)}.`);
-      lines.push(`A spark to start from (use it or not): ${draft.sex === 'female' ? 'she' : 'he'} ${pick(this.o.rng, ORIGINS)}, and once ${pick(this.o.rng, CRAFTS)}.`);
+      lines.push(`A spark to start from (use it or not): ${draft.sex === 'female' ? 'she' : 'he'} ${this.spark(ORIGINS, this.recent.origins)}, and once ${this.spark(CRAFTS, this.recent.crafts)}.`);
     }
     const taken = [...ctx.takenNames].slice(-80);
     if (taken.length > 0) lines.push(`Names already taken: ${taken.join(', ')}.`);

@@ -1,8 +1,9 @@
 // With the key: the parts of the design only a model does, against the real subscription models (§22.8). Reflection's
 // bias audit (M8c, §18.6) and its trait annotation (M10, §7 evolution), run through Reflection itself; a skill written
 // by L3 (M10, §1.4) and tried out in the world on a Paper server, everything else scripted (the CC is told to reach
-// for a skill there is none of); and an agent on the real model whose shelter is broken open at night (owner request:
-// agents should see what changes around them and react). Spends real subscription quota, so it only runs with
+// for a skill there is none of); an agent on the real model whose shelter is broken open at night (owner request:
+// agents should see what changes around them and react); and the master model writing new people and a child around
+// numbers drawn by code (owner request: agents weren't fully randomized). Spends real subscription quota, so it only runs with
 // NANOGPT_API_KEY set AND AGORA_LIVE_LLM=1, through the same subscription lock and model measurements as the agents.
 
 import fs from 'node:fs';
@@ -12,17 +13,26 @@ import {
   type AgentEvent,
   type Logger,
   ModelsConfigSchema,
+  NUMERIC_TRAIT_KEYS,
+  type Persona,
   PersonaSchema,
+  SeededRandom,
+  SexDifferencesSchema,
   type SocialProfile,
   WorldConfigSchema,
   createLogger,
+  generatePersona,
+  getTrait,
+  inheritPersona,
   loadEnv,
   loadModelsConfig,
   loadVersionsConfig,
   repoRoot,
+  seedFromString,
   sleep,
 } from '@agora/shared';
 import { type Embedder, type LlmCallOptions, type LlmResult, type LlmRuntime, LocalRateLimiter, loadBenchFile, startLlm } from '@agora/llm';
+import { PersonaWriter } from '@agora/hub';
 import { Agent, MemoryDB } from '@agora/agent';
 import { AgentBus } from '@agora/agent/bus';
 import { Body } from '@agora/agent/body/body';
@@ -134,6 +144,51 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
     expect(code).not.toContain(s.state.traitAnnotations[0]);
     expect(s.state.growth.evolved?.length).toBeGreaterThanOrEqual(1);
   }, 120_000);
+
+  it('the master model: four newcomers and a child, each their own person around the numbers code drew', async () => {
+    const w = WorldConfigSchema.parse({});
+    const sexDiffs = SexDifferencesSchema.parse({});
+    const rng = new SeededRandom(seedFromString(`real-personas-${Date.now()}`));
+    const writer = new PersonaWriter({ llm: rt.client, logger, rng });
+    const taken = new Set<string>();
+    const living: Persona[] = [];
+    const pairs: { draft: Persona; p: Persona }[] = [];
+    const sameNumbers = (a: Persona, b: Persona) => NUMERIC_TRAIT_KEYS.every((k) => getTrait(a, k) === getTrait(b, k)) && a.abilities.intelligence === b.abilities.intelligence && a.abilities.combat === b.abilities.combat;
+    const show = (p: Persona) => {
+      const high = NUMERIC_TRAIT_KEYS.filter((k) => getTrait(p, k) >= 0.7).map((k) => `${k} ${getTrait(p, k).toFixed(2)}`);
+      const low = NUMERIC_TRAIT_KEYS.filter((k) => getTrait(p, k) <= 0.3).map((k) => `${k} ${getTrait(p, k).toFixed(2)}`);
+      return `${p.name} (${p.sex}, ${p.source}${p.familyName ? `, ${p.familyName} family` : ''}) high: ${high.join(', ') || '-'}; low: ${low.join(', ') || '-'}\n    traits: ${p.traits.join(', ')}\n    ${p.description ?? ''}\n    talks: ${p.speech.style}${p.speech.catchphrases.length > 0 ? ` ("${p.speech.catchphrases.join('", "')}")` : ''}\n    values: ${p.values.join(', ')}; wants: ${p.lifeGoals.join('; ')}; unsure: ${p.insecurities.join('; ') || '-'}`;
+    };
+    const before = seen.length;
+    for (const sex of ['female', 'male', 'female', 'male'] as const) {
+      const draft = generatePersona({ rng, world: w, sexDiffs, takenNames: taken, sex });
+      const p = await writer.write(draft, { takenNames: taken, living });
+      taken.add(p.name);
+      living.push(p);
+      pairs.push({ draft, p });
+    }
+    const [mum, dad] = living as [Persona, Persona];
+    const cdraft = inheritPersona({ rng, world: w, a: mum, b: dad, takenNames: taken });
+    const child = await writer.write(cdraft, { takenNames: taken, living, parents: [mum, dad] });
+    pairs.push({ draft: cdraft, p: child });
+    const calls = seen.slice(before).filter((x) => x.schema === 'persona');
+    for (const [i, { draft, p }] of pairs.entries()) console.log(`[real persona] ${calls[i]?.model ?? '-'} ${calls[i]?.ok ? '' : `fell back (${calls[i]?.reason ?? ''}) `}${show(p)}\n    code's words were: ${draft.name}; ${draft.traits.join(', ')}`);
+    // Each answered and written (not code's words), the numbers code drew kept, the sex as drawn.
+    expect(calls.map((c) => c.ok)).toEqual([true, true, true, true, true]);
+    for (const { draft, p } of pairs) {
+      expect(p.description).not.toBe(draft.description);
+      expect(sameNumbers(p, draft)).toBe(true);
+      expect(p.sex).toBe(draft.sex);
+    }
+    // Each their own: five names, five ways of putting who they are.
+    const people = pairs.map((x) => x.p);
+    expect(new Set(people.map((p) => p.name.toLowerCase())).size).toBe(5);
+    expect(new Set(people.map((p) => p.traits.join(','))).size).toBe(5);
+    expect(new Set(people.map((p) => p.speech.style)).size).toBe(5);
+    // The child: born to them, of their family, its name with the family's initial.
+    expect(child).toMatchObject({ source: 'born', familyName: cdraft.familyName, generation: cdraft.generation });
+    expect(child.name).toMatch(/_[A-Z]$/);
+  }, 300_000);
 
   describe.skipIf(!liveJavaPath())('in the world', () => {
     let server: LiveServer;
