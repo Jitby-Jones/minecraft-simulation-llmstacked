@@ -174,7 +174,7 @@ export class PersonaWriter {
       traits: w.traits.slice(0, 5).map((t) => t.toLowerCase()),
       description: clipStory(story),
       // Said as they are, now and then (talking.ts): short ones only.
-      speech: { ...draft.speech, style: lowerFirst(w.speechStyle), catchphrases: w.catchphrases.filter((c) => c.length <= 60).slice(0, 2) },
+      speech: { ...draft.speech, style: lowerFirst(w.speechStyle.trim().replace(/^(speaks|talks)\s+/i, '')), catchphrases: w.catchphrases.filter((c) => c.length <= 60).slice(0, 2) },
       values: w.values.slice(0, 3).map((v) => v.toLowerCase()),
       lifeGoals: w.lifeGoals.slice(0, 3).map(lowerFirst),
       // Each word of a sore spot is one an insult can hit (mind/feelings.ts): a few words, not a sentence.
@@ -221,7 +221,8 @@ export class PersonaWriter {
     const taken = [...ctx.takenNames].slice(-80);
     if (taken.length > 0) lines.push(`Names already taken: ${taken.join(', ')}.`);
     const here = ctx.living.slice(-10);
-    if (here.length > 0) lines.push(`People already here (make this one unlike them):\n${here.map((p) => `- ${p.name}: ${p.traits.join(', ')}${p.description ? `; ${p.description.slice(0, 120)}` : ''}`).join('\n')}`);
+    // Their whole stories (short, STORY_MAX): a turn of phrase the last one ended on is one to stay clear of.
+    if (here.length > 0) lines.push(`People already here (make this one unlike them, and don't reuse their phrases):\n${here.map((p) => `- ${p.name}: ${p.traits.join(', ')}${p.description ? `; ${p.description}` : ''}`).join('\n')}`);
     return lines.join('\n');
   }
 }

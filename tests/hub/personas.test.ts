@@ -66,7 +66,7 @@ describe('the master model writes a new person (§16.2, §20)', () => {
     const x = await writer(() => ({
       ...written,
       description: long,
-      speechStyle: 'Quick and teasing.',
+      speechStyle: 'Speaks quick and teasing.',
       catchphrases: ['well, look at that', 'a knot that holds is a knot that was tied with patience and care, my uncle said'],
       lifeGoals: ['Find the source of the river.', 'build a boat of her own'],
       insecurities: ['Being called flighty', 'worries that her need to keep moving makes her seem unreliable to others'],

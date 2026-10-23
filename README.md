@@ -30,6 +30,15 @@ pnpm start                     # server + hub + agents
 Everything mutable lives in `DATA_DIR` (default `./data`): `server/`, `agents/`, `graveyard/`, `logs/`, `cache/`,
 and `skins/` (NameMC pages you saved for agents' skins, below).
 
+## New people
+
+Every new agent's numbers (temperament, the Big Five, mind, abilities) are drawn by code from the population's
+distributions (DESIGN.md §20), and a child's from its parents. The master model, on the key, then writes the person
+around them: a name, their character, a short story, how they talk, what they want and what stings them
+(`personas: generated` in `config/world.yaml`, DESIGN.md §24). Without a key, code's own words stand.
+`personas: auto` uses the hand-written pool in `personas/` first, and `ctl add <persona>` adds one from the pool either
+way.
+
 ## Agents' skins
 
 Each agent is created in a skin from [NameMC](https://namemc.com): one tagged **boy** for a male agent, **girl**
@@ -63,7 +72,7 @@ links in a `.txt` file there. New agents pick from what you saved. `skins.exclud
 | `pnpm build:guard-plugin` / `pnpm build:skins-plugin` | Rebuilds `server-plugin/agora-guard` / `agora-skins` (needs a JDK 25) and prints its sha256 |
 | `pnpm run check` | Typecheck + lint + forbidden-strings (§22.2) + unit tests. Must be green after every change |
 | `pnpm test:live` | Live tests against a real, isolated Paper server (needs `AGORA_JAVA`) |
-| `AGORA_LIVE_LLM=1 pnpm test:live m2-nanogpt real-models` | The live tests that spend real subscription quota (needs `NANOGPT_API_KEY`): the subscription lock, and what only a model does (the bias audit, a trait annotation, a skill written by L3 and tried in the world) |
+| `AGORA_LIVE_LLM=1 pnpm test:live m2-nanogpt real-models` | The live tests that spend real subscription quota (needs `NANOGPT_API_KEY`): the subscription lock, and what only a model does (the bias audit, a trait annotation, a skill written by L3 and tried in the world, the shelter broken open at night, new people written by the master model) |
 
 ## Debug controls
 
