@@ -334,6 +334,8 @@ What each is for is the mind's to know. `obtain` knows shearing and mob drops as
 - With no free spot to set something down (a tunnel), a notch is dug in the wall beside one's feet for it.
 - Prospecting for an ore mines what it finds there and then, the vein in sight (it had found iron and the next step, to smelt, had none).
 - Shelter seals its top with any whole block that stays put (planks and logs too; it had refused 64 planks), and `obtain` takes up to 256 (a hut's 75 blocks were out of reach at 64).
+- Never a block a stalactite hangs from (it falls, and kills: an agent was skewered from full health in a dripstone cave, mining the roof stone); a note on dripstone caves comes up when one is in one.
+- A dig cut off by a stop meant for the dig before it (the last skill's, cut short) tries once more ("Digging aborted" at the first block of the next prospect, twice).
 - Never a block with lava against it, when gathering or mining as when prospecting: broken, it lets the lava in (an agent died so, chopping a tree by a surface pool).
 - A furnace never burns what it is cooking, and planks go in before logs (a log makes four planks, each burning as long as the log); the planner makes planks for fuel when only the logs to be cooked are on hand.
 - Raw meat that cooks (beef, porkchop, chicken, mutton, rabbit, fish, potatoes) waits for the furnace while hunger isn't pressing (food above 8, health 10 or more): raw beef is 3 and steak 8 (an agent ate the beef she had brought back to cook).

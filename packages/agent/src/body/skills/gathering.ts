@@ -57,6 +57,11 @@ const LAVA_AROUND = [
   [0, 0, -1],
 ] as const;
 
+/** A stalactite (pointed dripstone) hangs from this block: break it and the stalactite falls. */
+export function holdsDripstone(bot: Bot, p: Vec3): boolean {
+  return bot.blockAt(p.offset(0, -1, 0))?.name === 'pointed_dripstone';
+}
+
 /** Lava touching this block on any side. */
 export function lavaBeside(bot: Bot, p: Vec3): boolean {
   for (const [dx, dy, dz] of LAVA_AROUND) if (bot.blockAt(p.offset(dx, dy, dz))?.name === 'lava') return true;
@@ -173,9 +178,9 @@ async function collectUntil(
     }
     // Prefer blocks within reach of the ground we stand on: low logs before the canopy, near before far.
     const feetY = bot.entity.position.y;
-    // Never one with lava against it: broken, it lets the lava in (as anyone who has
-    // played knows; prospecting keeps the same rule).
-    const near = findKnownBlocks(bot, blockIds, maxDistance, 24).filter((b) => !skipped.has(b.position.toString()) && !lavaBeside(bot, b.position));
+    // Never one with lava against it (broken, it lets the lava in) nor one a stalactite hangs from (it falls, and
+    // kills): as anyone who has played knows. Prospecting keeps the same rules.
+    const near = findKnownBlocks(bot, blockIds, maxDistance, 24).filter((b) => !skipped.has(b.position.toString()) && !lavaBeside(bot, b.position) && !holdsDripstone(bot, b.position));
     const outside = home ? awayFromHome(near, home) : near;
     if (home && outside.length === 0 && near.length > 0 && walkedOut < 3) {
       walkedOut++;

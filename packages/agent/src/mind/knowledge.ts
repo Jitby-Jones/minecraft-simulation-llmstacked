@@ -107,6 +107,10 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
     text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
   },
   {
+    about: /\bdripstone\b/i,
+    text: 'Dripstone caves: pointed dripstone hanging from the roof (stalactites) falls when the block it hangs from is broken, and one falling on you can kill you outright; stalagmites on the floor hurt to fall onto.',
+  },
+  {
     about: /\b(night|evening|dusk|nightfall)\b/i,
     text: 'Night: about 8 minutes of dark; monsters (zombies, skeletons, spiders, creepers) spawn in the dark all over the surface and come for anyone near, more of them the longer it lasts; a bed (3 wool and 3 planks) lets you sleep through it and sets where you wake after dying; walls and a roof, or a hole sealed over, keep them off; zombies and skeletons burn when the sun comes up, unless they stand in shade or water; a torch only keeps them from spawning right beside it; bare-handed a zombie takes some 20 punches, with a stone sword 4 blows.',
   },

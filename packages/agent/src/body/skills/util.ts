@@ -183,11 +183,22 @@ async function walkStraightTo(ctx: SkillContext, where: () => Vec3 | null, withi
 export async function digBlock(ctx: Pick<SkillContext, 'bot' | 'signal'>, block: Block): Promise<void> {
   const { bot } = ctx;
   const ms = Math.min(60_000, (bot.digTime(block) || 5000) + 5000);
-  try {
-    await abortable(ctx.signal, withTimeout(bot.dig(block, true), ms, `the ${block.name} would not break`), () => bot.stopDigging());
-  } catch (err) {
-    if (!ctx.signal.aborted) bot.stopDigging();
-    throw err;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await abortable(ctx.signal, withTimeout(bot.dig(block, true), ms, `the ${block.name} would not break`), () => bot.stopDigging());
+      return;
+    } catch (err) {
+      // A stop meant for a dig that went before (the last skill's, cut short) can land on ours: once more, then.
+      if (attempt === 0 && !ctx.signal.aborted && /Digging aborted/.test(errMsg(err))) {
+        await new Promise((r) => setTimeout(r, 250));
+        throwIfAborted(ctx.signal);
+        const fresh = bot.blockAt(block.position);
+        if (!fresh || fresh.type !== block.type) return;
+        continue;
+      }
+      if (!ctx.signal.aborted) bot.stopDigging();
+      throw err;
+    }
   }
 }
 

@@ -9,7 +9,7 @@ import { Vec3 } from 'vec3';
 import { itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { blockIdsDropping, isAirLike, isSolid } from '../world';
-import { mine } from './gathering';
+import { holdsDripstone, mine } from './gathering';
 import { lightTheWay } from './light';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -87,6 +87,7 @@ async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
     if (b.name === 'bedrock' || b.hardness === null || b.hardness < 0) throw new Blocked(`${b.name} ahead`);
     const liquid = liquidAround(bot, p);
     if (liquid) throw new Blocked(`${liquid} ahead`);
+    if (holdsDripstone(bot, p)) throw new Blocked('a stalactite hangs from the rock ahead');
     const tool = bot.pathfinder.bestHarvestTool(b);
     if (tool) await bot.equip(tool, 'hand');
     await digBlock(ctx, b);
