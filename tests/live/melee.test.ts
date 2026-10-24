@@ -165,6 +165,37 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(head?.name).not.toBe('gravel');
   }, 120_000);
 
+  it('in a flooded pit with steep walls all round: it gets out onto dry ground (one was in one six minutes, and died there)', async () => {
+    const x = 7400;
+    await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+    // A pit three across and eight deep in the stone, five of it water.
+    await server.cmd(`fill ${x - 1} ${Y - 8} -1 ${x + 1} ${Y - 1} 1 air`);
+    await server.cmd(`fill ${x - 1} ${Y - 8} -1 ${x + 1} ${Y - 4} 1 water`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 6} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('effect clear Ada');
+    await server.cmd('effect give Ada minecraft:instant_health 1 3');
+    for (const g of ['stone_pickaxe 1', 'dirt 16']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(1500);
+    dangers.length = 0;
+    body.reflexes.start();
+    const start = Date.now();
+    let tries = 0;
+    // As the mind would: the walk out again whenever something cut it short.
+    while (Date.now() - start < 120_000 && body.bot.entity.position.y < Y - 0.5 && body.bot.health > 0) {
+      tries++;
+      cut = new AbortController();
+      const r = await body.run('goTo', { x: x + 5, y: Y, z: 0, range: 2 }, { signal: cut.signal });
+      logger.info({ tries, ok: r.ok, observed: r.observed, error: r.error, at: body.bot.entity.position.toString(), dangers: dangers.map((d) => `${d.kind}:${d.source}`) }, 'out of the pit');
+      await sleep(500);
+    }
+    cut = null;
+    body.reflexes.stop();
+    logger.info({ tries, at: body.bot.entity.position.toString(), health: body.bot.health, ms: Date.now() - start }, 'flooded pit');
+    expect(body.bot.health).toBeGreaterThan(0);
+    expect(body.bot.entity.position.y).toBeGreaterThan(Y - 0.5);
+  }, 180_000);
+
   it('digging a staircase down with a stone sword, a zombie coming down behind: it kills it, and lives', async () => {
     const x = 6400;
     const y = Y - 8;

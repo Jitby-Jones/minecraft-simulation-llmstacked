@@ -2,9 +2,60 @@
 
 import { z } from 'zod';
 import { Vec3 } from 'vec3';
-import { findEntity, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
+import { findEntity, isAirLike, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
+import { isCover, referenceFor } from './building';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
+
+const SIDES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+
+const inWater = (ctx: SkillContext): boolean => {
+  const b = ctx.bot.blockAt(ctx.bot.entity.position);
+  return b?.name === 'water' || (ctx.bot.entity as unknown as { isInWater?: boolean }).isInWater === true;
+};
+
+/**
+ * Out of water with no way to walk out (a flooded pit, a well, steep banks), as a player gets out: up to the top, a
+ * block set into the water beside one against the bank, and up onto it. From dry footing a walk can dig or climb on;
+ * from the water it had no way at all (an agent spent six minutes in a flooded pit and died there). True if it is out.
+ */
+export async function climbOutOfWater(ctx: SkillContext): Promise<boolean> {
+  const { bot } = ctx;
+  const block = bot.inventory.items().find((i) => isCover(i.name));
+  if (!block) return false;
+  stopMotion(bot);
+  try {
+    // Up to the top.
+    bot.setControlState('jump', true);
+    for (let t = 0; t < 30 && bot.blockAt(bot.entity.position.offset(0, 1.62, 0))?.name === 'water'; t++) await waitMs(ctx, 100);
+    // The water at the top beside us, with something to set a block against (the bank, or the bottom).
+    // The topmost water: floating, one's feet are a block or so under it.
+    let top = bot.entity.position.floored();
+    if (bot.blockAt(top)?.name !== 'water') top = top.offset(0, -1, 0);
+    for (let n = 0; n < 8 && bot.blockAt(top.offset(0, 1, 0))?.name === 'water'; n++) top = top.offset(0, 1, 0);
+    const spot = SIDES.map((d) => top.plus(d)).find((c) => bot.blockAt(c)?.name === 'water' && isAirLike(bot.blockAt(c.offset(0, 1, 0))) && isAirLike(bot.blockAt(c.offset(0, 2, 0))) && referenceFor(bot, c));
+    if (!spot) return false;
+    const r = referenceFor(bot, spot);
+    if (!r) return false;
+    await bot.equip(block, 'hand');
+    await bot.placeBlock(r.ref, r.face).catch(() => undefined);
+    await waitMs(ctx, 200);
+    if (!isSolid(bot.blockAt(spot))) return false;
+    // Up onto it, and onto the middle of it.
+    const on = spot.offset(0, 1, 0);
+    const dry = () => bot.entity.onGround && bot.blockAt(bot.entity.position)?.name !== 'water';
+    await bot.lookAt(on.offset(0.5, 0.2, 0.5), true);
+    bot.setControlState('forward', true);
+    for (let t = 0; t < 30 && !dry(); t++) await waitMs(ctx, 100);
+    bot.setControlState('jump', false);
+    for (let t = 0; t < 6 && !bot.entity.position.floored().equals(on); t++) await waitMs(ctx, 50);
+    bot.setControlState('forward', false);
+    await waitMs(ctx, 200);
+    return dry();
+  } finally {
+    bot.clearControlStates();
+  }
+}
 
 const PosArgs = z.object({ x: z.coerce.number(), y: z.coerce.number(), z: z.coerce.number() });
 
@@ -34,10 +85,20 @@ export const goTo = defineSkill({
     const range = here && isSolid(here) ? Math.max(1, args.range) : args.range;
     // A long way takes its time (over hills, round water): a minute, and about 1.5 s a block past 30, up to 4 min.
     const far = ctx.bot.entity.position.distanceTo(target);
+    const walk = () => gotoNear(ctx, target, range, Math.min(240_000, 60_000 + Math.max(0, far - 30) * 1500));
     try {
-      await gotoNear(ctx, target, range, Math.min(240_000, 60_000 + Math.max(0, far - 30) * 1500));
+      await walk();
     } catch (err) {
-      return { ok: false, observed: `stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err) };
+      if (err instanceof SkillAbortedError) throw err;
+      // In the water with no way out found: out of it onto a block of one's own, and on from there.
+      if (!inWater(ctx) || !(await climbOutOfWater(ctx))) return { ok: false, observed: `stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err) };
+      ctx.logger.info({ module: 'skill', at: ctx.bot.entity.position.floored().toString() }, 'climbed out of the water onto a block');
+      try {
+        await walk();
+      } catch (err2) {
+        if (err2 instanceof SkillAbortedError) throw err2;
+        return { ok: false, observed: `climbed out of the water; stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err2) };
+      }
     }
     return { ok: true, observed: `arrived within ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks` };
   },

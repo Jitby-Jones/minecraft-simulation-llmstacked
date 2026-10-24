@@ -85,10 +85,14 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
     case 'court':
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 6)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 3 } };
       return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'lookAround', args: { seconds: Math.min(opt.maxSeconds, 60), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
-    // Resting is not standing frozen: one stays put and keeps an eye on what's around (on whom we face, if anyone).
+    // Resting is not standing frozen: one stays put and keeps an eye on what's around (on whom we face, if anyone). A
+    // rest the mind gave its own wait or look to goes as given: "wait 600 s" in the hut for the night had become two
+    // minutes, and the steps after it took an agent out into the dark.
+    case 'rest':
+      if ((opt.skill === 'wait' || opt.skill === 'lookAround') && opt.args) return { skill: opt.skill, args: opt.args };
+      return { skill: 'lookAround', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
     case 'yield':
     case 'apologize':
-    case 'rest':
       return { skill: 'lookAround', args: { seconds: Math.min(Math.max(opt.maxSeconds, 1), 120), ...(opt.targetAgent ? { at: opt.targetAgent } : {}) } };
   }
 }
