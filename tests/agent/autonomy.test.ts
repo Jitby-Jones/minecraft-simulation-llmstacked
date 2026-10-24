@@ -166,6 +166,12 @@ describe('never standing frozen', () => {
     expect(skillForOption({ ...move, skill: undefined, args: undefined }, () => true)).toEqual({ skill: 'goTo', args: { x: 6, y: 69, z: 37, range: 1 } });
     // A rest as the mind gave it: its own wait, for as long as it said (the night in a hut), not two minutes.
     expect(skillForOption({ ...opt('rest'), maxSeconds: 600, skill: 'wait', args: { seconds: 600 } }, () => true)).toEqual({ skill: 'wait', args: { seconds: 600 } });
+    // An exploration the way and as far as the mind said (to open grassland and its sheep), not 32 blocks any way.
+    const explore = { decisionId: 'd', option: 'explore' as const, startedAt: 0, maxSeconds: 300, status: 'running' as const, skill: 'explore', args: { direction: 'south', distance: 150 } };
+    expect(skillForOption(explore, () => true)).toEqual({ skill: 'explore', args: { direction: 'south', distance: 150 } });
+    expect(skillForOption({ ...explore, skill: undefined, args: undefined }, () => true)).toEqual({ skill: 'explore', args: { distance: 32 } });
+    const follow = { decisionId: 'd', option: 'follow' as const, startedAt: 0, maxSeconds: 300, status: 'running' as const, targetAgent: 'Bram', skill: 'follow', args: { agent: 'Bram', distance: 6 } };
+    expect(skillForOption(follow, () => true)).toEqual({ skill: 'follow', args: { agent: 'Bram', distance: 6 } });
     expect(getSkill('wander')?.name).toBe('wander');
     expect(getSkill('stroll')?.name).toBe('wander');
     expect(getSkill('rest')?.name).toBe('lookAround');

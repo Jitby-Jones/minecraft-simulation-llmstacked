@@ -142,6 +142,18 @@ async function collectAround(ctx: SkillContext, where: Vec3, radius = 4, which?:
 
 // --- use -----------------------------------------------------------------------------------------------------------
 
+/** What a click changed in a block: another block ("dirt became farmland"), or the same one opened, lit, filled. */
+function changed(was: Block, now: Block): string {
+  const name = (b: Block) => b.name.replace(/_/g, ' ');
+  if (now.name !== was.name) return `${name(was)} became ${name(now)}`;
+  const a = was.getProperties() as Record<string, unknown>;
+  const b = now.getProperties() as Record<string, unknown>;
+  if (a.open !== b.open && b.open !== undefined) return `the ${name(now)} ${b.open === true || b.open === 'true' ? 'opened' : 'shut'}`;
+  if (a.lit !== b.lit && b.lit !== undefined) return `the ${name(now)} ${b.lit === true || b.lit === 'true' ? 'lit' : 'went out'}`;
+  const props = Object.keys(b).filter((k) => String(a[k]) !== String(b[k]));
+  return props.length > 0 ? `the ${name(now)}: ${props.map((k) => `${k} ${String(a[k])} to ${String(b[k])}`).join(', ')}` : `the ${name(now)} changed`;
+}
+
 export const use = defineSkill({
   name: 'use',
   description:
@@ -208,7 +220,7 @@ export const use = defineSkill({
           done++;
           const now = bot.blockAt(target.position);
           const nowAbove = bot.blockAt(target.position.offset(0, 1, 0));
-          if (now && now.stateId !== was) changes.push(`${target.name.replace(/_/g, ' ')} became ${now.name.replace(/_/g, ' ')}`);
+          if (now && now.stateId !== was) changes.push(changed(target, now));
           else if (nowAbove && nowAbove.stateId !== above) changes.push(`${nowAbove.name.replace(/_/g, ' ')} on the ${target.name.replace(/_/g, ' ')}`);
           if (at) break;
         }

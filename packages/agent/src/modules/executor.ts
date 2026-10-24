@@ -62,8 +62,12 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
       if (opt.targetAgent) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 3 } };
       return { skill: 'wait', args: { seconds: 5 } };
     case 'follow':
+      if (opt.skill === 'follow' && typeof opt.args?.agent === 'string') return { skill: 'follow', args: opt.args };
       return opt.targetAgent ? { skill: 'follow', args: { agent: opt.targetAgent, distance: 3 } } : { skill: 'wait', args: { seconds: 5 } };
+    // The way and the distance the mind gave, as it gave them ("south, 150 blocks" for open grassland and its sheep
+    // had become 32 blocks any way, over and over).
     case 'explore':
+      if (opt.skill === 'explore' && opt.args) return { skill: 'explore', args: opt.args };
       return { skill: 'explore', args: { ...EXPLORE_ARGS } };
     case 'flee':
       return { skill: 'flee', args: opt.targetAgent ? { from: opt.targetAgent } : {} };
