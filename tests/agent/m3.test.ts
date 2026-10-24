@@ -337,6 +337,108 @@ describe('Cognitive Controller against the mocked NanoGPT', () => {
   });
 });
 
+describe('thinking under fire (owner request, 2026-10-24: think, don\'t follow directives)', () => {
+  it('in danger the mind thinks at once, and what it chooses is done in the danger: eat, then the step meant next; "get away" is left to the legs', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const asked: string[] = [];
+    let reply: object = { thought: 'Two zombies and I am at 5. Eat the steak while the legs carry me, then up the tunnel.', option: 'work', task: { skill: 'eat', args: { item: 'cooked_beef' } }, terminate: { maxSeconds: 20 }, rationale: 'heal', then: [{ skill: 'goTo', args: { x: 10, y: 70, z: 0 } }] };
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      asked.push(JSON.stringify(body?.messages ?? ''));
+      return { text: JSON.stringify(reply) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const ran: string[] = [];
+    const finish = new Map<string, () => void>();
+    const body = {
+      skill: () => ({ talkOverable: true }),
+      run: (skill: string, args: Record<string, unknown>, opts: { signal: AbortSignal }) =>
+        new Promise<SkillRunRecord>((resolve) => {
+          ran.push(skill);
+          const rec = (ok: boolean, aborted: boolean): SkillRunRecord => ({ id: 'r', skill, args, expected: 'x', observed: aborted ? 'interrupted' : 'done', ok, mismatch: false, aborted, slip: null, startedAt: 0, durationMs: 1, ...(aborted ? { error: 'aborted' } : {}) });
+          finish.set(skill, () => resolve(rec(true, false)));
+          opts.signal.addEventListener('abort', () => resolve(rec(false, true)), { once: true });
+        }),
+    } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    executor.start();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    let runs = 0;
+    const cc = new CognitiveController({
+      store: s,
+      bus,
+      logger: nullLogger(),
+      llm: rt.client,
+      me: 'Pip',
+      levers: () => leversFor(0.5),
+      awareness,
+      executor,
+      canPerceive: () => false,
+      bodyInDanger: () => 'running from 2 zombies (the nearest 3 m off)',
+      runNow: () => runs++,
+    });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    cc.start();
+    s.update('self', (x) => ({ ...x, health: 5, inventory: [{ item: 'cooked_beef', qty: 4 }] }));
+    s.update('flags', (f) => ({ ...f, inDanger: true }), 'danger');
+    bus.emit({ type: 'danger', source: 'zombie', level: 0.6, kind: 'flee' });
+    for (let i = 0; i < 80 && decided.length === 0; i++) await wait(25);
+    expect(decided).toEqual(['llm:eat']);
+    expect(asked[0]).toMatch(/danger: zombie; your body is running from 2 zombies \(the nearest 3 m off\)\. You are in danger now: think fast/);
+    expect(s.state.option).toMatchObject({ skill: 'eat', status: 'running', underFire: true });
+    for (let i = 0; i < 40 && !ran.includes('eat'); i++) await wait(25);
+    // The danger goes on (the body's own alarms): what was chosen goes on with it.
+    bus.emit({ type: 'danger', source: 'zombie', level: 0.6, kind: 'fight' });
+    await wait(100);
+    expect(s.state.option?.status).toBe('running');
+    // Eaten: on to the step meant next, still in the danger, without stopping to think.
+    finish.get('eat')?.();
+    for (let i = 0; i < 80 && decided.length < 2; i++) await wait(25);
+    expect(decided).toEqual(['llm:eat', 'intention:goTo']);
+    expect(s.state.option).toMatchObject({ skill: 'goTo', underFire: true });
+    // A hazard (water, lava) still stops it: the body sees to those first. Then, thought again under fire: this
+    // time, away. The legs do it; no option is set for it.
+    const ends: string[] = [];
+    bus.on('optionTerminated', (e) => ends.push(e.reason));
+    for (let i = 0; i < 40 && !ran.includes('goTo'); i++) await wait(25);
+    reply = { thought: 'Too many. Run.', option: 'flee', terminate: { maxSeconds: 20 }, rationale: 'away' };
+    bus.emit({ type: 'danger', source: 'water', level: 0.9, kind: 'hazard' });
+    for (let i = 0; i < 40 && ends.length === 0; i++) await wait(25);
+    expect(ends).toEqual(['danger']);
+    for (let i = 0; i < 120 && runs === 0; i++) await wait(25);
+    expect(runs).toBe(1);
+    cc.stop();
+    executor.stop();
+  }, 15_000);
+
+  it('out of danger, nothing waits on it: a thought is had as before, and what was meant before the danger is not taken for under fire', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    cc.start();
+    // A plain trigger in danger is held until it is over (no code default under fire).
+    s.update('flags', (f) => ({ ...f, inDanger: true }), 'danger');
+    bus.emit({ type: 'danger', source: 'zombie', level: 0.6, kind: 'flee' });
+    cc.trigger('testing');
+    await wait(300);
+    expect(decided).toEqual([]);
+    s.update('flags', (f) => ({ ...f, inDanger: false }), 'over');
+    bus.emit({ type: 'dangerCleared' });
+    for (let i = 0; i < 40 && decided.length === 0; i++) await wait(25);
+    expect(decided.length).toBe(1);
+    expect(s.state.option?.underFire).toBeUndefined();
+    cc.stop();
+  });
+});
+
 describe('a look up from long work', () => {
   it('three minutes and more at one piece of work, it thinks a moment, and the same work goes on, not begun again', async () => {
     const fake = new FakeNanoGpt(standardModels());

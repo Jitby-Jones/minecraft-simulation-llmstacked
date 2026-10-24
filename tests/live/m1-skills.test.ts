@@ -21,6 +21,9 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
   const cleared: string[] = [];
   /** The rooms of huts Pip built (as the agent remembers them). */
   const rooms: Vec3[] = [];
+  /** What the mind chose in a danger holds the body (as the agent's executor says), and what took it back. */
+  let led: 'body' | 'hands' | null = null;
+  const tookBack: string[] = [];
   let zoneIndex = 0;
 
   /** Teleports the bots to a fresh, flat area and returns its origin. */
@@ -51,7 +54,7 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     const logger = createLogger({ name: 'm1-live', console: false });
     pip = await Body.connect(
       { host: server.host, port: server.port, username: 'Pip', version: versions.minecraft.version, logger, chat: { minIntervalMs: 300 } },
-      { onDanger: (d) => dangers.push(d), onDangerCleared: (s) => cleared.push(s), caution: () => 0.3, rooms: () => rooms },
+      { onDanger: (d) => dangers.push(d), onDangerCleared: (s) => cleared.push(s), caution: () => 0.3, rooms: () => rooms, mindLed: () => led, takeBack: (why) => tookBack.push(why) },
     );
     bram = await Body.connect({ host: server.host, port: server.port, username: 'Bram', version: versions.minecraft.version, logger });
     await sleep(1000);
@@ -422,6 +425,31 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
         await server.cmd('kill @e[type=minecraft:zombie]');
         await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);
       }
+    });
+
+    it('while what the mind chose holds the body, a zombie at hand is no fight the reflexes start; a creeper about to go off takes it back', async () => {
+      const o = await zone();
+      dangers.length = 0;
+      tookBack.length = 0;
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await server.cmd('effect give Pip minecraft:resistance 30 4');
+      led = 'body';
+      try {
+        await server.cmd(`summon minecraft:zombie ${o.x + 2} ${Y} ${o.z} {PersistenceRequired:1b}`);
+        await sleep(4000);
+        expect(dangers.some((d) => d.kind === 'fight' || d.kind === 'flee')).toBe(false);
+        expect(pip.reflexes.mode).not.toBe('fight');
+        await server.cmd('kill @e[type=minecraft:zombie]');
+        await server.cmd(`summon minecraft:creeper ${o.x + 3} ${Y} ${o.z} {PersistenceRequired:1b,NoAI:1b}`);
+        await waitFor(() => tookBack.length > 0, 5000, 'took back');
+        expect(tookBack[0]).toMatch(/creeper/);
+      } finally {
+        led = null;
+        await server.cmd('kill @e[type=minecraft:creeper]');
+        await server.cmd('kill @e[type=minecraft:zombie]');
+        await server.cmd('effect clear Pip minecraft:resistance');
+      }
+      await waitFor(() => pip.reflexes.mode === 'idle', 10000, 'at rest');
     });
 
     it('eats when hungry and wears better armor', async () => {

@@ -194,6 +194,9 @@ export interface ActiveOption {
   args?: Record<string, unknown>;
   status: 'running' | 'succeeded' | 'failed' | 'terminated';
   progress?: string;
+  /** Chosen in danger: while it runs, the body's reflexes stand by (hazards and what no thought is quick enough for
+   *  aside), as one who has decided what to do does it. */
+  underFire?: boolean;
 }
 
 export interface ActionRecord {
@@ -655,6 +658,8 @@ export interface Intention {
   steps: IntentionStep[];
   from: string;
   at: number;
+  /** Meant in danger (a way out in steps): the steps go on while the danger lasts. */
+  underFire?: boolean;
 }
 
 /** A place the agent saw something worth coming back to (a herd of sheep, ore in a cliff, a building): its map memory. */
@@ -814,7 +819,7 @@ export interface AgentState {
 export type AgentEvent =
   | { type: 'stateChanged'; reason: string }
   | { type: 'perception' }
-  | { type: 'danger'; source: string; level: number }
+  | { type: 'danger'; source: string; level: number; kind?: 'fight' | 'flee' | 'hazard' | 'defend' }
   | { type: 'dangerCleared' }
   | { type: 'heard'; utterance: Utterance }
   | { type: 'addressed'; utterance: Utterance }

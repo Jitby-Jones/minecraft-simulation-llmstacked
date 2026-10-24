@@ -24,10 +24,13 @@ import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, is
 
 const { goals } = pathfinderPkg;
 
+/** How long the body runs when the mind chose to get away (it thinks again before this is up, as things change). */
+const RUN_CHOSEN_MS = 12_000;
+
 /** Caught out at night, a hut of one's own this near (blocks) is run to rather than just away from what chases. */
 const SHELTER_RUN = 48;
 
-export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim';
+export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim' | 'led';
 
 /** One fight, as it goes (ReflexController.bout). */
 interface Bout {
@@ -158,6 +161,14 @@ export interface ReflexHooks {
   mayPickUp?: (item: Entity) => boolean;
   /** The rooms of the huts one built oneself, where one stands to be inside. */
   rooms?: () => readonly Vec3[];
+  /**
+   * What the mind chose in the danger is under way: 'body' (it holds the body: the reflexes stand by, hazards and what
+   * no thought is quick enough for aside) or 'hands' (it holds only the hands, as eating on the run: the legs may still
+   * run, no fight is started). Null: the reflexes have the body.
+   */
+  mindLed?: () => 'body' | 'hands' | null;
+  /** What no thought is quick enough for came (a creeper about to go off beside us): the mind's choice gives way. */
+  takeBack?: (why: string) => void;
   /** Someone else hit a mob that was after us. */
   onHelpedFight?: (helper: string) => void;
   /** Extra health points of fear toward a threat (availability bias after a death to it, §18.4). */
@@ -245,6 +256,8 @@ export class ReflexController {
   private noRoomRun = false;
   /** Until when we stand and fight because running isn't working. */
   private standUntil = 0;
+  /** Until when we run because the mind chose to get away. */
+  private runUntil = 0;
   /** Where we stood lately, on the ground, a couple of blocks apart. */
   private trail: Vec3[] = [];
   /** The fight under way, for the record: whom, from what health, the swings made and the blows that landed. */
@@ -701,7 +714,14 @@ export class ReflexController {
     return (this.hooks.rooms?.() ?? []).some((r) => Math.abs(me.x - (r.x + 0.5)) <= 1.5 && Math.abs(me.z - (r.z + 0.5)) <= 1.5 && Math.abs(feet.y - r.y) < 1);
   }
 
+  /** The mind chose to get away: the body runs, the way it knows (the trail back, a hut of one's own, up out of reach). */
+  run(forMs = RUN_CHOSEN_MS): void {
+    this.runUntil = Date.now() + forMs;
+    this.standUntil = 0;
+  }
+
   private shouldFlee(threats: Entity[]): boolean {
+    if (Date.now() < this.runUntil) return true;
     const me = this.bot.entity.position;
     const health = this.bot.health;
     const fleeAt = this.fleeThreshold(threats) + Math.max(0, ...threats.map((t) => this.hooks.fearBoost?.(entityLabel(t)) ?? 0));
@@ -786,6 +806,17 @@ export class ReflexController {
     this.hooks.onDangerCleared(summary);
   }
 
+  /** The danger over while the mind's choice holds the body: said so, the body left as it is (its walk, its digging). */
+  private letGo(summary: string): void {
+    this.endBout(summary);
+    this.mode = 'idle';
+    this.fleeHits = [];
+    this.fleeStillSince = null;
+    this.standUntil = 0;
+    this.runUntil = 0;
+    this.hooks.onDangerCleared(summary);
+  }
+
   /** A danger let go of: the fight, the run and the controls with it. */
   private reset(summary: string): void {
     this.endBout(summary);
@@ -807,6 +838,7 @@ export class ReflexController {
     this.fleeHits = [];
     this.fleeStillSince = null;
     this.standUntil = 0;
+    this.runUntil = 0;
   }
 
   private fight(target: Entity, kind: 'fight' | 'defend'): void {
@@ -1246,7 +1278,32 @@ export class ReflexController {
       this.clear('out of danger');
       return;
     }
-    // 2. Threats.
+    // 2. Threats. What the mind chose in the danger holds the body while it runs (owner request, 2026-10-24: think,
+    // don't follow directives): the reflexes keep watch, and give way only to what no thought is quick enough for.
+    const led = this.hooks.mindLed?.() ?? null;
+    if (led) {
+      const t = this.threats(16);
+      if (t.length > 0) this.lastThreatAt = now;
+      if (mustRun(bot, t)) {
+        this.hooks.takeBack?.('a creeper about to go off');
+        return;
+      }
+      if (this.mode === 'fight') {
+        try {
+          pvp(bot).forceStop();
+        } catch {
+          // not fighting
+        }
+        this.endBout('the mind took over');
+        this.mode = 'led';
+      }
+      // Eating on the run: the legs go on running while the hands eat.
+      if (led === 'hands' && this.mode === 'flee' && t.length > 0) this.flee(t);
+      else if (led === 'body' && this.mode === 'flee') this.mode = 'led';
+      if (now - this.lastThreatAt > 3000 && this.mode !== 'idle') this.letGo('got away');
+      return;
+    }
+    if (this.mode === 'led') this.mode = 'idle';
     if (this.hooks.deliberateFight()) {
       if (bot.health <= (this.hooks.fightFloor?.() ?? this.fleeThreshold())) {
         const t = this.threats();

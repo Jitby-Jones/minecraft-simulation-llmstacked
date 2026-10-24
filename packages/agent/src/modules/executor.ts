@@ -150,7 +150,14 @@ export class SkillExecutor {
     };
     this.o.store.on('change', onChange);
     this.offs.push(() => this.o.store.off('change', onChange));
-    this.offs.push(this.o.bus.on('danger', () => this.abort('danger')));
+    // Danger cuts short what was under way; what the mind chose in the danger goes on as it lasts (a hazard, lava,
+    // fire, water or a block on the head, still stops it: the body sees to those first).
+    this.offs.push(
+      this.o.bus.on('danger', (e) => {
+        if (this.current?.opt.underFire && e.kind !== 'hazard') return;
+        this.abort('danger');
+      }),
+    );
     // Helping ends when the person we help says it's enough (§6.7 shared termination).
     this.offs.push(
       this.o.bus.on('addressed', (e) => {

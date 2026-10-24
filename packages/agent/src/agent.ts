@@ -18,6 +18,7 @@ import { villageView } from './social/village';
 import { EDIBLE } from './modules/villageMove';
 import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
+import { nearbyHostiles } from './body/world';
 import { Vec3 as BlockPos } from './body/bot';
 import { wasThrown } from './body/inventory';
 import { cannedBusyLine } from './body/reflexes';
@@ -64,6 +65,21 @@ import { sharedRepertoire } from './building/repertoire';
 import type { DesignAsk, SkillResult } from './body/skills/types';
 import { isOff } from './state/switches';
 import { applyUrge } from './modules/urges';
+
+
+/** What the body is doing by itself in a danger, for the mind ("running from 3 zombies (the nearest 2 m off) and a skeleton"). */
+function bodyInDanger(body: Body): string {
+  const me = body.bot.entity.position;
+  const near = nearbyHostiles(body.bot, 16);
+  const kinds = new Map<string, number>();
+  for (const e of near) kinds.set(e.name ?? 'mob', (kinds.get(e.name ?? 'mob') ?? 0) + 1);
+  const nearest = near[0];
+  const what = [...kinds.entries()].map(([k, n]) => (n > 1 ? `${n} ${k}s` : `a ${k}`)).join(' and ');
+  const where = nearest ? ` (the nearest ${Math.round(nearest.position.distanceTo(me))} m off)` : '';
+  const mode = body.reflexes.mode;
+  if (!what) return mode === 'flee' ? 'running' : 'on its guard';
+  return `${mode === 'flee' ? 'running from' : mode === 'fight' ? 'fighting' : mode === 'led' ? 'doing what you chose, with' : 'facing'} ${what}${where}`;
+}
 
 export interface AgentOptions {
   body: Body;
@@ -251,6 +267,8 @@ export class Agent {
       knowledge: () => this.knowledge(),
       ...(o.mindModels && o.mindModels.length > 0 ? { mindModels: o.mindModels } : {}),
       ...(o.mindTimeoutMs ? { mindTimeoutMs: o.mindTimeoutMs } : {}),
+      bodyInDanger: () => bodyInDanger(body),
+      runNow: () => body.reflexes.run(),
       awareness: this.awareness,
       executor: this.executor,
       canPerceive: (name) =>
@@ -668,6 +686,13 @@ export class Agent {
       isIdle: () => this.executor.idleBody,
       between: () => !this.executor.busy,
       mayPickUp: (item) => this.perception.mayPickUp(item.id) && !wasThrown(body.bot, item.id),
+      // What the mind chose in the danger holds the body while it runs; eating holds only the hands.
+      mindLed: () => {
+        const opt = this.store.state.option;
+        if (!opt?.underFire || opt.status !== 'running' || opt.skill === 'attack' || opt.skill === 'duel') return null;
+        return opt.skill === 'eat' ? 'hands' : 'body';
+      },
+      takeBack: (why) => this.executor.abort(why),
       rooms: () => (this.store.state.village.rooms ?? []).map((r) => new BlockPos(r.x, r.y, r.z)),
       fearBoost: (source) => this.biases.fearBoost(source),
       onAllyAttacked: (ally, by) => {
@@ -682,7 +707,7 @@ export class Agent {
         this.dangerIsPerson = person !== null;
         this.store.update('flags', (f) => ({ ...f, inDanger: true, busyLevel: 'critical', busySpeech: person ? 'not now!' : cannedBusyLine(info.source) }), `danger: ${info.kind} ${this.dangerSource}`);
         logger.info({ module: 'reflex', kind: info.kind, source: info.source, ...(info.attacker ? { attacker: info.attacker } : {}), health: body.bot.health }, 'danger');
-        this.bus.emit({ type: 'danger', source: info.source, level: info.level });
+        this.bus.emit({ type: 'danger', source: info.source, level: info.level, kind: info.kind });
       },
       onDangerCleared: (summary) => {
         this.store.update('flags', (f) => ({ ...f, inDanger: false, busySpeech: null, busyLevel: this.executor.busy ? 'working' : 'idle' }), 'danger cleared');

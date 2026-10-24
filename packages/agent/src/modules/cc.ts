@@ -32,7 +32,7 @@ import { type Offer, amountOf, judgeOffer, parseHelpRequest, parseTradeOffer, st
 import { opinionLine, readOpinionAsk, statedOpinion } from '../social/opinions';
 import { getSkill, skillCatalog } from '../body/skills/registry';
 import type { AnySkill } from '../body/skills/types';
-import { CC_POLICY } from '../state/policies';
+import { CC_POLICY, CC_UNDER_FIRE_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import type { ActionAwareness } from './awareness';
 import { taskKey } from './awareness';
@@ -69,6 +69,9 @@ export interface DecideContext {
   change?: BlockChange;
   /** §17.7: we have just begun to follow this person: a stroll begun before gives way to their side. */
   leader?: AgentName;
+  /** In danger: thought about at once, and what is chosen is done at once (owner request, 2026-10-24: think, don't
+   *  follow directives; a player in a fight still thinks: eats, runs somewhere, digs through, turns and fights). */
+  emergency?: boolean;
 }
 
 export interface ValidationEnv {
@@ -1067,6 +1070,10 @@ export interface CCOptions {
   /** The models it thinks with first, and the time a thought may take (config/models.yaml `mind`). */
   mindModels?: readonly string[];
   mindTimeoutMs?: number;
+  /** In danger: what the body is doing by itself right now ("running from 3 zombies, the nearest 2 m off"). */
+  bodyInDanger?: () => string;
+  /** In danger: the body is to run (the mind chose to get away, and leaves the running to the legs). */
+  runNow?: () => void;
   now?: () => number;
 }
 
@@ -1096,6 +1103,9 @@ export class CognitiveController {
    */
   private ownOption = false;
   private deferred: { reason: string; ctx: DecideContext } | null = null;
+  /** When the last thought under fire was had, and the health then: thought again as things get worse. */
+  private underFireAt = -Infinity;
+  private underFireHealth = 20;
   /** A question put to us, still to be answered: a later reason to decide doesn't push it out of the queue. */
   private asked: { reason: string; ctx: DecideContext; at: number } | null = null;
   private readonly now: () => number;
@@ -1135,6 +1145,21 @@ export class CognitiveController {
     // Something put off until a cue: the cue came.
     this.offs.push(b.on('cue', (e) => this.trigger(`you remember: you meant to ${e.deferred.what} once ${e.deferred.cue.replace(':', ' ')}, and now ${e.why}`, { urgent: !this.o.executor.busy })));
     this.offs.push(b.on('taskGiven', (e) => this.trigger(`${e.task.from} gave you a task: ${e.task.text}`, { urgent: true })));
+    // Danger is thought about at once, as it starts and as it gets worse (a blow that takes a quarter of what is left,
+    // the body taking back over from what was chosen); the reflexes are only the body's first response.
+    this.offs.push(
+      b.on('danger', (e) => {
+        if (e.kind === 'hazard') return;
+        this.thinkUnderFire(`danger: ${e.source}`, 2500);
+      }),
+    );
+    this.offs.push(
+      b.on('attacked', () => {
+        const h = this.o.store.state.self.health;
+        if (!this.o.store.state.flags.inDanger || this.underFireHealth - h < Math.max(3, this.underFireHealth / 4)) return;
+        this.thinkUnderFire('you were hit again', 2000);
+      }),
+    );
     this.offs.push(
       b.on('dangerCleared', () => {
         const d = this.deferred;
@@ -1369,8 +1394,15 @@ export class CognitiveController {
     return true;
   }
 
+  /** A thought had in danger, not more often than `everyMs` (one under way is enough). */
+  private thinkUnderFire(why: string, everyMs: number): void {
+    const t = this.now();
+    if (t - this.underFireAt < everyMs || this.flight.inFlight('cc')) return;
+    this.trigger(why, { urgent: true, emergency: true });
+  }
+
   trigger(reason: string, ctx: DecideContext = {}): void {
-    if (this.o.store.state.flags.inDanger) {
+    if (this.o.store.state.flags.inDanger && !ctx.emergency) {
       // The reflex owns the body; decide when it's over (§4.5). A question put to us is kept over lesser reasons.
       if (ctx.from || !this.deferred?.ctx.from) this.deferred = { reason, ctx };
       return;
@@ -1418,9 +1450,16 @@ export class CognitiveController {
     this.checkGoal();
     const { store, logger } = this.o;
     const s = store.state;
-    if (s.flags.inDanger || s.flags.paused) return;
+    if ((s.flags.inDanger && !ctx.emergency) || (ctx.emergency && !s.flags.inDanger) || s.flags.paused) return;
     const busy = this.o.executor.busy;
     if (busy && !ctx.urgent) return;
+    if (ctx.emergency) {
+      this.underFireAt = this.now();
+      this.underFireHealth = s.self.health;
+      // What the body is doing meanwhile, and that the choice is the mind's: said in the reason it thinks now.
+      const body = this.o.bodyInDanger?.();
+      reason = `${reason}${body ? `; your body is ${body}` : ''}. You are in danger now: think fast. What you choose is done at once (run somewhere, eat, dig, block a way, fight, ...); until you choose, your body keeps on as it is`;
+    }
     const isStuck = (skill: string, args: Record<string, unknown>) => this.o.awareness.isStuckOn(skill, args);
     const env = this.env(isStuck);
     let out: DecisionOutput | null = null;
@@ -1437,7 +1476,7 @@ export class CognitiveController {
         { role: 'system', content: system },
         { role: 'user', content: packet },
       ];
-      const guard = store.guard(CC_POLICY);
+      const guard = store.guard(ctx.emergency ? CC_UNDER_FIRE_POLICY : CC_POLICY);
       const exchange: Exchange = { at: this.now(), reason, tier, packet, replies: [] };
       this.lastExchange = exchange;
       try {
@@ -1485,6 +1524,8 @@ export class CognitiveController {
         guard.dispose();
       }
     }
+    // Under fire with no thought come (the model slow or down): the body's own response goes on.
+    if (!out && ctx.emergency) return;
     if (!out) {
       const candidates = this.o.socialCandidates?.() ?? [];
       const claim = this.o.claimToCheck?.();
@@ -1577,6 +1618,15 @@ export class CognitiveController {
       this.recordPromises([...own, ...deal], ctx.convId ?? '');
     }
     const cur = store.state.option;
+    const underFire = store.state.flags.inDanger;
+    // Under fire, getting away is the legs' to do: the mind chose it, and the body runs (the way back along the trail,
+    // into a hut of one's own, up out of reach), the thought kept for what comes after.
+    if (underFire && (decision.option === 'flee' || decision.task?.skill === 'flee')) {
+      this.o.runNow?.();
+      logger.info({ module: 'cc', source, option: decision.option, rationale: decision.rationale, ...(why ? { why } : {}) }, 'decision: get away (the body runs)');
+      bus.emit({ type: 'decision', decision });
+      return decision;
+    }
     // The same thing goes on; but talking to (or following, helping) someone else is a new option.
     const sameTask =
       cur?.status === 'running' &&
@@ -1602,6 +1652,7 @@ export class CognitiveController {
           ...(decision.target?.pos ? { targetPos: decision.target.pos } : {}),
           ...(decision.target?.item ? { targetItem: decision.target.item } : {}),
           ...(decision.task ? { skill: decision.task.skill, args: decision.task.args } : {}),
+          ...(underFire ? { underFire: true } : {}),
           status: 'running',
         },
         `option ${decision.option}`,
@@ -1629,7 +1680,8 @@ export class CognitiveController {
       this.trigger(`what you were doing is done (${reason}), and you have made a new plan since you decided what to do after it`);
       return;
     }
-    if (ok && meant && this.ownOption && meant.steps.length > 0 && !s.flags.inDanger && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
+    const goesOn = !s.flags.inDanger || meant?.underFire === true;
+    if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
       const [step, ...rest] = meant.steps;
       this.o.store.update('mind', (m) => ({ ...m, intention: rest.length > 0 ? { ...meant, steps: rest } : null }), 'next step');
       if (step?.skill) {
@@ -1644,6 +1696,13 @@ export class CognitiveController {
         this.trigger(`you meant to ${step.skill} ${JSON.stringify(step.args ?? {})} next, but you can't: ${why}`);
         return;
       }
+    }
+    if (s.flags.inDanger) {
+      // Under fire, what was chosen being over is a thought at once: the body only holds on meanwhile. What was under
+      // way before the danger, cut short by it, is thought about with the danger itself.
+      if (s.option?.underFire) this.trigger(ok ? `what you chose in the danger is done (${reason})` : `what you chose in the danger failed: ${reason}`, { urgent: true, emergency: true });
+      else this.deferred = { reason: ok ? `what you were doing is done (${reason})` : `what you were doing failed: ${reason}`, ctx: {} };
+      return;
     }
     this.trigger(ok ? `what you were doing is done (${reason})` : `what you were doing failed: ${reason}`);
   }
@@ -1676,7 +1735,10 @@ export class CognitiveController {
         let next = m;
         if (out.thought) next = { ...next, thoughts: [...next.thoughts, { ts: now, text: out.thought, decisionId }].slice(-8) };
         // "then" says what comes next (and [] that nothing does); without it, what was meant still stands.
-        if (out.then) next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now } : null };
+        if (out.then) {
+          const underFire = store.state.flags.inDanger;
+          next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now, ...(underFire ? { underFire: true } : {}) } : null };
+        }
         if (out.later) {
           const cue = cueFrom(out.later.when, now, store.state.self.isDay);
           if (cue) next = { ...next, later: [...next.later.filter((x) => x.what !== out.later?.what), { id: `l${now.toString(36)}`, what: out.later.what, ...cue, since: now }].slice(-6) };

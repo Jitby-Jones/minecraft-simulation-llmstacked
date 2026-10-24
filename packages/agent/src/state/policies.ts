@@ -32,6 +32,20 @@ export const CC_POLICY: StalePolicy = {
   },
 };
 
+/**
+ * CC thinking in danger: only the danger being over or another decision makes it moot. A fight churns perception
+ * many times a second; counted, it dropped every thought had under fire.
+ */
+export const CC_UNDER_FIRE_POLICY: StalePolicy = {
+  name: 'cc-under-fire',
+  watch: [],
+  abortOn: (c) => {
+    if (c.facet === 'flags' && c.prev.flags.inDanger && !c.next.flags.inDanger) return 'the danger is over';
+    if (c.facet === 'decision' && c.next.decision?.id !== c.prev.decision?.id) return 'another decision was made';
+    return null;
+  },
+};
+
 /** Talking: the conversation ended or someone else answered for us. */
 export function talkPolicy(convId: ConvId): StalePolicy {
   return {
