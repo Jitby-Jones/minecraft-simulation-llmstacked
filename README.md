@@ -117,9 +117,9 @@ The dashboard (`http://localhost:8080`) has a **Controls** card and, for the age
 - restart or stop the whole system (each after a confirm).
 
 The **Server console** card shows what the Minecraft server prints and runs commands on it as its own console does
-(`time set day`, `tp Pip 0 80 0`; the slash is optional, the up arrow brings back earlier ones). It is the same as
-`pnpm ctl rcon`, with the same refusals: op and chat spying only for the owner in `config/world.yaml`. The agents
-never see the commands typed.
+(`time set day`, `tp Pip 0 80 0`, `op YourName`; the slash is optional, the up arrow brings back earlier ones). Any
+command runs as typed, the same as `pnpm ctl rcon`: op anyone from there instead of editing `config/world.yaml`.
+The agents never see the commands typed, and never type any themselves, op or not.
 
 Settings are kept in `DATA_DIR/agents/tuning.json`. Models must be on the subscription list (DESIGN.md §22).
 

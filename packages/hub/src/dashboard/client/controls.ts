@@ -381,7 +381,7 @@ const CONSOLE_POLL_MS = 2000;
 
 /**
  * The server console card: what the Minecraft server prints, and a line to run commands on it as its own console
- * does (the slash is optional). The same refusals as `pnpm ctl rcon`: op and chat spying only for the owner.
+ * does (the slash is optional): any command at all, as `pnpm ctl rcon` runs it, op for anyone included.
  */
 export function renderConsole(root: HTMLElement): void {
   const view = h('pre', { cls: 'console-out' });

@@ -581,7 +581,7 @@ type BotToHub =
 7. Keep this doc updated: after each milestone, add a "Status" note at the top and record deviations here with reasons.
 8. **(v0.2) Chat only:** bots communicate only through Minecraft chat, and the Hub never relays world or player information.
 9. **(v0.2) No human/AI distinction** anywhere in agent code or prompts (§16.1).
-10. **(v0.2) Bots never get op or `pchat.spy`.** Check this at startup.
+10. **(v0.2) Bots never get op or `pchat.spy`** from the system itself. (v0.9, owner request: the operator's console runs any command, op for anyone included; an agent never types a command, so startup only warns about an op agent.)
 11. Model IDs, versions and prices change. **Look them up live** (NanoGPT `/api/subscription/v1/models`, mineflayer README) rather than trusting this doc.
 12. **(v0.6) Subscription lock is absolute (§22).** Inference only goes through `/api/subscription/v1`, only to allowlisted models, never with provider, billing-mode, cache-control or service-tier options, and no error path switches to paid billing.
 

@@ -42,7 +42,7 @@ export async function ensureOwnerOp(paths: DataPaths, owner: string | undefined)
   writeFileAtomic(path.join(paths.server, 'ops.json'), JSON.stringify(ops, null, 2));
 }
 
-/** Startup check (§13 rule 10, §15.4): no bot username is op. */
+/** Startup check (§15.4): the agents that are op (a warning: the operator may op anyone from the console). */
 export function opsContainingBots(paths: DataPaths, botNames: Iterable<string>): string[] {
   const ops = new Set(readOps(paths).map((o) => o.name.toLowerCase()));
   return [...botNames].filter((n) => ops.has(n.toLowerCase()));

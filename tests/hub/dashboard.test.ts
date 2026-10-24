@@ -9,7 +9,7 @@ import { HubConfigSchema, nullLogger } from '@agora/shared';
 import type { QuotaStatus } from '@agora/llm';
 import { Hub } from '@agora/hub';
 import { ConsoleLog } from '@agora/hub/dashboard/console';
-import { controlHandler, grantRefusal } from '@agora/hub/dashboard/control';
+import { controlHandler } from '@agora/hub/dashboard/control';
 import { DashboardModel } from '@agora/hub/dashboard/model';
 import { DashboardServer, attachDashboard } from '@agora/hub/dashboard/server';
 import { HubClient } from '@agora/agent/hub/client';
@@ -236,7 +236,6 @@ describe('control commands (§23.3)', () => {
     let target = 2;
     const d: Parameters<typeof controlHandler>[0] = {
       mode: () => 'test',
-      owner: 'Owner',
       startedAt: 0,
       supervisor: {
         living: [
@@ -283,25 +282,14 @@ describe('control commands (§23.3)', () => {
     expect(calls).toEqual(['population 9', 'rcon save-all flush', 'snapshots', 'mode live new']);
   });
 
-  it('says things in-world and runs console commands, but never makes a bot an operator or a chat spy', async () => {
+  it('says things in-world and runs any console command as typed, op for anyone included', async () => {
     const { h, calls } = deps();
     expect((await h('say', ['server restarts', 'in 5 minutes'])).message).toBe('said: server restarts in 5 minutes');
     expect((await h('rcon', ['list'])).message).toBe('ok');
-    expect((await h('rcon', ['op', 'Pip'])).ok).toBe(false);
-    expect((await h('rcon', ['op', 'Owner'])).ok).toBe(true);
-    expect((await h('rcon', ['lp user Pip permission set pchat.spy true'])).ok).toBe(false);
-    expect((await h('rcon', ['lp user Owner permission set pchat.spy true'])).ok).toBe(true);
-    expect(calls).toEqual(['rcon say server restarts in 5 minutes', 'rcon list', 'rcon op Owner', 'rcon lp user Owner permission set pchat.spy true']);
-    expect(grantRefusal('/OP pip', 'Owner')).toMatch(/only to the owner/);
-    expect(grantRefusal('deop Pip', 'Owner')).toBeNull();
-    expect(grantRefusal('op Pip')).toMatch(/only to the owner/);
-    // However it is wrapped.
-    expect(grantRefusal('execute as Owner run op Pip', 'Owner')).toMatch(/only to the owner/);
-    expect(grantRefusal('minecraft:op Pip', 'Owner')).toMatch(/only to the owner/);
-    expect(grantRefusal('execute run op Owner', 'Owner')).toBeNull();
-    expect(grantRefusal('lp user Pip permission set pchat.spy true Owner', 'Owner')).toMatch(/chat spying only to the owner/);
-    expect(grantRefusal('lp group default permission set pchat.spy true', 'Owner')).toMatch(/chat spying only to the owner/);
-    expect(grantRefusal('lp user owner permission set pchat.spy true', 'Owner')).toBeNull();
+    expect((await h('rcon', ['op', 'Pip'])).ok).toBe(true);
+    expect((await h('rcon', ['/op', 'Someone'])).ok).toBe(true);
+    expect((await h('rcon', ['lp user Pip permission set pchat.spy true'])).ok).toBe(true);
+    expect(calls).toEqual(['rcon say server restarts in 5 minutes', 'rcon list', 'rcon op Pip', 'rcon op Someone', 'rcon lp user Pip permission set pchat.spy true']);
   });
 
   it("keeps the dashboard's console: what the server printed, each command run (slash or not) and its answer", async () => {
@@ -309,7 +297,7 @@ describe('control commands (§23.3)', () => {
     d.console?.push('server', '\u001b[32m[12:00:00 INFO]: Done (4.2s)! For help, type "help"\u001b[0m');
     d.console?.push('server', '   ');
     expect((await h('rcon', ['/time', 'set', 'day'])).message).toBe('ok');
-    expect((await h('rcon', ['op', 'Pip'])).ok).toBe(false);
+    expect((await h('rcon', ['op', 'Pip'])).ok).toBe(true);
     expect(await h('rcon', ['broken'])).toEqual({ ok: false, message: 'rcon command timeout: broken' });
     const all = await h('console', []);
     expect(all.data).toEqual({
@@ -319,7 +307,7 @@ describe('control commands (§23.3)', () => {
         { n: 2, ts: 5, kind: 'in', text: 'time set day' },
         { n: 3, ts: 5, kind: 'out', text: 'ok' },
         { n: 4, ts: 5, kind: 'in', text: 'op Pip' },
-        { n: 5, ts: 5, kind: 'out', text: 'ctl gives op only to the owner in config/world.yaml (§13: never a bot)' },
+        { n: 5, ts: 5, kind: 'out', text: 'ok' },
         { n: 6, ts: 5, kind: 'in', text: 'broken' },
         { n: 7, ts: 5, kind: 'out', text: 'rcon command timeout: broken' },
       ],
@@ -327,7 +315,7 @@ describe('control commands (§23.3)', () => {
     // Asked again from where it left off: only what came since.
     d.console?.push('server', 'Pip joined the game');
     expect((await h('console', ['7'])).data).toEqual({ next: 8, lines: [{ n: 8, ts: 5, kind: 'server', text: 'Pip joined the game' }] });
-    expect(calls).toEqual(['rcon time set day', 'rcon broken']);
+    expect(calls).toEqual(['rcon time set day', 'rcon op Pip', 'rcon broken']);
     // Without a server here, there is no console to read.
     expect((await controlHandler({ ...d, console: undefined })('console', [])).ok).toBe(false);
   });

@@ -266,7 +266,6 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
         token: process.env.RCON_PASSWORD ?? '',
         handle: controlHandler({
           mode: () => world.mode,
-          ...(world.owner.username ? { owner: world.owner.username } : {}),
           startedAt,
           supervisor,
           online: () => new Set(hub.list().map((s) => s.username).filter((n): n is string => Boolean(n))),

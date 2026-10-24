@@ -11,8 +11,6 @@ import type { ControlHandler, ControlResult } from './server';
 
 export interface ControlDeps {
   mode: () => string;
-  /** world.owner.username: the one player `ctl rcon "op …"` may make an operator (§13: never a bot). */
-  owner?: string;
   startedAt: number;
   supervisor: {
     living: readonly { username: string; slot: string; bornAt: number }[];
@@ -87,20 +85,6 @@ export function debugArgs(parts: readonly string[]): Record<string, unknown> {
 
 const TIER_RE = /^L[123]$/;
 
-/** §13 rule 9: op and chat spying only for the owner in config/world.yaml, never a bot. Null when the command may run. */
-export function grantRefusal(cmd: string, owner?: string): string | null {
-  const c = cmd.trim();
-  const isOwner = (name: string | undefined) => Boolean(owner && name && name.toLowerCase() === owner.toLowerCase());
-  // `op` anywhere in the command: on its own, namespaced, or after `execute … run`.
-  for (const m of c.matchAll(/(?:^|\s)\/?(?:minecraft:)?op\s+(\S+)/gi)) {
-    if (!isOwner(m[1])) return 'ctl gives op only to the owner in config/world.yaml (§13: never a bot)';
-  }
-  // Chat spying only as a permission set on the owner's own user, nobody else (no group, no other name).
-  const spy = /^\/?lp\s+user\s+(\S+)\s+permission\s+set\s+pchat\.spy\b/i.exec(c);
-  if (/pchat\.spy|\bpchat\s+spy\b/i.test(c) && !(spy && isOwner(spy[1]))) return 'ctl grants chat spying only to the owner (§13: never a bot)';
-  return null;
-}
-
 export function controlHandler(d: ControlDeps): ControlHandler {
   const now = d.now ?? Date.now;
   const later = (f: () => void) => setTimeout(f, 200).unref();
@@ -165,11 +149,7 @@ export function controlHandler(d: ControlDeps): ControlHandler {
         const c = args.join(' ').trim().replace(/^\//, '');
         if (!c) return { ok: false, message: 'no command' };
         d.console?.push('in', c);
-        const refused = grantRefusal(c, d.owner);
-        if (refused) {
-          d.console?.push('out', refused);
-          return { ok: false, message: refused };
-        }
+        // The operator's own console (owner request, 2026-10-24): any command, op for anyone included, as typed.
         try {
           const out = ((await d.rcon?.(c)) ?? '').trim() || '(no output)';
           d.console?.push('out', out);

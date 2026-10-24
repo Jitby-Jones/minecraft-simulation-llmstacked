@@ -45,8 +45,10 @@ export function preflightServer(opts: ManagedServerOptions): PreflightResult {
       `test mode is ${on ? 'on' : 'off'} in config/world.yaml (mode ${opts.world.mode}), but the server's world "${mode.levelName}" was set up with it ${on ? 'off' : 'on'}: run \`pnpm test-mode ${on ? 'on' : 'off'}\` (add --new-world if that world was already played: ${on ? '' : 'hardcore needs a fresh world; '}the old one is kept), or \`pnpm test-mode ${on ? 'off' : 'on'}\` to keep it as it is`,
     );
   }
+  // The operator may op anyone from the console (owner request, 2026-10-24); an agent never types a command, so it is
+  // said, not refused.
   const opBots = opsContainingBots(opts.paths, opts.botNames);
-  if (opBots.length > 0) problems.push(`bot usernames are op (never allowed, §13 rule 10): ${opBots.join(', ')}`);
+  if (opBots.length > 0) warnings.push(`agents that are op: ${opBots.join(', ')} (they never type commands, so it changes nothing they do)`);
   if (!opts.rconPassword) problems.push('RCON_PASSWORD is empty: run `pnpm run setup` to generate one into .env');
   const bind = bindingWarning(opts.world.server.host);
   if (bind) warnings.push(bind);
