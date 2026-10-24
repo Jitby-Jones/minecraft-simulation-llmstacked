@@ -295,6 +295,30 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(used('iron_pickaxe')).toBe(231);
   }, 120_000);
 
+  it("a night's hut on a slope with no level spot anywhere: a bump or two dug out of the way, and up it goes", async () => {
+    const x = 5300;
+    const R = 28;
+    await server.cmd(`forceload add ${x - R - 4} ${-R - 4} ${x + R + 4} ${R + 4}`);
+    await server.cmd(`fill ${x - R} ${Y} ${-R} ${x + R} ${Y + R + 4} ${R} air`);
+    // Ground a block higher every two east, farther than a hut is looked for.
+    for (let dx = -R; dx <= R; dx++) {
+      const h = Math.floor((dx + R) / 2);
+      if (h > 0) await server.cmd(`fill ${x + dx} ${Y} ${-R} ${x + dx} ${Y + h - 1} ${R} dirt`);
+    }
+    await server.cmd(`tp Ada ${x}.5 ${Y + Math.floor(R / 2) + 1} 0.5`);
+    await server.cmd('clear Ada');
+    for (const g of ['dirt 64', 'stone_shovel 1']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(2000);
+    const r = await run('build', { structure: 'hut', room: 1 });
+    logger.info({ r }, 'hut on a slope');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/^built a hut/);
+    // On the slope, not on level ground beyond it.
+    const corner = (r.data as { corner?: { x: number; z: number } } | undefined)?.corner;
+    expect(Math.abs((corner?.x ?? 1e9) - x)).toBeLessThan(R - 4);
+    expect(Math.abs(corner?.z ?? 1e9)).toBeLessThan(R - 4);
+  }, 180_000);
+
   it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
     const x = 5800;
     await at(x, 0);

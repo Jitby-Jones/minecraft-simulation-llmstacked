@@ -10,7 +10,7 @@ import { AgentBus } from '@agora/agent/bus';
 import type { Body } from '@agora/agent/body/body';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
 import { Vec3 } from '@agora/agent/body/bot';
-import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutBlocks, hutDoor, hutPlan, hutSiteHoles, isHutMaterial } from '@agora/agent/body/skills/village';
+import { HUT_BLOCKS, HUT_BUMPS, HUT_HOLES, findHutSite, hutBlocks, hutDoor, hutPlan, hutSiteHoles, hutSiteWork, isHutMaterial } from '@agora/agent/body/skills/village';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
@@ -521,6 +521,21 @@ describe('where a hut goes (dug-up ground by home)', () => {
     const site = findHutSite(bot, new Vec3(0, 41, 0));
     expect(site).not.toBeNull();
     expect(hutSiteHoles(bot, site as Vec3)?.length).toBeLessThanOrEqual(HUT_HOLES);
+  });
+
+  it('on a slope with no level patch anywhere: a site with a bump or two of earth to dig out of the way', () => {
+    // Ground a block higher every two east: nowhere level enough, even filling a few holes.
+    const blockAt = (p: { x: number; y: number; z: number }) => (p.y <= 40 + Math.floor(p.x / 2) ? { name: 'dirt', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' });
+    const bot = { blockAt } as never;
+    expect(findHutSite(bot, new Vec3(0, 41, 0), 8, 0, 1)).toBeNull();
+    const site = findHutSite(bot, new Vec3(0, 41, 0), 8, 0, 1, HUT_BUMPS);
+    expect(site).not.toBeNull();
+    const work = hutSiteWork(bot, site as Vec3, 1, HUT_BUMPS);
+    expect(work?.bumps.length).toBeGreaterThan(0);
+    expect(work?.bumps.length).toBeLessThanOrEqual(HUT_BUMPS);
+    // A tree's trunk is not dug out of the way.
+    const tree = (p: { x: number; y: number; z: number }) => (p.x === 1 && p.z === 1 && p.y > 40 && p.y < 46 ? { name: 'oak_log', boundingBox: 'block' } : blockAt(p));
+    expect(hutSiteWork({ blockAt: tree } as never, new Vec3(0, 41, 0), 1, HUT_BUMPS)).toBeNull();
   });
 
   it('on a hillside, finds the level patch above or below home\'s own height', () => {

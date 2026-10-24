@@ -16,7 +16,7 @@ import { bestWeapon, equipBestWeapon, pvp } from './combat';
 import { buildDesign } from './construct';
 import { stopCollecting } from './gathering';
 import { ensureTool } from './tools';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 // --- hunt ---------------------------------------------------------------------------------------------------------
@@ -184,21 +184,41 @@ const hutRoom = (room: number): Vec3 => new Vec3(Math.floor(sideOf(room) / 2), 0
 
 const free = (bot: Bot, p: Vec3) => isAirLike(bot.blockAt(p));
 
-/** Ground cells under a hut at corner `c` that are a hole one deep (to fill), or null when the site won't do. */
-export function hutSiteHoles(bot: Bot, c: Vec3, room = 3): Vec3[] | null {
+/** Ground a player digs out of the way in a moment: earth, sand, stone, leaves (not a tree's trunk, nor deepslate). */
+const DIGGABLE_BUMP = /^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|dirt_path|sand|red_sand|gravel|clay|mud|moss_block|snow_block|stone|cobblestone|andesite|diorite|granite|tuff|calcite|sandstone|red_sandstone|terracotta|\w+_terracotta)$|_leaves$/;
+/** At most this much of a slope dug away for a hut: a bump or two out of a hillside, not the hill. */
+export const HUT_BUMPS = 12;
+
+/**
+ * What a hut at corner `c` needs done first: the holes one deep under it to fill and, when `bumpsAllowed`, the earth
+ * or stone in its way to dig out (a hillside); null when the site won't do. Agents on hilly ground were told, night
+ * after night, there was no level spot for a hut, and one gathered logs in the dark instead.
+ */
+export function hutSiteWork(bot: Bot, c: Vec3, room = 3, bumpsAllowed = 0): { holes: Vec3[]; bumps: Vec3[] } | null {
   const f = sideOf(room);
   const holes: Vec3[] = [];
+  const bumps: Vec3[] = [];
   for (let x = -1; x <= f; x++) {
     for (let z = -1; z <= f; z++) {
       const inside = x >= 0 && x < f && z >= 0 && z < f;
-      for (let y = 0; y <= wallsOf(room); y++) if (!free(bot, c.offset(x, y, z))) return null;
+      for (let y = 0; y <= wallsOf(room); y++) {
+        const p = c.offset(x, y, z);
+        if (free(bot, p)) continue;
+        if (bumps.length >= bumpsAllowed || !DIGGABLE_BUMP.test(bot.blockAt(p)?.name ?? '')) return null;
+        bumps.push(p);
+      }
       if (!inside || isSolid(bot.blockAt(c.offset(x, -1, z)))) continue;
       // A hole one deep in solid ground is filled; anything deeper, or water, rules the site out.
       if (!free(bot, c.offset(x, -1, z)) || !isSolid(bot.blockAt(c.offset(x, -2, z))) || holes.length >= HUT_HOLES) return null;
       holes.push(c.offset(x, -1, z));
     }
   }
-  return holes;
+  return { holes, bumps };
+}
+
+/** Ground cells under a hut at corner `c` that are a hole one deep (to fill), or null when the site won't do. */
+export function hutSiteHoles(bot: Bot, c: Vec3, room = 3): Vec3[] | null {
+  return hutSiteWork(bot, c, room)?.holes ?? null;
 }
 
 /** Solid, but no ground to build on: a tree's canopy or trunk. */
@@ -213,19 +233,20 @@ function groundAt(bot: Bot, x: number, z: number, y: number): number | null {
   return null;
 }
 
-/**
- * The nearest corner near `center` with level, solid ground under the hut (a few shallow holes are filled), room for
- * it and a free cell all round; of those at the same distance, the one with the fewest holes. The height follows
- * the ground (on a hillside the level patch is rarely at home's own height).
- */
 /** Within this of home, a hut goes up about home; farther off, where one is. */
 const HUT_HOME_RANGE = 48;
 
-export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4, room = 3): Vec3 | null {
+/**
+ * The nearest corner near `center` with level, solid ground under the hut (a few shallow holes are filled), room for
+ * it and a free cell all round; of those at the same distance, the one with the least to do. The height follows
+ * the ground (on a hillside the level patch is rarely at home's own height). With `bumpsAllowed`, a site with that
+ * much earth or stone to dig out of the way will do too.
+ */
+export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4, room = 3, bumpsAllowed = 0): Vec3 | null {
   const base = center.floored();
   const mid = Math.floor(sideOf(room) / 2);
   for (let r = minDist; r <= radius; r++) {
-    let best: { c: Vec3; holes: number } | null = null;
+    let best: { c: Vec3; work: number } | null = null;
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
@@ -234,9 +255,10 @@ export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4, ro
         const heights = [...new Set([...(g === null ? [] : [g + 1, g + 2, g]), base.y, base.y + 1, base.y - 1])];
         for (const y of heights) {
           const c = new Vec3(base.x + dx, y, base.z + dz);
-          const holes = hutSiteHoles(bot, c, room);
-          if (holes && (!best || holes.length < best.holes)) best = { c, holes: holes.length };
-          if (best?.holes === 0) return best.c;
+          const w = hutSiteWork(bot, c, room, bumpsAllowed);
+          const work = w ? w.holes.length + w.bumps.length : Infinity;
+          if (w && (!best || work < best.work)) best = { c, work };
+          if (best?.work === 0) return best.c;
         }
       }
     }
@@ -280,11 +302,29 @@ export const build = defineSkill({
     const me = bot.entity.position;
     const nearHome = ctx.home !== undefined && ctx.home !== null && ctx.home.distanceTo(me) <= HUT_HOME_RANGE;
     const center = nearHome && ctx.home ? ctx.home : me;
-    const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z), 20, nearHome ? 4 : 2, room);
-    if (!corner) return { ok: false, observed: 'no room', error: `no level spot for a hut within 20 blocks of ${nearHome ? 'home' : 'here'} (the quick hut needs level ground; a design, e.g. build {design: "starter-hut"}, clears and levels its own)` };
+    const from = new Vec3(center.x, center.y, center.z);
+    // Level ground first; on a slope, a site with a bump or two to dig out of the way.
+    const corner = findHutSite(bot, from, 20, nearHome ? 4 : 2, room) ?? findHutSite(bot, from, 20, nearHome ? 4 : 2, room, HUT_BUMPS);
+    if (!corner) return { ok: false, observed: 'no room', error: `no spot for a hut within 20 blocks of ${nearHome ? 'home' : 'here'}, even digging a little out of a slope (a design, e.g. build {design: "starter-hut"}, clears and levels its own)` };
     const at = { x: corner.x, y: corner.y, z: corner.z };
-    // The holes in the ground first, so the floor is whole.
-    for (const hole of hutSiteHoles(bot, corner, room) ?? []) {
+    const work = hutSiteWork(bot, corner, room, HUT_BUMPS) ?? { holes: [], bumps: [] };
+    // What is in the way first, from the top down (a bump dug from under what is on it brings that down).
+    for (const p of [...work.bumps].sort((a, b) => b.y - a.y)) {
+      throwIfAborted(ctx.signal);
+      const b = bot.blockAt(p);
+      if (!b || free(bot, p)) continue;
+      try {
+        if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > 4) await gotoNear(ctx, p, 3, 20_000);
+        const tool = bot.pathfinder.bestHarvestTool(b);
+        if (tool) await bot.equip(tool, 'hand');
+        await digBlock(ctx, b);
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        ctx.logger.debug({ module: 'skill', cell: p.toString(), err: errMsg(err) }, 'bump not dug');
+      }
+    }
+    // The holes in the ground next, so the floor is whole.
+    for (const hole of work.holes) {
       throwIfAborted(ctx.signal);
       const block = hutBlock(bot);
       if (!block) break;
