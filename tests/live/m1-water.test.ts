@@ -119,4 +119,27 @@ describe.skipIf(!liveJavaPath())('M1 live: not drowning', () => {
     console.log(`[m1 water] explore ended at: ${ends.join(' | ')}`);
     expect(died).toBe(false);
   }, 120_000);
+
+  it('under water in a flooded tunnel with stone overhead, it swims along it to where it can breathe', async () => {
+    // A tunnel one wide and two high in the stone, full of water, with one cell of air over it six blocks along.
+    const x = 100;
+    const y = Y - 6;
+    await server.cmd(`forceload add ${x - 8} -8 ${x + 16} 8`);
+    await server.cmd(`fill ${x} ${y} 0 ${x + 10} ${y + 1} 0 minecraft:water`);
+    await server.cmd(`setblock ${x + 6} ${y + 2} 0 minecraft:air`);
+    busy = new AbortController();
+    await server.cmd(`tp Finn ${x}.5 ${y} 0.5`);
+    await sleep(500);
+    const t0 = Date.now();
+    const headOut = () => finn.bot.blockAt(finn.bot.entity.position.offset(0, 1.6, 0))?.name !== 'water';
+    try {
+      await waitFor(() => dangers.some((d) => d.kind === 'hazard' && d.source === 'water'), 15_000, 'the swim reflex');
+      await waitFor(headOut, 25_000, 'the head out of the water', 250);
+    } finally {
+      busy = null;
+      console.log(`[m1 water] flooded tunnel: head out after ${Math.round((Date.now() - t0) / 1000)} s at ${finn.bot.entity.position.floored().toString()}; health ${finn.bot.health}`);
+    }
+    expect(died).toBe(false);
+    expect(finn.bot.health).toBeGreaterThan(8);
+  }, 60_000);
 });

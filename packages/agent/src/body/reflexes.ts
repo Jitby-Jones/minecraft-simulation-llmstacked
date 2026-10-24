@@ -62,6 +62,15 @@ const CALLED_OFF_MS = 30_000;
 const SUBMERGED_MS = 6000;
 /** Running that isn't working (still being hit, or nowhere to go) with the attacker close: stand and fight this long. */
 const STAND_MS = 12_000;
+/** The six cells beside one: the steps of a swim. */
+const NEIGHBORS = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+  [0, 1, 0],
+  [0, -1, 0],
+] as const;
 /** Where we walked lately: a way back we know is open, to run along. */
 const TRAIL_MAX = 80;
 /** Running, the way out keeps clear of every monster in sight this close, not only of those at hand. */
@@ -166,6 +175,8 @@ export class ReflexController {
   private currentSource = '';
   /** Since when the head has been under water, and the body in it with nothing driving it (null: not now). */
   private underSince: number | null = null;
+  /** Under water with a roof over it: the place to breathe being swum for. */
+  private airAt: Vec3 | null = null;
   private wetSince: number | null = null;
   /** Holding jump to keep the head above water. */
   private treading = false;
@@ -345,6 +356,47 @@ export class ReflexController {
       this.bot.setControlState('jump', false);
       this.hooks.onSoftResume?.('unstick');
     }, 600);
+  }
+
+  /** Water up from the head to a solid block, with no air between: a roof over it. */
+  private roofedWater(): boolean {
+    const head = this.bot.entity.position.offset(0, 1.6, 0).floored();
+    for (let dy = 1; dy <= 6; dy++) {
+      const b = this.bot.blockAt(head.offset(0, dy, 0));
+      if (!b) return false;
+      if (b.name === 'water') continue;
+      return isSolid(b);
+    }
+    return false;
+  }
+
+  /**
+   * The nearest place to breathe that can be swum to: through water and air only (not through the roof), the first cell
+   * found with open air at head height, within `radius` across and four up or two down.
+   */
+  airSpot(radius = 10): Vec3 | null {
+    const bot = this.bot;
+    const start = bot.entity.position.floored();
+    const passable = (c: Vec3) => {
+      const b = bot.blockAt(c);
+      return b !== null && !isSolid(b) && b.name !== 'lava';
+    };
+    const seen = new Set<string>([start.toString()]);
+    const queue: Vec3[] = [start];
+    // Every loop has a cap (§13): the box searched is at most 21 × 21 × 7.
+    for (let i = 0; i < queue.length && i < 4000; i++) {
+      const c = queue[i];
+      if (!c) break;
+      if (i > 0 && isAirLike(bot.blockAt(c.offset(0, 1, 0)))) return c;
+      for (const [dx, dy, dz] of NEIGHBORS) {
+        const n = c.offset(dx, dy, dz);
+        const k = n.toString();
+        if (seen.has(k) || Math.abs(n.x - start.x) > radius || Math.abs(n.z - start.z) > radius || n.y - start.y > 4 || start.y - n.y > 2) continue;
+        seen.add(k);
+        if (passable(n)) queue.push(n);
+      }
+    }
+    return null;
   }
 
   private headInWater(): boolean {
@@ -598,6 +650,7 @@ export class ReflexController {
     }
     this.bot.clearControlStates();
     this.mode = 'idle';
+    this.airAt = null;
     this.currentSource = '';
     this.fleeHits = [];
     this.fleeStillSince = null;
@@ -893,6 +946,18 @@ export class ReflexController {
       this.mode = 'swim';
       this.announce('hazard', 'water');
       bot.setControlState('jump', true);
+      // Under a roof, up gets nowhere (an agent drowned in a flooded tunnel holding jump against the stone): swim for
+      // the nearest place to breathe, the way we came first.
+      if (this.roofedWater()) {
+        if (!this.airAt || bot.entity.position.distanceTo(this.airAt) < 0.8) {
+          this.airAt = this.airSpot();
+          if (this.airAt) this.logger.info({ module: 'reflex', air: this.airAt.toString() }, 'under water with a roof over it: swimming for air');
+        }
+        if (this.airAt) {
+          void bot.lookAt(this.airAt.offset(0.5, 1.2, 0.5), true).catch(() => undefined);
+          bot.setControlState('forward', true);
+        }
+      }
       return;
     }
     if (this.mode === 'escape' || this.mode === 'swim') {

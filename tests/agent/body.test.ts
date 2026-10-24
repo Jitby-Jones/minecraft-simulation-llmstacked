@@ -876,3 +876,40 @@ describe('where a thing comes from is never what people made (one went to dig up
     expect(blockIdsDropping(bot, itemMatcher('oak_log'))).toEqual([15]);
   });
 });
+
+describe('under water with a roof over it (an agent drowned holding jump against the stone of a flooded tunnel)', () => {
+  // Water two deep under a stone roof, but for an opening to the air five blocks east.
+  const at = (p: Vec3) => {
+    const x = Math.floor(p.x);
+    const y = Math.floor(p.y);
+    if (y === 64 || y === 65) return { name: 'water', boundingBox: 'empty' };
+    if (y === 66 && x < 5) return { name: 'stone', boundingBox: 'block' };
+    if (y === 63) return { name: 'stone', boundingBox: 'block' };
+    return { name: 'air', boundingBox: 'empty' };
+  };
+  const rig = (x: number) => {
+    const bot = Object.assign(new EventEmitter(), {
+      entity: { id: 0, position: new Vec3(x + 0.5, 64, 0.5), height: 1.8 },
+      entities: {},
+      health: 20,
+      game: { difficulty: 'normal' },
+      registry: { entitiesByName: {} },
+      inventory: { items: () => [], slots: [] },
+      blockAt: (p: Vec3) => ({ ...at(p), position: p.floored() }),
+      world: { raycast: () => null },
+    });
+    const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
+    return new ReflexController(bot as unknown as Bot, hooks as never, nullLogger()) as unknown as { roofedWater(): boolean; airSpot(r?: number): Vec3 | null };
+  };
+  it('knows the roof is there, and where the nearest air is', () => {
+    const r = rig(0);
+    expect(r.roofedWater()).toBe(true);
+    const air = r.airSpot();
+    expect(air?.x).toBe(5);
+    expect(rig(6).roofedWater()).toBe(false);
+  });
+  it('air over the roof is no way out: the opening in it is', () => {
+    // Above the stone is open air, but from under it only the opening east can be swum to.
+    expect(rig(2).airSpot()?.toArray()).toEqual([5, 65, 0]);
+  });
+});
