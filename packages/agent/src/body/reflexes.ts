@@ -52,6 +52,8 @@ const SUBMERGED_MS = 6000;
 const STAND_MS = 12_000;
 /** Where we walked lately: a way back we know is open, to run along. */
 const TRAIL_MAX = 80;
+/** Running, the way out keeps clear of every monster in sight this close, not only of those at hand. */
+const RUN_AWARE = 16;
 /** In the water this long with nothing to do: out to the nearest shore. */
 const ASHORE_AFTER_MS = 8000;
 /** Swimming for a shore this long without getting out: another look for one. */
@@ -600,13 +602,15 @@ export class ReflexController {
     this.fleeStillSince = moving ? null : (this.fleeStillSince ?? now);
     if (now - this.fleePlannedAt < 1500 && moving) return;
     this.fleePlannedAt = now;
-    // Back the way we came first: ground we know is open.
-    const back = this.trailSpot(threats);
+    // Back the way we came first: ground we know is open. Clear of the others in sight too: an agent knocked away by
+    // one creeper ran back along its trail into a second.
+    const avoid = this.inTheWay(threats);
+    const back = this.trailSpot(avoid);
     if (back) {
       this.bot.pathfinder.setGoal(new goals.GoalNear(back.x, back.y, back.z, 1));
       return;
     }
-    const spot = this.fleeSpot(threats);
+    const spot = this.fleeSpot(avoid);
     if (spot) this.bot.pathfinder.setGoal(new goals.GoalXZ(spot.x, spot.z));
     else this.bot.pathfinder.setGoal(new goals.GoalInvert(new goals.GoalFollow(nearest, 20)), true);
   }
@@ -659,6 +663,17 @@ export class ReflexController {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** What the way out keeps clear of: the threats, and every other monster in sight within RUN_AWARE. */
+  private inTheWay(threats: readonly Entity[]): Entity[] {
+    const me = this.bot.entity.position;
+    const out = new Map(threats.map((t) => [t.id, t]));
+    for (const e of Object.values(this.bot.entities)) {
+      if (e === this.bot.entity || out.has(e.id) || !isHostile(e)) continue;
+      if (e.position.distanceTo(me) <= RUN_AWARE && canSee(this.bot, e, RUN_AWARE + 1)) out.set(e.id, e);
+    }
+    return [...out.values()];
   }
 
   /** A spot on the way we came, well away from what chases us and not past it: the farthest from them we can reach. */

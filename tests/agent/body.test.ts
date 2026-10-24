@@ -669,7 +669,8 @@ describe('a tool for the job (owner request, 2026-10-24)', () => {
 
 describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
   const rig = (weapon: string | null) => {
-    const bot = Object.assign(new EventEmitter(), { entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 }, entities: {}, health: 20, inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] } });
+    // Open ground: nothing between us and anything.
+    const bot = Object.assign(new EventEmitter(), { entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 }, entities: {}, health: 20, inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] }, world: { raycast: () => null } });
     const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
     return new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
   };
@@ -717,6 +718,20 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     // Coming from behind instead: the way back runs into it.
     const behind = { ...ahead, position: new Vec3(-5, 64, 0) };
     expect(r.trailSpot([behind])).toBeNull();
+  });
+
+  it('the way out keeps clear of every monster in sight, not only the one at hand (one ran from a creeper into another)', () => {
+    const r = rig('stone_sword') as unknown as { bot: { entities: Record<number, unknown> }; trail: Vec3[]; trailSpot(t: unknown[]): Vec3 | null; inTheWay(t: unknown[]): { id: number }[] };
+    r.trail = [-20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0].map((x) => new Vec3(x, 64, 0));
+    const ahead = { id: 5, type: 'hostile', name: 'zombie', position: new Vec3(3, 64, 0), height: 1.95 };
+    // A creeper on the trail, 12 blocks back: no threat yet, but in sight.
+    const waiting = { id: 6, type: 'hostile', name: 'creeper', position: new Vec3(-12, 64, 1), height: 1.7 };
+    const far = { id: 8, type: 'hostile', name: 'creeper', position: new Vec3(-40, 64, 0), height: 1.7 };
+    Object.assign(r.bot.entities, { 5: ahead, 6: waiting, 8: far });
+    const avoid = r.inTheWay([ahead]);
+    expect(avoid.map((e) => e.id).sort()).toEqual([5, 6]);
+    expect(r.trailSpot(avoid)).toBeNull();
+    expect(r.trailSpot([ahead])?.x).toBeLessThanOrEqual(-6);
   });
 });
 
