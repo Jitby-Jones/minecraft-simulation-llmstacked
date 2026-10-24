@@ -7,6 +7,7 @@ import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
 import type { AnySkill, DesignAsk, SkillResult } from '../body/skills/types';
 import type { AgentStateStore } from '../state/store';
+import { cueCame, cueFrom } from '../mind/later';
 import { evalCondition } from './conditions';
 import type { MindLevers } from './levers';
 import { whoMakesChests } from '../social/village';
@@ -188,12 +189,19 @@ export class SkillExecutor {
     }, Math.max(opt.maxSeconds, walkSeconds(opt, store.state)) * 1000);
     let warned = false;
     // "Until" is until it comes true: one true already (asked to gather 5 more logs, holding 10, until there are 5)
-    // says nothing about when to stop, and stopping at once would leave the work undone.
-    const trueAlready = opt.until ? evalCondition(opt.until, store.state) === true : false;
+    // says nothing about when to stop, and stopping at once would leave the work undone. The cues a "later" waits on
+    // ("see:pig", "night", "have:shears") say it as well: the mind used them here, and they went unheard.
+    const cue = opt.until ? cueFrom(opt.until, Date.now()) : null;
+    const until = (u: string): boolean | null => {
+      const v = evalCondition(u, store.state);
+      if (v !== null || !cue) return v;
+      return cueCame({ id: 'until', what: u, cue: cue.cue, since: opt.startedAt, ...(cue.due !== undefined ? { due: cue.due } : {}) }, store.state, Date.now()) !== null;
+    };
+    const trueAlready = opt.until ? until(opt.until) === true : false;
     if (trueAlready) logger.debug({ module: 'executor', until: opt.until }, 'until-condition true already; not watched');
     const watch = setInterval(() => {
       if (!opt.until || trueAlready) return;
-      const v = evalCondition(opt.until, store.state);
+      const v = until(opt.until);
       if (v === null && !warned) {
         warned = true;
         logger.warn({ module: 'executor', until: opt.until }, 'unknown until-condition; only maxSeconds applies');

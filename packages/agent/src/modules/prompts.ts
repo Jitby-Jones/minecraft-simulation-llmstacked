@@ -50,7 +50,7 @@ export const CHOICES = `How your choices are carried out:
 - A family is started only with your partner, once you have a home (two beds side by side by a chest) and food put by: ask (family phase propose), or answer theirs.
 - GUT is your first reaction to someone; FACTS is what they have actually done.
 - You see who is around you: someone who has gone quiet is busy, not gone, and needs no asking whether they are still there.
-- Use only the skills listed. "until" may be: inventoryHas:<item>>=<n>, agentInRange:<name>, agentLeftRange:<name>, timeIs:day|night, healthAbove:<n>, foodAbove:<n>, near:<x>,<y>,<z>.`;
+- Use only the skills listed. "until" may be: inventoryHas:<item>>=<n>, agentInRange:<name>, agentLeftRange:<name>, timeIs:day|night, healthAbove:<n>, foodAbove:<n>, near:<x>,<y>,<z>, or any cue "later" takes (see:<thing>, have:<item>, day, night).`;
 
 export const DECISION_FORMAT = `Reply with one JSON object. Put in only the fields your choice needs and leave the rest out entirely: no empty
 strings, no "none", no placeholders. Every reply has "thought", "option", "terminate" and "rationale".

@@ -402,6 +402,23 @@ describe('Skill Executor termination (§4.4)', () => {
     ex.stop();
   });
 
+  it('an until said as a later says it ("night", "see:pig") is heard too: the mind used them there, and they went unheard', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const ends: string[] = [];
+    bus.on('optionTerminated', (e) => ends.push(`${e.reason}|${e.ok}`));
+    const ex = new SkillExecutor({ store: s, bus, body: fakeBody(), logger: nullLogger(), levers: () => leversFor(0.5) });
+    ex.start();
+    s.update('self', (x) => ({ ...x, isDay: true }));
+    s.set('option', { decisionId: 'd3', option: 'rest', startedAt: Date.now(), maxSeconds: 60, until: 'night', skill: 'lookAround', args: { seconds: 60 }, status: 'running' });
+    await wait(1200);
+    expect(ends).toEqual([]);
+    s.update('self', (x) => ({ ...x, isDay: false }));
+    for (let i = 0; i < 40 && ends.length === 0; i++) await wait(50);
+    expect(ends).toEqual(['until night|true']);
+    ex.stop();
+  });
+
   it('a walk somewhere gets the time it takes: 100 blocks off, more than the minute it was given', async () => {
     const { walkSeconds } = await import('@agora/agent/modules/executor');
     const s = store();
