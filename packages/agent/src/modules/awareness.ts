@@ -26,6 +26,17 @@ export function taskKey(skill: string, args: Record<string, unknown>): string {
   return `${skill}(${sorted})`;
 }
 
+/** How much or how far: not what an attempt is at. */
+const AMOUNTS = new Set(['qty', 'count', 'seconds', 'maxSeconds', 'maxBlocks', 'maxDistance', 'range', 'radius', 'distance', 'outside']);
+
+/**
+ * An attempt, as one knows it again: the skill and what it is at, whatever the amounts. "obtain 9 diamond" and
+ * "obtain 10 diamond", failing the same way, are the same attempt; told apart, three in a row never counted as stuck.
+ */
+export function attemptKey(skill: string, args: Record<string, unknown>): string {
+  return taskKey(skill, Object.fromEntries(Object.entries(args).filter(([k]) => !AMOUNTS.has(k))));
+}
+
 /** Skills whose failures can still be partial progress (they collect things). */
 const GATHERING = new Set(['obtain', 'gather', 'mine', 'craft', 'smelt', 'pickup', 'withdraw']);
 
@@ -57,7 +68,7 @@ export class ActionAwareness {
   }
 
   isStuckOn(skill: string, args: Record<string, unknown>): boolean {
-    const s = this.stuckUntil.get(taskKey(skill, args));
+    const s = this.stuckUntil.get(attemptKey(skill, args));
     if (s && s.until > this.now()) return true;
     // Given up on: that skill for that thing, whatever the other arguments.
     const item = typeof args.item === 'string' ? args.item : null;
@@ -90,7 +101,7 @@ export class ActionAwareness {
   private readonly instant = new Map<string, number[]>();
 
   private onRecord(r: ActionRecord): void {
-    const key = taskKey(r.skill, r.args);
+    const key = attemptKey(r.skill, r.args);
     const t = this.now();
     // Loop cap (§13 rule 6): the same task "succeeding" instantly over and over changes nothing.
     if (r.ok && r.durationMs < 1500 && !['wait', 'say', 'look', 'lookAround', 'wander'].includes(r.skill)) {

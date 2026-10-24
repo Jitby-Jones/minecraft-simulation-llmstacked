@@ -332,6 +332,21 @@ describe('Cognitive Controller against the mocked NanoGPT', () => {
 });
 
 describe('Action Awareness (§4.6)', () => {
+  it('the same attempt is known again whatever the amount (9, 9, then 10 diamonds, failing the same way)', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    awareness.start();
+    const fail = (qty: number) =>
+      bus.emit({ type: 'actionRecorded', record: { id: 'r', skill: 'obtain', args: { item: 'diamond', qty }, expected: '', observed: 'holding 8 diamond', ok: false, ts: 0, durationMs: 3000, error: "haven't seen any diamond_ore around here; diamond comes from mining it" } });
+    fail(9);
+    fail(9);
+    expect(awareness.isStuckOn('obtain', { item: 'diamond', qty: 11 })).toBe(false);
+    fail(10);
+    expect(awareness.isStuckOn('obtain', { item: 'diamond', qty: 11 })).toBe(true);
+    expect(awareness.isStuckOn('obtain', { item: 'iron_ingot', qty: 3 })).toBe(false);
+  });
+
   it('marks a task stuck after three failures, and lifts the mark once a prospect finds what it lacked', () => {
     const s = store();
     const bus = new AgentBus();
