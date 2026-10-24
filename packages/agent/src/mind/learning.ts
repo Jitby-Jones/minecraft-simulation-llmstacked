@@ -99,8 +99,33 @@ export function matchTask(tasks: readonly AssignedTask[], text: string): Assigne
 
 export const ReviewSchema = z.object({
   lessons: z.array(z.string().min(8).max(300)).max(3).default([]),
+  /** Lessons it already had, by their number in the list shown, that what happened showed to be wrong. */
+  wrong: z.array(z.coerce.number().int().min(1).max(20)).max(3).default([]),
 });
 export type Review = z.infer<typeof ReviewSchema>;
+
+/**
+ * What it already learned that bears on what happened (by the words they share), with the newest: the ones to set what
+ * happened against. One that came of a bed set down the wrong way ("beds won't go down on grass") would otherwise have
+ * steered it for good.
+ */
+export function lessonsToCheck(all: readonly Lesson[], happened: readonly string[], k = 12): Lesson[] {
+  const text = happened.join(' ');
+  const bearing = [...all].map((l) => ({ l, score: overlap(l.text, text) })).filter((x) => x.score > 0.25).sort((a, b) => b.score - a.score).slice(0, k - 4).map((x) => x.l);
+  const out = [...bearing];
+  for (const l of all.slice(-k)) if (out.length < k && !out.includes(l)) out.push(l);
+  return out;
+}
+
+/** Drops lessons shown wrong; returns those dropped. */
+export function unlearn(store: AgentStateStore, wrong: readonly Lesson[], now: number): Lesson[] {
+  const ids = new Set(wrong.map((l) => l.id));
+  const gone = (store.state.knowledge.lessons ?? []).filter((l) => ids.has(l.id));
+  if (gone.length === 0) return [];
+  store.update('knowledge', (k) => ({ ...k, lessons: (k.lessons ?? []).filter((l) => !ids.has(l.id)) }), 'unlearned');
+  for (const l of gone) pushWorkmem(store, `I was wrong about this: ${l.text}`, 0.6, 'self_observed', { now });
+  return gone;
+}
 
 /** What happened, in a few lines: what was done and how it went, what stood out. */
 export function episodes(s: AgentState, since: number): string[] {
@@ -167,7 +192,8 @@ export class Learning {
     this.since = this.now();
     this.failures = 0;
     if (!this.o.llm || s.flags.codeOnly || !ladder(s.flags.degrade).enabled('reflection')) return;
-    const known = (s.knowledge.lessons ?? []).slice(-12).map((l) => `- ${l.text}`);
+    const shown = lessonsToCheck(s.knowledge.lessons ?? [], lines);
+    const known = shown.map((l, i) => `${i + 1}. ${l.text}`);
     const guard = this.o.store.guard(SLOW_POLICY);
     try {
       const r = await this.o.llm.call<Review>({
@@ -176,18 +202,20 @@ export class Learning {
         agent: this.o.me,
         schema: ReviewSchema,
         schemaName: 'review',
-        fallback: (): Review => ({ lessons: [] }),
+        fallback: (): Review => ({ lessons: [], wrong: [] }),
         signal: guard.signal,
         isStale: guard.isStale,
         messages: [
           {
             role: 'system',
-            content: `${personaCore(s.self.persona, s.traitAnnotations)}\n\nYou know Minecraft well. Think back over what you have been doing lately, as anyone does now and then: what worked, what didn't and why, what it cost you, what surprised you. Say what it taught you about this world, the people in it, or how you go about things, in your own words, as short lessons you'd want to remember next time (at most 3; none if nothing was learned). Leave out what you already know.\nJSON: {"lessons": ["..."]}`,
+            content: `${personaCore(s.self.persona, s.traitAnnotations)}\n\nYou know Minecraft well. Think back over what you have been doing lately, as anyone does now and then: what worked, what didn't and why, what it cost you, what surprised you. Say what it taught you about this world, the people in it, or how you go about things, in your own words, as short lessons you'd want to remember next time (at most 3; none if nothing was learned). Leave out what you already know. And if what happened shows that something you had learned is wrong (it worked after all, or it failed for another reason than you thought), give its number under "wrong", with the right lesson among the lessons.\nJSON: {"lessons": ["..."], "wrong": [numbers]}`,
           },
           { role: 'user', content: `${known.length > 0 ? `What you already learned:\n${known.join('\n')}\n\n` : ''}What happened (${reason}):\n${lines.join('\n')}` },
         ],
       });
       if (!r.ok) return;
+      const wrong = r.value.wrong.map((n) => shown[n - 1]).filter((l): l is Lesson => l !== undefined);
+      for (const l of unlearn(this.o.store, wrong, this.now())) this.o.logger.info({ module: 'learning', lesson: l.text }, 'unlearned');
       for (const text of r.value.lessons) {
         const lesson = addLesson(this.o.store, text, 'experience', this.now());
         if (lesson) {

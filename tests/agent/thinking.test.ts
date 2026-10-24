@@ -15,7 +15,7 @@ import { AgentBus } from '@agora/agent/bus';
 import { Expectations, KNOWN_AFTER } from '@agora/agent/mind/expectations';
 import { GameKnowledge, type GameData, knowledgeLines } from '@agora/agent/mind/knowledge';
 import { LaterWatch, cueCame, cueFrom } from '@agora/agent/mind/later';
-import { addLesson, matchTask, overlap } from '@agora/agent/mind/learning';
+import { Learning, addLesson, lessonsToCheck, matchTask, overlap } from '@agora/agent/mind/learning';
 import { ActionAwareness } from '@agora/agent/modules/awareness';
 import { buildPacket, placesFor, triedLately } from '@agora/agent/modules/bottleneck';
 import { CognitiveController } from '@agora/agent/modules/cc';
@@ -453,6 +453,35 @@ describe('lessons and tasks', () => {
     expect(s.state.knowledge.lessons?.[0]?.ts).toBe(2);
     expect(s.state.workmem.at(-1)?.text).toMatch(/^I learned: Killing every sheep/);
     expect(overlap('get 12 diamonds', 'the diamonds are done')).toBeGreaterThan(0.3);
+  });
+
+  it('a lesson shown wrong by what happened is unlearned, the right one kept (one learned beds will not go down on grass)', async () => {
+    const s = store();
+    addLesson(s, 'Leaves above the ground can block a bed even when the surface looks clear.', 'experience', 1);
+    addLesson(s, "Beds won't place on short grass; always aim for bare dirt or another solid block.", 'experience', 2);
+    for (let i = 0; i < 4; i++) {
+      s.update('actionLog', (l) => [...l, { id: `a${i}`, skill: 'place', args: { block: 'red_bed' }, expected: '', observed: i < 3 ? 'placed red_bed at 4,64,7' : 'placed oak_planks', ok: true, ts: 10 + i, durationMs: 500 }], 'test');
+    }
+    const happened = ['place {"block":"red_bed"}: worked: placed red_bed at 4,64,7 on short grass'];
+    // What is shown to be checked: what bears on it first.
+    expect(lessonsToCheck(s.state.knowledge.lessons ?? [], happened)[0]?.text).toMatch(/^Beds won't place on short grass/);
+    const fake = new FakeNanoGpt(standardModels());
+    let asked = '';
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'review') return { text: '{}' };
+      asked = JSON.stringify(body?.messages ?? '');
+      const n = /(\d+)\. Beds won't place/.exec(asked)?.[1] ?? '0';
+      return { text: JSON.stringify({ lessons: ['A bed goes down on grass fine: what stopped it was the head of it facing a tree.'], wrong: [Number(n)] }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const learning = new Learning({ store: s, bus: new AgentBus(), logger: nullLogger(), llm: rt.client, me: 'Pip', now: () => 0 });
+    await learning.run('testing');
+    expect(asked).toMatch(/give its number under \\"wrong\\"/);
+    const texts = (s.state.knowledge.lessons ?? []).map((l) => l.text);
+    expect(texts.some((t) => /^Beds won't place/.test(t))).toBe(false);
+    expect(texts).toContain('A bed goes down on grass fine: what stopped it was the head of it facing a tree.');
+    expect(texts).toContain('Leaves above the ground can block a bed even when the surface looks clear.');
+    expect(s.state.workmem.some((w) => /^I was wrong about this: Beds won't place/.test(w.text))).toBe(true);
   });
 
   it('a task is found by its number or by what it says', () => {
