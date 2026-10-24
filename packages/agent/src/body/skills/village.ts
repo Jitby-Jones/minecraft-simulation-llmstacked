@@ -39,11 +39,14 @@ function fartherAnimal(bot: Bot, kinds: readonly string[]): string {
   return `; the nearest in view is a ${far.name ?? 'animal'} ${Math.round(p.distanceTo(bot.entity.position))} m ${bearingOf(bot.entity.position, p)}, at ${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`;
 }
 
-/** Walks over the drops near where an animal fell. */
+/**
+ * Walks over the drops near where an animal fell: a chicken's flutter, a knock back or a drop down a bank can carry
+ * them a few blocks off (twice in a row "killed but picked nothing up"; a look round 8 blocks after found the beef).
+ */
 async function collectDropsAt(ctx: SkillContext, where: Vec3): Promise<void> {
   const { bot } = ctx;
-  for (let i = 0; i < 4; i++) {
-    const drop = bot.nearestEntity((e) => e.name === 'item' && e.position.distanceTo(where) <= 4);
+  for (let i = 0; i < 5; i++) {
+    const drop = bot.nearestEntity((e) => e.name === 'item' && e.position.distanceTo(where) <= 8);
     if (!drop) return;
     bot.pathfinder.setMovements(ctx.movements());
     try {
