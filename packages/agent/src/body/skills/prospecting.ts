@@ -216,8 +216,9 @@ export const prospect = defineSkill({
     const minY = (bot.game as unknown as { minY?: number }).minY ?? -64;
     const startY = Math.floor(bot.entity.position.y);
     // Below the ore's usual depth already (or on a flat world): stay just under the surface, with a roof if the
-    // ground is thick enough.
-    const targetY = Math.max(minY + 2, Math.min(depth, startY - 3));
+    // ground is thick enough. Never down into the bedrock, which comes up in patches to four over the world's floor
+    // (each dig for diamonds from the last one's floor went three deeper, into tunnels walled with it every way).
+    const targetY = Math.max(minY + 5, Math.min(depth, startY - 3));
     const names = Object.keys(DIRS);
     let dirName = args.direction ?? rockiestDirection(bot, targetY, ctx.rng.next()) ?? names[Math.floor(ctx.rng.next() * names.length)] ?? 'east';
     let dug = 0;

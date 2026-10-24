@@ -352,6 +352,24 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(ms).toBeLessThan(40_000);
   }, 120_000);
 
+  it('a dig for diamonds from the floor of the last one stays above the bedrock layers (each went three deeper, into it)', async () => {
+    const x = 6500;
+    await at(x, 0);
+    await server.cmd(`forceload add ${x - 8} -8 ${x + 40} 8`);
+    await server.cmd(`fill ${x} -57 0 ${x} -56 0 air`);
+    await server.cmd(`tp Ada ${x}.5 -57 0.5`);
+    for (const g of ['iron_pickaxe 1', 'torch 16']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(2000);
+    const ys: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const r = await run('prospect', { item: 'diamond_ore', direction: 'east', maxBlocks: 8 });
+      ys.push(Math.floor(body.bot.entity.position.y));
+      logger.info({ r, at: body.bot.entity.position.toString() }, 'dig for diamonds');
+    }
+    // Down to four over the bedrock's top patches (the world's floor is at -64) and no farther, dig after dig.
+    expect(ys).toEqual([-59, -59]);
+  }, 180_000);
+
   it('prospecting under a bed of gravel: what comes down is let come down and dug, never stepped in under, and it is unhurt', async () => {
     const x = 6300;
     const y = 20;
