@@ -173,6 +173,21 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.crafting_table?.id ?? -1], maxDistance: 5, count: 2 }).length).toBeGreaterThanOrEqual(1);
   }, 120_000);
 
+  it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
+    const x = 5800;
+    await at(x, 0);
+    // A sealed pocket one wide, two high and one long in the stone: no free spot anywhere around.
+    await server.cmd(`fill ${x} ${Y - 11} 0 ${x} ${Y - 10} 0 air`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 11} 0.5`);
+    await server.cmd('give Ada minecraft:furnace 1');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(2000);
+    const r = await run('place', { block: 'furnace' });
+    logger.info({ r }, 'notch');
+    expect(r.ok).toBe(true);
+    expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.furnace?.id ?? -1], maxDistance: 3, count: 1 }).length).toBe(1);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);
