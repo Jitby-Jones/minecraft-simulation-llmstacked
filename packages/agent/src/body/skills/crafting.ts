@@ -268,6 +268,9 @@ export const craft = defineSkill({
         if (made) first = `made ${made} from what I had, then `;
       }
       const missing = missingFor(bot, recipe, times);
+      // What the grid shows short for all of it, as a player sees it: "crafted 4 torch" alone had an agent
+      // fetching sticks it had plenty of, when it was the coal that had run out.
+      const short = missing.length > 0 ? `; short of ${missing.join(' and ')} for all ${times * recipe.result.count}` : '';
       if (missing.length > 0) {
         // Craft what we can.
         times = Math.max(1, times - 1);
@@ -291,7 +294,7 @@ export const craft = defineSkill({
       }
       const got = countItem(bot, name) - before;
       if (got <= 0) return { ok: false, observed: `could not craft ${name}`, error: 'the server did not accept the craft' };
-      return { ok: got >= want, observed: `${first}crafted ${got} ${name}` };
+      return { ok: got >= want, observed: `${first}crafted ${got} ${name}${short}` };
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: `could not craft ${name}`, error: errMsg(err) };

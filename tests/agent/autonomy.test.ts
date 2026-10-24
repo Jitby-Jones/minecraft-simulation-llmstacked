@@ -158,6 +158,8 @@ describe('never standing frozen', () => {
   it('rest and a talk keep an eye on things (facing the one we talk to); the new skills are on offer', () => {
     const opt = (option: 'rest' | 'talk' | 'yield', targetAgent?: string) => ({ decisionId: 'd', option, startedAt: 0, maxSeconds: 30, status: 'running' as const, ...(targetAgent ? { targetAgent } : {}) });
     expect(skillForOption(opt('rest'), () => true)).toEqual({ skill: 'lookAround', args: { seconds: 30 } });
+    // A rest the mind gave a skill of its own goes as given (eat at 7 health had become a look round, uneaten).
+    expect(skillForOption({ ...opt('rest'), skill: 'eat', args: { item: 'rotten_flesh' } }, () => true)).toEqual({ skill: 'eat', args: { item: 'rotten_flesh' } });
     expect(skillForOption(opt('talk', 'Bram'), () => true)).toEqual({ skill: 'lookAround', args: { seconds: 30, at: 'Bram' } });
     expect(skillForOption(opt('talk', 'Bram'), () => false)).toEqual({ skill: 'goTo', args: { agent: 'Bram', range: 4 } });
     // A move goes as the mind gave it: its own range, not "within 1".

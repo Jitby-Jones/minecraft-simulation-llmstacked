@@ -566,6 +566,10 @@ describe('what it knows of the game, looked up for what matters', () => {
     expect(night.some((l) => l.startsWith('Night: about 8 minutes of dark'))).toBe(true);
     expect(lines.some((l) => l.startsWith('Ores by height'))).toBe(true);
     expect(lines.filter((l) => /^(Ores by height|Food that keeps coming|Animals|The Nether|Enchanting|Underground)/.test(l))).toHaveLength(3);
+    // The hour first, however much the goal names: a goal of tools, a house, iron and diamonds had crowded the night out.
+    const busy = { ...st, goals: { ...st.goals, current: { id: 'g', text: 'Make tools, build a house, then mine iron and diamonds', kind: 'current' as const, createdAt: 0, status: 'active' as const } } };
+    const crowded = knowledgeLines(k, { ...busy, self: { ...busy.self, isDay: false, time: 14_000 }, scene: { ...busy.scene, where: 'In plains, under the open sky' } });
+    expect(crowded.some((l) => l.startsWith('Night: about 8 minutes of dark'))).toBe(true);
   });
 });
 

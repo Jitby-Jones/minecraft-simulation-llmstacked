@@ -278,8 +278,12 @@ export class GameKnowledge {
   }
 
   /** What a player knows about what a task is about (a renewable food supply, the Nether, armor). */
+  /** The topics the text is about, in the order it comes to them (the hour, said first, before what the plan names). */
   topics(text: string): string[] {
-    return TOPICS.filter((t) => t.about.test(text)).map((t) => t.text);
+    return TOPICS.map((t) => ({ t, at: text.search(t.about) }))
+      .filter((x) => x.at >= 0)
+      .sort((a, b) => a.at - b.at)
+      .map((x) => x.t.text);
   }
 }
 

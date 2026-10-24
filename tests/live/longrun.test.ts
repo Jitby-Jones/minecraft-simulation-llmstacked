@@ -72,8 +72,10 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
             ];
       const bodies: Body[] = [];
       const agents: Agent[] = [];
+      // Each one's lines carry its name (two in one log could not be told apart).
+      const logOf = (name: string) => logger.child({ persona: name });
       for (const p of people) {
-        const body = await Body.connect({ host: srv.host, port: srv.port, username: p.name, version: versions.minecraft.version, logger });
+        const body = await Body.connect({ host: srv.host, port: srv.port, username: p.name, version: versions.minecraft.version, logger: logOf(p.name) });
         bodies.push(body);
       }
       await sleep(4000);
@@ -87,7 +89,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           persona: PersonaSchema.parse({ name: p.name, sex: p.sex, traits: p.traits, abilities: { intelligence: 0.75 }, ...(variant === 'solo' ? { social: { initiateChance: 0 } } : {}) }),
           username: p.name,
           llm: rt.client,
-          logger,
+          logger: logOf(p.name),
           world: WorldConfigSchema.parse({}),
           goalGen: true,
           socialGoals: variant === 'duo',

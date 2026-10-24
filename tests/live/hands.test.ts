@@ -555,6 +555,42 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'coal')).toBe(2);
   }, 120_000);
 
+  it('up out of the stone 24 deep: dug up and pillared, each block set once the feet are clear of its cell', async () => {
+    // A walk up from a tunnel had 198 refused placements in two minutes: each block was sent while the feet were still
+    // in its cell, refused, and the climb planned again.
+    const x = 6900;
+    await server.cmd(`tp Ada ${x} ${Y - 24} 0`);
+    await server.cmd(`fill ${x} ${Y - 24} 0 ${x} ${Y - 23} 0 air`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await server.cmd('give Ada minecraft:cobblestone 64');
+    await sleep(2000);
+    let refused = 0;
+    const onReset = (why: string) => {
+      if (why === 'place_error') refused++;
+    };
+    body.bot.on('path_reset', onReset);
+    const t0 = Date.now();
+    const r = await run('goTo', { x: x + 3, y: Y, z: 0, range: 1 });
+    body.bot.removeListener('path_reset', onReset);
+    logger.info({ r, refused, s: (Date.now() - t0) / 1000 }, 'up out of the stone');
+    expect(r.ok).toBe(true);
+    expect(refused).toBeLessThanOrEqual(3);
+    expect(Date.now() - t0).toBeLessThan(60_000);
+  }, 120_000);
+
+  it('torches with too little coal: it makes what it can and says it is the coal that is short', async () => {
+    const x = 6800;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:coal 2');
+    await server.cmd('give Ada minecraft:stick 10');
+    await sleep(1500);
+    const r = await run('craft', { item: 'torch', qty: 24 });
+    logger.info({ r }, 'torches short of coal');
+    expect(countItem(body.bot, 'torch')).toBe(8);
+    expect(r.observed).toMatch(/crafted 8 torch; short of 4 coal for all 24/);
+  }, 120_000);
+
   it('walks in through a door and shuts it behind (two agents sat "sealed in" outside a hut whose door was left open)', async () => {
     const x = 6700;
     await at(x, 0);

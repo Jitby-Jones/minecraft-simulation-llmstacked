@@ -1,8 +1,8 @@
 diff --git a/index.js b/index.js
-index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..c878d2440de5385ce80c803832bb6853c868dc27 100644
+index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..a1bbe869e5bfd2c07defd9dfa29ab6184c7c7c89 100644
 --- a/index.js
 +++ b/index.js
-@@ -116,8 +116,9 @@
+@@ -116,8 +116,9 @@ function inject (bot) {
  
    function detectDiggingStopped () {
      digging = false
@@ -14,6 +14,26 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..c878d2440de5385ce80c803832bb6853
    }
  
    function resetPath (reason, clearStates = true) {
+@@ -541,13 +542,18 @@ function inject (bot) {
+       let canPlace = true
+       if (placingBlock.jump) {
+         bot.setControlState('jump', true)
+-        canPlace = placingBlock.y + 1 < bot.entity.position.y
++        // The feet clear of the cell being filled, as the server checks it: above only its bottom, they are still in
++        // it, every placement was refused, and each refusal re-planned the climb (a climb of 24 had 159 of them).
++        canPlace = placingBlock.y + placingBlock.dy + 1 <= bot.entity.position.y
+       }
+       if (canPlace) {
+         if (!lockEquipItem.tryAcquire()) return
+         bot.equip(block, 'hand')
+           .then(function () {
+             lockEquipItem.release()
++            // Taking the block in hand can last a jump or more: placed only if the feet are clear of the cell still,
++            // else on a later jump (sent as the feet came down into the cell, it was refused all the same).
++            if (placingBlock.jump && placingBlock.y + placingBlock.dy + 1 > bot.entity.position.y) return
+             const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
+             if (!lockPlaceBlock.tryAcquire()) return
+             if (interactableBlocks.includes(refBlock.name)) {
 diff --git a/lib/movements.js b/lib/movements.js
 index a7e35053cde64e3cd32880af2aafa5f03e919ff8..a558220c5163716a05fa0c293485656e1921f7d3 100644
 --- a/lib/movements.js
