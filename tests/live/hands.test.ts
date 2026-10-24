@@ -579,6 +579,28 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 120_000);
 
+  it('one ingot short: the craft says how many in all and how many on hand; obtain, asked for what is held, says so', async () => {
+    // "missing 1 iron_ingot" with 2 on hand was read as wanting 1 in all: obtain {qty: 1} found 2 there, three times.
+    const x = 7000;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:iron_ingot 2');
+    await server.cmd('give Ada minecraft:stick 2');
+    await server.cmd(`setblock ${x + 2} ${Y} 0 crafting_table`);
+    await sleep(1500);
+    const r = await run('craft', { item: 'iron_pickaxe', qty: 1 });
+    logger.info({ r }, 'one ingot short');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/missing 1 more iron_ingot \(3 needed, 2 on hand\)/);
+    const o = await run('obtain', { item: 'iron_ingot', qty: 1 });
+    expect(o.ok).toBe(true);
+    expect(o.observed).toMatch(/already holding 2 iron_ingot: qty is how many in all/);
+    // A tool held, nearly worn through: its wear with it ("holding 2 stone_pickaxe" was no news of two spent ones).
+    await server.cmd('give Ada minecraft:stone_pickaxe[damage=110] 1');
+    await sleep(1000);
+    const p = await run('obtain', { item: 'stone_pickaxe', qty: 1 });
+    expect(p.observed).toMatch(/already holding 1 stone_pickaxe \(wear left: 16%\)/);
+  }, 120_000);
+
   it('torches with too little coal: it makes what it can and says it is the coal that is short', async () => {
     const x = 6800;
     await at(x, 0);

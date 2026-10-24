@@ -2,6 +2,7 @@
 
 import type { ItemStack } from '@agora/shared';
 import type { Bot } from 'mineflayer';
+import type { Item } from 'prismarine-item';
 import type { ItemMatcher } from './items';
 
 export type InventorySnapshot = ReadonlyMap<string, number>;
@@ -85,18 +86,33 @@ export const WORN = 0.2;
 export function toolWear(bot: Bot): Map<string, number> {
   const out = new Map<string, number>();
   for (const it of bot.inventory.items()) {
-    const max = (it as unknown as { maxDurability?: number }).maxDurability;
-    let used: number | undefined;
-    try {
-      used = (it as unknown as { durabilityUsed?: number }).durabilityUsed;
-    } catch {
-      used = undefined;
-    }
-    if (!max || typeof used !== 'number') continue;
-    const left = Math.max(0, Math.round((1 - used / max) * 100) / 100);
-    out.set(it.name, Math.max(out.get(it.name) ?? 0, left));
+    const left = wearLeft(it);
+    if (left !== null) out.set(it.name, Math.max(out.get(it.name) ?? 0, left));
   }
   return out;
+}
+
+/** How much of one item's durability is left (0..1, to the hundredth), or null for what doesn't wear. */
+function wearLeft(it: Item): number | null {
+  const max = (it as unknown as { maxDurability?: number }).maxDurability;
+  let used: number | undefined;
+  try {
+    used = (it as unknown as { durabilityUsed?: number }).durabilityUsed;
+  } catch {
+    used = undefined;
+  }
+  if (!max || typeof used !== 'number') return null;
+  return Math.max(0, Math.round((1 - used / max) * 100) / 100);
+}
+
+/** What is left of each one of a kind held, most worn first ([] for what doesn't wear). */
+export function wearOfEach(bot: Bot, name: string): number[] {
+  return bot.inventory
+    .items()
+    .filter((i) => i.name === name)
+    .map(wearLeft)
+    .filter((l): l is number => l !== null)
+    .sort((a, b) => a - b);
 }
 
 /** One-line digest for the CC packet ("12 oak_log, 3 bread, iron_pickaxe"); a tool nearly worn out says so. */

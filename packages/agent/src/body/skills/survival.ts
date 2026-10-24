@@ -15,6 +15,8 @@ const BAD_FOODS = new Set(['rotten_flesh', 'spider_eye', 'poisonous_potato', 'pu
 /** Raw food that cooks into far better (raw beef 3, steak 8), eaten raw only in need. */
 export const COOKS = new Set(['beef', 'porkchop', 'chicken', 'mutton', 'rabbit', 'cod', 'salmon', 'potato']);
 
+const countOf = (bot: Bot, name: string): number => bot.inventory.items().filter((i) => i.name === name).reduce((a, i) => a + i.count, 0);
+
 export function bestFood(bot: Bot, allowBad = false): Item | null {
   const foods = bot.registry.foodsByName;
   const candidates = bot.inventory.items().filter((i) => foods[i.name] && (allowBad || !BAD_FOODS.has(i.name)));
@@ -22,9 +24,27 @@ export function bestFood(bot: Bot, allowBad = false): Item | null {
   return candidates[0] ?? null;
 }
 
+/** A bite under way, per body: one eats one thing at a time. */
+const eating = new WeakMap<Bot, Promise<void>>();
+
+/**
+ * Eats `item` now. Already eating (the eat reflex and a skill at once), it waits for that bite rather than starting a
+ * second, which cut the first off ("Consuming cancelled due to calling bot.consume() again"): the salmon was eaten,
+ * the skill said it could not eat, and the agent taught itself that raw salmon can't be eaten.
+ */
 export async function eatNow(bot: Bot, item: Item): Promise<void> {
-  await bot.equip(item, 'hand');
-  await bot.consume();
+  const busy = eating.get(bot);
+  if (busy) return busy.catch(() => undefined);
+  const bite = (async () => {
+    await bot.equip(item, 'hand');
+    await bot.consume();
+  })();
+  eating.set(bot, bite);
+  try {
+    await bite;
+  } finally {
+    if (eating.get(bot) === bite) eating.delete(bot);
+  }
 }
 
 export const eat = defineSkill({
@@ -40,13 +60,16 @@ export const eat = defineSkill({
     const m = args.item ? itemMatcher(args.item) : null;
     const item = m ? (bot.inventory.items().find((i) => m.matches(i.name)) ?? null) : bestFood(bot, bot.food <= 6);
     if (!item) return { ok: false, observed: 'no food', error: m ? `no ${m.label} to eat` : 'no food in inventory' };
+    const had = countOf(bot, item.name);
     try {
       await abortable(ctx.signal, eatNow(bot, item), () => bot.deactivateItem());
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'could not eat', error: errMsg(err) };
     }
-    return { ok: true, observed: `ate ${item.name}, food ${bot.food}` };
+    // What went: the bite may have been another (the eat reflex's, of what it chose).
+    if (countOf(bot, item.name) < had) return { ok: true, observed: `ate ${item.name}, food ${bot.food}` };
+    return { ok: true, observed: `food ${bot.food} (something else was being eaten; the ${item.name} is still on hand)` };
   },
 });
 

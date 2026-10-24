@@ -51,6 +51,8 @@ export function noSuchItem(bot: Bot, name: string): string {
 interface Missing {
   name: string;
   count: number;
+  /** How many of it are on hand already. */
+  have?: number;
 }
 
 function missingItems(bot: Bot, recipe: Recipe, times: number): Missing[] {
@@ -60,7 +62,7 @@ function missingItems(bot: Bot, recipe: Recipe, times: number): Missing[] {
     const need = -d.count * times;
     const name = bot.registry.items[d.id]?.name ?? `item#${d.id}`;
     const have = countItem(bot, name);
-    if (have < need) out.push({ name, count: need - have });
+    if (have < need) out.push({ name, count: need - have, have });
   }
   return out;
 }
@@ -84,7 +86,10 @@ export function describeMissing(best: readonly Missing[], others: readonly (read
         if (lacking.length === 1 && lacking[0]?.name === m.name && extra.length === 1 && extra[0]?.count === m.count) alts.add(extra[0].name);
       }
       const list = [...alts].slice(0, 3);
-      return list.length > 0 ? `${m.count} ${m.name} (or ${list.join('/')})` : `${m.count} ${m.name}`;
+      // Short of some, not all: how many in all, and how many on hand. "missing 1 iron_ingot" with 2 on hand was
+      // read as wanting 1 in all; obtain {qty: 1} found 2 already there, three times over.
+      const what = m.have ? `${m.count} more ${m.name} (${m.count + m.have} needed, ${m.have} on hand)` : `${m.count} ${m.name}`;
+      return list.length > 0 ? `${what} (or ${list.join('/')})` : what;
     })
     .join(', ');
 }

@@ -9,6 +9,7 @@ import { armorSlotOf, blockMatcher, gearScore, itemMatcher, normalizeItemName, w
 import { compileCondition, pathCostRules, reflexDelta } from '@agora/agent/body/quirks';
 import { SKILLS, getSkill, skillCatalog } from '@agora/agent/body/skills/registry';
 import { describeMissing } from '@agora/agent/body/skills/crafting';
+import { eatNow } from '@agora/agent/body/skills/survival';
 import { bodyNote, checkExpectation, describeExpectation, runSkill } from '@agora/agent/body/skills/runner';
 import { SkillAbortedError, defineSkill } from '@agora/agent/body/skills/types';
 import { SwingTracker } from '@agora/agent/body/attribution';
@@ -194,7 +195,28 @@ describe('crafting shopping list', () => {
     ];
     expect(describeMissing(best, others)).toBe('3 cobblestone (or cobbled_deepslate/blackstone), 2 stick');
     expect(describeMissing([{ name: 'stick', count: 1 }], [])).toBe('1 stick');
+    // Some on hand: how many more, in all, and on hand.
+    expect(describeMissing([{ name: 'iron_ingot', count: 1, have: 2 }], [])).toBe('1 more iron_ingot (3 needed, 2 on hand)');
     expect(describeMissing([], [])).toBe('');
+  });
+});
+
+describe('eating', () => {
+  it('one bite at a time: a second eat while one is under way waits for it, never cutting it off', async () => {
+    let consumes = 0;
+    const bot = {
+      equip: async () => undefined,
+      consume: async () => {
+        consumes++;
+        await new Promise((r) => setTimeout(r, 30));
+      },
+    } as unknown as Bot;
+    const item = { name: 'salmon', count: 1 } as never;
+    await Promise.all([eatNow(bot, item), eatNow(bot, item)]);
+    expect(consumes).toBe(1);
+    // Once it is over, the next is a bite of its own.
+    await eatNow(bot, item);
+    expect(consumes).toBe(2);
   });
 });
 

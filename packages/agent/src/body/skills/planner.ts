@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
-import { countItem } from '../inventory';
+import { countItem, wearOfEach } from '../inventory';
 import { CATEGORIES, itemMatcher, normalizeItemName } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, canSee, isHostile } from '../world';
@@ -475,13 +475,22 @@ function resolveTarget(bot: Bot, raw: string): string {
 
 export const obtain = defineSkill({
   name: 'obtain',
-  description: 'obtain {item, qty} — get an item any way you know: gather, mine, craft or smelt, including the tools and ingredients it needs',
+  description: 'obtain {item, qty} — have qty of an item in all (what you hold counts): get it any way you know: gather, mine, craft or smelt, including the tools and ingredients it needs',
   argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(256).default(1) }),
   talkOverable: true,
   slipKinds: ['path'],
   expect: (args, _before, bot) => ({ kind: 'inventoryHas', item: resolveTarget(bot, args.item), atLeast: args.qty }),
   async run(ctx, args) {
     const target = resolveTarget(ctx.bot, args.item);
+    // Asked for what is already held, it says so: "holding 2 iron_ingot" for one more asked as {qty: 1} three times
+    // over taught an agent that obtain "doesn't conjure a third ingot".
+    const had = count(ctx.bot, target);
+    if (had >= args.qty) {
+      // A tool's wear with it: "holding 2 stone_pickaxe" for fresh ones, both nearly worn through, was no news.
+      const wear = wearOfEach(ctx.bot, target);
+      const worn = wear.some((l) => l < 0.5) ? ` (wear left: ${wear.map((l) => `${Math.round(l * 100)}%`).join(', ')})` : '';
+      return { ok: true, observed: `already holding ${had} ${target}${worn}: qty is how many in all, so that covers the ${args.qty} asked for (for more, ask for the total)` };
+    }
     try {
       await acquire(ctx, WorldScan.for(ctx.bot), target, args.qty, 0, []);
     } catch (err) {
