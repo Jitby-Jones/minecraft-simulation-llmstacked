@@ -1647,7 +1647,7 @@ export class CognitiveController {
         // "then" says what comes next (and [] that nothing does); without it, what was meant still stands.
         if (out.then) next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now } : null };
         if (out.later) {
-          const cue = cueFrom(out.later.when, now);
+          const cue = cueFrom(out.later.when, now, store.state.self.isDay);
           if (cue) next = { ...next, later: [...next.later.filter((x) => x.what !== out.later?.what), { id: `l${now.toString(36)}`, what: out.later.what, ...cue, since: now }].slice(-6) };
         }
         return next;

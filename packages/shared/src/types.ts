@@ -674,6 +674,11 @@ export interface Deferred {
   since: number;
   /** For minutes:<n>, when it comes due. */
   due?: number;
+  /**
+   * For day or night put off while it is that already: the other must come first ("when it's day" said at dusk is
+   * the morning, not now).
+   */
+  after?: 'day' | 'night';
 }
 
 /** A task someone gave this agent (the operator, or anyone), in their words; done or dropped by the agent's own judgment. */

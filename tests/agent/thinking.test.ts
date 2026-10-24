@@ -381,6 +381,31 @@ describe('putting things off until a cue (prospective memory)', () => {
     expect(cues).toEqual(['get wool: there is a sheep 20 m east']);
     expect(s.state.mind.later).toEqual([]);
   });
+
+  it('"when it is day" said by day is the morning after the night, not now (and night by night the next)', () => {
+    expect(cueFrom('day', 0, true)).toEqual({ cue: 'day', after: 'night' });
+    expect(cueFrom('day', 0, false)).toEqual({ cue: 'day' });
+    expect(cueFrom('night', 0, false)).toEqual({ cue: 'night', after: 'day' });
+    const s = store();
+    const bus = new AgentBus();
+    const cues: string[] = [];
+    bus.on('cue', (e) => cues.push(`${e.deferred.what}: ${e.why}`));
+    const day = (isDay: boolean) => s.update('self', (x) => ({ ...x, isDay }), 'test');
+    day(true);
+    s.update('mind', (m) => ({ ...m, later: [{ id: 'l1', what: 'shear the sheep', ...(cueFrom('day', 0, true) as { cue: string }), since: 0 }] }), 'test');
+    const w = new LaterWatch({ store: s, bus, logger: nullLogger(), now: () => 1000 });
+    w.check();
+    expect(cues).toEqual([]);
+    // Dusk, then the night: still waiting, and no longer for a night.
+    day(false);
+    w.check();
+    expect(cues).toEqual([]);
+    expect(s.state.mind.later[0]?.after).toBeUndefined();
+    // The morning.
+    day(true);
+    w.check();
+    expect(cues).toEqual(['shear the sheep: it is day']);
+  });
 });
 
 describe('lessons and tasks', () => {
