@@ -56,6 +56,11 @@ function mustRun(bot: Bot, threats: readonly Entity[]): boolean {
   const me = bot.entity.position;
   return threats.some((e) => (e.name === 'creeper' && e.position.distanceTo(me) <= 5) || e.name === 'warden');
 }
+/** Grounded melee standing well below `me`: it can't reach up to us. */
+function outOfReach(e: Entity, me: Vec3): boolean {
+  return GROUNDED.test(e.name ?? '') && !shoots(e) && me.y - e.position.y >= OUT_OF_REACH;
+}
+
 /** Having called a fight off on someone, we fight on if they come back for more this soon after. */
 const CALLED_OFF_MS = 30_000;
 /** A head under water this long is a hazard, whatever the air reading says (air lasts 15 s). */
@@ -75,6 +80,17 @@ const NEIGHBORS = [
 const TRAIL_MAX = 80;
 /** Running, the way out keeps clear of every monster in sight this close, not only of those at hand. */
 const RUN_AWARE = 16;
+/** Melee that neither climbs, nor shoots, nor flies: what can't reach one standing a few blocks up. */
+const GROUNDED = /^(zombie|husk|drowned|zombie_villager|zombified_piglin|piglin|piglin_brute|vindicator|hoglin|zoglin|silverfish|endermite|slime|magma_cube)$/;
+/** This far above it, what is grounded can't reach (its reach is sideways, not up; live, two blocks kept two zombies off). */
+const OUT_OF_REACH = 2;
+/** One climb up a pillar at a time: after one that didn't get up, the next waits this long. */
+const PERCH_MS = 5000;
+/** A pillar is climbed with this much start on what chases (a climb out of reach takes a second; a zombie covers two
+ * or three blocks in it, and a hit at the top of a jump knocks one off the pillar). */
+const PERCH_START = 4;
+/** How high the pillar goes: out of reach with a block to spare. */
+const PERCH_HEIGHT = 3;
 /** In the water this long with nothing to do: out to the nearest shore. */
 const ASHORE_AFTER_MS = 8000;
 /** Swimming for a shore this long without getting out: another look for one. */
@@ -177,6 +193,8 @@ export class ReflexController {
   private underSince: number | null = null;
   /** Under water with a roof over it: the place to breathe being swum for. */
   private airAt: Vec3 | null = null;
+  /** The last climb up a pillar out of reach: when (the next waits PERCH_MS). */
+  private perchSince = 0;
   private wetSince: number | null = null;
   /** Holding jump to keep the head above water. */
   private treading = false;
@@ -245,6 +263,9 @@ export class ReflexController {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    // Nothing of a danger outlives the watch on it: started again, it begins from nothing. Said to no one: one stopped
+    // by a death got away from nothing.
+    if (this.mode !== 'idle') this.reset('stopped');
     this.bot.off('health', this.onHealth);
     this.bot.off('entityHurt', this.onEntityHurt);
     this.bot.off('path_reset', this.onPathReset);
@@ -542,6 +563,8 @@ export class ReflexController {
       const d = e.position.distanceTo(me);
       // Creepers matter a bit farther away; anything within 3 blocks is a threat even behind a wall corner, but not
       // one under the floor or over the ceiling (a mob in a tunnel below can't reach us).
+      // Grounded and well below us (we are up on something): it can't reach.
+      if (outOfReach(e, me)) continue;
       const r = e.name === 'creeper' ? radius + 2 : shoots(e) ? Math.max(radius, SHOT_RANGE) : radius;
       const seen = d <= r && canSee(this.bot, e, r + 1);
       if (seen || (d <= 3 && !sealed && Math.abs(e.position.y - me.y) < 2)) out.set(e.id, e);
@@ -553,6 +576,7 @@ export class ReflexController {
         continue;
       }
       if (sealed && !canSee(this.bot, cur, 17)) continue;
+      if (outOfReach(cur, me)) continue;
       if (cur.username && this.hooks.settled?.(cur.username, a.ts)) continue;
       out.set(id, cur);
     }
@@ -637,6 +661,12 @@ export class ReflexController {
 
   private clear(summary: string): void {
     if (this.mode === 'idle') return;
+    this.reset(summary);
+    this.hooks.onDangerCleared(summary);
+  }
+
+  /** A danger let go of: the fight, the run and the controls with it. */
+  private reset(summary: string): void {
     this.endBout(summary);
     try {
       pvp(this.bot).forceStop();
@@ -651,11 +681,11 @@ export class ReflexController {
     this.bot.clearControlStates();
     this.mode = 'idle';
     this.airAt = null;
+    this.perchSince = 0;
     this.currentSource = '';
     this.fleeHits = [];
     this.fleeStillSince = null;
     this.standUntil = 0;
-    this.hooks.onDangerCleared(summary);
   }
 
   private fight(target: Entity, kind: 'fight' | 'defend'): void {
@@ -679,32 +709,37 @@ export class ReflexController {
     }, delay);
   }
 
+  /** Getting away begins (a run, a hole closed over, a climb): the mode, a fresh count of hits, the alarm raised. */
+  private takeFlight(threats: readonly Entity[]): void {
+    const nearest = threats[0];
+    if (!nearest || this.mode === 'flee') return;
+    try {
+      // At once: pvp's stop() leaves the pathfinder a stop that would wipe the flight's first goal.
+      pvp(this.bot).forceStop();
+    } catch {
+      // not fighting
+    }
+    this.mode = 'flee';
+    this.fleePlannedAt = 0;
+    this.fleeHits = [];
+    this.fleeStillSince = null;
+    this.fleeSince = Date.now();
+    // Running away is a run: the skills walk (sprinting costs food). And a run, not a dig: stopping to mine a way
+    // through stone with something at your back is no escape.
+    if (!this.running) {
+      this.running = createMovements(this.bot, this.hooks.quirks(), { sprint: true });
+      this.running.canDig = false;
+    }
+    this.bot.pathfinder.setMovements(carefulWhenHurt(this.bot, this.running));
+    this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);
+    const person = threats.find((t) => isPlayer(t) && t.username);
+    if (person?.username) this.hooks.onYield?.(person.username);
+  }
+
   private flee(threats: Entity[]): void {
     const nearest = threats[0];
     if (!nearest) return;
-    if (this.mode !== 'flee') {
-      try {
-        // At once: pvp's stop() leaves the pathfinder a stop that would wipe the flight's first goal.
-        pvp(this.bot).forceStop();
-      } catch {
-        // not fighting
-      }
-      this.mode = 'flee';
-      this.fleePlannedAt = 0;
-      this.fleeHits = [];
-      this.fleeStillSince = null;
-      this.fleeSince = Date.now();
-      // Running away is a run: the skills walk (sprinting costs food). And a run, not a dig: stopping to mine a way
-      // through stone with something at your back is no escape.
-      if (!this.running) {
-        this.running = createMovements(this.bot, this.hooks.quirks(), { sprint: true });
-        this.running.canDig = false;
-      }
-      this.bot.pathfinder.setMovements(carefulWhenHurt(this.bot, this.running));
-      this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);
-      const person = threats.find((t) => isPlayer(t) && t.username);
-      if (person?.username) this.hooks.onYield?.(person.username);
-    }
+    this.takeFlight(threats);
     // Re-plan as the chasers move; a fixed spot beats GoalInvert, which stalls on open ground.
     const now = Date.now();
     const moving = this.bot.pathfinder.isMoving();
@@ -737,16 +772,86 @@ export class ReflexController {
   }
 
   /**
+   * What pillarUp needs: only what can't climb nor shoot after us, and none of it above us (up out of a hole is up into
+   * what waits at its mouth); a start on it; three blocks on hand, ground under and room over.
+   */
+  private canPillar(threats: readonly Entity[]): boolean {
+    const bot = this.bot;
+    if (threats.length === 0 || !threats.every((t) => GROUNDED.test(t.name ?? '') && !shoots(t))) return false;
+    if (bot.inventory.items().filter((i) => isCover(i.name)).reduce((a, i) => a + i.count, 0) < PERCH_HEIGHT) return false;
+    const me = bot.entity.position;
+    const base = me.floored();
+    if (threats.some((t) => t.position.y > base.y + 0.5)) return false;
+    if (threats.some((t) => Math.hypot(t.position.x - me.x, t.position.z - me.z) < PERCH_START)) return false;
+    for (let dy = 2; dy <= PERCH_HEIGHT + 1; dy++) if (!isAirLike(bot.blockAt(base.offset(0, dy, 0)))) return false;
+    return isSolid(bot.blockAt(base.offset(0, -1, 0)));
+  }
+
+  /**
+   * From what neither climbs nor shoots (zombies and the like), with blocks on hand and room overhead: three blocks up
+   * on a pillar of them, out of its reach, as a player does: look down, jump, a block under the feet at the top of the
+   * jump (one running from a zombie at night was caught, at 5 health, with 20 cobblestone on her). True if up.
+   */
+  private async pillarUp(threats: readonly Entity[]): Promise<boolean> {
+    const bot = this.bot;
+    if (!this.canPillar(threats)) return false;
+    const block = () => bot.inventory.items().find((i) => isCover(i.name));
+    const base = bot.entity.position.floored();
+    this.busy = true;
+    this.perchSince = Date.now();
+    try {
+      try {
+        pvp(bot).forceStop();
+      } catch {
+        // not fighting
+      }
+      bot.pathfinder.setGoal(null);
+      bot.clearControlStates();
+      // A run's way on carries the jump off the block being placed: a moment to stand still first.
+      await new Promise((r) => setTimeout(r, 150));
+      for (let tries = 0; tries < PERCH_HEIGHT + 2 && bot.entity.position.y - base.y < PERCH_HEIGHT - 0.01; tries++) {
+        const item = block();
+        if (!item) break;
+        await bot.equip(item, 'hand');
+        const from = bot.entity.position.floored();
+        const ground = bot.blockAt(from.offset(0, -1, 0));
+        if (!ground || !isSolid(ground)) break;
+        await bot.look(bot.entity.yaw, -Math.PI / 2, true);
+        bot.setControlState('jump', true);
+        const t0 = Date.now();
+        while (bot.entity.position.y < from.y + 1.05 && Date.now() - t0 < 700) await new Promise((r) => setTimeout(r, 25));
+        bot.setControlState('jump', false);
+        await bot.placeBlock(ground, new Vec3(0, 1, 0)).catch(() => undefined);
+        const t1 = Date.now();
+        while (!bot.entity.onGround && Date.now() - t1 < 700) await new Promise((r) => setTimeout(r, 25));
+      }
+      return bot.entity.position.y - base.y >= OUT_OF_REACH;
+    } catch (err) {
+      this.logger.debug({ module: 'reflex', err: String(err) }, 'could not get up a pillar');
+      return false;
+    } finally {
+      bot.clearControlStates();
+      this.busy = false;
+    }
+  }
+
+  /**
    * Walled in on every side with what threatens us above (at a hole's mouth): a block over our head shuts it out, if
    * we carry one. True if the hole was closed.
    */
-  private async sealAbove(threats: readonly Entity[]): Promise<boolean> {
+  private canSeal(threats: readonly Entity[]): boolean {
     const bot = this.bot;
     const feet = bot.entity.position.floored();
-    if (!wallsAround(bot, feet)) return false;
+    if (threats.length === 0 || !wallsAround(bot, feet)) return false;
     if (!threats.every((t) => t.position.y >= feet.y + 1)) return false;
     const top = feet.offset(0, 2, 0);
-    if (!isAirLike(bot.blockAt(top))) return false;
+    return isAirLike(bot.blockAt(top)) && Boolean(bot.inventory.items().find((i) => isCover(i.name))) && Boolean(referenceFor(bot, top));
+  }
+
+  private async sealAbove(threats: readonly Entity[]): Promise<boolean> {
+    const bot = this.bot;
+    if (!this.canSeal(threats)) return false;
+    const top = bot.entity.position.floored().offset(0, 2, 0);
     const block = bot.inventory.items().find((i) => isCover(i.name));
     const r = referenceFor(bot, top);
     if (!block || !r) return false;
@@ -899,6 +1004,33 @@ export class ReflexController {
     return true;
   }
 
+  /**
+   * Getting away, a place out of reach comes before a run where there is one, as a player takes it: in a hole with it
+   * at the mouth, the hole closed over (climbing out is climbing up to it); in the open, from what can't climb nor
+   * shoot, up a pillar. True if there.
+   */
+  private async refuge(threats: Entity[]): Promise<boolean> {
+    const bot = this.bot;
+    if (this.canSeal(threats)) {
+      this.takeFlight(threats);
+      if (await this.sealAbove(threats)) {
+        this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'in a hole with it at the mouth: closed it over');
+        this.clear('closed the hole over');
+        return true;
+      }
+    }
+    if (Date.now() - this.perchSince < PERCH_MS || !this.canPillar(threats)) return false;
+    this.takeFlight(threats);
+    if (await this.pillarUp(threats)) {
+      this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'up a pillar out of reach');
+      return true;
+    }
+    // A climb that didn't get up: the run starts now, and with it the count of what catches us running.
+    this.fleeSince = Date.now();
+    this.fleeHits = [];
+    return false;
+  }
+
   private async tick(): Promise<void> {
     const bot = this.bot;
     if (this.busy || !bot.entity || bot.health <= 0) return;
@@ -994,30 +1126,25 @@ export class ReflexController {
     const threats = this.threats(this.mode === 'flee' ? 16 : undefined);
     if (threats.length > 0) {
       this.lastThreatAt = Date.now();
-      // Running that isn't working (it keeps catching us, or there is nowhere to go) turns into a fight, as with
-      // anyone cornered: a spider outruns a player, and a tunnel ends.
-      if (this.mode === 'flee' && this.cornered(now, threats)) {
-        // In a hole with them at its mouth, the way out is the way in: close it, and nothing can reach.
-        if (await this.sealAbove(threats)) {
-          this.fleeHits = [];
-          this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'cornered in a hole: closed it over');
-          this.clear('closed the hole over');
+      // Once running, keep running until nothing chases within 16 blocks: turning back whenever a straggler
+      // drops out of range makes a bot dither between the two.
+      const standing = now < this.standUntil && !mustRun(bot, threats);
+      if (!standing && (this.mode === 'flee' || this.shouldFlee(threats))) {
+        if (await this.refuge(threats)) return;
+        // Running that isn't working (it keeps catching us, or there is nowhere to go) turns into a fight, as with
+        // anyone cornered: a spider outruns a player, and a tunnel ends.
+        if (!(this.mode === 'flee' && !mustRun(bot, threats) && this.cornered(Date.now(), threats))) {
+          this.flee(threats);
           return;
         }
-        this.standUntil = now + STAND_MS;
+        this.standUntil = Date.now() + STAND_MS;
         this.fleeHits = [];
         this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'running is not working: standing to fight');
       }
-      const standing = now < this.standUntil && !mustRun(bot, threats);
-      // Once running, keep running until nothing chases within 16 blocks: turning back whenever a straggler
-      // drops out of range makes a bot dither between the two.
-      if (!standing && (this.mode === 'flee' || this.shouldFlee(threats))) this.flee(threats);
-      else {
-        const target = this.pickTarget(threats);
-        if (target) this.fight(target, 'fight');
-        const foeNow = pvp(bot).target;
-        if (this.bout && foeNow?.id === this.bout.id) this.bout.closest = Math.min(this.bout.closest, foeNow.position.distanceTo(bot.entity.position));
-      }
+      const target = this.pickTarget(threats);
+      if (target) this.fight(target, 'fight');
+      const foeNow = pvp(bot).target;
+      if (this.bout && foeNow?.id === this.bout.id) this.bout.closest = Math.min(this.bout.closest, foeNow.position.distanceTo(bot.entity.position));
       return;
     }
     // 3. Defend allies.

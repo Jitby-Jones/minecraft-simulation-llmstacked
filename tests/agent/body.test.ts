@@ -678,6 +678,7 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
       registry: { entitiesByName: {} },
       inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] },
       world: { raycast: () => null },
+      blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
     });
     const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
     return new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
@@ -725,6 +726,14 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(r.fightRecord()).toMatchObject({ foe: 'zombie', swings: 2, landed: 1, closest: 2, ended: 'under way' });
     r.clear('fight over');
     expect(r.fightRecord()).toMatchObject({ foe: 'zombie', swings: 2, landed: 1, ended: 'fight over', health: '20 to 20' });
+  });
+
+  it('up on something, a zombie three blocks below is no threat; a spider, which climbs, still is', () => {
+    const r = rig('stone_sword') as unknown as { bot: { entities: Record<number, unknown> }; threats(radius?: number): { id: number }[] };
+    r.bot.entities[21] = { id: 21, type: 'hostile', name: 'zombie', position: new Vec3(1, 61, 0), height: 1.95 };
+    r.bot.entities[22] = { id: 22, type: 'hostile', name: 'spider', position: new Vec3(-1, 61, 0), height: 0.9 };
+    r.bot.entities[23] = { id: 23, type: 'hostile', name: 'zombie', position: new Vec3(2, 64, 0), height: 1.95 };
+    expect(r.threats().map((t) => t.id).sort()).toEqual([22, 23]);
   });
 
   it("running that isn't working turns into a fight: still caught, or going nowhere, with it close", () => {
