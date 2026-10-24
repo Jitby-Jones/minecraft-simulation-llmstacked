@@ -336,6 +336,38 @@ export interface FurnaceApi {
   close(): void;
 }
 
+/** A log's planks: oak_log and stripped_oak_wood → oak_planks, crimson_stem → crimson_planks. */
+function planksOf(log: string): string {
+  return `${log.replace(/^stripped_/, '').replace(/_(log|wood|stem|hyphae)$/, '')}_planks`;
+}
+
+/**
+ * Short of fuel for the batch with logs on hand: some made into planks first, as a player does (a log in planks burns
+ * six items' worth). Logs other than those being cooked go first; for charcoal, failing those, some of the logs being
+ * cooked, and the batch is that much smaller. How many fewer of the input there are to cook (0 if none went).
+ */
+async function planksForFuel(ctx: SkillContext, input: string, qty: number): Promise<number> {
+  const { bot } = ctx;
+  const fuel = pickFuel(bot, undefined, input, qty);
+  if (fuel && countItem(bot, fuel.name) * fuel.perItem >= qty) return 0;
+  const other = bot.inventory.items().find((i) => CATEGORIES.log?.(i.name) && i.name !== input);
+  const log = other?.name ?? (CATEGORIES.log?.(input) ? input : null);
+  if (!log) return 0;
+  const planks = planksOf(log);
+  const id = bot.registry.itemsByName[planks]?.id;
+  if (id === undefined) return 0;
+  const recipe = (bot.recipesFor(id, null, 1, null) as unknown as Recipe[]).find((r) => r.delta.some((d) => d.count < 0 && bot.registry.items[d.id]?.name === log));
+  if (!recipe) return 0;
+  const have = countItem(bot, planks) * 1.5;
+  const own = log === input;
+  // Each log cut gives 4 planks, 6 items' burning; cutting one of the batch's own also leaves one fewer to cook.
+  const cut = Math.max(1, Math.ceil((qty - have) / (own ? 7 : 6)));
+  const k = Math.min(cut, countItem(bot, log) - (own ? 1 : 0));
+  if (k <= 0) return 0;
+  const made = await craftFromPockets(ctx, [{ recipe, times: k, name: planks }], null);
+  return made && own ? k : 0;
+}
+
 export const smelt = defineSkill({
   name: 'smelt',
   description: 'smelt {item, qty} — cook/smelt items in a furnace (raw_iron → iron_ingot, beef → cooked_beef)',
@@ -348,8 +380,9 @@ export const smelt = defineSkill({
     const input = normalizeItemName(args.item);
     const inputItem = bot.inventory.items().find((i) => i.name === input);
     if (!inputItem) return { ok: false, observed: 'nothing to smelt', error: `no ${input} in inventory` };
-    const qty = Math.min(args.qty, countItem(bot, input));
+    let qty = Math.min(args.qty, countItem(bot, input));
     let furnaceBlock: Block | null;
+    const carried = countItem(bot, 'furnace');
     try {
       furnaceBlock = await findOrPlace(ctx, 'furnace', 'furnace');
     } catch (err) {
@@ -357,14 +390,19 @@ export const smelt = defineSkill({
       return { ok: false, observed: 'no furnace', error: errMsg(err) };
     }
     if (!furnaceBlock) return { ok: false, observed: 'no furnace', error: 'need a furnace' };
+    // One set down here stays here: where, so it is known (a model took "-1 furnace" for one burned up).
+    const placed = countItem(bot, 'furnace') < carried ? `; set the furnace down at ${furnaceBlock.position.x},${furnaceBlock.position.y},${furnaceBlock.position.z}` : '';
+    qty = Math.min(qty - (await planksForFuel(ctx, input, qty)), countItem(bot, input));
     let furnace: FurnaceApi | null = null;
     let got = 0;
     let outputName = '';
+    let left = 0;
     try {
       furnace = await bot.openFurnace(furnaceBlock);
       const unready = await readyFurnace(bot, furnace, input, qty);
-      if (unready) return { ok: false, observed: 'no fuel', error: unready };
-      await furnace.putInput(inputItem.type, null, qty);
+      if (unready) return { ok: false, observed: `no fuel${placed}`, error: unready };
+      const kind = bot.inventory.items().find((i) => i.name === input)?.type ?? inputItem.type;
+      await furnace.putInput(kind, null, qty);
       const deadline = Date.now() + qty * 10_500 + 8000;
       while (got < qty && Date.now() < deadline) {
         await waitMs(ctx, 1000);
@@ -376,14 +414,21 @@ export const smelt = defineSkill({
           got += n;
         }
       }
+      // What didn't cook (the fuel gave out, or time) comes back with us rather than stay in a furnace left behind.
+      const raw = furnace.inputItem();
+      if (got < qty && raw && raw.name === input) {
+        left = raw.count;
+        await furnace.takeInput();
+      }
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
-      return { ok: false, observed: `smelted ${got}`, error: errMsg(err) };
+      return { ok: false, observed: `smelted ${got}${placed}`, error: errMsg(err) };
     } finally {
       furnace?.close();
     }
+    const back = left > 0 ? `; took back ${left} ${input} uncooked` : '';
     return got >= qty
-      ? { ok: true, observed: `smelted ${got} ${outputName || 'items'}` }
-      : { ok: got > 0, observed: `smelted ${got}/${qty} ${outputName || 'items'}`, error: got > 0 ? undefined : 'nothing came out' };
+      ? { ok: true, observed: `smelted ${got} ${outputName || 'items'}${placed}` }
+      : { ok: got > 0, observed: `smelted ${got}/${qty} ${outputName || 'items'}${back}${placed}`, error: got > 0 ? undefined : 'nothing came out' };
   },
 });

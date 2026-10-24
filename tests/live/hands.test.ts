@@ -155,6 +155,20 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'charcoal')).toBeGreaterThanOrEqual(3);
   }, 240_000);
 
+  it('smelting six logs to charcoal with nothing else to burn: one goes to planks for fuel, five cook, none is left behind', async () => {
+    const x = 5700;
+    await at(x, 0);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:oak_log 6');
+    await server.cmd('give Ada minecraft:furnace 1');
+    await sleep(1500);
+    const r = await run('smelt', { item: 'oak_log', qty: 6 });
+    logger.info({ r }, 'charcoal by smelting');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'charcoal')).toBeGreaterThanOrEqual(5);
+    expect(r.observed).toMatch(/set the furnace down at/);
+  }, 240_000);
+
   it('a crafting table far off, a log on hand: sets one down here rather than walk there', async () => {
     const x = 5700;
     await at(x, 0);
