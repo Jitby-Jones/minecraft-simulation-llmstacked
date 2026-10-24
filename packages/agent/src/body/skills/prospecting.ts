@@ -1,7 +1,8 @@
 // prospect: look for ore the way a player does when none is in sight (§13 rule 4: gather and mine only target ore the
 // bot has seen). It digs a staircase down into the stone toward the depth where that ore is common, then a straight
-// 1×2 tunnel, looking at the walls as it goes, and stops as soon as the ore comes into sight. Liquid ahead makes it
-// turn; bedrock or a gap it can't bridge ends the tunnel.
+// 1×2 tunnel, looking at the walls as it goes, and stops as soon as the ore comes into sight. Water or lava ahead is
+// walled off with a block, as a player does (a few to a step); more than that makes it turn; bedrock or a gap it can't
+// bridge ends the tunnel.
 
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
@@ -65,28 +66,52 @@ function oreIds(bot: Bot, item: string): number[] {
   return blockIdsDropping(bot, itemMatcher(item)).filter((id) => /_ore$|^ancient_debris$/.test(bot.registry.blocks[id]?.name ?? ''));
 }
 
-function liquidAround(bot: Bot, p: Vec3): string | null {
-  for (const f of FACES) {
-    const n = bot.blockAt(p.plus(f));
-    if (n && (n.name === 'water' || n.name === 'lava')) return n.name;
+/** How many blocks of water or lava one dig may be walled off with before the way is given up as too wet. */
+const PLUGS_PER_DIG = 4;
+
+/**
+ * A block put into a cell of water or lava, against `ref` (a solid block beside it), as a player walls one off to dig
+ * on: a prospect in a wet cave gave up nine times on "water ahead". True if it went in.
+ */
+async function plug(ctx: SkillContext, ref: Vec3, face: Vec3): Promise<boolean> {
+  const { bot } = ctx;
+  const item = bot.inventory.items().find((i) => BRIDGE_BLOCKS.includes(i.name));
+  const against = bot.blockAt(ref);
+  if (!item || !against || !isSolid(against)) return false;
+  try {
+    await bot.equip(item, 'hand');
+    await bot.placeBlock(against, face);
+  } catch (err) {
+    ctx.logger.debug({ module: 'skill', at: ref.plus(face).toString(), err: errMsg(err) }, 'could not wall off the liquid');
+    return false;
   }
-  return null;
+  return isSolid(bot.blockAt(ref.plus(face)));
 }
 
 /** Clears one block (and whatever gravel or sand falls into it). Returns what was there first (null: nothing). */
 async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
   const { bot } = ctx;
   let first: string | null = null;
-  for (let i = 0; i < 6; i++) {
+  let plugs = 0;
+  for (let i = 0; i < 6 + PLUGS_PER_DIG; i++) {
     throwIfAborted(ctx.signal);
     const b = bot.blockAt(p);
     if (!b) throw new Blocked('the ground ahead is not loaded');
-    if (b.name === 'water' || b.name === 'lava') throw new Blocked(`${b.name} ahead`);
+    if (b.name === 'water' || b.name === 'lava') {
+      // The cell itself: filled from the floor under it, then dug like any other.
+      if (plugs++ >= PLUGS_PER_DIG || !(await plug(ctx, p.offset(0, -1, 0), new Vec3(0, 1, 0)))) throw new Blocked(`${b.name} ahead`);
+      continue;
+    }
     if (isAirLike(b)) return first;
     first ??= b.name;
     if (b.name === 'bedrock' || b.hardness === null || b.hardness < 0) throw new Blocked(`${b.name} ahead`);
-    const liquid = liquidAround(bot, p);
-    if (liquid) throw new Blocked(`${liquid} ahead`);
+    // Water or lava beside it would pour in once it's dug: walled off first, each from the block itself.
+    const wet = FACES.find((f) => /^(water|lava)$/.test(bot.blockAt(p.plus(f))?.name ?? ''));
+    if (wet) {
+      const liquid = bot.blockAt(p.plus(wet))?.name ?? 'water';
+      if (plugs++ >= PLUGS_PER_DIG || !(await plug(ctx, p, wet))) throw new Blocked(`${liquid} ahead`);
+      continue;
+    }
     if (holdsDripstone(bot, p)) throw new Blocked('a stalactite hangs from the rock ahead');
     const tool = bot.pathfinder.bestHarvestTool(b);
     if (tool) await bot.equip(tool, 'hand');

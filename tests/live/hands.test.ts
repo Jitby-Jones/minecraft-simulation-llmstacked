@@ -236,6 +236,38 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.entity.position.distanceTo(corner.offset(0.5, 0, 0.5))).toBeLessThan(2.5);
   }, 180_000);
 
+  it('prospecting with water beside the way: walls it off and digs on (a prospect in a wet cave gave up nine times on "water ahead")', async () => {
+    const x = 6200;
+    const y = 20;
+    await at(x, 0);
+    // A pocket in the stone to start from, and water standing in the rock beside where the tunnel will run.
+    await server.cmd(`forceload add ${x - 8} -8 ${x + 24} 8`);
+    await server.cmd(`fill ${x} ${y} 0 ${x} ${y + 1} 0 air`);
+    await server.cmd(`fill ${x + 5} 17 1 ${x + 7} 18 1 water`);
+    await server.cmd(`tp Ada ${x}.5 ${y} 0.5`);
+    for (const g of ['stone_pickaxe 1', 'cobblestone 16', 'torch 8']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(2000);
+    const r = await run('prospect', { item: 'coal', direction: 'east', maxBlocks: 12 });
+    logger.info({ r, at: body.bot.entity.position.toString() }, 'wet prospect');
+    expect(body.bot.entity.position.x).toBeGreaterThan(x + 8);
+    for (let dx = 5; dx <= 7; dx++) for (const dy of [17, 18]) expect(body.bot.blockAt(new Vec3(x + dx, dy, 1))?.name).not.toBe('water');
+  }, 180_000);
+
+  it('stone under a pond close by and dry stone a little farther: it mines the dry stone, as a player would', async () => {
+    const x = 6400;
+    await at(x, 0);
+    // A pond two blocks off: stone at its bottom under three of water. Dry stone eight blocks off.
+    await server.cmd(`fill ${x + 2} ${Y - 4} 0 ${x + 3} ${Y - 4} 1 stone`);
+    await server.cmd(`fill ${x + 2} ${Y - 3} 0 ${x + 3} ${Y - 1} 1 water`);
+    await server.cmd(`fill ${x + 8} ${Y} 0 ${x + 8} ${Y + 1} 1 stone`);
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(2000);
+    const r = await run('mine', { block: 'stone', qty: 2 });
+    logger.info({ r }, 'dry stone');
+    expect(r.ok).toBe(true);
+    for (let dx = 2; dx <= 3; dx++) for (let z = 0; z <= 1; z++) expect(body.bot.blockAt(new Vec3(x + dx, Y - 4, z))?.name).toBe('stone');
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

@@ -101,6 +101,13 @@ export interface AgentOptions {
   now?: () => number;
 }
 
+/** What getting out of a hazard was, as one remembers it. */
+const HAZARD_OVER: Readonly<Record<string, string>> = {
+  water: 'came up for air: my head had been under water too long, where I was going',
+  lava: 'got out of the lava',
+  fire: 'got out of the fire',
+};
+
 export class Agent {
   readonly store: AgentStateStore;
   readonly bus = new AgentBus();
@@ -672,7 +679,16 @@ export class Agent {
       onDangerCleared: (summary) => {
         this.store.update('flags', (f) => ({ ...f, inDanger: false, busySpeech: null, busyLevel: this.executor.busy ? 'working' : 'idle' }), 'danger cleared');
         const who = this.dangerIsPerson ? this.dangerSource : `${/^[aeiou]/i.test(this.dangerSource) ? 'an' : 'a'} ${this.dangerSource}`;
-        const what = summary === 'fight over' ? `fought off ${who}` : summary === 'got away' ? `got away from ${who}` : `escaped ${this.dangerSource}`;
+        // A hazard says what it was: told only "I escaped water", an agent pulled out of a pond ten times running took
+        // the creepers it had seen for what kept stopping it.
+        const what =
+          summary === 'fight over'
+            ? `fought off ${who}`
+            : summary === 'got away'
+              ? `got away from ${who}`
+              : summary === 'closed the hole over'
+                ? `closed the hole I was in over, against ${who} at its mouth`
+                : (HAZARD_OVER[this.dangerSource] ?? `escaped ${this.dangerSource}`);
         pushWorkmem(this.store, `I ${what}`, 0.6, 'self_observed', { now: now() });
         this.bus.emit({ type: 'dangerCleared' });
       },

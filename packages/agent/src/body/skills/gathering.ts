@@ -68,6 +68,15 @@ export function lavaBeside(bot: Bot, p: Vec3): boolean {
   return false;
 }
 
+/** Under water, or with water beside it: got at by swimming down to it, the head under. */
+function wet(bot: Bot, p: Vec3): boolean {
+  for (const [dx, dy, dz] of LAVA_AROUND) if (bot.blockAt(p.offset(dx, dy, dz))?.name === 'water') return true;
+  return false;
+}
+/** A wet block counts as this many blocks farther off: a player mines dry stone before diving for it (one, after
+ * stone under a pond, was pulled out of the water by its own swim reflex ten times running). */
+const WET_COST = 16;
+
 /** The cheapest common tool that harvests the block, e.g. stone_pickaxe for iron_ore. */
 export function toolNameFor(bot: Bot, block: Block): string {
   const tools = (block as unknown as { harvestTools?: Record<string, boolean> }).harvestTools ?? {};
@@ -199,12 +208,8 @@ async function collectUntil(
       await walkOutFrom(ctx, home);
       continue;
     }
-    const candidates = outside
-      .sort(
-        (a, b) =>
-          a.position.distanceTo(bot.entity.position) + Math.max(0, a.position.y - feetY - 2) * 4 -
-          (b.position.distanceTo(bot.entity.position) + Math.max(0, b.position.y - feetY - 2) * 4),
-      );
+    const cost = (b: Block) => b.position.distanceTo(bot.entity.position) + Math.max(0, b.position.y - feetY - 2) * 4 + (wet(bot, b.position) ? WET_COST : 0);
+    const candidates = outside.sort((a, b) => cost(a) - cost(b));
     if (candidates.length === 0) {
       const got = countItem(bot, matcher) - start;
       return {
