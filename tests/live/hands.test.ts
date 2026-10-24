@@ -268,6 +268,42 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     for (let dx = 2; dx <= 3; dx++) for (let z = 0; z <= 1; z++) expect(body.bot.blockAt(new Vec3(x + dx, Y - 4, z))?.name).toBe('stone');
   }, 120_000);
 
+  it('what a craft left in the 2x2 grid is given back first (coal left there made every craft after come out as nothing)', async () => {
+    const x = 6500;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:coal 2');
+    await server.cmd('give Ada minecraft:oak_log 2');
+    await sleep(1500);
+    const coal = body.bot.inventory.items().find((i) => i.name === 'coal');
+    if (!coal) throw new Error('no coal given');
+    await body.bot.clickWindow(coal.slot, 0, 0);
+    await body.bot.clickWindow(1, 0, 0);
+    await sleep(500);
+    expect(body.bot.inventory.slots[1]?.name).toBe('coal');
+    const r = await run('craft', { item: 'oak_planks', qty: 8 });
+    logger.info({ r }, 'grid cleared');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'oak_planks')).toBe(8);
+    expect(countItem(body.bot, 'coal')).toBe(2);
+  }, 120_000);
+
+  it('walks in through a door and shuts it behind (two agents sat "sealed in" outside a hut whose door was left open)', async () => {
+    const x = 6700;
+    await at(x, 0);
+    // A room of planks with a door in its west wall; the agent outside it.
+    await server.cmd(`fill ${x + 2} ${Y - 1} -2 ${x + 6} ${Y + 2} 2 oak_planks hollow`);
+    await server.cmd(`setblock ${x + 2} ${Y} 0 oak_door[facing=east,half=lower]`);
+    await server.cmd(`setblock ${x + 2} ${Y + 1} 0 oak_door[facing=east,half=upper]`);
+    await sleep(1500);
+    const r = await run('goTo', { x: x + 4, y: Y, z: 0, range: 0 });
+    await sleep(1500);
+    const door = body.bot.blockAt(new Vec3(x + 2, Y, 0));
+    logger.info({ r, at: body.bot.entity.position.toString(), door: door?.name, open: door?.getProperties?.().open }, 'through a door');
+    expect(body.bot.entity.position.x).toBeGreaterThan(x + 3);
+    expect(door?.name).toBe('oak_door');
+    expect(door?.getProperties?.().open).toBe(false);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

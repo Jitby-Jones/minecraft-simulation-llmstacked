@@ -255,7 +255,9 @@ export const shelter = defineSkill({
   name: 'shelter',
   description:
     'shelter {untilMorning?, untilHealed?} — dig into the ground and seal the top; with untilMorning, wait for day and climb out; with untilHealed, lie low until the health is back',
-  argsSchema: z.object({ untilMorning: z.coerce.boolean().default(true), untilHealed: z.coerce.boolean().default(false) }),
+  // Until morning unless asked to lie low until healed: asked that by day (at 4 health), it said "it is already day"
+  // and was out mining again at once.
+  argsSchema: z.object({ untilMorning: z.coerce.boolean().optional(), untilHealed: z.coerce.boolean().default(false) }).transform((a) => ({ ...a, untilMorning: a.untilMorning ?? !a.untilHealed })),
   talkOverable: false,
   slipKinds: [],
   expect: (args) => (args.untilMorning ? { kind: 'awakeAfterNight' } : { kind: 'none' }),
@@ -263,7 +265,7 @@ export const shelter = defineSkill({
     const { bot } = ctx;
     stopMotion(bot);
     // Re-run in the morning (e.g. after a reflex interrupted the climb): just get out.
-    if (args.untilMorning && isDaytime(bot)) {
+    if (args.untilMorning && !args.untilHealed && isDaytime(bot)) {
       return wallsAround(bot) ? climbOut(ctx) : { ok: true, observed: 'it is already day' };
     }
     try {

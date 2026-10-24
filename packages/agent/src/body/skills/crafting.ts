@@ -131,6 +131,22 @@ export function pocketPlan(bot: Bot, needs: readonly Missing[], table: boolean, 
   return steps;
 }
 
+/** The player's own 2×2 crafting grid (slots 1 to 4 of the inventory window; 0 is what comes out). */
+const GRID = [1, 2, 3, 4] as const;
+
+/**
+ * What a craft the server didn't finish left in the 2×2 grid, given back first: closing one's inventory screen hands
+ * them back, as a player knows, and a body never closes its own. Left there, a torch's coal and stick made every craft
+ * after it come out as nothing (an agent's planks were refused eight times running).
+ */
+export async function clearGrid(ctx: SkillContext): Promise<void> {
+  const { bot } = ctx;
+  if (!GRID.some((i) => bot.inventory.slots[i])) return;
+  ctx.logger.info({ module: 'skill', grid: GRID.map((i) => bot.inventory.slots[i]?.name ?? '-') }, 'things left in the crafting grid; giving them back');
+  (bot as unknown as { _client: { write(name: string, data: unknown): void } })._client.write('close_window', { windowId: 0 });
+  for (let t = 0; t < 10 && GRID.some((i) => bot.inventory.slots[i]); t++) await waitMs(ctx, 100);
+}
+
 /** Makes what `pocketPlan` found; what was made, in words, or null if the server would not have it. */
 async function craftFromPockets(ctx: SkillContext, plan: readonly PocketCraft[], table: Block | null): Promise<string | null> {
   const { bot } = ctx;
@@ -139,6 +155,7 @@ async function craftFromPockets(ctx: SkillContext, plan: readonly PocketCraft[],
     throwIfAborted(ctx.signal);
     const before = countItem(bot, step.name);
     const want = step.times * step.recipe.result.count;
+    if (!step.recipe.requiresTable) await clearGrid(ctx);
     await abortable(ctx.signal, bot.craft(step.recipe as never, step.times, step.recipe.requiresTable ? (table ?? undefined) : undefined), () => undefined);
     const deadline = Date.now() + 1500;
     while (countItem(bot, step.name) - before < want && Date.now() < deadline) await waitMs(ctx, 100);
@@ -250,6 +267,7 @@ export const craft = defineSkill({
       // returned ingredients, not an error.
       for (let attempt = 0; attempt < 2; attempt++) {
         throwIfAborted(ctx.signal);
+        if (!table) await clearGrid(ctx);
         await abortable(ctx.signal, bot.craft(recipe as never, times, table ?? undefined), () => undefined);
         const deadline = Date.now() + 1500;
         while (countItem(bot, name) - before < want && Date.now() < deadline) await waitMs(ctx, 100);

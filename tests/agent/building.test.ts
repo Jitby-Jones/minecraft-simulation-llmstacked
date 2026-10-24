@@ -563,3 +563,12 @@ describe("a building's needs said as kinds where any will do (one told \"1 red b
     expect(needLabel('crafting_table')).toBe('crafting table');
   });
 });
+
+describe('shelter: until healed by day, until morning otherwise (asked to heal at 4 health, it said "it is already day")', () => {
+  it('untilMorning is the default only when lying low until healed was not asked for', async () => {
+    const { shelter } = await import('@agora/agent/body/skills/building');
+    expect(shelter.parseArgs({})).toEqual({ ok: true, args: { untilMorning: true, untilHealed: false } });
+    expect(shelter.parseArgs({ untilHealed: true })).toEqual({ ok: true, args: { untilMorning: false, untilHealed: true } });
+    expect(shelter.parseArgs({ untilMorning: true, untilHealed: true })).toEqual({ ok: true, args: { untilMorning: true, untilHealed: true } });
+  });
+});

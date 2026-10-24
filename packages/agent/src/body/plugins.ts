@@ -8,6 +8,7 @@ import { plugin as pvpPlugin } from 'mineflayer-pvp';
 import { plugin as collectBlockPlugin } from 'mineflayer-collectblock';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
+import type { Vec3 } from 'vec3';
 import { type PathCostRule, pathCostRules } from './quirks';
 
 const { pathfinder, Movements, goals } = pathfinderPkg;
@@ -82,6 +83,58 @@ function blockLight(block: Block, timeOfDay: number): number {
 /** At this much health or less, a walk is a careful one. */
 const CAREFUL_AT = 10;
 
+/** What a walk opens to go through and shuts again behind it: wooden doors and gates (an iron door takes a button). */
+const OPENS = /^(?!iron_)[a-z_]+_(door|fence_gate)$/;
+/** A wooden door (an iron one takes a button or a lever). */
+const DOOR = /^(?!iron_)[a-z_]+_door$/;
+
+/**
+ * Doors as a player goes through them: a shut wooden door on the way is opened on reaching it, and a door or gate a
+ * walk opened is shut again once through. The pathfinder opens only gates, and leaves them open; a hut with its door
+ * left open is no shelter (two agents sat "sealed in" while the zombies walked in), and a pen with its gate open keeps
+ * no cows.
+ */
+export function doorsAsPlayers(bot: Bot): void {
+  const opened = new Map<string, Vec3>();
+  const lower = (b: Block) => (String(b.getProperties?.().half ?? 'lower') === 'upper' ? b.position.offset(0, -1, 0) : b.position);
+  bot.on('blockUpdate', (old: Block | null, now: Block | null) => {
+    if (!old || !now || !OPENS.test(now.name) || !bot.pathfinder?.isMoving()) return;
+    if (old.getProperties?.().open !== false || now.getProperties?.().open !== true) return;
+    if (now.position.distanceTo(bot.entity.position) > 3) return;
+    const p = lower(now);
+    opened.set(`${p.x},${p.y},${p.z}`, p);
+  });
+  let opening = false;
+  const watch = setInterval(() => {
+    // A shut door at hand while walking: opened, as one does going through.
+    if (bot.pathfinder?.isMoving() && !opening && bot.entity) {
+      const feet = bot.entity.position.floored();
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]] as const) {
+        const b = bot.blockAt(feet.offset(dx, 0, dz));
+        if (!b || !DOOR.test(b.name) || b.getProperties?.().open !== false) continue;
+        if (b.position.offset(0.5, 0, 0.5).distanceTo(bot.entity.position) > 1.6) continue;
+        opening = true;
+        void bot.activateBlock(b).catch(() => undefined).finally(() => (opening = false));
+        break;
+      }
+    }
+    for (const [k, p] of opened) {
+      const b = bot.blockAt(p);
+      if (!b || !OPENS.test(b.name) || b.getProperties?.().open !== true) {
+        opened.delete(k);
+        continue;
+      }
+      const d = bot.entity.position.distanceTo(p.offset(0.5, 0, 0.5));
+      // Still in the doorway, or gone on out of reach of it.
+      if (d < 1.8) continue;
+      opened.delete(k);
+      if (d <= 4) void bot.activateBlock(b).catch(() => undefined);
+    }
+  }, 300);
+  watch.unref();
+  bot.once('end', () => clearInterval(watch));
+}
+
 /** What each body has put down itself ("x,y,z"): a walk goes round it rather than through it. */
 const OWN = new WeakMap<Bot, ReadonlySet<string>>();
 /** Digging through a block one put down oneself, on a walk, costs as much as this many blocks more of walking. */
@@ -130,8 +183,16 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
   m.canOpenDoors = true;
   const getBlock = m.getBlock.bind(m);
   m.getBlock = (pos: Parameters<typeof getBlock>[0], dx: number, dy: number, dz: number) => {
-    const b = getBlock(pos, dx, dy, dz) as ReturnType<typeof getBlock> & { openable?: boolean; shapes?: unknown[]; safe?: boolean; physical?: boolean };
+    const b = getBlock(pos, dx, dy, dz) as ReturnType<typeof getBlock> & { openable?: boolean; shapes?: unknown[]; safe?: boolean; physical?: boolean; name?: string };
     if (b.openable && Array.isArray(b.shapes) && b.shapes.length === 0) {
+      b.safe = true;
+      b.physical = false;
+    }
+    // A wooden door is a way through, shut or open: the body opens it on reaching it (`doorsAsPlayers`). To the
+    // pathfinder a shut door was a wall (two agents could not walk into their own hut, and stood at its door opening
+    // and shutting it).
+    if (b.name && DOOR.test(b.name)) {
+      b.openable = false;
       b.safe = true;
       b.physical = false;
     }

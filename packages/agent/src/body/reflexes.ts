@@ -95,6 +95,17 @@ const PERCH_MS = 5000;
 const PERCH_START = 4;
 /** How high the pillar goes: out of reach with a block to spare. */
 const PERCH_HEIGHT = 3;
+/** The eight columns about one's own. */
+const AROUND = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+] as const;
 /** In the water this long with nothing to do: out to the nearest shore. */
 const ASHORE_AFTER_MS = 8000;
 /** Swimming for a shore this long without getting out: another look for one. */
@@ -794,6 +805,9 @@ export class ReflexController {
     if (threats.some((t) => t.position.y > base.y + 0.5)) return false;
     if (threats.some((t) => Math.hypot(t.position.x - me.x, t.position.z - me.z) < PERCH_START)) return false;
     for (let dy = 2; dy <= PERCH_HEIGHT + 1; dy++) if (!isAirLike(bot.blockAt(base.offset(0, dy, 0)))) return false;
+    // Open ground about it: something to stand on beside the pillar's top is a way to reach across (one pillared on a
+    // hillside, its top no higher than the ground a step uphill, and the zombies hit it from there).
+    for (const [dx, dz] of AROUND) for (let dy = 1; dy <= PERCH_HEIGHT; dy++) if (isSolid(bot.blockAt(base.offset(dx, dy, dz)))) return false;
     return isSolid(bot.blockAt(base.offset(0, -1, 0)));
   }
 
@@ -817,8 +831,9 @@ export class ReflexController {
       }
       bot.pathfinder.setGoal(null);
       bot.clearControlStates();
-      // A run's way on carries the jump off the block being placed: a moment to stand still first.
-      await new Promise((r) => setTimeout(r, 150));
+      // A run's way on carries the jump off the block being placed (one sprinting climbed its pillar a block and a
+      // half from where it began, onto the hillside): standing still first.
+      for (let t = 0; t < 16 && Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) > 0.03; t++) await new Promise((r) => setTimeout(r, 25));
       for (let tries = 0; tries < PERCH_HEIGHT + 2 && bot.entity.position.y - base.y < PERCH_HEIGHT - 0.01; tries++) {
         const item = block();
         if (!item) break;

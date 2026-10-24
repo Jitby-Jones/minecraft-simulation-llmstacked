@@ -926,13 +926,16 @@ export async function buildDesign(
   const where = `${site.origin.x},${site.origin.y},${site.origin.z}`;
   // A door missing says where it goes: one put in somewhere else leaves the doorway open.
   const doorway = project.door ? ` for its doorway at ${project.door.x},${project.door.y},${project.door.z}` : '';
+  // And where its room is, through the door: two agents "sealed in" stood outside it, opening and shutting the door.
+  const inside = placed.entrance ? placed.entrance.pos.minus(new Vec3(facingVec(placed.entrance.out).x, 0, facingVec(placed.entrance.out).z)) : null;
+  const room = inside ? `; its room inside is at ${inside.x},${inside.y},${inside.z}, through the door` : '';
   const lacking = Object.entries(report.missing)
     .sort((x, y) => y[1] - x[1])
     .slice(0, 6)
     .map(([item, n]) => `${n} ${needLabel(item)}${item.endsWith('_door') ? doorway : ''}`)
     .join(', ');
   const data = { design: b.id, origin: project.origin, turn: site.turn, placed: inPlace, total, missing: report.missing, ...(project.door ? { door: project.door } : {}) };
-  if (done) return { ok: true, observed: `built the ${b.name} at ${where}${placed.entrance ? `, its door facing ${placed.entrance.out}` : ''} (${total} blocks)`, data };
+  if (done) return { ok: true, observed: `built the ${b.name} at ${where}${placed.entrance ? `, its door facing ${placed.entrance.out}` : ''} (${total} blocks)${room}`, data };
   const why = lacking ? `still need ${lacking}` : report.stoppedFor ? report.stoppedFor : report.doorsFailed > 0 ? 'its door would not go in' : `${report.failed} blocks would not go in`;
-  return { ok: false, observed: `put up ${inPlace} of the ${total} blocks of the ${b.name} at ${where}`, error: `the ${b.name} is not finished: ${why}`, data };
+  return { ok: false, observed: `put up ${inPlace} of the ${total} blocks of the ${b.name} at ${where}${room}`, error: `the ${b.name} is not finished: ${why}`, data };
 }

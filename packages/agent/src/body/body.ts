@@ -7,7 +7,7 @@ import type { Movements } from 'mineflayer-pathfinder';
 import type { Vec3 } from 'vec3';
 import { type BodyOptions, connectBody, disconnectBody } from './bot';
 import { ChatOut, type ChatOutOptions } from './chatOut';
-import { carefulWhenHurt, createMovements, loadBodyPlugins, ownBlocks } from './plugins';
+import { carefulWhenHurt, createMovements, doorsAsPlayers, loadBodyPlugins, ownBlocks } from './plugins';
 import { ReflexController, type ReflexHooks, type ReflexOptions } from './reflexes';
 import { completeDyeing } from './recipes';
 import { getSkill } from './skills/registry';
@@ -99,6 +99,7 @@ export class Body {
     completeDyeing(bot.registry as never);
     const body = new Body(bot, cfg.logger, cfg, { ...DEFAULT_REFLEX_HOOKS, ...hooks });
     ownBlocks(bot, body.placed);
+    doorsAsPlayers(bot);
     body.home = bot.entity.position.clone();
     // Every confirmed placement (skills and the pathfinder's scaffolding alike) comes through here.
     (bot as unknown as { on(ev: 'blockPlaced', f: (old: unknown, placed: { position: Vec3 }) => void): void }).on('blockPlaced', (_old, placed) => body.notePlaced(placed.position));
