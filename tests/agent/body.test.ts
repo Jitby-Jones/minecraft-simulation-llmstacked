@@ -704,6 +704,29 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(r.shouldFlee([near])).toBe(true);
   });
 
+  it('a fight is kept on record (whom, how long, health, weapon, swings and blows that landed) for a death to show', () => {
+    const r = rig('stone_sword') as unknown as {
+      bot: { pvp?: unknown; heldItem?: unknown; clearControlStates?: () => void; pathfinder?: unknown };
+      hooks: Record<string, unknown>;
+      fight(t: unknown, k: string): void;
+      onSwing(): void;
+      onEntityHurt(e: unknown): void;
+      clear(s: string): void;
+      fightRecord(): Record<string, unknown> | null;
+    };
+    const near = { id: 3, type: 'hostile', name: 'zombie', position: new Vec3(2, 64, 0), height: 1.95 };
+    Object.assign(r.bot, { pvp: { target: undefined, attack: () => undefined, forceStop: () => undefined }, pathfinder: { setGoal: () => undefined }, clearControlStates: () => undefined });
+    Object.assign(r.hooks, { onDanger: () => undefined, onDangerCleared: () => undefined });
+    expect(r.fightRecord()).toBeNull();
+    r.fight(near, 'fight');
+    r.onSwing();
+    r.onSwing();
+    r.onEntityHurt(near);
+    expect(r.fightRecord()).toMatchObject({ foe: 'zombie', swings: 2, landed: 1, closest: 2, ended: 'under way' });
+    r.clear('fight over');
+    expect(r.fightRecord()).toMatchObject({ foe: 'zombie', swings: 2, landed: 1, ended: 'fight over', health: '20 to 20' });
+  });
+
   it("running that isn't working turns into a fight: still caught, or going nowhere, with it close", () => {
     const r = rig('stone_sword') as unknown as { mode: string; fleeHits: number[]; fleeSince: number; fleeStillSince: number | null; cornered(now: number, t: unknown[]): boolean };
     const spider = { id: 5, type: 'hostile', name: 'spider', position: new Vec3(2, 64, 0), height: 0.9 };

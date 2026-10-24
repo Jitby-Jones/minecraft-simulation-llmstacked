@@ -25,6 +25,18 @@ const { goals } = pathfinderPkg;
 
 export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim';
 
+/** One fight, as it goes (ReflexController.bout). */
+interface Bout {
+  foe: string;
+  id: number;
+  since: number;
+  health: number;
+  weapon: string;
+  swings: number;
+  landed: number;
+  closest: number;
+}
+
 /** Mobs that shoot (fleeing across open ground from them only gives them a target). */
 const ARCHERS = new Set(['skeleton', 'stray', 'bogged', 'pillager']);
 /** A mob that shoots is a threat this far off, once it can see us: its range, not arm's length. */
@@ -171,6 +183,10 @@ export class ReflexController {
   private standUntil = 0;
   /** Where we stood lately, on the ground, a couple of blocks apart. */
   private trail: Vec3[] = [];
+  /** The fight under way, for the record: whom, from what health, the swings made and the blows that landed. */
+  private bout: Bout | null = null;
+  /** The last fight, as recorded when it ended. */
+  private lastBout: Record<string, unknown> | null = null;
   readonly swings: SwingTracker;
 
   constructor(
@@ -208,6 +224,8 @@ export class ReflexController {
     this.bot.on('entityHurt', this.onEntityHurt);
     this.bot.on('path_reset', this.onPathReset);
     this.bot.on('playerCollect', this.onCollect);
+    // mineflayer-pvp's own event, once for each swing it makes.
+    (this.bot as unknown as NodeJS.EventEmitter).on('attackedTarget', this.onSwing);
     this.timer = setInterval(() => {
       void this.tick().catch((err: unknown) => this.logger.warn({ module: 'reflex', err: String(err) }, 'reflex tick failed'));
     }, this.opts.tickMs ?? 250);
@@ -220,6 +238,35 @@ export class ReflexController {
     this.bot.off('entityHurt', this.onEntityHurt);
     this.bot.off('path_reset', this.onPathReset);
     this.bot.off('playerCollect', this.onCollect);
+    (this.bot as unknown as NodeJS.EventEmitter).off('attackedTarget', this.onSwing);
+  }
+
+  private readonly onSwing = (): void => {
+    if (this.bout) this.bout.swings++;
+  };
+
+  /** The fight under way, or else the last one, as a record: for a death's post-mortem. */
+  fightRecord(): Record<string, unknown> | null {
+    return this.bout ? { ...this.describeBout(this.bout), ended: 'under way' } : this.lastBout;
+  }
+
+  private describeBout(b: Bout): Record<string, unknown> {
+    return {
+      foe: b.foe,
+      seconds: Math.round((Date.now() - b.since) / 100) / 10,
+      health: `${Math.round(b.health)} to ${Math.round(this.bot.health)}`,
+      weapon: b.weapon,
+      swings: b.swings,
+      landed: b.landed,
+      closest: Math.round(b.closest * 10) / 10,
+    };
+  }
+
+  private endBout(ended: string): void {
+    if (!this.bout) return;
+    this.lastBout = { ...this.describeBout(this.bout), ended };
+    this.bout = null;
+    this.logger.info({ module: 'reflex', ...this.lastBout }, 'a fight');
   }
 
   /**
@@ -254,6 +301,7 @@ export class ReflexController {
   };
 
   private readonly onEntityHurt = (e: Entity): void => {
+    if (this.bout && e.id === this.bout.id) this.bout.landed++;
     // A mob that was after us (or that we are fighting), hit by someone else: they helped us fight (§6.3 deed).
     const fighting = this.mode === 'fight' ? pvp(this.bot).target : undefined;
     if (!isPlayer(e) && (this.recentAttackers.has(e.id) || fighting?.id === e.id)) {
@@ -537,6 +585,7 @@ export class ReflexController {
 
   private clear(summary: string): void {
     if (this.mode === 'idle') return;
+    this.endBout(summary);
     try {
       pvp(this.bot).forceStop();
     } catch {
@@ -561,12 +610,17 @@ export class ReflexController {
     if (p.target?.id === target.id && this.mode === 'fight') return;
     this.mode = 'fight';
     this.announce(kind, target.name === 'player' ? 'attacker' : (target.name ?? 'mob'), target);
+    if (this.bout?.id !== target.id) {
+      this.endBout('another foe');
+      this.bout = { foe: entityLabel(target), id: target.id, since: Date.now(), health: this.bot.health, weapon: 'hand', swings: 0, landed: 0, closest: target.position.distanceTo(this.bot.entity.position) };
+    }
     // Reaction jitter: 400 ms × (1 − combat) + 50 ms (§21.3).
     const delay = 400 * (1 - this.hooks.combat()) + 50;
     setTimeout(() => {
       void equipBestWeapon(this.bot)
         .catch(() => null)
         .then(() => {
+          if (this.bout?.id === target.id) this.bout.weapon = this.bot.heldItem?.name ?? 'hand';
           if (this.mode === 'fight') p.attack(target);
         });
     }, delay);
@@ -896,6 +950,8 @@ export class ReflexController {
       else {
         const target = this.pickTarget(threats);
         if (target) this.fight(target, 'fight');
+        const foeNow = pvp(bot).target;
+        if (this.bout && foeNow?.id === this.bout.id) this.bout.closest = Math.min(this.bout.closest, foeNow.position.distanceTo(bot.entity.position));
       }
       return;
     }

@@ -930,7 +930,8 @@ export class Agent {
     const t = Date.now();
     const near = this.store.state.perception.nearbyEntities.filter((e) => e.kind === 'hostile' && e.distance <= 24).map((e) => `${e.name} ${Math.round(e.distance)} m`);
     const moments = this.lastMoments.map((m) => `${Math.round((m.t - t) / 100) / 10}s ${m.x},${m.y},${m.z} hp${m.hp}`);
-    this.o.logger.info({ module: 'agent', near, moments, where: this.store.state.scene.where }, 'died: every activity stopped');
+    const fight = this.o.body.reflexes.fightRecord();
+    this.o.logger.info({ module: 'agent', near, moments, where: this.store.state.scene.where, ...(fight ? { fight } : {}) }, 'died: every activity stopped');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
