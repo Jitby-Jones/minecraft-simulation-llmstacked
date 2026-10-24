@@ -527,8 +527,9 @@ export class ReflexController {
         const tool = bot.pathfinder.bestHarvestTool(b);
         if (tool && bot.heldItem?.name !== tool.name) await bot.equip(tool, 'hand').catch(() => undefined);
         await bot.dig(b, true).catch(() => undefined);
-        // Again: more may have come down, and there are the feet.
-        continue;
+        // More of it over us, coming down: out from under it now, before it lands (dug block by block as each came
+        // down, a column of gravel took one from 13 health to none). Else again: more may have come, and the feet.
+        if (!(head && FALLS.test(bot.blockAt(head.position.offset(0, 1, 0))?.name ?? '') && this.wholeBlockAt(0.2) === null)) continue;
       }
       // Head and feet clear: out from under it.
       const aside = this.openBeside();

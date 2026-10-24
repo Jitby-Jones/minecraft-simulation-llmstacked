@@ -88,12 +88,25 @@ async function plug(ctx: SkillContext, ref: Vec3, face: Vec3): Promise<boolean> 
   return isSolid(bot.blockAt(ref.plus(face)));
 }
 
-/** Clears one block (and whatever gravel or sand falls into it). Returns what was there first (null: nothing). */
+/** What comes down when nothing holds it up. */
+const FALLS = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|\w+_concrete_powder)$/;
+
+/** Something that falls is over the cell, still a block or on its way down into it. */
+function comingDown(bot: Bot, p: Vec3): boolean {
+  if (FALLS.test(bot.blockAt(p.offset(0, 1, 0))?.name ?? '')) return true;
+  return Object.values(bot.entities).some((e) => e.name === 'falling_block' && Math.abs(e.position.x - (p.x + 0.5)) < 1 && Math.abs(e.position.z - (p.z + 0.5)) < 1 && e.position.y >= p.y && e.position.y < p.y + 12);
+}
+
+/**
+ * Clears one block (and whatever gravel or sand falls into it). Clear means clear, with nothing coming down into it:
+ * read as air a moment after the dig, gravel on its way down was not yet a block, and an agent stepped in under the
+ * column and suffocated. Returns what was there first (null: nothing).
+ */
 async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
   const { bot } = ctx;
   let first: string | null = null;
   let plugs = 0;
-  for (let i = 0; i < 6 + PLUGS_PER_DIG; i++) {
+  for (let i = 0; i < 16 + PLUGS_PER_DIG; i++) {
     throwIfAborted(ctx.signal);
     const b = bot.blockAt(p);
     if (!b) throw new Blocked('the ground ahead is not loaded');
@@ -102,7 +115,12 @@ async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
       if (plugs++ >= PLUGS_PER_DIG || !(await plug(ctx, p.offset(0, -1, 0), new Vec3(0, 1, 0)))) throw new Blocked(`${b.name} ahead`);
       continue;
     }
-    if (isAirLike(b)) return first;
+    if (isAirLike(b)) {
+      if (!comingDown(bot, p)) return first;
+      // Let it come down, then dig it.
+      await waitMs(ctx, 350);
+      continue;
+    }
     first ??= b.name;
     if (b.name === 'bedrock' || b.hardness === null || b.hardness < 0) throw new Blocked(`${b.name} ahead`);
     // Water or lava beside it would pour in once it's dug: walled off first, each from the block itself.

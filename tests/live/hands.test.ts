@@ -315,6 +315,27 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     for (let dx = 5; dx <= 7; dx++) for (const dy of [17, 18]) expect(body.bot.blockAt(new Vec3(x + dx, dy, 1))?.name).not.toBe('water');
   }, 180_000);
 
+  it('prospecting under a bed of gravel: what comes down is let come down and dug, never stepped in under, and it is unhurt', async () => {
+    const x = 6300;
+    const y = 20;
+    await at(x, 0);
+    // A pocket in the stone to start from, and gravel seven deep over the way the tunnel will go.
+    await server.cmd(`forceload add ${x - 8} -8 ${x + 24} 8`);
+    await server.cmd(`fill ${x} ${y} 0 ${x} ${y + 1} 0 air`);
+    await server.cmd(`fill ${x + 1} ${y + 2} -1 ${x + 10} ${y + 8} 1 gravel`);
+    await server.cmd(`tp Ada ${x}.5 ${y} 0.5`);
+    await server.cmd('effect give Ada minecraft:instant_health 1 3');
+    for (const g of ['stone_pickaxe 1', 'stone_shovel 1', 'cobblestone 16', 'torch 8']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(2000);
+    const r = await run('prospect', { item: 'diamond_ore', direction: 'east', maxBlocks: 8 });
+    logger.info({ r, at: body.bot.entity.position.toString(), health: body.bot.health }, 'gravel prospect');
+    expect(body.bot.health).toBeGreaterThanOrEqual(18);
+    const head = body.bot.blockAt(body.bot.entity.position.offset(0, 1.62, 0));
+    expect(head?.name).not.toBe('gravel');
+    // Through it, not turned back by it ("gravel keeps falling" after two blocks, before).
+    expect(body.bot.entity.position.x).toBeGreaterThan(x + 5);
+  }, 240_000);
+
   it('stone under a pond close by and dry stone a little farther: it mines the dry stone, as a player would', async () => {
     const x = 6400;
     await at(x, 0);
