@@ -396,6 +396,8 @@ describe('what it knows of the game, looked up for what matters', () => {
     expect(k.describe('leather')).toMatch(/cow, donkey, hoglin, horse drop it when killed/);
     expect(k.itemsIn('Obtain 12 diamonds and make an enchanting table')).toEqual(['diamond', 'enchanting_table']);
     expect(k.topics('secure a renewable source of food').join(' ')).toMatch(/Food that keeps coming/);
+    // Where ores are, as anyone who has mined knows (an agent dug 48 blocks at y 29 for iron, then wrote itself that iron is at -58).
+    expect(k.topics('mine iron for a full set of armor').join(' ')).toMatch(/iron in two bands, richest around y 16/);
   });
 
   it('what failed lately and what the tasks name come first', () => {
@@ -423,7 +425,8 @@ describe('what it knows of the game, looked up for what matters', () => {
     // Come the night, what the night means.
     const night = knowledgeLines(k, { ...st, self: { ...st.self, isDay: false, time: 14_000 }, scene: { ...st.scene, where: 'In plains, under the open sky' } });
     expect(night.some((l) => l.startsWith('Night: about 8 minutes of dark'))).toBe(true);
-    expect(lines.filter((l) => /^(Food that keeps coming|Animals|The Nether|Enchanting|Underground)/.test(l))).toHaveLength(3);
+    expect(lines.some((l) => l.startsWith('Ores by height'))).toBe(true);
+    expect(lines.filter((l) => /^(Ores by height|Food that keeps coming|Animals|The Nether|Enchanting|Underground)/.test(l))).toHaveLength(3);
   });
 });
 

@@ -103,6 +103,10 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
     text: 'Diamonds: deep down, most between y -64 and -54; strip or branch mining at around y -58 with tunnels a few blocks apart, or exploring deep caves, finds them; mind the lava there; it takes an iron pickaxe, and lots of torches help.',
   },
   {
+    about: /\b(iron|gold|copper|coal|redstone|lapis|emeralds?|ore|ores|prospect|prospecting)\b/i,
+    text: 'Ores by height (y; yours is the y of where you are): iron in two bands, richest around y 16, another high in mountains, and some at most heights below 72; coal at any height above 0, most high up and in cliffs; copper around y 48; gold below 32, most near -16 (and near the surface in badlands); redstone below 15, more toward the bottom; lapis around 0; emeralds only in mountains; below y 0 the stone is deepslate, slower to dig; a cave wall shows more ore in a minute than a tunnel dug blind.',
+  },
+  {
     about: /\b(diamonds?|iron|ore|ores|mine|mining|cave|caves|underground|dig|digging)\b/i,
     text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
   },
