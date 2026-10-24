@@ -259,6 +259,16 @@ describe('hunger said plainly (an agent starved with "food 3/20" in its packet)'
   });
 });
 
+describe('what one carries, as one sees it: a tool nearly worn out', () => {
+  it('says how much of it is left', () => {
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    const st = { ...s, self: { ...s.self, inventory: [{ item: 'iron_pickaxe', qty: 1, left: 0.08 }, { item: 'stone_pickaxe', qty: 1, left: 0.9 }] } };
+    const packet = buildPacket({ state: st, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
+    expect(packet).toContain('1 iron_pickaxe (nearly worn out: 8% left)');
+    expect(packet).toContain('1 stone_pickaxe.');
+  });
+});
+
 describe('how the body heals, said as a fact (a model at 1 health and food 10 waited to heal "on its own")', () => {
   const at = (health: number, food: number) => {
     const s = createInitialState({ persona, username: 'Pip', now: 0 });

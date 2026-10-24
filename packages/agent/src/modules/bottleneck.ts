@@ -8,6 +8,7 @@ import { describePlan } from './plan';
 import { describeChange, recentChanges } from '../perception/surroundings';
 import { bearingOf, describeScene } from '../perception/sceneWords';
 import { EDIBLE } from './villageMove';
+import { WORN } from '../body/inventory';
 
 export interface PacketInput {
   state: AgentState;
@@ -86,7 +87,7 @@ export function buildPacket(i: PacketInput): string {
     const backText = back ? `The portal home is at ${back.pos.x},${back.pos.y},${back.pos.z}, ${Math.round(Math.hypot(back.pos.x - self.pos.x, back.pos.z - self.pos.z))} m away (travel {to: overworld}).` : 'You know of no portal back.';
     out.push(`You are in ${world === 'the_nether' ? 'the Nether' : 'the End'}. ${backText}`);
   }
-  const inv = self.inventory.map((st) => `${st.qty} ${st.item}`).join(', ');
+  const inv = self.inventory.map((st) => `${st.qty} ${st.item}${st.left !== undefined && st.left < WORN ? ` (nearly worn out: ${Math.round(st.left * 100)}% left)` : ''}`).join(', ');
   out.push(`Carrying: ${inv || 'nothing'}${self.equipped ? ` (holding ${self.equipped})` : ''}${self.armor.length > 0 ? `; wearing ${self.armor.join(', ')}` : ''}.`);
   const hungerLine = hunger(s);
   if (hungerLine) out.push(hungerLine);

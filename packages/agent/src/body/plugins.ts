@@ -84,6 +84,18 @@ function blockLight(block: Block, timeOfDay: number): number {
  * `sprint`: sprinting is what makes one hungry (a food point every 40 blocks or so), so it is for running away and
  * fights; an agent sprinting everywhere starves by its first night.
  */
+/** At this much health or less, a walk is a careful one. */
+const CAREFUL_AT = 10;
+
+/**
+ * Hurt, one walks with care, as a player does: no jumps over gaps (a missed one is a fall; an agent at 8 health,
+ * crossing a dripstone cave, fell to its death). Set on each use, since health changes as one goes.
+ */
+export function carefulWhenHurt(bot: Bot, m: MovementsType): MovementsType {
+  m.allowParkour = bot.health > CAREFUL_AT;
+  return m;
+}
+
 export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: { sprint?: boolean } = {}): MovementsType {
   const m = new Movements(bot);
   m.allowParkour = true;

@@ -7,7 +7,7 @@ import type { Movements } from 'mineflayer-pathfinder';
 import type { Vec3 } from 'vec3';
 import { type BodyOptions, connectBody, disconnectBody } from './bot';
 import { ChatOut, type ChatOutOptions } from './chatOut';
-import { createMovements, loadBodyPlugins } from './plugins';
+import { carefulWhenHurt, createMovements, loadBodyPlugins } from './plugins';
 import { ReflexController, type ReflexHooks, type ReflexOptions } from './reflexes';
 import { getSkill } from './skills/registry';
 import { type SkillRunRecord, runSkill } from './skills/runner';
@@ -142,9 +142,9 @@ export class Body {
 
   /** A walk, or with `sprint` a run (running away: sprinting costs food). */
   movements(sprint = false): Movements {
-    if (sprint) return (this.cachedRun ??= createMovements(this.bot, this.quirks, { sprint: true }));
+    if (sprint) return carefulWhenHurt(this.bot, (this.cachedRun ??= createMovements(this.bot, this.quirks, { sprint: true })));
     this.cachedMovements ??= createMovements(this.bot, this.quirks);
-    return this.cachedMovements;
+    return carefulWhenHurt(this.bot, this.cachedMovements);
   }
 
   /** A skill by name (built-in or one of `extra`), or null. */

@@ -913,3 +913,31 @@ describe('under water with a roof over it (an agent drowned holding jump against
     expect(rig(2).airSpot()?.toArray()).toEqual([5, 65, 0]);
   });
 });
+
+describe('the wear on a tool, as its durability bar shows it (an iron pickaxe broke halfway to the diamonds)', () => {
+  it('the most worn of a kind, and a tool nearly worn out says so in the digest', async () => {
+    const { inventoryStacks } = await import('@agora/agent/body/inventory');
+    const items = [
+      { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 230 },
+      { name: 'stone_pickaxe', count: 1, maxDurability: 131, durabilityUsed: 10 },
+      { name: 'stone_pickaxe', count: 1, maxDurability: 131, durabilityUsed: 100 },
+      { name: 'cobblestone', count: 40 },
+    ];
+    const bot = { inventory: { items: () => items, slots: [] } } as never;
+    const stacks = inventoryStacks(bot);
+    expect(stacks.find((st) => st.item === 'iron_pickaxe')?.left).toBe(0.08);
+    expect(stacks.find((st) => st.item === 'stone_pickaxe')?.left).toBe(0.24);
+    expect(stacks.find((st) => st.item === 'cobblestone')?.left).toBeUndefined();
+    expect(inventoryDigest(stacks)).toBe('40 cobblestone, 2 stone_pickaxe, iron_pickaxe (worn)');
+  });
+});
+
+describe('hurt, a careful walk (one at 8 health fell to its death crossing a dripstone cave)', () => {
+  it('no jumps over gaps at half health or less', async () => {
+    const { carefulWhenHurt } = await import('@agora/agent/body/plugins');
+    const m = { allowParkour: true } as never as { allowParkour: boolean };
+    expect(carefulWhenHurt({ health: 20 } as never, m as never)).toMatchObject({ allowParkour: true });
+    expect(carefulWhenHurt({ health: 8 } as never, m as never)).toMatchObject({ allowParkour: false });
+    expect(carefulWhenHurt({ health: 15 } as never, m as never)).toMatchObject({ allowParkour: true });
+  });
+});

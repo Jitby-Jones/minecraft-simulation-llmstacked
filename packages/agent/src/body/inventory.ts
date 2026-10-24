@@ -44,14 +44,42 @@ export function describeDiff(diff: ReadonlyMap<string, number>): string {
 }
 
 export function inventoryStacks(bot: Bot): ItemStack[] {
-  return [...snapshotInventory(bot).entries()].map(([item, qty]) => ({ item, qty }));
+  const wear = toolWear(bot);
+  return [...snapshotInventory(bot).entries()].map(([item, qty]) => {
+    const left = wear.get(item);
+    return left === undefined ? { item, qty } : { item, qty, left };
+  });
 }
 
-/** One-line digest for the CC packet ("12 oak_log, 3 bread, iron_pickaxe"). */
+/** Below this much of its wear left, a tool is nearly worn out (a player sees the bar turn red). */
+export const WORN = 0.2;
+
+/**
+ * What a player sees of each tool's wear (its durability bar): how much is left, of the most worn of a kind. An
+ * agent's iron pickaxe broke halfway to its diamonds, with nothing to tell it that it was going.
+ */
+function toolWear(bot: Bot): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const it of bot.inventory.items()) {
+    const max = (it as unknown as { maxDurability?: number }).maxDurability;
+    let used: number | undefined;
+    try {
+      used = (it as unknown as { durabilityUsed?: number }).durabilityUsed;
+    } catch {
+      used = undefined;
+    }
+    if (!max || typeof used !== 'number') continue;
+    const left = Math.max(0, Math.round((1 - used / max) * 100) / 100);
+    out.set(it.name, Math.min(out.get(it.name) ?? 1, left));
+  }
+  return out;
+}
+
+/** One-line digest for the CC packet ("12 oak_log, 3 bread, iron_pickaxe"); a tool nearly worn out says so. */
 export function inventoryDigest(stacks: readonly ItemStack[], max = 10): string {
   if (stacks.length === 0) return 'empty';
   const sorted = [...stacks].sort((a, b) => b.qty - a.qty);
-  const shown = sorted.slice(0, max).map((s) => (s.qty > 1 ? `${s.qty} ${s.item}` : s.item));
+  const shown = sorted.slice(0, max).map((s) => `${s.qty > 1 ? `${s.qty} ${s.item}` : s.item}${s.left !== undefined && s.left < WORN ? ' (worn)' : ''}`);
   return sorted.length > max ? `${shown.join(', ')}, +${sorted.length - max} more` : shown.join(', ');
 }
 

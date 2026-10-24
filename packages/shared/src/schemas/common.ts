@@ -8,6 +8,8 @@ export const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number()
 export const ItemStackSchema = z.object({
   item: z.string().min(1),
   qty: z.number().int().positive(),
+  /** A tool's wear left, as its durability bar shows it (0..1; the most worn of the kind). */
+  left: z.number().min(0).max(1).optional(),
 });
 export type ItemStack = z.infer<typeof ItemStackSchema>;
 

@@ -17,7 +17,7 @@ import { reflexDelta } from './quirks';
 import { bestToHitWith, bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
-import { createMovements } from './plugins';
+import { carefulWhenHurt, createMovements } from './plugins';
 import { isCover, referenceFor } from './skills/building';
 import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isPlayer, isSolid, wallsAround } from './world';
 
@@ -700,7 +700,7 @@ export class ReflexController {
         this.running = createMovements(this.bot, this.hooks.quirks(), { sprint: true });
         this.running.canDig = false;
       }
-      this.bot.pathfinder.setMovements(this.running);
+      this.bot.pathfinder.setMovements(carefulWhenHurt(this.bot, this.running));
       this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);
       const person = threats.find((t) => isPlayer(t) && t.username);
       if (person?.username) this.hooks.onYield?.(person.username);
