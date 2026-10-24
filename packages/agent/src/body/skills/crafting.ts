@@ -281,22 +281,23 @@ export function fuelValue(name: string): number {
 }
 
 /**
- * The fuel to burn, never what is being cooked: coal and the like first, then planks before logs (a log makes four
- * planks, each burning as long as the log), then sticks.
+ * The fuel to burn for `need` items, never what is being cooked: coal and the like first, then planks before logs
+ * (a log makes four planks, each burning as long as the log), then sticks; the first of them we carry enough of for
+ * the whole batch, else whichever goes furthest (one plank put in for three raw iron cooked one of them).
  */
-export function pickFuel(bot: Bot, prefer?: string, cooking?: string): { name: string; perItem: number } | null {
+export function pickFuel(bot: Bot, prefer?: string, cooking?: string, need = 1): { name: string; perItem: number } | null {
   const items = bot.inventory.items().filter((i) => i.name !== cooking);
-  if (prefer && items.some((i) => i.name === prefer)) return { name: prefer, perItem: fuelValue(prefer) };
-  for (const f of FUELS) {
-    if (items.some((i) => i.name === f)) return { name: f, perItem: f === 'coal_block' ? 80 : f === 'blaze_rod' ? 12 : 8 };
-  }
-  const planks = items.find((i) => i.name.endsWith('_planks'));
-  if (planks) return { name: planks.name, perItem: 1.5 };
-  const log = items.find((i) => CATEGORIES.log?.(i.name));
-  if (log) return { name: log.name, perItem: 1.5 };
-  const stick = items.find((i) => i.name === 'stick');
-  if (stick) return { name: 'stick', perItem: 0.5 };
-  return null;
+  const has = (name: string) => items.some((i) => i.name === name);
+  const order = [
+    ...(prefer && has(prefer) ? [prefer] : []),
+    ...FUELS.filter(has),
+    ...items.filter((i) => i.name.endsWith('_planks')).map((i) => i.name),
+    ...items.filter((i) => CATEGORIES.log?.(i.name)).map((i) => i.name),
+    ...(has('stick') ? ['stick'] : []),
+  ];
+  const burns = (name: string) => countItem(bot, name) * fuelValue(name);
+  const pick = order.find((n) => burns(n) >= need) ?? [...new Set(order)].sort((a, b) => burns(b) - burns(a))[0];
+  return pick ? { name: pick, perItem: fuelValue(pick) } : null;
 }
 
 /**
@@ -312,7 +313,7 @@ export async function readyFurnace(bot: Bot, furnace: FurnaceApi, input: string,
   const inFuel = furnace.fuelItem();
   const burns = inFuel ? fuelValue(inFuel.name) * inFuel.count : 0;
   if (burns >= qty) return null;
-  const fuel = pickFuel(bot, inFuel?.name, input);
+  const fuel = pickFuel(bot, inFuel?.name, input, qty - burns);
   if (!fuel) return inFuel ? null : `need fuel (coal, planks, or logs other than the ${input.replace(/_/g, ' ')} being cooked)`;
   const fuelType = bot.registry.itemsByName[fuel.name]?.id;
   if (fuelType === undefined) return inFuel ? null : 'unknown fuel';

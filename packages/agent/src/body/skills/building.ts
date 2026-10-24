@@ -5,7 +5,7 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, wallsAround } from '../world';
+import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, sturdy, wallsAround } from '../world';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -18,13 +18,18 @@ const FACES = [
   new Vec3(0, 1, 0),
 ];
 
-/** A solid neighbor of `target` to place against, preferring the block below. */
-export function referenceFor(bot: Bot, target: Vec3): { ref: Block; face: Vec3 } | null {
+/**
+ * A solid neighbor of `target` to place against, preferring the block below. For what goes on a face (`item`: a
+ * torch, a sign), a sturdy one, and never the one above for what can't hang from a ceiling.
+ */
+export function referenceFor(bot: Bot, target: Vec3, item?: string): { ref: Block; face: Vec3 } | null {
+  const attached = item !== undefined && ATTACHED.test(item);
   // A plain block first: one a right-click uses (a crafting table) takes a sneak to place against (placeItemAt).
   let usable: { ref: Block; face: Vec3 } | null = null;
   for (const f of FACES) {
     const ref = bot.blockAt(target.plus(f));
     if (!isSolid(ref) || !ref) continue;
+    if (attached && (!sturdy(ref) || (f.y > 0 && NOT_FROM_ABOVE.test(item)))) continue;
     if (!USABLE_BLOCK.test(ref.name)) return { ref, face: f.scaled(-1) };
     usable ??= { ref, face: f.scaled(-1) };
   }
@@ -39,8 +44,8 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
   if (!item) throw new Error(`no ${m.label} in inventory`);
   if (!isAirLike(bot.blockAt(target))) throw new Error(`${target.toString()} is not free`);
   if (bot.entity.position.distanceTo(target) > 4) await gotoNear(ctx, target, 3);
-  const r = referenceFor(bot, target);
-  if (!r) throw new Error('nothing solid to place against');
+  const r = referenceFor(bot, target, item.name);
+  if (!r) throw new Error(ATTACHED.test(item.name) ? `nothing there for a ${item.name} to go on (it needs the face of a whole block: not leaves, not a slab)` : 'nothing solid to place against');
   // Never place into our own body.
   const feet = bot.entity.position.floored();
   if (target.equals(feet) || target.equals(feet.offset(0, 1, 0))) throw new Error('would place inside myself');
@@ -62,16 +67,18 @@ const SIDE_CELLS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), ne
  * A spot to set something down; in a tunnel with none, a notch dug in the wall beside one's feet, as a player does
  * (a block that can be dug, with a floor under it and no water or lava against it).
  */
-export async function spotOrNotch(ctx: SkillContext): Promise<Vec3 | null> {
+export async function spotOrNotch(ctx: SkillContext, item?: string): Promise<Vec3 | null> {
   const { bot } = ctx;
-  const spot = findPlaceableSpot(bot, 3);
+  const onFace = item !== undefined && ATTACHED.test(item);
+  const spot = findPlaceableSpot(bot, 3, { sturdy: onFace });
   if (spot) return spot;
   const feet = bot.entity.position.floored();
   for (const side of SIDE_CELLS) {
     const cell = feet.plus(side);
     const b = bot.blockAt(cell);
     if (!b || !isSolid(b) || b.hardness === null || b.hardness < 0 || ['bedrock', 'obsidian', 'reinforced_deepslate'].includes(b.name) || !bot.canDigBlock(b)) continue;
-    if (!isSolid(bot.blockAt(cell.offset(0, -1, 0))) || liquidNear(bot, cell)) continue;
+    const floor = bot.blockAt(cell.offset(0, -1, 0));
+    if (!(onFace ? sturdy(floor) : isSolid(floor)) || liquidNear(bot, cell)) continue;
     const tool = bot.pathfinder.bestHarvestTool(b);
     if (tool) await bot.equip(tool, 'hand');
     await digBlock(ctx, b);
@@ -100,7 +107,7 @@ export const place = defineSkill({
     const target =
       args.x !== undefined && args.y !== undefined && args.z !== undefined
         ? new Vec3(Math.floor(args.x), Math.floor(args.y), Math.floor(args.z))
-        : await spotOrNotch(ctx);
+        : await spotOrNotch(ctx, itemMatcher(args.block).label);
     if (!target) return { ok: false, observed: 'no free spot', error: 'no free spot to place a block nearby' };
     try {
       await placeItemAt(ctx, args.block, target);

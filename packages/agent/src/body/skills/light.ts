@@ -3,7 +3,7 @@
 // and the way out stays lit. Only with torches on hand; making them is the mind's to think of.
 
 import type { Vec3 } from 'vec3';
-import { isAirLike } from '../world';
+import { isAirLike, sturdy } from '../world';
 import { placeItemAt } from './building';
 import { errMsg } from './util';
 import type { SkillContext } from './types';
@@ -39,7 +39,7 @@ export async function lightTheWay(ctx: SkillContext): Promise<boolean> {
   // Beside us at the feet or head: on a floor first (the step behind, in a stairway down), else on a wall.
   const around: Vec3[] = [];
   for (const dy of [0, 1]) for (const [dx, dz] of SIDES) around.push(feet.offset(dx, dy, dz));
-  const floored = (c: Vec3) => bot.blockAt(c.offset(0, -1, 0))?.boundingBox === 'block';
+  const floored = (c: Vec3) => sturdy(bot.blockAt(c.offset(0, -1, 0)));
   const cells = around.filter((c) => isAirLike(bot.blockAt(c))).sort((a, b) => Number(floored(b)) - Number(floored(a)));
   for (const cell of cells) {
     try {

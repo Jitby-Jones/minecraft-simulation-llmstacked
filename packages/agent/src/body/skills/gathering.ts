@@ -153,6 +153,18 @@ async function walkOutFrom(ctx: SkillContext, home: Vec3): Promise<void> {
   });
 }
 
+/**
+ * What was looked for and not seen: the block that drops it, by name, where that isn't the thing itself ("haven't
+ * seen any iron_ore around here; raw_iron comes from mining it"). Told only "any raw_iron", a model asked for the
+ * drop five times over at the spot where the one block of ore it had found was gone.
+ */
+function unseenText(bot: Bot, blockIds: readonly number[], label: string): string {
+  const names = blockIds.map((id) => bot.registry.blocks[id]?.name).filter((n): n is string => Boolean(n));
+  const source = names.find((n) => !n.startsWith('deepslate_')) ?? names[0];
+  if (!source || source === label) return `haven't seen any ${label} around here`;
+  return `haven't seen any ${source} around here; ${label} comes from mining it`;
+}
+
 async function collectUntil(
   ctx: SkillContext,
   matcher: ItemMatcher,
@@ -202,7 +214,7 @@ async function collectUntil(
           lastError ||
           (blockIds.some((id) => isInferable(bot.registry.blocks[id]?.name ?? ''))
             ? `no ${label} within ${maxDistance} blocks`
-            : `haven't seen any ${label} around here`),
+            : unseenText(bot, blockIds, label)),
       };
     }
     const harvestable = candidates.filter((b) => !lacksHarvestTool(bot, b));

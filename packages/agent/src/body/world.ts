@@ -203,14 +203,30 @@ export function wetAt(bot: Bot, x: number, z: number, y: number): boolean {
   return false;
 }
 
-/** A spot within `radius` where a block can be placed (air with solid ground below), excluding our own column. */
 /**
  * Blocks a right-click uses rather than builds against (a crafting table opens, a door swings): placing against one
  * needs a sneak, as players do, and a spot on top of one isn't where a block is set down.
  */
 export const USABLE_BLOCK = /(crafting_table|chest|barrel|furnace|smoker|anvil|enchanting_table|_door|_trapdoor|_bed|lever|_button|note_block|loom|stonecutter|grindstone|cartography_table|smithing_table|fletching_table|brewing_stand|hopper|dispenser|dropper|beacon|lectern|bell|shulker_box|_fence_gate|composter|cauldron|crafter|jukebox|respawn_anchor)$/;
 
-export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
+/** What goes on a face rather than being a block of its own (a torch, a sign, a button): it needs a sturdy one. */
+export const ATTACHED = /^(torch|soul_torch|redstone_torch|copper_torch|lantern|soul_lantern|copper_lantern|lever|ladder|tripwire_hook|redstone|repeater|comparator|rail|powered_rail|detector_rail|activator_rail|flower_pot|candle|item_frame|glow_item_frame|painting|\w+_(button|sign|hanging_sign|carpet|pressure_plate|candle))$/;
+/** Torches stand on a floor or hang on a wall, never from a ceiling (a lantern can). */
+export const NOT_FROM_ABOVE = /^(torch|soul_torch|redstone_torch|copper_torch|ladder|lever|\w+_button|\w+_sign|rail|powered_rail|detector_rail|activator_rail|redstone|repeater|comparator|\w+_carpet|\w+_pressure_plate|flower_pot|candle|\w+_candle)$/;
+
+/**
+ * A face that holds a torch, a sign or a button: a whole block's. Not leaves (solid to walk on, but their faces hold
+ * nothing: torches put on them were refused), nor a slab's or a fence's part of one.
+ */
+export function sturdy(b: Block | null): boolean {
+  if (!b || !isSolid(b) || /_leaves$/.test(b.name)) return false;
+  const shapes = (b as unknown as { shapes?: number[][] }).shapes ?? [];
+  const box = shapes[0];
+  return shapes.length === 1 && box !== undefined && box[0] === 0 && box[1] === 0 && box[2] === 0 && box[3] === 1 && box[4] === 1 && box[5] === 1;
+}
+
+/** A spot within `radius` to set something down (air with ground below; a sturdy floor for what goes on a face). */
+export function findPlaceableSpot(bot: Bot, radius = 3, opts: { sturdy?: boolean } = {}): Vec3 | null {
   const me = bot.entity.position.floored();
   // The server refuses a block inside anyone's hitbox, ours included (standing near a cell's edge overlaps it).
   const bodies = Object.values(bot.entities).filter((e) => e === bot.entity || e.type === 'player' || e.type === 'mob' || e.type === 'hostile');
@@ -222,7 +238,8 @@ export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
         for (const dy of [0, 1, -1]) {
           const p = me.offset(dx, dy, dz);
           const below = bot.blockAt(p.offset(0, -1, 0));
-          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(below) && !USABLE_BLOCK.test(below?.name ?? '') && !occupied(p)) {
+          const floor = opts.sturdy ? sturdy(below) : isSolid(below);
+          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && floor && !USABLE_BLOCK.test(below?.name ?? '') && !occupied(p)) {
             return p;
           }
         }

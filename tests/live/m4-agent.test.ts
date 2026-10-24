@@ -114,7 +114,7 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
       await sleep(2000);
       const blind = await body.run('gather', { item: 'raw_iron', qty: 1 });
       expect(blind.ok).toBe(false);
-      expect(blind.error).toMatch(/haven't seen any raw_iron/);
+      expect(blind.error).toMatch(/haven't seen any iron_ore around here; raw_iron comes from mining it/);
       const p = await body.run('prospect', { item: 'raw_iron', direction: 'east' });
       console.log(`[m4 prospect] ${p.ok ? 'ok' : 'FAIL'}: ${p.observed} ${p.error ?? ''}`);
       expect(p.ok).toBe(true);

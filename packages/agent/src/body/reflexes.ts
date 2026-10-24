@@ -472,9 +472,11 @@ export class ReflexController {
     if (threats.some((e) => e.name === 'drowned' && shoots(e))) return true;
     const players = threats.filter(isPlayer);
     if (players.some((p) => !this.hooks.mayFightBack(p.username ?? ''))) return true;
-    // A damage race we would lose before reaching the flee threshold: cautious people want a wider margin.
+    // A damage race we would lose before reaching the flee threshold: cautious people want a wider margin. Those in
+    // sight count too, joining in as the fight goes on: one zombie is a fight, three about at night are not (an agent
+    // took on one with a pickaxe, the second came, and running was too late).
     const expected = expectedFightDamage({
-      threats: threats.map((e) => ({
+      threats: this.inTheWay(threats).map((e) => ({
         name: isPlayer(e) ? 'player' : (e.name ?? ''),
         heldItem: (e as unknown as { heldItem?: { name: string } | null }).heldItem?.name ?? null,
         // A person's hearts can't be seen (§17.4): reckon them at full health.

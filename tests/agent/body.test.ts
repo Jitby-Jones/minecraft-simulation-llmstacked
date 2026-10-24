@@ -670,7 +670,15 @@ describe('a tool for the job (owner request, 2026-10-24)', () => {
 describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
   const rig = (weapon: string | null) => {
     // Open ground: nothing between us and anything.
-    const bot = Object.assign(new EventEmitter(), { entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 }, entities: {}, health: 20, inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] }, world: { raycast: () => null } });
+    const bot = Object.assign(new EventEmitter(), {
+      entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 },
+      entities: {},
+      health: 20,
+      game: { difficulty: 'normal' },
+      registry: { entitiesByName: {} },
+      inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] },
+      world: { raycast: () => null },
+    });
     const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
     return new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
   };
@@ -684,6 +692,16 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(rig(null).fleeThreshold([zombie])).toBe(10);
     expect(rig('stone_sword').fleeThreshold([zombie, person])).toBe(10);
     expect(rig('stone_sword').fleeThreshold()).toBe(10);
+  });
+
+  it('one zombie is a fight; with two more in sight that would join in, it is a run', () => {
+    const r = rig('stone_sword') as unknown as { bot: { entities: Record<number, unknown> }; shouldFlee(t: unknown[]): boolean };
+    const near = { id: 3, type: 'hostile', name: 'zombie', position: new Vec3(3, 64, 0), height: 1.95 };
+    r.bot.entities[3] = near;
+    expect(r.shouldFlee([near])).toBe(false);
+    r.bot.entities[11] = { ...near, id: 11, position: new Vec3(-12, 64, 4) };
+    r.bot.entities[12] = { ...near, id: 12, position: new Vec3(10, 64, -9) };
+    expect(r.shouldFlee([near])).toBe(true);
   });
 
   it("running that isn't working turns into a fight: still caught, or going nowhere, with it close", () => {
@@ -786,5 +804,31 @@ describe('what the body did over an action (a model waiting at 1 health "learned
   it('a long while hurt with none of it back: said too; a moment, not', () => {
     expect(bodyNote(at(1, 10), at(1, 10), 120_000)).toBe('health still 1');
     expect(bodyNote(at(1, 10), at(1, 10), 3000)).toBe('');
+  });
+});
+
+describe('what a torch can go on (torches set on leaves were refused, three times running)', () => {
+  const block = (name: string, shapes: number[][] = [[0, 0, 0, 1, 1, 1]]) => ({ name, boundingBox: 'block', shapes });
+  it('the face of a whole block holds it; leaves, a slab or air do not', async () => {
+    const { sturdy } = await import('@agora/agent/body/world');
+    expect(sturdy(block('stone') as never)).toBe(true);
+    expect(sturdy(block('glass') as never)).toBe(true);
+    expect(sturdy(block('oak_leaves') as never)).toBe(false);
+    expect(sturdy(block('oak_slab', [[0, 0, 0, 1, 0.5, 1]]) as never)).toBe(false);
+    expect(sturdy({ name: 'air', boundingBox: 'empty', shapes: [] } as never)).toBe(false);
+  });
+  it('a torch goes against stone beside it rather than the leaves under it; a block goes on the leaves', async () => {
+    const { referenceFor } = await import('@agora/agent/body/skills/building');
+    // Leaves under the spot, stone to the east, stone overhead.
+    const at = (p: Vec3) => (p.y === 63 ? block('oak_leaves') : p.x === 1 && p.y === 64 ? block('stone') : p.y === 65 ? block('stone') : { name: 'air', boundingBox: 'empty', shapes: [] });
+    const bot = { blockAt: (p: Vec3) => ({ ...at(p), position: p }) } as unknown as Bot;
+    const spot = new Vec3(0, 64, 0);
+    expect(referenceFor(bot, spot, 'torch')?.ref.name).toBe('stone');
+    expect(Math.abs(referenceFor(bot, spot, 'torch')?.face.y ?? 1)).toBe(0);
+    expect(referenceFor(bot, spot, 'dirt')?.ref.name).toBe('oak_leaves');
+    // Leaves under and only the ceiling of stone: nothing for a torch (it can't hang), a lantern hangs from it.
+    const roof = { blockAt: (p: Vec3) => ({ ...(p.y === 63 ? block('oak_leaves') : p.y === 65 ? block('stone') : { name: 'air', boundingBox: 'empty', shapes: [] }), position: p }) } as unknown as Bot;
+    expect(referenceFor(roof, spot, 'torch')).toBeNull();
+    expect(referenceFor(roof, spot, 'lantern')?.face.y).toBe(-1);
   });
 });
