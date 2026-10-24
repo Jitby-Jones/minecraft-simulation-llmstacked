@@ -5,7 +5,7 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, sturdy, wallsAround } from '../world';
+import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, overlapsCell, shelterHole, sturdy, wallsAround } from '../world';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -62,16 +62,47 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
 }
 
 const SIDE_CELLS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+/** They fall unless something is under them. */
+const FALLS = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|dragon_egg|pointed_dripstone|scaffolding|\w+_concrete_powder)$/;
+/** How far a hand reaches to set a block, from the eyes. */
+const REACH = 4.5;
 
 /**
- * A spot to set something down; in a tunnel with none, a notch dug in the wall beside one's feet, as a player does
- * (a block that can be dug, with a floor under it and no water or lava against it).
+ * An empty cell in reach beside a face a click can take (the side of the block underfoot, a wall, a ceiling): where a
+ * player sets a block down over a drop or on a ledge with no floor about. An agent on its own blocks in a cave was
+ * told there was no room for its furnace.
+ */
+export function besideAFace(bot: Bot, item?: string): Vec3 | null {
+  const me = bot.entity.position.floored();
+  const eyes = bot.entity.position.offset(0, 1.62, 0);
+  const bodies = Object.values(bot.entities).filter((e) => e === bot.entity || e.type === 'player' || e.type === 'mob' || e.type === 'hostile');
+  for (let r = 1; r <= 3; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        for (const dy of [0, -1, 1]) {
+          const p = me.offset(dx, dy, dz);
+          if (!isAirLike(bot.blockAt(p)) || p.offset(0.5, 0.5, 0.5).distanceTo(eyes) > REACH) continue;
+          if (bodies.some((e) => overlapsCell(e, p))) continue;
+          if (referenceFor(bot, p, item)) return p;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * A spot to set something down; over a drop, beside any face in reach; in a tunnel with none, a notch dug in the wall
+ * beside one's feet, as a player does (a block that can be dug, with a floor under it and no water or lava against it).
  */
 export async function spotOrNotch(ctx: SkillContext, item?: string): Promise<Vec3 | null> {
   const { bot } = ctx;
   const onFace = item !== undefined && ATTACHED.test(item);
   const spot = findPlaceableSpot(bot, 3, { sturdy: onFace });
   if (spot) return spot;
+  const side = item !== undefined && FALLS.test(item) ? null : besideAFace(bot, item);
+  if (side) return side;
   const feet = bot.entity.position.floored();
   for (const side of SIDE_CELLS) {
     const cell = feet.plus(side);

@@ -182,7 +182,7 @@ async function findOrPlace(ctx: SkillContext, blockName: string, itemName: strin
   }
   if (countItem(bot, itemName) === 0 && makeable && makeable.length > 0) await craftFromPockets(ctx, makeable, null);
   if (countItem(bot, itemName) === 0) return null;
-  const spot = await spotOrNotch(ctx);
+  const spot = await spotOrNotch(ctx, itemName);
   if (!spot) return null;
   await placeItemAt(ctx, itemName, spot);
   await waitMs(ctx, 300);

@@ -123,13 +123,28 @@ function kindOfMotion(m: Omit<Motion, 'motion'>): MotionKind {
   return 'still';
 }
 
+/** The server's word on each move, that the one moving is on the ground. */
+const MOVES = ['rel_entity_move', 'entity_move_look', 'sync_entity_position'] as const;
+
 /** Tracks how every creature in view moves, one sample a perception tick. */
 export class MotionTracker {
   private readonly samples = new Map<number, Sample[]>();
   private readonly offGroundSince = new Map<number, number>();
   private readonly last = new Map<number, Motion>();
+  /**
+   * Those the game showed on the ground since the last look. Hop after hop up a hill, each landing falls between two
+   * looks: every look found it in the air, and agents took a zombie climbing a slope, a cow, Ada at work, for floating.
+   */
+  private readonly landed = new Set<number>();
 
-  constructor(private readonly bot: Bot) {}
+  constructor(private readonly bot: Bot) {
+    const client = (bot as unknown as { _client?: { on(ev: string, f: (p: { entityId?: number; onGround?: boolean }) => void): void } })._client;
+    for (const ev of MOVES) {
+      client?.on(ev, (p) => {
+        if (p.onGround && p.entityId !== undefined) this.landed.add(p.entityId);
+      });
+    }
+  }
 
   /** Takes a sample of each of these entities now, and forgets those no longer about. */
   update(entities: readonly Entity[], now: number): void {
@@ -137,12 +152,14 @@ export class MotionTracker {
     for (const e of entities) {
       alive.add(e.id);
       const supported = isSupported(this.bot, e);
+      // On the ground now, or at some moment since the last look.
+      const grounded = this.landed.delete(e.id) || supported;
       const list = this.samples.get(e.id) ?? [];
       const prev = list.at(-1);
-      list.push({ t: now, x: e.position.x, y: e.position.y, z: e.position.z, supported });
+      list.push({ t: now, x: e.position.x, y: e.position.y, z: e.position.z, supported: grounded });
       while (list.length > 2 && now - (list[0] as Sample).t > KEEP_MS) list.shift();
       this.samples.set(e.id, list);
-      if (supported) this.offGroundSince.delete(e.id);
+      if (grounded) this.offGroundSince.delete(e.id);
       else if (!this.offGroundSince.has(e.id)) this.offGroundSince.set(e.id, prev && !prev.supported ? prev.t : now);
       this.last.set(e.id, this.measure(e, list, now, supported));
     }
@@ -152,6 +169,8 @@ export class MotionTracker {
       this.offGroundSince.delete(id);
       this.last.delete(id);
     }
+    // Landings of those out of view are nothing to us.
+    this.landed.clear();
   }
 
   of(id: number): Motion | undefined {

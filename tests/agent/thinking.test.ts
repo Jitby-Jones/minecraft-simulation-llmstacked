@@ -127,6 +127,27 @@ describe('motion, as a player sees it', () => {
     m.update([e as never], 4250);
     expect(m.of(9)?.jumpedM).toBe(56);
   });
+
+  it('hop after hop is no time off the ground: the game shows each landing, though every look finds it in the air', () => {
+    const ground = 64;
+    const client = new EventEmitter();
+    const bot = {
+      _client: client,
+      blockAt: (p: Vec3) => (p.y < ground ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }),
+    };
+    const m = new MotionTracker(bot as never);
+    const e = { id: 4, position: new Vec3(0, ground + 1.25, 0), width: 0.6, metadata: [] } as never as { id: number; position: Vec3 };
+    for (let t = 0; t <= 3000; t += 250) {
+      // A landing between this look and the next (its packets say on the ground), then up again at the top of a hop.
+      if (t % 500 === 0) client.emit('rel_entity_move', { entityId: 4, dX: 0, dY: 0, dZ: 0, onGround: true });
+      m.update([e as never], t);
+    }
+    expect(m.of(4)).toMatchObject({ supported: false });
+    expect(m.of(4)?.airborneSec ?? 0).toBeLessThan(0.6);
+    // Without a landing, it has been up there all along.
+    for (let t = 3250; t <= 6000; t += 250) m.update([e as never], t);
+    expect(m.of(4)?.airborneSec ?? 0).toBeGreaterThan(2);
+  });
 });
 
 /** A flat world of grass at y 63, with a few blocks of its own, for the eyes to look about in. */

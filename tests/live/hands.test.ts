@@ -202,6 +202,26 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.furnace?.id ?? -1], maxDistance: 3, count: 1 }).length).toBe(1);
   }, 120_000);
 
+  it('on a block over a drop with no floor about, the furnace goes against its side and the iron is smelted', async () => {
+    const x = 5850;
+    await at(x, 0);
+    // A cave: a hollow in the stone, and one block of it left to stand on, four over the hollow's floor.
+    await server.cmd(`fill ${x - 3} ${Y - 12} -3 ${x + 3} ${Y - 3} 3 air`);
+    await server.cmd(`setblock ${x} ${Y - 8} 0 stone`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 7} 0.5`);
+    await server.cmd('give Ada minecraft:furnace 1');
+    await server.cmd('give Ada minecraft:raw_iron 1');
+    await server.cmd('give Ada minecraft:coal 1');
+    await sleep(2000);
+    const r = await run('smelt', { item: 'raw_iron', qty: 1 });
+    logger.info({ r }, 'furnace over a drop');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'iron_ingot')).toBe(1);
+    expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.furnace?.id ?? -1], maxDistance: 3, count: 1 }).length).toBe(1);
+    // Still up on its block.
+    expect(body.bot.entity.position.y).toBeGreaterThan(Y - 7.5);
+  }, 120_000);
+
   it('dyes white wool red, and a white bed: any wool or bed takes any dye (the game data has each from black alone)', async () => {
     const x = 5900;
     await at(x, 0);
