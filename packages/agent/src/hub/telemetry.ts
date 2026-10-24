@@ -50,6 +50,8 @@ export function startTelemetry(o: TelemetryOptions): () => void {
         ...(d.fight ? { fight: { target: d.fight.target, intent: d.fight.intent } } : {}),
         ...(d.romance ? { romance: { with: d.romance.with, phase: d.romance.phase, ...(d.romance.reaction ? { reaction: d.romance.reaction } : {}) } } : {}),
         rationale: d.rationale,
+        ...(d.thought ? { thought: d.thought.slice(0, 400) } : {}),
+        ...(d.then && d.then.length > 0 ? { then: d.then.map((t) => t.skill) } : {}),
         stateVersion: d.stateVersion,
       });
     }),

@@ -9,9 +9,12 @@ import type { Bot } from 'mineflayer';
 import { countItem } from '../inventory';
 import { CATEGORIES, itemMatcher, normalizeItemName } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
-import { blockIdsDropping } from '../world';
+import { blockIdsDropping, canSee, isHostile } from '../world';
 import { craft, resolveCraftTarget, smelt } from './crafting';
-import { gather, isFoodName } from './gathering';
+import { gather, isFoodName, pickup } from './gathering';
+import { attack } from './combat';
+import { shearSheep, woollySheep } from './hands';
+import { ANIMALS, hunt } from './village';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 import { throwIfAborted } from './util';
 
@@ -70,13 +73,26 @@ type Route =
   | { kind: 'gather'; cost: number; height: number; tool: string | null }
   | { kind: 'craft'; cost: number; height: number; recipe: Recipe }
   | { kind: 'smelt'; cost: number; height: number; input: string }
+  /** Wool off sheep in sight: shears, and the sheep live and grow it back (owner request, 2026-10-24). */
+  | { kind: 'shear'; cost: number; height: number; colour: string | null }
+  /** A creature in sight that drops it when killed (leather from a cow, string from a spider). */
+  | { kind: 'mob'; cost: number; height: number; mob: string; passive: boolean }
   | { kind: 'none'; cost: number; height: number; why: 'circular' | 'unknown' | 'blocked' };
 
 /** A route plus the prerequisite that made it as deep as it is (to name "get X first"). */
 type Planned = Route & { deepest?: string; tainted?: boolean };
 
+/**
+ * How many prerequisite levels an agent plans through in one go. Everyone here is a long-time player (owner request,
+ * 2026-10-24: "we expect them to be familiar with all minecraft mechanics"): an iron pickaxe from nothing is six levels
+ * deep, which all but the slowest see at once; only very long chains are taken a part at a time.
+ */
 export function planDepthFor(intelligence: number): number {
-  return 2 + Math.round(4 * Math.min(1, Math.max(0, intelligence)));
+  return 5 + Math.round(4 * Math.min(1, Math.max(0, intelligence)));
+}
+
+function nice(item: string): string {
+  return item.replace(/_/g, ' ');
 }
 
 function count(bot: Bot, item: string): number {
@@ -308,10 +324,31 @@ async function route(p: PlanCtx, item: string, stack: readonly string[]): Promis
     options.push({ kind: 'gather', cost, height: d.height, deepest: d.deepest, tool });
   }
 
+  // Wool off a sheep in sight that still has it (of that colour): shears, and the sheep lives.
+  const colour = /_wool$/.test(item) ? item.replace(/_wool$/, '') : null;
+  if (colour !== null && woollySheep(bot, item === 'wool' ? null : colour).length > 0) {
+    const kids = count(bot, 'shears') > 0 ? [] : [{ name: 'shears', r: await route(p, 'shears', next) }];
+    const d = deepen(kids);
+    options.push({ kind: 'shear', cost: 2 + kids.reduce((a, k) => a + k.r.cost, 0), height: d.height, deepest: d.deepest, colour });
+  }
+  // A creature in sight that drops it.
+  const mob = mobDropping(bot, item);
+  if (mob) options.push({ kind: 'mob', cost: mob.passive ? 4 : 14, height: 0, mob: mob.name, passive: mob.passive });
+
   const best = options.filter((o) => Number.isFinite(o.cost)).sort((a, b) => a.cost - b.cost || a.height - b.height)[0];
   const result: Planned = best ? { ...best, tainted } : { kind: 'none', cost: INF, height: 0, why: options.length === 0 ? 'unknown' : 'blocked', tainted };
   if (!tainted) p.memo.set(item, result);
   return result;
+}
+
+/** The nearest creature in sight that drops `item` when killed (by the game's loot data), and whether it is an animal. */
+function mobDropping(bot: Bot, item: string): { name: string; passive: boolean } | null {
+  const loot = (bot.registry as unknown as { entityLoot?: Record<string, { drops: { item: string; dropChance: number }[] } | undefined> }).entityLoot ?? {};
+  const kinds = new Set(Object.entries(loot).filter(([m, l]) => m !== 'player' && l?.drops.some((d) => d.item === item && d.dropChance >= 0.2)).map(([m]) => m));
+  if (kinds.size === 0) return null;
+  const e = bot.nearestEntity((x) => x !== bot.entity && kinds.has(x.name ?? '') && x.position.distanceTo(bot.entity.position) <= 32 && canSee(bot, x, 33));
+  if (!e?.name) return null;
+  return { name: e.name, passive: !isHostile(e) };
 }
 
 /** One planning pass from the current inventory (diagnostics and tests). */
@@ -363,6 +400,24 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
       const res = await smelt.run(ctx, { item: raw, qty: need });
       scan.forget();
       if (!res.ok) throw new ObtainError(res.error ?? `could not smelt ${raw}`);
+      return;
+    }
+    case 'shear': {
+      if (count(bot, 'shears') === 0) await acquire(ctx, scan, 'shears', 1, depth + 1, next);
+      ctx.progress(`obtain: shearing sheep for ${item}`);
+      // A sheep gives 1-3: about one sheep for every two wanted.
+      const sheared = await shearSheep(ctx, item === 'wool' ? null : r.colour, Math.min(16, Math.ceil((qty - count(bot, item)) / 2)));
+      scan.forget();
+      if (count(bot, item) < qty) throw new ObtainError(sheared === 0 ? `no sheep with ${nice(item)} to shear in reach` : `sheared ${sheared} sheep; still short of ${qty} ${item}`);
+      return;
+    }
+    case 'mob': {
+      const need = qty - count(bot, item);
+      ctx.progress(`obtain: killing ${r.mob} for ${item}`);
+      const res = r.passive && (ANIMALS as readonly string[]).includes(r.mob) ? await hunt.run(ctx, { animal: r.mob as (typeof ANIMALS)[number], qty: Math.min(16, need) }) : await attack.run(ctx, { target: r.mob, seconds: 45 });
+      if (!r.passive || !(ANIMALS as readonly string[]).includes(r.mob)) await pickup.run(ctx, { item, radius: 8 });
+      scan.forget();
+      if (count(bot, item) < qty) throw new ObtainError(res.ok ? `killed ${r.mob} but still short of ${qty} ${item}` : (res.error ?? `could not kill a ${r.mob}`));
       return;
     }
     case 'craft': {

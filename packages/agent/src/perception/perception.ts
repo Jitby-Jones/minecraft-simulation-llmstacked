@@ -15,6 +15,7 @@ import { detectAddressee } from '../modules/conversations';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
 import { parseSystemLine } from './system';
+import { SceneEyes, type Seen } from './scene';
 import { VillageEyes } from './village';
 
 export interface PerceptionOptions {
@@ -28,6 +29,8 @@ export interface PerceptionOptions {
   tickMs?: number;
   /** Where this body arrived (the village, §6.8): turns on what it sees of the village. */
   home?: () => { x: number; y: number; z: number } | null;
+  /** Something is going on that puts things in our pockets (a craft, a smelt, a chest): no surprise when they come. */
+  handsBusy?: () => boolean;
 }
 
 const ENTITY_RADIUS = 32;
@@ -64,6 +67,9 @@ function kindOf(e: Entity): SeenEntity['kind'] | null {
   return null;
 }
 
+/** Things that are no creature but a player sees all the same: a boat, a minecart, primed TNT, an arrow in flight. */
+const THING = /boat$|raft$|minecart$|^(tnt|arrow|spectral_arrow|trident|fireball|small_fireball|dragon_fireball|wither_skull|snowball|egg|ender_pearl|eye_of_ender|potion|splash_potion|lingering_potion|experience_bottle|experience_orb|falling_block|armor_stand|item_frame|glow_item_frame|painting|end_crystal|firework_rocket|lightning_bolt|evoker_fangs|leash_knot|wind_charge|breeze_wind_charge)$/;
+
 function nameOf(e: Entity, kind: SeenEntity['kind']): string {
   if (kind === 'player') return e.username ?? 'someone';
   if (kind === 'item') {
@@ -95,6 +101,8 @@ export class Perception {
   private readonly offs: (() => void)[] = [];
   /** What it sees of the village (§6.8); null without a home. */
   readonly village: VillageEyes | null;
+  /** What it sees all round, as a player takes it in (owner request, 2026-10-24). */
+  readonly scene: SceneEyes;
   /** Work seen (blows at mobs, blocks set down): one note per person, kind and thing every few seconds. */
   private readonly workSeen = new Map<string, number>();
 
@@ -102,6 +110,7 @@ export class Perception {
     this.now = o.now ?? Date.now;
     this.swings = new SwingTracker(o.bot, this.now);
     this.village = o.home ? new VillageEyes({ bot: o.bot, store: o.store, bus: o.bus, home: o.home, now: this.now }) : null;
+    this.scene = new SceneEyes({ bot: o.bot, store: o.store, bus: o.bus, now: this.now, ...(o.handsBusy ? { handsBusy: o.handsBusy } : {}) });
   }
 
   get me(): string {
@@ -207,6 +216,7 @@ export class Perception {
       this.digSeen.set(key, this.now());
       this.observe(e, 'dig', { item: block.name, pos: v(block.position) });
     });
+    this.scene.start();
     this.timer = setInterval(() => {
       try {
         this.tick();
@@ -220,6 +230,7 @@ export class Perception {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.scene.stop();
     for (const off of this.offs.splice(0)) off();
   }
 
@@ -318,16 +329,24 @@ export class Perception {
     const me = bot.entity.position;
     const now = this.now();
     const out: SeenEntity[] = [];
+    const scene: Seen[] = [];
     const candidates = Object.values(bot.entities)
       .filter((e) => e !== bot.entity && e.position.distanceTo(me) <= ENTITY_RADIUS)
       .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me))
       .slice(0, MAX_ENTITIES * 2);
     for (const e of candidates) {
       const kind = kindOf(e);
-      if (!kind) continue;
+      const thing = !kind && THING.test(e.name ?? '');
+      if (!kind && !thing) continue;
       const distance = e.position.distanceTo(me);
       const visible = canSee(bot, e, ENTITY_RADIUS + 1);
       if (!visible && distance > HEAR_RADIUS) continue;
+      if (!kind) {
+        scene.push({ e, kind: 'other', name: e.name ?? 'thing', visible, distance });
+        continue;
+      }
+      scene.push({ e, kind, name: nameOf(e, kind), visible, distance });
+      if (out.length >= MAX_ENTITIES) continue;
       const eq = (e as unknown as { equipment?: ({ name: string } | null | undefined)[] }).equipment ?? [];
       out.push({
         id: e.id,
@@ -342,7 +361,12 @@ export class Perception {
         hurtRecently: this.hurtAt.has(e.id),
         ...(this.sleepers.has(e.id) ? { sleeping: true } : {}),
       });
-      if (out.length >= MAX_ENTITIES) break;
+    }
+    // What it sees all round (owner request, 2026-10-24); a failure there takes nothing else from perception.
+    try {
+      this.scene.tick(scene);
+    } catch (err) {
+      this.o.logger.debug({ module: 'perception', err: String(err) }, 'scene tick failed');
     }
     // What they wear counts too: someone who puts armor on standing still looks different (§17.4 gear, §19.2 looks).
     const key = out.map((e) => `${e.id}:${e.kind}:${Math.floor(e.pos.x)},${Math.floor(e.pos.y)},${Math.floor(e.pos.z)}:${e.visible ? 1 : 0}:${e.heldItem ?? ''}:${e.armor.join(',')}:${e.hurtRecently ? 1 : 0}`).join(';');

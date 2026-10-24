@@ -115,6 +115,23 @@ export function tidyDecision(raw: unknown, env: TidyEnv): unknown {
     }
   } else delete d.family;
 
+  // The thinking around the choice (owner request, 2026-10-24): what is there of it is kept, empty parts go.
+  if (typeof d.thought === 'string' && !blank(d.thought)) d.thought = d.thought.trim().slice(0, 800);
+  else delete d.thought;
+  if (Array.isArray(d.then)) {
+    d.then = d.then
+      .filter((x): x is Obj => isObj(x) && typeof x.skill === 'string' && env.isSkill(x.skill))
+      .map((x) => ({ skill: x.skill, args: isObj(x.args) ? x.args : {} }))
+      .slice(0, 6);
+  } else delete d.then;
+  for (const k of ['lesson', 'taskDone', 'taskDropped'] as const) {
+    const v = d[k];
+    if (typeof v === 'string' && !blank(v)) d[k] = v.trim().slice(0, k === 'lesson' ? 300 : 200);
+    else delete d[k];
+  }
+  if (!isObj(d.later) || typeof d.later.what !== 'string' || typeof d.later.when !== 'string' || blank(d.later.what) || blank(d.later.when)) delete d.later;
+  else d.later = { what: d.later.what.trim().slice(0, 200), when: d.later.when.trim().slice(0, 80) };
+
   const term = isObj(d.terminate) ? { ...d.terminate } : {};
   const secs = Number(term.maxSeconds);
   term.maxSeconds = Number.isFinite(secs) && secs >= 5 ? Math.min(900, secs) : (DEFAULT_SECONDS[option] ?? 60);

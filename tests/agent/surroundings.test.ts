@@ -178,7 +178,7 @@ describe('what the mind makes of it', () => {
     const s = state();
     const p = buildPacket({ state: s, levers: leversFor(0.6), reason: `you noticed ${describeChange(hole)}`, now: T + 5000 });
     expect(p).toMatch(/Changes around you:\n {2}the dirt of your shelter beside you to the east, at head height was broken, at 1,65,0 \(5s ago\)/);
-    expect(p).toMatch(/Why you are deciding now: you noticed the dirt of your shelter/);
+    expect(p).toMatch(/Why you are thinking now: you noticed the dirt of your shelter/);
     const other: BlockChange = { ...hole, ours: undefined, by: 'Bram', was: 'stone', where: '4 m to the south', ts: T + 2000 };
     expect(recentChanges([other, hole], T + 5000).map((c) => c.ours ?? '-')).toEqual(['shelter', '-']);
     expect(recentChanges([hole], T + 6 * 60_000)).toEqual([]);

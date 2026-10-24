@@ -90,34 +90,63 @@ function dryHeading(ctx: SkillContext, from: Vec3, angle: number, r: number): nu
   return angle;
 }
 
+const HEADINGS: Readonly<Record<string, number>> = {
+  east: 0, 'south-east': Math.PI / 4, south: Math.PI / 2, 'south-west': (3 * Math.PI) / 4, west: Math.PI, 'north-west': (-3 * Math.PI) / 4, north: -Math.PI / 2, 'north-east': -Math.PI / 4,
+};
+const LEG = 32;
+
 export const explore = defineSkill({
   name: 'explore',
-  description: 'explore {distance?} — walk somewhere new',
-  argsSchema: z.object({ distance: z.coerce.number().min(8).max(128).default(32) }),
+  description: 'explore {direction?, distance?} — walk somewhere new: a way of your choosing (north, south-east, ...) for up to 300 blocks, or wherever looks new nearby without one',
+  argsSchema: z.object({
+    distance: z.coerce.number().min(8).max(300).default(32),
+    direction: z
+      .string()
+      .transform((d) => d.trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/^(n|s)(e|w)$/, (_m, a: string, b: string) => `${a === 'n' ? 'north' : 'south'}-${b === 'e' ? 'east' : 'west'}`).replace(/^n$/, 'north').replace(/^s$/, 'south').replace(/^e$/, 'east').replace(/^w$/, 'west').replace(/^(north|south)(east|west)$/, '$1-$2'))
+      .refine((d) => d in HEADINGS, 'a compass direction: north, north-east, east, south-east, south, south-west, west or north-west')
+      .optional(),
+  }),
   talkOverable: true,
   slipKinds: ['path'],
   expect: () => ({ kind: 'none' }),
   async run(ctx, args) {
     const { bot } = ctx;
     const start = bot.entity.position.clone();
-    let angle = ctx.rng.next() * Math.PI * 2;
-    // Roam, but not off the map: beyond MAX_ROAM from home, head back toward it (give or take 60°).
+    // A way chosen: there and on, leg by leg, keeping out of water; none: somewhere new nearby, not off the map
+    // (beyond MAX_ROAM from home it heads back, give or take 60°).
+    const chosen = args.direction !== undefined ? HEADINGS[args.direction] : undefined;
+    let angle = chosen ?? ctx.rng.next() * Math.PI * 2;
     const home = ctx.home;
-    if (home && Math.hypot(start.x + Math.cos(angle) * args.distance - home.x, start.z + Math.sin(angle) * args.distance - home.z) > MAX_ROAM) {
+    if (chosen === undefined && home && Math.hypot(start.x + Math.cos(angle) * args.distance - home.x, start.z + Math.sin(angle) * args.distance - home.z) > MAX_ROAM) {
       angle = Math.atan2(home.z - start.z, home.x - start.x) + (ctx.rng.next() - 0.5) * (Math.PI / 1.5);
     }
-    angle = dryHeading(ctx, start, angle, args.distance);
-    const tx = Math.round(start.x + Math.cos(angle) * args.distance);
-    const tz = Math.round(start.z + Math.sin(angle) * args.distance);
     bot.pathfinder.setMovements(ctx.movements());
-    try {
-      await abortable(ctx.signal, bot.pathfinder.goto(new goals.GoalNearXZ(tx, tz, 3)), () => stopMotion(bot));
-    } catch (err) {
-      const moved = bot.entity.position.distanceTo(start);
-      if (moved >= args.distance / 3) return { ok: true, observed: `wandered ${moved.toFixed(0)} blocks` };
-      return { ok: false, observed: `only got ${moved.toFixed(0)} blocks`, error: errMsg(err) };
+    const legs = chosen === undefined ? 1 : Math.max(1, Math.ceil(args.distance / LEG));
+    const deadline = Date.now() + (args.distance / 2 + 30) * 1000;
+    let failures = 0;
+    for (let leg = 0; leg < legs && Date.now() < deadline; leg++) {
+      throwIfAborted(ctx.signal);
+      const from = bot.entity.position.clone();
+      const r = chosen === undefined ? args.distance : Math.min(LEG, args.distance - from.distanceTo(start));
+      if (r < 4) break;
+      const a = dryHeading(ctx, from, angle, r);
+      const tx = Math.round(from.x + Math.cos(a) * r);
+      const tz = Math.round(from.z + Math.sin(a) * r);
+      try {
+        await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(tx, tz, 3)), 60_000), () => stopMotion(bot));
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        stopMotion(bot);
+        // Blocked that way: a little to one side the next time, then give up on it.
+        if (++failures >= 3) break;
+        angle = (chosen ?? angle) + (failures % 2 === 1 ? 0.7 : -0.7);
+      }
     }
-    return { ok: true, observed: `explored ${bot.entity.position.distanceTo(start).toFixed(0)} blocks to ${tx},${tz}` };
+    const moved = bot.entity.position.distanceTo(start);
+    const end = bot.entity.position;
+    const where = `${Math.round(end.x)},${Math.round(end.y)},${Math.round(end.z)}`;
+    if (moved < Math.min(args.distance, LEG) / 3) return { ok: false, observed: `only got ${moved.toFixed(0)} blocks`, error: `couldn't get far${args.direction ? ` to the ${args.direction}` : ''}: the way is blocked` };
+    return { ok: true, observed: `explored ${moved.toFixed(0)} blocks${args.direction ? ` ${args.direction}` : ''}, to ${where}` };
   },
 });
 

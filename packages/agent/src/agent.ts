@@ -2,7 +2,7 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Urge, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
+import { type AgentName, type AssignedTask, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Urge, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
 import type { Embedder, LlmCallOptions, LlmClient, LlmResult, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
@@ -10,6 +10,9 @@ import { Memory } from './memory/memory';
 import { GoalGen } from './modules/goalGen';
 import { SocialGoalGen } from './modules/socialGoalGen';
 import { Reflection } from './modules/reflection';
+import { Learning } from './mind/learning';
+import { LaterWatch } from './mind/later';
+import { type GameData, GameKnowledge, knowledgeLines } from './mind/knowledge';
 import { RoleWatch } from './social/roles';
 import { villageView } from './social/village';
 import { EDIBLE } from './modules/villageMove';
@@ -111,6 +114,11 @@ export class Agent {
   readonly goalGen: GoalGen | null;
   readonly socialGoals: SocialGoalGen | null;
   readonly reflection: Reflection;
+  /** Owner request, 2026-10-24: thinking back over what happened, and the things put off until a cue. */
+  readonly learning: Learning;
+  readonly later: LaterWatch;
+  /** What it knows of the game that bears on now, as lines (the CC's packet, Goal Gen's context). */
+  readonly knowledge: () => string[];
   readonly roles: RoleWatch;
   readonly quirks: QuirkRunner;
   readonly social: SocialAwareness;
@@ -161,7 +169,13 @@ export class Agent {
     if (o.birth) applyBirthFacts(this.store, o.birth.facts, persona, now());
     const levers = (): MindLevers => leversFor(persona.abilities.intelligence, o.world?.abilities.intelligenceRoutesCCTier ?? true);
     const speechRange = o.world?.chat.normalRange ?? 15;
-    this.perception = new Perception({ bot: body.bot, store: this.store, bus: this.bus, logger, speechRange, home: () => body.home, now });
+    // What puts things in our pockets as a matter of course: any skill but standing about (a craft, a dig, a pickup).
+    const idle = new Set(['wait', 'look', 'lookAround', 'wander', 'rest']);
+    const handsBusy = () => {
+      const o = this.store.state.option;
+      return Boolean(o && o.status === 'running' && !idle.has(o.skill ?? o.option));
+    };
+    this.perception = new Perception({ bot: body.bot, store: this.store, bus: this.bus, logger, speechRange, home: () => body.home, handsBusy, now });
     this.conversations = new Conversations({ store: this.store, bus: this.bus, logger, me: username, inRange: () => this.perception.peopleInRange(), now });
     const fightSlot = o.fightSlot;
     // A refused fight slot is remembered for a while: the gate then says so instead of the CC retrying every 2 s.
@@ -210,6 +224,9 @@ export class Agent {
     });
     this.consensus = new Consensus({ store: this.store, bus: this.bus, logger, llm, conversations: this.conversations, me: username, now });
     this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
+    // What it knows of the game, looked up for what matters now (owner request, 2026-10-24).
+    const gameKnowledge = new GameKnowledge(body.bot.registry as unknown as GameData);
+    this.knowledge = () => knowledgeLines(gameKnowledge, this.store.state);
     this.cc = new CognitiveController({
       store: this.store,
       bus: this.bus,
@@ -217,6 +234,7 @@ export class Agent {
       llm,
       me: username,
       levers,
+      knowledge: () => this.knowledge(),
       awareness: this.awareness,
       executor: this.executor,
       canPerceive: (name) =>
@@ -322,6 +340,7 @@ export class Agent {
               const h = this.family.hint();
               return h ? [h] : [];
             },
+            knowledge: () => this.knowledge(),
             now,
           });
     const rng = o.rng ? { rng: o.rng } : {};
@@ -513,6 +532,8 @@ export class Agent {
       now,
     });
     this.reflection = new Reflection({ store: this.store, bus: this.bus, logger, llm, me: username, levers, ...rng, now });
+    this.learning = new Learning({ store: this.store, bus: this.bus, logger, llm, me: username, now });
+    this.later = new LaterWatch({ store: this.store, bus: this.bus, logger, now });
     this.trades = new TradeTracker({ store: this.store, bus: this.bus, logger, me: username, onDeal: (w, ours, theirs) => this.cc.recordDeal(w, ours, theirs), now });
     // Our own yield, as the chat echoes it back (a duel's, or the reflex's below): said once is enough.
     const ownYield = (m: string) => {
@@ -857,6 +878,8 @@ export class Agent {
     this.roles.start();
     this.socialGoals?.start();
     this.reflection.start();
+    this.learning.start();
+    this.later.start();
     this.quirks.start();
     this.social.start();
     this.commitments.start();
@@ -923,6 +946,8 @@ export class Agent {
     this.social.stop();
     this.quirks.stop();
     this.socialGoals?.stop();
+    this.later.stop();
+    this.learning.stop();
     this.reflection.stop();
     this.roles.stop();
     this.goalGen?.stop();
@@ -979,6 +1004,14 @@ export class Agent {
     pushWorkmem(this.store, `a sign ${board ? 'at the village board' : `at ${Math.round(pos.x)}, ${Math.round(pos.z)}`} says "${text}"`, death ? 0.7 : 0.5, 'self_observed', { now: now() });
     if (death) this.store.update('drives', (d) => ({ ...d, caution: Math.min(1, Math.round((d.caution + 0.05) * 1000) / 1000) }), 'death news on a sign');
     this.o.logger.info({ module: 'perception', text, board, death }, 'read a sign');
+  }
+
+  /** Someone gives this agent a task (owner request, 2026-10-24): the agent works out for itself how to do it. */
+  giveTask(text: string, from = 'the operator'): AssignedTask {
+    const t = this.cc.giveTask(text, from);
+    // Its plan is made again with the task in it.
+    this.goalGen?.soon(`${from} gave you a task: ${text}`, 0);
+    return t;
   }
 
   setGoal(text: string, doneWhen?: string): void {

@@ -20,6 +20,7 @@ export const SNAPSHOT_FACETS = [
   'mood',
   'heardOpinions',
   'knowledge',
+  'mind',
   'conflict',
   'family',
   'life',

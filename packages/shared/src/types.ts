@@ -425,6 +425,17 @@ export interface LifeState {
 export interface KnowledgeState {
   recipes: string[];
   seenItems: string[];
+  /** Owner request, 2026-10-24: what the agent learned as it played. */
+  lessons?: Lesson[];
+  beliefs?: Belief[];
+  /** The first time it saw each notable kind of thing ("entity:mooshroom", "block:diamond_ore"). */
+  firstSeen?: Record<string, number>;
+  /** What it has seen surprise it, by what it was about and the key, with how often ("Kelby:hover"). */
+  surprised?: Record<string, number>;
+  /** What it expects of each kind of creature, learned from what it saw. */
+  envelopes?: Record<string, Envelope>;
+  /** Where it saw things worth coming back to. */
+  places?: Place[];
 }
 
 export interface GrowthState {
@@ -536,6 +547,185 @@ export interface SelfState {
   spawnPos: Vec3 | null;
 }
 
+/** How something moves, as a player sees it (owner request, 2026-10-24: complete senses). */
+export type MotionKind = 'still' | 'walking' | 'running' | 'jumping' | 'falling' | 'flying' | 'swimming' | 'climbing' | 'riding' | 'gliding';
+
+/**
+ * A creature or thing in view (owner request, 2026-10-24: complete senses): where it is from us, how it moves, how it
+ * stands to us and to what is around it, and what a player can see of it.
+ */
+export interface SceneCreature {
+  id: number;
+  kind: EntityKind;
+  /** Username for people, mob type otherwise; an item on the ground is the item's name. */
+  name: string;
+  pos: Vec3;
+  distance: number;
+  /** Compass direction from us ("north-east"); "here" within a block. */
+  bearing: string;
+  /** Metres above (+) or below (-) our feet. */
+  dy: number;
+  motion: MotionKind;
+  /** Horizontal speed, m/s. */
+  speed: number;
+  /** Its feet above the ground under it, when it is off the ground. */
+  aboveGround?: number;
+  /** Seconds off the ground with nothing under it. */
+  airborneSec?: number;
+  heading?: 'toward you' | 'away from you' | 'across';
+  /** How it stands to someone or something around it: "chasing Bo", "next to the cow", "looking at you". */
+  relations: string[];
+  /** What can be seen of it: "baby", "white wool", "sheared", "holding iron_pickaxe", "in iron armor". */
+  details: string[];
+  /** Items on the ground: how many. */
+  count?: number;
+  visible: boolean;
+}
+
+export type SceneFeatureKind =
+  | 'trees' | 'water' | 'lava' | 'ore' | 'rock' | 'sand' | 'gravel' | 'clay' | 'snow' | 'crops' | 'plants' | 'built'
+  | 'station' | 'container' | 'bed' | 'portal' | 'spawner' | 'danger' | 'ground' | 'other';
+
+/** A group of blocks in view, one thing to a player: a stand of trees, a pond, ore in a wall, a building. */
+export interface SceneFeature {
+  kind: SceneFeatureKind;
+  /** In words: "4 oak trees", "iron ore (3)", "a building of oak planks and glass". */
+  what: string;
+  /** Blocks of it seen, by name. */
+  blocks: Record<string, number>;
+  nearest: Vec3;
+  distance: number;
+  bearing: string;
+  dy: number;
+  size: number;
+  /** The first of its kind this agent has ever seen. */
+  first?: boolean;
+}
+
+/** Something that stood out: what doesn't fit what the agent knows is possible, what is new to it, a cue it waited for. */
+export interface Notice {
+  id: string;
+  ts: number;
+  kind: 'surprise' | 'novel' | 'cue';
+  /** Who or what it is about: a name, a mob type, "you", "the world". */
+  about: string;
+  /** A key for the same sort of thing (habituation): "hover", "speed", "teleport", "appear", "inside", ... */
+  key: string;
+  text: string;
+  /** 0..1: how far outside what is expected; it shrinks as the same thing is seen again. */
+  strength: number;
+  /** How often this agent saw the same before (0: never). */
+  seenBefore: number;
+}
+
+/** What the agent sees around it now (owner request, 2026-10-24): the place, the features in view, what moves in it. */
+export interface Scene {
+  at: number;
+  /** Where we are, as a player would put it: the biome, what we stand on, the sky or a roof, inside or out. */
+  where: string;
+  features: SceneFeature[];
+  creatures: SceneCreature[];
+  /** What stood out lately (the last few minutes), newest last. */
+  notices: Notice[];
+}
+
+/** A train of thought, kept from one decision to the next (owner request, 2026-10-24: think, don't follow rules). */
+export interface Thought {
+  ts: number;
+  text: string;
+  decisionId?: string;
+}
+
+/** One step the agent means to take after the one under way: a skill, or another option. */
+export interface IntentionStep {
+  skill?: string;
+  args?: Record<string, unknown>;
+  option?: OptionName;
+  target?: { agent?: string; pos?: Vec3 };
+  text?: string;
+}
+
+/** What the agent means to do next, in order, decided in one go: done one after another without stopping to think. */
+export interface Intention {
+  aim: string;
+  steps: IntentionStep[];
+  from: string;
+  at: number;
+}
+
+/** A place the agent saw something worth coming back to (a herd of sheep, ore in a cliff, a building): its map memory. */
+export interface Place {
+  key: string;
+  kind: SceneFeatureKind | 'animals';
+  what: string;
+  pos: Vec3;
+  world: string;
+  seenAt: number;
+  /** Block or creature names there, for finding it again by what is needed. */
+  names: string[];
+}
+
+/** Something put off until a cue (prospective memory): "get wool when I see sheep". */
+export interface Deferred {
+  id: string;
+  what: string;
+  /** see:<thing> | have:<item>[>=n] | day | night | minutes:<n> */
+  cue: string;
+  since: number;
+  /** For minutes:<n>, when it comes due. */
+  due?: number;
+}
+
+/** A task someone gave this agent (the operator, or anyone), in their words; done or dropped by the agent's own judgment. */
+export interface AssignedTask {
+  id: string;
+  text: string;
+  from: string;
+  at: number;
+  status: 'open' | 'done' | 'dropped';
+  note?: string;
+}
+
+/** The thinking side of the agent (owner request, 2026-10-24). */
+export interface MindState {
+  thoughts: Thought[];
+  intention: Intention | null;
+  later: Deferred[];
+}
+
+/** Something learned from experience, kept for life (owner request, 2026-10-24: agents learn as they play). */
+export interface Lesson {
+  id: string;
+  text: string;
+  ts: number;
+  from: 'experience' | 'thought' | 'told';
+  /** How often it came to mind for a decision since. */
+  uses: number;
+}
+
+/** What the agent has come to believe about someone or some kind of thing from what it saw ("Kelby can fly"). */
+export interface Belief {
+  about: string;
+  key: string;
+  text: string;
+  since: number;
+  seen: number;
+  lastSeen: number;
+}
+
+/** What the agent has learned to expect of a kind of creature, from what it has seen (and what it knew of the game). */
+export interface Envelope {
+  /** Fastest seen on the ground and in the air, m/s. */
+  ground: number;
+  air: number;
+  /** Longest seen off the ground with nothing under it and not falling, s. */
+  hover: number;
+  /** Highest seen above the ground without falling, m. */
+  height: number;
+  /** Observations it rests on. */
+  n: number;
+}
+
 export interface Perception {
   nearbyEntities: SeenEntity[];
   nearbyBlocksOfInterest: BlockNote[];
@@ -552,12 +742,18 @@ export interface AgentState {
   version: number;
   self: SelfState;
   perception: Perception;
+  /** What it sees around it, grouped as a player sees it (owner request, 2026-10-24). */
+  scene: Scene;
+  /** Its train of thought, what it means to do next, and what it put off (owner request, 2026-10-24). */
+  mind: MindState;
   /** ~5 items, newest on mind. */
   workmem: WorkItem[];
   /** Narrative from the Self-Monitor. */
   selfSummary: string;
   goals: {
     life: string[];
+    /** Tasks someone gave this agent (owner request, 2026-10-24), worked toward by its own plans. */
+    tasks?: AssignedTask[];
     current: Goal | null;
     /** The agent's own plan; its current step is `current`. */
     plan?: Plan | null;
@@ -650,6 +846,14 @@ export type AgentEvent =
   /** M10, §7 evolution: reflection found the agent changed ("has grown wary of strangers since being robbed"). */
   | { type: 'traitAnnotated'; text: string }
   /** A block around us changed, as we could tell it (perception/surroundings.ts). */
-  | { type: 'surroundingsChanged'; change: BlockChange };
+  | { type: 'surroundingsChanged'; change: BlockChange }
+  /** Something stood out (owner request, 2026-10-24): what doesn't fit what we know is possible, or is new to us. */
+  | { type: 'noticed'; notice: Notice }
+  /** A cue something was put off for came (prospective memory): "get wool when I see sheep". */
+  | { type: 'cue'; deferred: Deferred; why: string }
+  /** The agent learned something from what happened. */
+  | { type: 'learned'; lesson: Lesson }
+  /** Someone gave the agent a task (owner request, 2026-10-24). */
+  | { type: 'taskGiven'; task: AssignedTask };
 
 export type AgentEventType = AgentEvent['type'];

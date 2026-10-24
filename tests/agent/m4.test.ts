@@ -269,7 +269,8 @@ describe('planning (§4.2 module 10, Goal Gen)', () => {
       expect(fake.chatRequests()).toHaveLength(2);
       const sys = String((fake.chatRequests()[0]?.body?.messages as { content: string }[] | undefined)?.[0]?.content);
       expect(sys).toContain('Make your own plan');
-      expect(sys).toContain("Don't just do things in the usual order");
+      expect(sys).toContain('Plan as the experienced player you are');
+      expect(sys).toContain('You have played Minecraft for years');
       // The second time it is asked whether the plan still holds, and it does.
       const sys2 = String((fake.chatRequests()[1]?.body?.messages as { content: string }[] | undefined)?.[0]?.content);
       expect(sys2).toContain('If your current plan is still right');

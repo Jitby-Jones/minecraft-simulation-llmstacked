@@ -9,6 +9,7 @@ import {
   type ActionRecord,
   type AgentName,
   type AgentState,
+  type AssignedTask,
   type BlockChange,
   type Commitment,
   type CommitmentDraft,
@@ -39,7 +40,10 @@ import { buildPacket } from './bottleneck';
 import { evalCondition, held } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
-import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prompts';
+import { CHOICES, DEATH_RULE, DECISION_FORMAT, EXPERIENCE, THINKING, personaCore } from './prompts';
+import { URGENT_STRENGTH } from '../mind/expectations';
+import { cueFrom } from '../mind/later';
+import { addLesson, matchTask } from '../mind/learning';
 import { tidyDecision } from './decisionTidy';
 import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
@@ -1040,6 +1044,8 @@ export interface CCOptions {
   isPerson?: (name: AgentName) => boolean;
   rng?: () => number;
   heartbeatMs?: number;
+  /** What it knows of the game that bears on now (owner request, 2026-10-24), as lines for the packet. */
+  knowledge?: () => string[];
   now?: () => number;
 }
 
@@ -1083,7 +1089,17 @@ export class CognitiveController {
 
   start(): void {
     const b = this.o.bus;
-    this.offs.push(b.on('optionTerminated', (e) => this.trigger(`what you were doing ended (${e.reason})`)));
+    this.offs.push(b.on('optionTerminated', (e) => this.onEnded(e.ok, e.reason)));
+    // Owner request, 2026-10-24: what stands out (what doesn't fit what the agent knows is possible, the first of a
+    // remarkable thing) is thought about at once when it is strong; the rest waits for the next thought.
+    this.offs.push(
+      b.on('noticed', (e) => {
+        if (e.notice.strength >= URGENT_STRENGTH) this.trigger(`you noticed: ${e.notice.text}`, { urgent: true });
+      }),
+    );
+    // Something put off until a cue: the cue came.
+    this.offs.push(b.on('cue', (e) => this.trigger(`you remember: you meant to ${e.deferred.what} once ${e.deferred.cue.replace(':', ' ')}, and now ${e.why}`, { urgent: !this.o.executor.busy })));
+    this.offs.push(b.on('taskGiven', (e) => this.trigger(`${e.task.from} gave you a task: ${e.task.text}`, { urgent: true })));
     this.offs.push(
       b.on('dangerCleared', () => {
         const d = this.deferred;
@@ -1297,7 +1313,7 @@ export class CognitiveController {
   async packetNow(reason = 'the operator is looking'): Promise<string> {
     const L = this.o.levers();
     const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
-    return buildPacket({ state: this.o.store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], now: this.now() });
+    return buildPacket({ state: this.o.store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], knowledge: this.o.knowledge?.() ?? [], now: this.now() });
   }
 
   /** A quirk or emotion takes over briefly (source 'impulse'); the CC resumes the plan when it ends. */
@@ -1371,9 +1387,9 @@ export class CognitiveController {
       // Plans are made by Goal Gen (L3); a decision is the next step, on the CC's own tier.
       const tier = L.ccTier;
       const learned = this.o.learned?.offered() ?? [];
-      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\nYou decide what ${s.self.persona.name} does next.\n${DECISION_RULES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${DECISION_FORMAT}`;
+      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\n${EXPERIENCE}\n\n${THINKING}\n\nYou decide what ${s.self.persona.name} does next.\n${CHOICES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${DECISION_FORMAT}`;
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
-      const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], now: this.now() });
+      const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], knowledge: this.o.knowledge?.() ?? [], now: this.now() });
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         { role: 'user', content: packet },
@@ -1480,7 +1496,8 @@ export class CognitiveController {
       }
     }
     if (!out) return;
-    this.apply(out, source, ctx, reason);
+    const made = this.apply(out, source, ctx, reason);
+    if (source === 'llm') this.takeIn(out, made.id);
     // What they said to us is answered now.
     if (ctx.from) {
       for (const u of store.state.perception.heardSpeech) if (u.from === ctx.from && u.addressedToMe && (!ctx.convId || u.convId === ctx.convId)) this.answered.add(u.id);
@@ -1488,7 +1505,7 @@ export class CognitiveController {
     }
   }
 
-  private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext, why?: string): void {
+  private apply(out: DecisionOutput, source: Decision['source'], ctx: DecideContext, why?: string): Decision {
     const { store, bus, logger } = this.o;
     const now = this.now();
     const decision: Decision = { ...out, id: newId('d', now), createdAt: now, stateVersion: store.version, source };
@@ -1548,5 +1565,77 @@ export class CognitiveController {
       'decision',
     );
     bus.emit({ type: 'decision', decision });
+    return decision;
+  }
+
+  /**
+   * What the option under way ended in (owner request, 2026-10-24: "a real player ... would not be so slow and rigid").
+   * Done, with a next step meant: on to it at once, without stopping to think, as a person does what they set out to
+   * do. Failed, or nothing meant: think.
+   */
+  private onEnded(ok: boolean, reason: string): void {
+    const s = this.o.store.state;
+    const meant = s.mind.intention;
+    if (ok && meant && meant.steps.length > 0 && !s.flags.inDanger && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
+      const [step, ...rest] = meant.steps;
+      this.o.store.update('mind', (m) => ({ ...m, intention: rest.length > 0 ? { ...meant, steps: rest } : null }), 'next step');
+      if (step?.skill) {
+        const out: DecisionOutput = { option: 'work', task: { skill: step.skill, args: step.args ?? {} }, terminate: { maxSeconds: 600 }, rationale: `on with what I meant to do: ${meant.aim}` };
+        const why = validateDecision(out, this.env((k, a) => this.o.awareness.isStuckOn(k, a)));
+        if (!why) {
+          this.apply(out, 'intention', {}, 'the next step');
+          return;
+        }
+        this.o.logger.info({ module: 'cc', step, why }, 'next step not possible; thinking again');
+        this.trigger(`you meant to ${step.skill} ${JSON.stringify(step.args ?? {})} next, but you can't: ${why}`);
+        return;
+      }
+    }
+    this.trigger(ok ? `what you were doing is done (${reason})` : `what you were doing failed: ${reason}`);
+  }
+
+  /** The thinking around a choice the model made: the thought kept, the steps meant next, a lesson, a thing put off, a task settled. */
+  private takeIn(out: DecisionOutput, decisionId: string): void {
+    const { store, bus } = this.o;
+    const now = this.now();
+    store.update(
+      'mind',
+      (m) => {
+        let next = m;
+        if (out.thought) next = { ...next, thoughts: [...next.thoughts, { ts: now, text: out.thought, decisionId }].slice(-8) };
+        // "then" says what comes next (and [] that nothing does); without it, what was meant still stands.
+        if (out.then) next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now } : null };
+        if (out.later) {
+          const cue = cueFrom(out.later.when, now);
+          if (cue) next = { ...next, later: [...next.later.filter((x) => x.what !== out.later?.what), { id: `l${now.toString(36)}`, what: out.later.what, ...cue, since: now }].slice(-6) };
+        }
+        return next;
+      },
+      'thought',
+    );
+    if (out.lesson) {
+      const lesson = addLesson(store, out.lesson, 'thought', now);
+      if (lesson) bus.emit({ type: 'learned', lesson });
+    }
+    for (const [text, status] of [
+      [out.taskDone, 'done'],
+      [out.taskDropped, 'dropped'],
+    ] as const) {
+      if (!text) continue;
+      const t = matchTask(store.state.goals.tasks ?? [], text);
+      if (t) store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id === t.id ? { ...x, status, note: text } : x)) }), `task ${status}`);
+    }
+  }
+
+  /** Someone gives this agent a task (owner request, 2026-10-24): it is taken on, and thought about now. */
+  giveTask(text: string, from: string): AssignedTask {
+    const now = this.now();
+    const task: AssignedTask = { id: newId('t', now), text: text.slice(0, 300), from, at: now, status: 'open' };
+    this.o.store.update('goals', (g) => ({ ...g, tasks: [...(g.tasks ?? []), task].slice(-12) }), 'task given');
+    this.o.bus.emit({ type: 'taskGiven', task });
+    return task;
   }
 }
+
+/** Steps meant this long ago are no longer carried on without a thought. */
+const INTENTION_MS = 12 * 60_000;

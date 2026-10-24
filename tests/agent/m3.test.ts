@@ -189,7 +189,7 @@ describe('conditions, levers and the packet (§4.3, §4.4, §21.1)', () => {
     expect(low).toContain('Current goal: get stone tools');
     expect(low).toContain('Bram (3 m');
     expect(low).not.toContain('Ada');
-    expect(low).toContain('You are stuck on: gather');
+    expect(low).toContain('Not working lately: gather');
     expect(buildPacket({ state: s, levers: leversFor(0.8), reason: 'x', now: 0 })).toContain('Ada');
   });
 });

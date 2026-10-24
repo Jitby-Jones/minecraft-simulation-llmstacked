@@ -243,10 +243,11 @@ describe('hunger said plainly (an agent starved with "food 3/20" in its packet)'
     expect(hunger(at(18))).toBeNull();
     expect(hunger(at(7, [{ item: 'bread', qty: 2 }]))).toBeNull();
   });
-  it('hungry with nothing to eat: find food; starving: food before anything else', () => {
-    expect(hunger(at(7))).toMatch(/hungry and carry nothing to eat: find food soon/);
-    expect(hunger(at(3))).toMatch(/starving .* Food comes before anything else/);
-    expect(hunger(at(3, [{ item: 'apple', qty: 1 }]))).toBe('You are starving: eat the apple you carry.');
+  // Owner request, 2026-10-24: how it feels is said; what to do about it is the mind's.
+  it('hungry with nothing to eat, or starving: said plainly, with no telling what to do', () => {
+    expect(hunger(at(7))).toBe('You are getting hungry, and you carry nothing to eat.');
+    expect(hunger(at(3))).toBe('You are starving and carry nothing to eat: without food you will soon die.');
+    expect(hunger(at(3, [{ item: 'apple', qty: 1 }]))).toBe('You are starving; you carry apple.');
   });
 });
 
@@ -300,7 +301,7 @@ describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389
   });
   it('the packet says where home is', () => {
     const packet = buildPacket({ state: s, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
-    expect(packet).toContain('Home (the village): 220,66,450, 3 m away; no village chest yet (a chest is 8 planks; a builder makes it, or anyone if there is no builder); no huts yet.');
+    expect(packet).toContain('Home: 220,66,450, 3 m away.');
     const withHut = buildPacket({ state: { ...s, village: { ...s.village, huts: [{ x: 224, y: 66, z: 452 }] } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
     expect(withHut).toContain('huts with doors at 224,66,452.');
   });

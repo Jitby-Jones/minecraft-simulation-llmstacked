@@ -15,8 +15,9 @@ import { SLOW_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { evalCondition } from './conditions';
 import { advancePlan, beginNext, currentStep, describePlan, planFinished } from './plan';
-import { dayPart } from './bottleneck';
-import { DEATH_RULE, personaCore } from './prompts';
+import { DEATH_RULE, EXPERIENCE, personaCore } from './prompts';
+import { describeScene } from '../perception/sceneWords';
+import { dayPart, lessonsFor, placesFor, triedLately } from './bottleneck';
 import { EDIBLE } from './villageMove';
 import { isOff } from '../state/switches';
 
@@ -211,6 +212,8 @@ export interface GoalGenOptions {
   memories?: (k: number) => Promise<string[]>;
   /** Lines about the agent's own life worth weighing (§19.5: a young child to teach and protect). */
   hints?: () => readonly string[];
+  /** What it knows of the game that bears on now (owner request, 2026-10-24). */
+  knowledge?: () => readonly string[];
   rng?: () => number;
   now?: () => number;
 }
@@ -363,14 +366,26 @@ export class GoalGen {
       .map((p) => `You admire ${p.name}${p.perceivedRole ? `, a ${p.perceivedRole}` : ''}${p.perceivedGoals[0] ? `; they seem to want ${p.perceivedGoals[0]}` : ''}. You'd like to be more like them.`);
     const failed = s.actionLog.filter((a) => !a.ok).slice(-3).map((a) => `${a.skill} ${JSON.stringify(a.args)} (${a.error ?? a.observed})`);
     const history = s.goals.history.slice(-5).map((g) => `${g.text} (${g.status})`);
+    const now = this.now();
+    // Owner request, 2026-10-24: what it has taken on, what it sees, where it has seen things, what it learned and knows.
+    const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open').map((t) => `- ${t.text} (from ${t.from})`);
+    const scene = s.scene.at > 0 ? describeScene(s.scene, now, { maxFeatures: 8, maxCreatures: 10 }) : [seen.length > 0 ? `Around you: ${seen.join(', ')}.` : 'Nobody and nothing special around you.'];
+    const places = placesFor(s, now, 5);
+    const tried = triedLately(s.actionLog, now);
+    const lessons = lessonsFor(s, now, 5).map((l) => `- ${l.text}`);
+    const knowledge = this.o.knowledge?.() ?? [];
     return [
       `Why now: ${reason}.`,
       `About you: ${s.selfSummary || 'nothing notable yet.'}`,
-      `You: health ${Math.round(s.self.health)}/20, food ${s.self.food}/20. It is ${dayPart(s.self.time, s.self.isDay)}. Carrying: ${inv}.`,
-      seen.length > 0 ? `Around you: ${seen.join(', ')}.` : 'Nobody and nothing special around you.',
+      tasks.length > 0 ? `Tasks you have taken on:\n${tasks.join('\n')}` : '',
+      `You: health ${Math.round(s.self.health)}/20, food ${s.self.food}/20. It is ${dayPart(s.self.time, s.self.isDay)}. At ${Math.round(s.self.pos.x)},${Math.round(s.self.pos.y)},${Math.round(s.self.pos.z)}. Carrying: ${inv}.`,
+      ...scene,
+      places.length > 0 ? `Places you remember:\n${places.map((p) => `- ${p}`).join('\n')}` : '',
       s.goals.plan ? `Your plan now: ${describePlan(s.goals.plan)}` : 'You have no plan yet.',
       history.length > 0 ? `Recent goals: ${history.join('; ')}` : '',
-      failed.length > 0 ? `What didn't work lately: ${failed.join('; ')}` : '',
+      tried.length > 0 ? `What you have been trying:\n${tried.map((t) => `- ${t}`).join('\n')}` : failed.length > 0 ? `What didn't work lately: ${failed.join('; ')}` : '',
+      lessons.length > 0 ? `What you have learned:\n${lessons.join('\n')}` : '',
+      knowledge.length > 0 ? `What you know of the game that bears on this:\n${knowledge.map((k) => `- ${k}`).join('\n')}` : '',
       `People you know: ${people.join(', ') || 'nobody yet'}`,
       s.goals.community ? `Everyone here hopes to ${s.goals.community}.` : '',
       village.length > 0 ? `Your part in the village: ${village.join('; ')}. A step for the village can use its doneWhen.` : '',
@@ -398,7 +413,7 @@ export class GoalGen {
         signal: guard.signal,
         isStale: guard.isStale,
         messages: [
-          { role: 'system', content: `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\n${task}\n${PLAN_FORMAT}` },
+          { role: 'system', content: `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\n${EXPERIENCE}\n\n${task}\n${PLAN_FORMAT}` },
           { role: 'user', content: lines.join('\n') },
         ],
       });
@@ -423,7 +438,7 @@ export class GoalGen {
     const fresh = !plan || planFinished(plan);
     const out = await this.ask(
       'L3',
-      `Make your own plan for the next half hour or so: what you want to get done, as 2–6 concrete steps, your way. Think about what you have and see around you, the time of day, how you feel, what the others are doing and what you have talked over with them. Don't just do things in the usual order; do what fits you.${fresh ? '' : ' If your current plan is still right, answer {"keep": true}.'}`,
+      `Make your own plan for the next half hour or so: what you want to get done, as 2–6 concrete steps, your way. Think about what you have taken on, what you have and see around you, the time of day, how you feel, what the others are doing and what you have talked over with them. Plan as the experienced player you are: steps that build on each other, enough of each thing got in one go for what comes after, and nothing that undoes what you will need later.${fresh ? '' : ' If your current plan is still right, answer {"keep": true}.'}`,
       await this.context(reason),
     );
     if (this.stopped) return;

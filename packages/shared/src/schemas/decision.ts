@@ -147,10 +147,24 @@ export const DecisionOutputSchema = z.object({
   terminate: TerminateSchema,
   /** ≤ 1 sentence, for logs/UI only. */
   rationale: z.string().max(400),
+  /** Owner request, 2026-10-24: what went through the agent's head (its train of thought, kept for the next decision). */
+  thought: z.string().max(800).optional(),
+  /** What it means to do next, in order, once this is done: carried on without stopping to think, unless something comes up. */
+  then: z
+    .array(z.object({ skill: z.string().min(1), args: z.record(z.string(), z.unknown()).default({}) }))
+    .max(6)
+    .optional(),
+  /** Something it learned from what happened. */
+  lesson: z.string().max(300).optional(),
+  /** Something it puts off until a cue (see:<thing>, have:<item>[>=n], day, night, minutes:<n>). */
+  later: z.object({ what: z.string().min(2).max(200), when: z.string().min(2).max(80) }).optional(),
+  /** A task it was given that it judges done, or gives up on. */
+  taskDone: z.string().max(200).optional(),
+  taskDropped: z.string().max(200).optional(),
 });
 export type DecisionOutput = z.infer<typeof DecisionOutputSchema>;
 
-export type DecisionSource = 'llm' | 'default' | 'reflex' | 'impulse' | 'script' | 'operator';
+export type DecisionSource = 'llm' | 'default' | 'reflex' | 'impulse' | 'script' | 'operator' | 'intention';
 
 export interface Decision extends DecisionOutput {
   id: string;

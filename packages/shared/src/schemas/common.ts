@@ -34,6 +34,7 @@ export const LLM_MODULES = [
   'goal',
   'memory',
   'reflection',
+  'learning',
   'skillWriter',
   'architect',
   'controller',
@@ -54,6 +55,8 @@ export const MODULE_PRIORITY: Readonly<Record<LlmModule, number>> = {
   goal: 50,
   memory: 45,
   reflection: 40,
+  // Thinking back over what happened (owner request, 2026-10-24): slow, and never in a hurry.
+  learning: 38,
   skillWriter: 30,
   // A building's design waits its turn; the controller steps in when something has gone wrong.
   architect: 35,

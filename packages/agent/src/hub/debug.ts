@@ -139,6 +139,13 @@ export async function debugOp(agent: Agent, op: string, args: Record<string, unk
       agent.cc.setGoal(text, doneWhen ?? undefined);
       return { ok: true, message: `goal set: ${text}${doneWhen ? ` (done when ${doneWhen})` : ''}` };
     }
+    // Owner request, 2026-10-24: a task given in words; how to do it is the agent's to work out.
+    case 'task': {
+      const text = str(args.text, 300);
+      if (!text) return { ok: false, message: 'task needs text' };
+      const t = agent.giveTask(text, str(args.from, 32) ?? 'the operator');
+      return { ok: true, message: `task given: ${t.text}` };
+    }
     case 'plan': {
       const aim = str(args.aim, 160);
       const steps = stepsOf(args.steps);
