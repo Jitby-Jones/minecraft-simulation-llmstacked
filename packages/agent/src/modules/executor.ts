@@ -226,6 +226,15 @@ export class SkillExecutor {
         // No chest about: a builder makes one, anyone when there's no builder (owner request, 2026-10-24).
         chestMaker: () => whoMakesChests(store.state, this.now()),
         ...(this.o.architect ? { architect: this.o.architect } : {}),
+        portals: {
+          list: () => store.state.village.portals ?? [],
+          note: (p) =>
+            store.update(
+              'village',
+              (v) => ({ ...v, portals: [...(v.portals ?? []).filter((x) => !(x.dimension === p.dimension && Math.abs(x.pos.x - p.pos.x) <= 2 && Math.abs(x.pos.y - p.pos.y) <= 3 && Math.abs(x.pos.z - p.pos.z) <= 2)), p].slice(-12) }),
+              'portal',
+            ),
+        },
         // A new home: the old village's chest, huts and board are behind us (owner request, 2026-10-24).
         setHome: (pos) => {
           body.home = pos.clone();

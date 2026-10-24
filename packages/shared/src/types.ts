@@ -466,6 +466,16 @@ export interface VillageState {
   finds: { what: string; pos: Vec3; at: number }[];
   /** Buildings this agent has begun (owner request, 2026-10-24): where, how far along, what they still lack. */
   projects: BuildProject[];
+  /** Portals this agent has built or been through (owner request, 2026-10-24): the way to the Nether and back. */
+  portals: PortalNote[];
+}
+
+/** A portal: which world it stands in (overworld, the_nether, the_end), where, and where it leads. */
+export interface PortalNote {
+  dimension: string;
+  pos: Vec3;
+  leadsTo: string;
+  at: number;
 }
 
 /** A building begun: one of the village's designs, put up at a site, a second go carrying on where the first stopped. */

@@ -474,3 +474,16 @@ describe('names and enchantments on items', () => {
     expect(enchantsOf(bot, null)).toEqual([]);
   });
 });
+
+describe('a nether portal frame', () => {
+  it('is ten obsidian and four corners round a two-by-three opening, each block with something to stand on', async () => {
+    const { portalBlueprint } = await import('@agora/agent/body/skills/expedition');
+    const bp = portalBlueprint('cobblestone');
+    const names = bp.blocks.map((b) => b.state);
+    expect(names.filter((n) => n === 'obsidian')).toHaveLength(10);
+    expect(names.filter((n) => n === 'cobblestone')).toHaveLength(4);
+    expect(bp.air).toHaveLength(6);
+    expect(bp.size).toEqual({ x: 4, y: 6, z: 1 });
+    expect(bp.problems).toEqual([]);
+  });
+});

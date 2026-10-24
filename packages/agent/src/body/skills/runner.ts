@@ -150,6 +150,8 @@ export interface RunSkillDeps {
   architect?: (ask: DesignAsk) => Promise<SkillResult>;
   /** Makes a place home (types.ts). */
   setHome?: (pos: Vec3) => void;
+  /** Portals known (types.ts). */
+  portals?: SkillContext['portals'];
 }
 
 export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkillDeps): Promise<SkillRunRecord> {
@@ -198,6 +200,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     ...(deps.projects ? { projects: deps.projects } : {}),
     ...(deps.architect ? { architect: deps.architect } : {}),
     ...(deps.setHome ? { setHome: deps.setHome } : {}),
+    ...(deps.portals ? { portals: deps.portals } : {}),
   };
   let ok = false;
   let observed: string;

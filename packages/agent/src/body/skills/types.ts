@@ -2,7 +2,7 @@
 // real inventory/world diff afterwards. Skills are verified code primitives — never LLM-generated here (M10 adds
 // sandboxed generated skills behind a separate gate).
 
-import type { BuildProject, Logger, Random, Volume } from '@agora/shared';
+import type { BuildProject, Logger, PortalNote, Random, Volume } from '@agora/shared';
 import type { Bot } from 'mineflayer';
 import type { Movements } from 'mineflayer-pathfinder';
 import type { Vec3 } from 'vec3';
@@ -83,6 +83,8 @@ export interface SkillContext {
   architect?: (ask: DesignAsk) => Promise<SkillResult>;
   /** Makes a place home (settle.ts): the village moves with its people. */
   setHome?: (pos: Vec3) => void;
+  /** Portals we built or went through (expedition.ts): the way back. */
+  portals?: { list(): PortalNote[]; note(p: PortalNote): void };
 }
 
 /** What the `design` skill asks the architect for, with what it saw of the land around home. */

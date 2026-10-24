@@ -59,7 +59,7 @@ export function restoreSnapshot(db: MemoryDB, store: AgentStateStore, now = Date
     'resume: profile defaults',
   );
   // A village saved before buildings were begun has none begun.
-  store.update('village', (v) => ({ ...v, projects: v.projects ?? [] }), 'resume: village defaults');
+  store.update('village', (v) => ({ ...v, projects: v.projects ?? [], portals: v.portals ?? [] }), 'resume: village defaults');
   const fade = 0.5 ** (offline / EMOTION_HALF_LIFE_MS);
   store.update(
     'emotions',

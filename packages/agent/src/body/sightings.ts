@@ -26,9 +26,12 @@ export function isInferable(blockName: string): boolean {
 interface Seen {
   name: string;
   at: number;
+  /** The world it is in: a place in the Overworld is no place in the Nether. */
+  world: string;
 }
 
 const key = (p: Vec3) => `${p.x},${p.y},${p.z}`;
+const worldOf = (bot: Bot) => String(bot.game?.dimension ?? 'overworld');
 
 /** A block sharing a face with the cell our feet or head is in: the wall we touch counts as seen. */
 function touching(bot: Bot, p: Vec3): boolean {
@@ -61,7 +64,7 @@ export class Sightings {
   record(b: Block): void {
     const k = key(b.position);
     this.seen.delete(k);
-    this.seen.set(k, { name: b.name, at: Date.now() });
+    this.seen.set(k, { name: b.name, at: Date.now(), world: worldOf(this.bot) });
     if (this.seen.size > MAX_REMEMBERED) {
       const oldest = this.seen.keys().next().value;
       if (oldest !== undefined) this.seen.delete(oldest);
@@ -70,7 +73,8 @@ export class Sightings {
 
   /** Whether this bot perceives `b` now (touching or in line of sight) or has seen it there before. */
   knows(b: Block, maxDistance: number): boolean {
-    if (this.seen.get(key(b.position))?.name === b.name) return true;
+    const s = this.seen.get(key(b.position));
+    if (s?.name === b.name && s.world === worldOf(this.bot)) return true;
     if (touching(this.bot, b.position) || canSeeBlock(this.bot, b.position, maxDistance + 1)) {
       this.record(b);
       return true;
@@ -82,9 +86,10 @@ export class Sightings {
   remembered(ids: readonly number[], maxDistance: number): Block[] {
     const names = new Set(ids.map((id) => this.bot.registry.blocks[id]?.name));
     const here = this.bot.entity.position;
+    const world = worldOf(this.bot);
     const out: Block[] = [];
     for (const [k, s] of this.seen) {
-      if (!names.has(s.name)) continue;
+      if (!names.has(s.name) || s.world !== world) continue;
       const [x, y, z] = k.split(',').map(Number) as [number, number, number];
       if (Math.hypot(x + 0.5 - here.x, y + 0.5 - here.y, z + 0.5 - here.z) > maxDistance) continue;
       const b = this.bot.blockAt(new Vec3(x, y, z));

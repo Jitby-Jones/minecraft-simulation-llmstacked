@@ -11,7 +11,7 @@ import { createMovements, loadBodyPlugins } from './plugins';
 import { ReflexController, type ReflexHooks, type ReflexOptions } from './reflexes';
 import { getSkill } from './skills/registry';
 import { type SkillRunRecord, runSkill } from './skills/runner';
-import type { AnySkill, DesignAsk, ProjectBook, SkillResult } from './skills/types';
+import type { AnySkill, DesignAsk, ProjectBook, SkillContext, SkillResult } from './skills/types';
 
 export interface BodyConfig extends BodyOptions {
   logger: Logger;
@@ -44,6 +44,8 @@ export interface RunOptions {
   architect?: (ask: DesignAsk) => Promise<SkillResult>;
   /** Makes a place home, for the `settle` skill. */
   setHome?: (pos: Vec3) => void;
+  /** Portals known, for the expedition skills. */
+  portals?: SkillContext['portals'];
 }
 
 const MAX_PLACED = 4000;
@@ -67,6 +69,8 @@ export class Body {
   readonly rng: Random;
   /** Where this body first appeared: exploring stays within reach of it. */
   home: Vec3 | null = null;
+  /** The world home is in (overworld, the_nether, the_end). */
+  homeWorld = 'overworld';
   /** Blocks this body placed ("x,y,z", oldest first): someone breaking them is a deed against us (§6.3). */
   readonly placed = new Set<string>();
   /** Died: it does nothing more (owner request, 2026-10-24). */
@@ -94,9 +98,12 @@ export class Body {
     body.home = bot.entity.position.clone();
     // Every confirmed placement (skills and the pathfinder's scaffolding alike) comes through here.
     (bot as unknown as { on(ev: 'blockPlaced', f: (old: unknown, placed: { position: Vec3 }) => void): void }).on('blockPlaced', (_old, placed) => body.notePlaced(placed.position));
-    // Placed somewhere far away (a respawn, an operator's teleport): that is where this body lives now.
+    // Placed somewhere far away (a respawn, an operator's teleport): that is where this body lives now. Not through a
+    // portal: home stays in its own world, and the way back is the portal (owner request, 2026-10-24).
+    body.homeWorld = String(bot.game.dimension ?? 'overworld');
     bot.on('forcedMove', () => {
       const p = bot.entity.position;
+      if (String(bot.game.dimension ?? 'overworld') !== body.homeWorld) return;
       if (!body.home || p.distanceTo(body.home) > 64) body.home = p.clone();
     });
     return body;
@@ -184,7 +191,8 @@ export class Body {
       slipChance: opts.slipChance ?? 0,
       progress: opts.progress,
       planDepth: opts.planDepth,
-      home: this.home,
+      // In another world (through a portal) home is far off in its own; the way back is the portal.
+      home: String(this.bot.game.dimension ?? 'overworld') === this.homeWorld ? this.home : null,
       ...(opts.combat !== undefined ? { combat: opts.combat } : {}),
       ...(opts.talkingWith ? { talkingWith: opts.talkingWith } : {}),
       ...(opts.fightNearby ? { fightNearby: opts.fightNearby } : {}),
@@ -192,6 +200,7 @@ export class Body {
       ...(opts.projects ? { projects: opts.projects } : {}),
       ...(opts.architect ? { architect: opts.architect } : {}),
       ...(opts.setHome ? { setHome: opts.setHome } : {}),
+      ...(opts.portals ? { portals: opts.portals } : {}),
     });
   }
 

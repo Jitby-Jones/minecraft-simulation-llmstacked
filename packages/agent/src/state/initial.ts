@@ -38,7 +38,7 @@ export function createInitialState(o: InitialStateOptions): AgentState {
     workmem: [],
     selfSummary: '',
     goals: { life: [...p.lifeGoals], current: null, plan: null, social: [], history: [] },
-    village: { home: null, chest: null, huts: [], board: null, signs: [], threats: [], finds: [], projects: [] },
+    village: { home: null, chest: null, huts: [], board: null, signs: [], threats: [], finds: [], projects: [], portals: [] },
     decision: null,
     option: null,
     taskQueue: [],

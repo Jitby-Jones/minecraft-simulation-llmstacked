@@ -65,6 +65,17 @@ export function buildPacket(i: PacketInput): string {
   out.push(
     `You: health ${Math.round(self.health)}/20, food ${self.food}/20, ${dayPart(self.time, self.isDay)}, at ${Math.round(self.pos.x)},${Math.round(self.pos.y)},${Math.round(self.pos.z)}${s.flags.inDanger ? ', IN DANGER' : ''}.`,
   );
+  // Another world (owner request, 2026-10-24): where we are, its dangers, and the way back.
+  const world = String(self.dimension ?? 'overworld').replace(/^minecraft:/, '');
+  if (world !== 'overworld') {
+    const back = (s.village.portals ?? []).filter((p) => p.dimension === world && p.leadsTo === 'overworld').sort((a, b) => Math.hypot(a.pos.x - self.pos.x, a.pos.z - self.pos.z) - Math.hypot(b.pos.x - self.pos.x, b.pos.z - self.pos.z))[0];
+    const backText = back ? `The portal home is at ${back.pos.x},${back.pos.y},${back.pos.z}, ${Math.round(Math.hypot(back.pos.x - self.pos.x, back.pos.z - self.pos.z))} m away (travel {to: overworld}).` : '';
+    out.push(
+      world === 'the_nether'
+        ? `You are in the Nether: lava everywhere, ghasts that shoot fire, piglins that attack anyone without gold armor, blazes and wither skeletons in the fortresses. Gold, quartz, glowstone and blaze rods are here for the taking. ${backText}`.trim()
+        : `You are in the End: endermen (don't look them in the eye), the dragon overhead, and no way out until it is dead. ${backText}`.trim(),
+    );
+  }
   const inv = self.inventory.map((st) => `${st.qty} ${st.item}`).join(', ');
   out.push(`Carrying: ${inv || 'nothing'}${self.equipped ? ` (holding ${self.equipped})` : ''}.`);
   // Hunger said plainly: a number alone was let slide until an agent starved.
@@ -72,7 +83,7 @@ export function buildPacket(i: PacketInput): string {
   if (hungerLine) out.push(hungerLine);
   // Where home is: without it a model's "head home" went to a made-up 0,64,0, hundreds of blocks off.
   const home = s.village.home;
-  if (home) {
+  if (home && world === 'overworld') {
     const far = Math.round(Math.hypot(home.x - self.pos.x, home.z - self.pos.z));
     const chest = s.village.chest?.pos;
     // Huts, by their doors: where to be at night.
