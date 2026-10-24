@@ -7,6 +7,7 @@
 import { type Logger, type Quirk, clamp } from '@agora/shared';
 import type { Bot } from 'mineflayer';
 import pathfinderPkg, { type Movements } from 'mineflayer-pathfinder';
+import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { type AttackKind, SwingTracker } from './attribution';
@@ -71,6 +72,13 @@ const CALLED_OFF_MS = 30_000;
 const SUBMERGED_MS = 6000;
 /** Running that isn't working (still being hit, or nowhere to go) with the attacker close: stand and fight this long. */
 const STAND_MS = 12_000;
+/** Whole blocks one can have one's head in and still breathe: they let the light through. */
+const BREATHABLE = /glass|_leaves$|^ice$|^packed_ice$|^blue_ice$|^frosted_ice$|^slime_block$|^honey_block$|^barrier$|^beacon$|^mangrove_roots$/;
+/** Digs at most this many blocks out of the way of one's head before giving the body back. */
+const DIG_OUT_MAX = 8;
+/** What comes down when nothing holds it up. */
+const FALLS = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|\w+_concrete_powder)$/;
+const SIDES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
 /** The six cells beside one: the steps of a swim. */
 const NEIGHBORS = [
   [1, 0, 0],
@@ -479,6 +487,71 @@ export class ReflexController {
     if (!this.ashore) return;
     void bot.lookAt(this.ashore.at.offset(0.5, 1, 0.5), true).catch(() => undefined);
     bot.setControlState('forward', true);
+  }
+
+  /**
+   * What one's head is in, smothering it: a whole block where the eyes are (gravel or sand come down onto it from a
+   * tunnel's roof, a block set there). Never a door, a slab or glass: the head is not in them, or breathes through.
+   */
+  private smotheredBy(): Block | null {
+    return this.wholeBlockAt(1.62);
+  }
+
+  /** A whole block one can't breathe in, this high up one's body, or null. */
+  private wholeBlockAt(dy: number): Block | null {
+    const b = this.bot.blockAt(this.bot.entity.position.offset(0, dy, 0));
+    if (!b || b.boundingBox !== 'block' || BREATHABLE.test(b.name)) return null;
+    const shapes = (b as unknown as { shapes?: number[][] }).shapes ?? [];
+    const whole = shapes.length === 1 && (shapes[0] ?? []).join(',') === '0,0,0,1,1,1';
+    return whole ? b : null;
+  }
+
+  /**
+   * Out from under what came down on one's head, as a player does: dug at once (with a shovel for gravel or sand),
+   * and what is in one's feet too, then a step aside before the rest of it comes down. An agent at work in a tunnel
+   * suffocated in the gravel from 13 health, the dig going on about it.
+   */
+  private async digOut(): Promise<void> {
+    const bot = this.bot;
+    try {
+      bot.pathfinder.setGoal(null);
+    } catch {
+      // not moving
+    }
+    bot.clearControlStates();
+    for (let i = 0; i < DIG_OUT_MAX && bot.health > 0; i++) {
+      const head = this.smotheredBy();
+      const b = head ?? this.wholeBlockAt(0.2);
+      if (b) {
+        if (!bot.canDigBlock(b)) return;
+        const tool = bot.pathfinder.bestHarvestTool(b);
+        if (tool && bot.heldItem?.name !== tool.name) await bot.equip(tool, 'hand').catch(() => undefined);
+        await bot.dig(b, true).catch(() => undefined);
+        // Again: more may have come down, and there are the feet.
+        continue;
+      }
+      // Head and feet clear: out from under it.
+      const aside = this.openBeside();
+      if (!aside) return;
+      await bot.lookAt(aside.offset(0.5, 1.6, 0.5), true).catch(() => undefined);
+      bot.setControlState('forward', true);
+      for (let t = 0; t < 8 && !bot.entity.position.floored().equals(aside); t++) await new Promise((r) => setTimeout(r, 100));
+      bot.setControlState('forward', false);
+      return;
+    }
+  }
+
+  /** A cell beside one's feet to step into: room to stand, ground under it, nothing over it that falls. Back the way we came first. */
+  private openBeside(): Vec3 | null {
+    const bot = this.bot;
+    const me = bot.entity.position.floored();
+    const last = [...this.trail].reverse().find((p) => !p.equals(me));
+    const sides = SIDES.map((d) => me.plus(d)).sort((a, b) => (last ? a.distanceTo(last) - b.distanceTo(last) : 0));
+    for (const p of sides) {
+      const over = bot.blockAt(p.offset(0, 2, 0))?.name ?? '';
+      if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0))) && !FALLS.test(over)) return p;
+    }
+    return null;
   }
 
   private onFire(): boolean {
@@ -1090,6 +1163,18 @@ export class ReflexController {
       else {
         bot.setControlState('jump', true);
         bot.setControlState('forward', true);
+      }
+      return;
+    }
+    // Smothered: what came down on one's head is dug out at once.
+    if (this.smotheredBy()) {
+      this.mode = 'escape';
+      this.announce('hazard', 'suffocation');
+      this.busy = true;
+      try {
+        await this.digOut();
+      } finally {
+        this.busy = false;
       }
       return;
     }

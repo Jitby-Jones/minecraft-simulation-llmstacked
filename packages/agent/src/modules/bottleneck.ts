@@ -8,6 +8,7 @@ import { describePlan } from './plan';
 import { describeChange, recentChanges } from '../perception/surroundings';
 import { bearingOf, describeScene } from '../perception/sceneWords';
 import { EDIBLE } from './villageMove';
+import { ISOLATED_RANGE } from './hiding';
 import { WORN } from '../body/inventory';
 
 export interface PacketInput {
@@ -99,8 +100,11 @@ export function buildPacket(i: PacketInput): string {
     const far = Math.round(Math.hypot(home.x - self.pos.x, home.z - self.pos.z));
     const chest = s.village.chest?.pos;
     const huts = s.village.huts.slice(0, 3).map((d) => `${d.x},${d.y},${d.z}`);
+    // What is there: an agent went "home to a safe base" for its first night, to the empty field it started in.
+    const builtThere = (s.village.projects ?? []).some((p) => Math.hypot(p.origin.x - home.x, p.origin.z - home.z) <= ISOLATED_RANGE);
+    const bare = huts.length === 0 && !builtThere ? '; nothing built there yet' : '';
     out.push(
-      `Home: ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}${huts.length > 0 ? `; huts with doors at ${huts.join(' and ')}` : ''}.`,
+      `Home: ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}${huts.length > 0 ? `; huts with doors at ${huts.join(' and ')}` : ''}${bare}.`,
     );
   }
   // A building begun and not finished: where, how far along, what it still lacks (build again to carry on).

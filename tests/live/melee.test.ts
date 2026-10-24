@@ -116,6 +116,55 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(gaveUp).toBe(true);
   }, 120_000);
 
+  it("zombies one at a time on open ground, a stone sword: each met at a sword's length and killed, for little health", async () => {
+    const x = 6800;
+    await server.cmd(`forceload add ${x - 24} -24 ${x + 24} 24`);
+    // Open ground under a roof (no sun to burn them), lit so nothing else comes.
+    await server.cmd(`fill ${x - 12} ${Y} -12 ${x + 12} ${Y + 4} 12 air`);
+    await server.cmd(`fill ${x - 12} ${Y + 5} -12 ${x + 12} ${Y + 5} 12 glowstone`);
+    await server.cmd(`tp Ada ${x}.5 ${Y} 0.5 -90 0`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await sleep(1500);
+    const lost: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await server.cmd('effect give Ada minecraft:instant_health 1 3');
+      await server.cmd('effect give Ada minecraft:saturation 1 5');
+      await sleep(1000);
+      const before = body.bot.health;
+      const p = body.bot.entity.position;
+      await server.cmd(`summon zombie ${Math.floor(p.x) + 7}.5 ${Y} ${Math.floor(p.z)}.5 {PersistenceRequired:1b,IsBaby:0b}`);
+      await sleep(1000);
+      const r = await body.run('attack', { target: 'zombie', seconds: 30 }, { signal: new AbortController().signal });
+      lost.push(Math.round((before - body.bot.health) * 10) / 10);
+      logger.info({ fight: i, ok: r.ok, observed: r.observed, health: body.bot.health, lost: lost.at(-1) }, 'zombie on open ground');
+      console.log(`[melee open ground ${i}] ${r.observed}, health ${before} to ${body.bot.health}`);
+      expect(r.ok).toBe(true);
+      expect(body.bot.health).toBeGreaterThan(0);
+    }
+    // A player meets them at a sword's length: a blow taken now and then, not two or three a zombie.
+    expect(lost.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(9);
+  }, 240_000);
+
+  it('gravel comes down on its head in a tunnel: dug out and a step aside, and it lives', async () => {
+    const x = 7200;
+    const y = Y - 8;
+    await tunnel(x, y);
+    dangers.length = 0;
+    body.reflexes.start();
+    await sleep(1000);
+    // Its head in gravel, and a column of it over that (a tunnel's roof opened under one).
+    await server.cmd(`fill ${x + 6} ${y + 1} 0 ${x + 6} ${y + 6} 0 gravel`);
+    const start = Date.now();
+    while (Date.now() - start < 20_000 && body.bot.health > 0) await sleep(500);
+    const head = body.bot.blockAt(body.bot.entity.position.offset(0, 1.62, 0));
+    logger.info({ health: body.bot.health, dangers: dangers.map((d) => `${d.kind}:${d.source}`), at: body.bot.entity.position.toString(), head: head?.name }, 'gravel on the head');
+    body.reflexes.stop();
+    expect(dangers.some((d) => d.source === 'suffocation')).toBe(true);
+    expect(body.bot.health).toBeGreaterThan(12);
+    expect(head?.name).not.toBe('gravel');
+  }, 120_000);
+
   it('digging a staircase down with a stone sword, a zombie coming down behind: it kills it, and lives', async () => {
     const x = 6400;
     const y = Y - 8;

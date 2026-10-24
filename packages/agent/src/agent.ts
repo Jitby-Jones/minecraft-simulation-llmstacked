@@ -106,6 +106,7 @@ const HAZARD_OVER: Readonly<Record<string, string>> = {
   water: 'came up for air: my head had been under water too long, where I was going',
   lava: 'got out of the lava',
   fire: 'got out of the fire',
+  suffocation: 'dug my head out of what came down on it',
 };
 
 export class Agent {

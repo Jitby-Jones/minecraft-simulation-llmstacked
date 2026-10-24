@@ -222,6 +222,22 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.entity.position.y).toBeGreaterThan(Y - 7.5);
   }, 120_000);
 
+  it('from the floor of a deep hollow, it gets back up to the ground above (walks up from caves had timed out)', async () => {
+    const x = 5950;
+    await at(x, 0);
+    // A hollow sixteen deep and five across in the stone, open to the sky; the agent on its floor.
+    await server.cmd(`fill ${x - 2} ${Y - 16} -2 ${x + 2} ${Y - 1} 2 air`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 16} 0.5`);
+    await server.cmd('give Ada minecraft:cobblestone 64');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(2000);
+    const started = Date.now();
+    const r = await run('goTo', { x: x + 6, y: Y, z: 0 });
+    logger.info({ r, ms: Date.now() - started, at: body.bot.entity.position.toString() }, 'up from a hollow');
+    expect(r.ok).toBe(true);
+    expect(body.bot.entity.position.y).toBeGreaterThan(Y - 1.5);
+  }, 240_000);
+
   it('dyes white wool red, and a white bed: any wool or bed takes any dye (the game data has each from black alone)', async () => {
     const x = 5900;
     await at(x, 0);
