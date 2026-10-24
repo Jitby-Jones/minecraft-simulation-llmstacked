@@ -196,7 +196,10 @@ describe('hiding is for one badly scared, alone and far from anyone', () => {
     expect(whyNotHide(far)).toMatch(/not scared enough/);
     expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 10)] } })).toMatch(/not alone/);
     expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 30)] } })).toMatch(/people in sight/);
-    expect(whyNotHide({ ...scared, self: { ...scared.self, pos: { x: 20, y: 64, z: 0 } } })).toMatch(/close to home/);
+    // Close to home: back there, once there is a hut to shelter in; an empty field is no refuge.
+    const near = { ...scared, self: { ...scared.self, pos: { x: 20, y: 64, z: 0 } } };
+    expect(whyNotHide(near)).toBeNull();
+    expect(whyNotHide({ ...near, village: { ...near.village, huts: [{ x: 4, y: 64, z: 4 }] } })).toMatch(/close to home/);
   });
 
   it('alone in the dark with monsters about, fear creeps up; with company it does not', async () => {

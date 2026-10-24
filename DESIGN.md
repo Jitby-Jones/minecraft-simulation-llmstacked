@@ -278,6 +278,66 @@ Reflexes **preempt** the Skill Executor, set `flags.inDanger`, and emit a `dange
 - **Embeddings (v0.6):** **local by default**, through `@xenova/transformers` (all-MiniLM-L6-v2). It's free, works offline, and doesn't touch the subscription. NanoGPT embeddings are used only if §22.5 confirms they're subscription-covered.
 - **Every memory has a `source`:** `self_observed | told_by:<agent> | inferred | reflection`. This is used for hallucination guard #2.
 
+### 4.8 The thinking mind (v0.9, owner request 2026-10-24)
+
+The owner found agents that acted on directives rather than thinking. They couldn't deal with anything they hadn't been told about: one killed the only sheep for wool, then looped, not knowing where else wool comes from. They took no notice of a player flying in creative mode. And they played slowly and rigidly, although they are meant to know the game. The research behind the redesign is in `docs/research-human-learning.md`: situation awareness, prediction error and surprise, expectation violation in infants, compiled skills in ACT-R, and studies of how players learn Minecraft. **The rule from here on:** nothing is coded towards a particular goal. When an agent fails at something, the general mind or its general hands get better, the way one would tune a person's mind, never a rule for that case.
+
+**Senses** (`perception/scene.ts`, `motion.ts`, `sceneWords.ts`). An agent sees what is in its line of sight, as a player does, rather than what a block search turns up.
+- **A panorama of rays:** 64 directions round × 26 heights (denser near the horizon), out to 56 m, 170 rays each 250 ms tick, so the whole view is renewed in about 2.5 s. Hits are kept per 3-block cell.
+- **Features:** the hits are grouped into the things a player sees: trees, rock, sand, gravel, clay, snow, water, lava, ore, crops, plants, built things, stations, containers, beds, portals, spawners, danger (fire, magma, powder snow, wither roses). Each has its nearest point, distance, compass bearing, height above or below, size, and whether this is the first one ever seen. Liquids and small things that matter (ore, beds, stations, chests, sugar cane, cobwebs) get a separate scan, since rays pass between them.
+- **Creatures:** every entity in sight. The line-of-sight check looks past glass, panes, bars, fences, gates, chains and scaffolding. Each creature comes with its motion (still, walking, running, jumping, falling, flying, swimming, climbing, riding, gliding), speed, height above the ground and time in the air, which way it is going (towards the agent or away), how it relates to the agent and to others (looking at you, a hostile going for someone, next to someone or something, in water or lava, riding), and what can be seen of it (a sheep's wool colour and whether it is sheared, a baby, what someone holds or wears).
+- **Where:** the biome (from the client's biome palette) or dimension, what is underfoot, the open sky, a roof or a cave ceiling, walled in or not, the weather.
+- **A map of places:** stations, chests, ores, portals, beds, water, lava and more, up to 80, each with its position and when it was seen (`knowledge.places`).
+
+All of it is put into words for the packet in that order: notices first, then features, then creatures in groups ("2 sheep, 12-15 m north: standing still, white wool"). What happens to the agent itself is checked too: moved in an instant, the time of day jumped, things in its pockets from nowhere.
+
+**Expectations and surprise** (`mind/expectations.ts`). For each kind of creature the mind keeps an envelope of what it has seen it do: speed on the ground and in the air, time in the air, hovering, height. Something outside its envelope makes a notice, a surprise whose strength grows with how far outside it is. Examples: a person 7 m up with nothing under them, not falling, for 4 s now; someone keeping up 25 m/s; someone who just went 30 m in an instant; someone standing inside solid stone. Speed counts only when kept up for about 2 s: a burst (a jump off a sprint, a knock back, a lagging player catching up) surprises nobody, and only kept-up speed widens the envelope. Seen three times, a surprise becomes a belief about that one ("Kelby can stay up in the air") and stops surprising. That is habituation, not a rule. Novelty also makes notices: the first creature of a kind, the first remarkable block (diamond ore, a spawner, a portal). The only built-in priors are what any player knows at a glance: bats, phantoms and ghasts fly; chickens flutter down; spiders climb; fish swim; endermen blink; slimes and rabbits hop. What the game does by itself is no surprise either: bees in and out of their nests, a spawner's mobs, what comes through a portal, a player joining, silverfish out of stone, an evoker's vexes, a slime split in two, a wandering trader and its llamas, a village's golems and cats, one creature turned into another. Nor is what one's own hands put in one's pockets, even when a craft's result lands after the skill has ended. A notice of strength ≥ 0.6 wakes the CC at once.
+
+**Thinking** (`modules/prompts.ts`, `modules/cc.ts`). The CC's system prompt is the persona, `EXPERIENCE` (years of play: what an experienced player knows and does without thinking), `THINKING`, `CHOICES`, the skills and `DECISION_FORMAT`. `THINKING` has six steps, in the order of situation awareness:
+1. What is going on, and what does it mean for me?
+2. Does anything surprise me or not fit what I know is possible, and what could explain it?
+3. What happens next if I carry on?
+4. What am I after, and what is it for?
+5. What are the ways there? For each: what it needs first, how long it takes, how likely it is to work, what could go wrong, and what it leaves me with.
+6. Choose, knowing how I will tell it worked.
+
+A failure is to be understood before anything is tried again; then try another way, wait for a better moment, or let it go. The old situation rules (`DECISION_RULES`) are gone. The reply's new fields:
+- `thought`: the reasoning, in the agent's own words, shown on the dashboard;
+- `then`: up to 6 more steps;
+- `later`: something to do when a cue comes;
+- `lesson`: something learned;
+- `taskDone` / `taskDropped`: a task finished, or given up as impossible or not worth it.
+
+**The packet** (`modules/bottleneck.ts`) follows the same order. It gives who you are and how you are (hunger in words: "you are starving and carry nothing to eat"), what you see, what you carry, places you know, your tasks, your plan, what you tried lately and what has not been working, the lessons that bear on it, what you know of the game for the items in play, and why you are thinking now.
+
+**Game knowledge** (`mind/knowledge.ts`). An experienced player knows where things come from. `GameKnowledge` reads the game's own data (recipes, smelting, block and mob loot) into the ways to get each item. A few facts the data can't tell are added: shearing leaves a sheep alive and its wool grows back, still lava under water makes obsidian, crops grow back from their own seeds, villagers trade. There are also short notes on topics a task may touch, such as portals, enchanting, armor, renewable food, animals and the dark underground (dark at any hour, and monsters spawn in the dark). The packet gives the ways to get the items that matter now (in the tasks, the plan and the latest failures), and up to three notes: those for the step at hand, the plan and where one is first, then those for the tasks. It is knowledge, not instruction: it says what is possible, never what to do.
+
+**Intentions and deferral** (`modules/cc.ts`, `mind/later.ts`).
+- **Intentions:** the steps in `then` run one after another, with no model call between them while each works. A step that fails, a surprise or danger brings the model back. An intention lapses after 12 min.
+- **Deferral:** `later` keeps a deferred intention with a cue: seeing something, having n of something, day, night, or in n minutes. `LaterWatch` checks the cues every 3 s and wakes the CC when one comes ("you remember: you meant to …"). An unmet intention is forgotten after 90 min.
+
+**Tasks** (`goals.tasks`). A task given in words (the console's `task` command, or code in tests) stays open until the agent itself says it is done or drops it with a reason. Being told a task wakes the CC and Goal Generation. Both see the open tasks.
+
+**Learning** (`mind/learning.ts`). Lessons come from the CC's `lesson` field and from the Learning reflection, an L3 call (module `learning`) made every 10 min or after 4 failures. It reads the last episodes (what was tried and what came of it) and writes what worked, what didn't and why, and what to do instead. Lessons are deduplicated at 70 % word overlap, at most 60 are kept, and the packet gives those that bear on the moment. This is how an agent learns how the world behaves without being told. For example, after a run of failures with a buggy `obtain`: "Repeatedly retrying an obtain command that says 'I don't know how to get' is a waste of time; I should switch strategies immediately after the first failure."
+
+**Hands** (`body/skills/hands.ts`, `movement.ts`, `planner.ts`). The general verbs a player has:
+- `use`: an item on a creature or a block (shears on a sheep, wheat on two cows, a bucket on water, flint and steel on obsidian);
+- `lead`: an animal, by holding out its food;
+- `harvest`: ripe crops, planted again from their own seeds;
+- `explore`: in a chosen direction.
+
+What each is for is the mind's to know. `obtain` knows shearing and mob drops as routes. The pathfinder never breaks built blocks (fences, doors, walls, planks and more), opens doors and gates, and walks "on foot" without digging when working around animals and fields. And the hands have a player's habits, the compiled skills of someone who has played for years:
+- `craft` makes what is one or two crafts away from what is in the pockets (planks from the logs on hand, sticks from those planks) before the craft, never touching what the recipe itself takes; it fails only when something would have to be got first.
+- A kind of thing means it in the wood or colour on hand: a sign, a door or a boat in the wood carried (else oak), a bed, wool or a carpet in the colour carried (else white). Logs, flowers, leaves and saplings stay any kind, as they are found.
+- In the dark underground, with torches on hand, a torch goes down beside the digger once the last light is about 9 blocks behind. The client's light levels are those the ground came with and don't follow changes, so the last light behind counts, as for a player.
+- An option's `until` is until it comes true: one already true at the start isn't watched (asked to gather 5 more logs while holding 10), and an option stopped because it came true is recorded as done, not failed.
+
+**Reflexes, from the long runs.** Two agents died in their first night of the long runs (a spider in a cave, a skeleton in the open), both while running. Running away is still the reflex when a fight looks lost, but it is now a run, not a dig: the running movements never mine, and the way back along the trail (where one walked lately, known to be open) is taken first, never towards or past what chases. Running that isn't working (two blows in 6 s, or going nowhere, with the attacker close) turns into a fight for 12 s, as with anyone cornered: a spider outruns a player and a tunnel ends. A creeper about to go and a warden are always run from. The hiding gate (§24, owner requests 2026-10-23) counts home only once it is a shelter (a hut built there): sent back to an empty field at night, hurt and hunted, an agent died there.
+
+**Models** (`config/models.yaml`, `mind`). The CC's thinking replies are longer, so it has its own list, benched on them: glm-5.3 first (3.5–6 s), then minimax-m3 (3–5 s, but it ran out at the old 8 s limit), kimi-k2.6 and glm-5.1 (5–10 s); 15 s timeout; L2 max tokens 900.
+
+**Kept.** The code default (`codeDecision`) remains the no-model fallback, and all reflexes stay. Intelligence still sets how far ahead plans go (`planDepthFor`). §21.2's knowledge gating is not used by the new mind: every agent knows the game.
+
 ---
 
 ## 5. LLM layer (NanoGPT)

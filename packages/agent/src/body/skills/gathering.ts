@@ -9,6 +9,7 @@ import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, blockIdsNamed, canSee } from '../world';
 import { type ToolKind, ensureTool, makeTool } from './tools';
+import { lightTheWay } from './light';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -212,6 +213,7 @@ async function collectUntil(
           void collector(bot).cancelTask();
           stopMotion(bot);
         });
+        await lightTheWay(ctx);
       }
       // A drop that rolled off where the plugin looks for it: go and get it.
       if (countItem(bot, matcher) <= had) {

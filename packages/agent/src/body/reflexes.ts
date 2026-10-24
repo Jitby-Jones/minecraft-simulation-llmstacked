@@ -37,10 +37,20 @@ export function shoots(e: Entity): boolean {
 }
 /** A weapon this good (a stone sword or axe, or better) makes a monster worth fighting rather than running from. */
 const ARMED_TIER = 2;
+
+/** What no one stands and fights: a creeper about to go, a warden. */
+function mustRun(bot: Bot, threats: readonly Entity[]): boolean {
+  const me = bot.entity.position;
+  return threats.some((e) => (e.name === 'creeper' && e.position.distanceTo(me) <= 5) || e.name === 'warden');
+}
 /** Having called a fight off on someone, we fight on if they come back for more this soon after. */
 const CALLED_OFF_MS = 30_000;
 /** A head under water this long is a hazard, whatever the air reading says (air lasts 15 s). */
 const SUBMERGED_MS = 6000;
+/** Running that isn't working (still being hit, or nowhere to go) with the attacker close: stand and fight this long. */
+const STAND_MS = 12_000;
+/** Where we walked lately: a way back we know is open, to run along. */
+const TRAIL_MAX = 80;
 /** In the water this long with nothing to do: out to the nearest shore. */
 const ASHORE_AFTER_MS = 8000;
 /** Swimming for a shore this long without getting out: another look for one. */
@@ -148,6 +158,16 @@ export class ReflexController {
   private ashore: { at: Vec3; since: number } | null = null;
   /** Movements for running away (made the first time). */
   private running: Movements | null = null;
+  /** Blows taken while running away, lately. */
+  private fleeHits: number[] = [];
+  /** When this flight began. */
+  private fleeSince = 0;
+  /** Since when a flight has been going nowhere (the pathfinder not moving), or null. */
+  private fleeStillSince: number | null = null;
+  /** Until when we stand and fight because running isn't working. */
+  private standUntil = 0;
+  /** Where we stood lately, on the ground, a couple of blocks apart. */
+  private trail: Vec3[] = [];
   readonly swings: SwingTracker;
 
   constructor(
@@ -219,6 +239,7 @@ export class ReflexController {
     const h = this.bot.health;
     if (h < this.lastHealth) {
       const damage = this.lastHealth - h;
+      if (this.mode === 'flee') this.fleeHits = [...this.fleeHits.filter((x) => Date.now() - x < 10_000), Date.now()];
       this.swings.attribute(this.bot.entity, (att) => {
         if (!this.timer) return;
         const name = att.attacker ? entityLabel(att.attacker) : null;
@@ -524,6 +545,9 @@ export class ReflexController {
     this.bot.clearControlStates();
     this.mode = 'idle';
     this.currentSource = '';
+    this.fleeHits = [];
+    this.fleeStillSince = null;
+    this.standUntil = 0;
     this.hooks.onDangerCleared(summary);
   }
 
@@ -555,19 +579,77 @@ export class ReflexController {
       }
       this.mode = 'flee';
       this.fleePlannedAt = 0;
-      // Running away is a run: the skills walk (sprinting costs food).
-      this.bot.pathfinder.setMovements((this.running ??= createMovements(this.bot, this.hooks.quirks(), { sprint: true })));
+      this.fleeHits = [];
+      this.fleeStillSince = null;
+      this.fleeSince = Date.now();
+      // Running away is a run: the skills walk (sprinting costs food). And a run, not a dig: stopping to mine a way
+      // through stone with something at your back is no escape.
+      if (!this.running) {
+        this.running = createMovements(this.bot, this.hooks.quirks(), { sprint: true });
+        this.running.canDig = false;
+      }
+      this.bot.pathfinder.setMovements(this.running);
       this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);
       const person = threats.find((t) => isPlayer(t) && t.username);
       if (person?.username) this.hooks.onYield?.(person.username);
     }
     // Re-plan as the chasers move; a fixed spot beats GoalInvert, which stalls on open ground.
     const now = Date.now();
-    if (now - this.fleePlannedAt < 1500 && this.bot.pathfinder.isMoving()) return;
+    const moving = this.bot.pathfinder.isMoving();
+    this.fleeStillSince = moving ? null : (this.fleeStillSince ?? now);
+    if (now - this.fleePlannedAt < 1500 && moving) return;
     this.fleePlannedAt = now;
+    // Back the way we came first: ground we know is open.
+    const back = this.trailSpot(threats);
+    if (back) {
+      this.bot.pathfinder.setGoal(new goals.GoalNear(back.x, back.y, back.z, 1));
+      return;
+    }
     const spot = this.fleeSpot(threats);
     if (spot) this.bot.pathfinder.setGoal(new goals.GoalXZ(spot.x, spot.z));
     else this.bot.pathfinder.setGoal(new goals.GoalInvert(new goals.GoalFollow(nearest, 20)), true);
+  }
+
+  /**
+   * Still being caught (two blows in six seconds, once the run has had a fair start) or going nowhere, with the
+   * attacker close. The blows of the moment one turns to run don't say the run is failing.
+   */
+  private cornered(now: number, threats: readonly Entity[]): boolean {
+    const me = this.bot.entity.position;
+    if (now - this.fleeSince < 2500 || !threats.some((t) => t.position.distanceTo(me) < 4)) return false;
+    const hits = this.fleeHits.filter((x) => now - x < 6000 && x - this.fleeSince > 1500).length;
+    const stuck = this.fleeStillSince !== null && now - this.fleeStillSince > 2000;
+    return hits >= 2 || stuck;
+  }
+
+  /** A spot on the way we came, well away from what chases us and not past it: the farthest from them we can reach. */
+  private trailSpot(threats: readonly Entity[]): Vec3 | null {
+    const me = this.bot.entity.position;
+    let best: Vec3 | null = null;
+    let bestScore = -Infinity;
+    for (const p of this.trail) {
+      const d = p.distanceTo(me);
+      if (d < 6 || d > 24) continue;
+      const fromThem = Math.min(...threats.map((t) => t.position.distanceTo(p)));
+      // Not towards them nor past them: farther from each than we are now, and none of them on the way there.
+      if (threats.some((t) => t.position.distanceTo(p) <= t.position.distanceTo(me))) continue;
+      const way = p.minus(me);
+      if (
+        threats.some((t) => {
+          const to = t.position.minus(me);
+          const cos = (to.x * way.x + to.z * way.z) / Math.max(0.01, Math.hypot(to.x, to.z) * Math.hypot(way.x, way.z));
+          return cos > 0.5 && Math.hypot(to.x, to.z) < Math.hypot(way.x, way.z);
+        })
+      )
+        continue;
+      if (fromThem < 8) continue;
+      const score = fromThem - d * 0.3;
+      if (score > bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    return best;
   }
 
   /**
@@ -660,6 +742,10 @@ export class ReflexController {
     // 1. Hazards.
     const lava = this.inLava();
     if (!lava && bot.entity.onGround && !this.lavaNear()) this.lastSafe = bot.entity.position.clone();
+    if (!lava && bot.entity.onGround && this.mode !== 'flee') {
+      const last = this.trail.at(-1);
+      if (!last || last.distanceTo(bot.entity.position) >= 2) this.trail = [...this.trail, bot.entity.position.floored()].slice(-TRAIL_MAX);
+    }
     if (lava) {
       // Straight back to where we last stood safely: the pathfinder won't plan a way through lava.
       this.mode = 'escape';
@@ -733,9 +819,17 @@ export class ReflexController {
     const threats = this.threats(this.mode === 'flee' ? 16 : undefined);
     if (threats.length > 0) {
       this.lastThreatAt = Date.now();
+      // Running that isn't working (it keeps catching us, or there is nowhere to go) turns into a fight, as with
+      // anyone cornered: a spider outruns a player, and a tunnel ends.
+      if (this.mode === 'flee' && this.cornered(now, threats)) {
+        this.standUntil = now + STAND_MS;
+        this.fleeHits = [];
+        this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'running is not working: standing to fight');
+      }
+      const standing = now < this.standUntil && !mustRun(bot, threats);
       // Once running, keep running until nothing chases within 16 blocks: turning back whenever a straggler
       // drops out of range makes a bot dither between the two.
-      if (this.mode === 'flee' || this.shouldFlee(threats)) this.flee(threats);
+      if (!standing && (this.mode === 'flee' || this.shouldFlee(threats))) this.flee(threats);
       else {
         const target = this.pickTarget(threats);
         if (target) this.fight(target, 'fight');

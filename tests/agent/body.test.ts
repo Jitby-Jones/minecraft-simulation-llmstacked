@@ -684,6 +684,40 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(rig('stone_sword').fleeThreshold([zombie, person])).toBe(10);
     expect(rig('stone_sword').fleeThreshold()).toBe(10);
   });
+
+  it("running that isn't working turns into a fight: still caught, or going nowhere, with it close", () => {
+    const r = rig('stone_sword') as unknown as { mode: string; fleeHits: number[]; fleeSince: number; fleeStillSince: number | null; cornered(now: number, t: unknown[]): boolean };
+    const spider = { id: 5, type: 'hostile', name: 'spider', position: new Vec3(2, 64, 0), height: 0.9 };
+    const far = { ...spider, id: 6, position: new Vec3(9, 64, 0) };
+    r.mode = 'flee';
+    const now = 100_000;
+    // The blows of the moment one turns to run don't count: the run gets a fair start.
+    r.fleeSince = now - 2000;
+    r.fleeHits = [now - 1900, now - 1000];
+    expect(r.cornered(now, [spider])).toBe(false);
+    r.fleeSince = now - 8000;
+    r.fleeHits = [now - 1000];
+    expect(r.cornered(now, [spider])).toBe(false);
+    r.fleeHits = [now - 4000, now - 1000];
+    expect(r.cornered(now, [spider])).toBe(true);
+    // Hit, but it has dropped back: running is working.
+    expect(r.cornered(now, [far])).toBe(false);
+    r.fleeHits = [];
+    r.fleeStillSince = now - 2500;
+    expect(r.cornered(now, [spider])).toBe(true);
+  });
+
+  it('runs back the way it came, away from what chases it, never towards it', () => {
+    const r = rig('stone_sword') as unknown as { trail: Vec3[]; trailSpot(t: unknown[]): Vec3 | null };
+    // Came along x from -20 to 0; the spider is ahead, at x 3.
+    r.trail = [-20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0].map((x) => new Vec3(x, 64, 0));
+    const ahead = { id: 5, type: 'hostile', name: 'spider', position: new Vec3(3, 64, 0), height: 0.9 };
+    const spot = r.trailSpot([ahead]);
+    expect(spot?.x).toBeLessThanOrEqual(-6);
+    // Coming from behind instead: the way back runs into it.
+    const behind = { ...ahead, position: new Vec3(-5, 64, 0) };
+    expect(r.trailSpot([behind])).toBeNull();
+  });
 });
 
 describe('digging that the server refuses', () => {

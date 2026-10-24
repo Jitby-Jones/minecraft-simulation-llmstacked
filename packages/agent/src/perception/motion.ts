@@ -22,6 +22,11 @@ export interface Motion {
   id: number;
   /** Horizontal speed, m/s, over about the last second. */
   speed: number;
+  /**
+   * Horizontal speed kept up over the last two seconds or so (absent until there are that many): a burst (a jump off
+   * a sprint, a knock back, a lagging player catching up) is not something moving fast.
+   */
+  sustained?: number;
   /** Vertical speed, m/s (up is +). */
   vy: number;
   /** Standing on something (a block under its feet). */
@@ -45,6 +50,8 @@ export interface Motion {
 const KEEP_MS = 3000;
 /** Speeds are measured over at least this long (one 250 ms tick is too noisy). */
 const SPAN_MS = 700;
+/** How long a speed is kept up to count as sustained. */
+const SUSTAINED_MS = 2000;
 /** Faster than this between two looks is no walk, run, fall or glide: something jumped there. */
 const BLINK_MPS = 40;
 const BLINK_MIN_M = 6;
@@ -165,6 +172,9 @@ export class MotionTracker {
     const dz = cur.z - base.z;
     let speed = base === cur ? 0 : Math.hypot(dx, dz) / dt;
     let vy = base === cur ? 0 : (cur.y - base.y) / dt;
+    const far = list.find((s) => now - s.t <= SUSTAINED_MS + 400) ?? cur;
+    const farDt = (cur.t - far.t) / 1000;
+    let sustained = farDt * 1000 >= SUSTAINED_MS - 300 ? Math.hypot(cur.x - far.x, cur.z - far.z) / farDt : undefined;
     // A blink: further between two looks than anything moves.
     let jumpedM: number | undefined;
     let jumpedFrom: Vec3 | undefined;
@@ -177,6 +187,7 @@ export class MotionTracker {
         // The jump says nothing of how fast it moves.
         speed = 0;
         vy = 0;
+        sustained = undefined;
       }
     }
     const off = this.offGroundSince.get(e.id);
@@ -189,6 +200,7 @@ export class MotionTracker {
     const m: Omit<Motion, 'motion'> = {
       id: e.id,
       speed: Math.round(speed * 10) / 10,
+      ...(sustained !== undefined ? { sustained: Math.round(sustained * 10) / 10 } : {}),
       vy: Math.round(vy * 10) / 10,
       supported,
       airborneSec,

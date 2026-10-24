@@ -572,6 +572,8 @@ const CREATURES_MAX = 24;
 const PLACE_KINDS: ReadonlySet<SceneFeatureKind> = new Set(['ore', 'lava', 'portal', 'spawner', 'station', 'container', 'bed', 'built', 'crops', 'plants', 'trees', 'water', 'clay']);
 const MAX_PLACES = 80;
 const CREATURES_EVERY_MS = 1000;
+/** When the sun is low enough to be noticed (dark at 13000 of the day's 24000 ticks; a minute is 1200). */
+const DUSK_AT = 11_600;
 
 export class SceneEyes {
   readonly motion: MotionTracker;
@@ -589,12 +591,18 @@ export class SceneEyes {
   private liquidIds: number[] | null = null;
   private lastSelf: { pos: Vec3; t: number; time: number; items: Map<string, number>; dim: string } | null = null;
   private lastPickupAt = -Infinity;
+  private lastHandsAt = -Infinity;
   private startedAt = 0;
   /** When each entity came into our client's world (it spawned, or came within tracking range). */
   private readonly spawned = new Map<number, number>();
   /** What we last saw of each, for telling a vanishing from a walk out of range. */
   private lastSeen = new Map<number, Seen>();
   private readonly died = new Map<number, number>();
+  /** Who joined the game when (their name in the list of players). */
+  private readonly joined = new Map<string, number>();
+  /** What died or went lately, and where: what turns up there next may be what it became. */
+  private ends: { type: string; pos: Vec3; t: number }[] = [];
+  private readonly blockIds = new Map<string, number[]>();
 
   constructor(private readonly o: SceneOptions) {
     this.motion = new MotionTracker(o.bot);
@@ -620,7 +628,11 @@ export class SceneEyes {
       this.spawned.set(e.id, this.o.now());
       if (this.spawned.size > 2000) for (const [id] of this.spawned) if (!bot.entities[id]) this.spawned.delete(id);
     });
-    on('entityDead', (e: Entity) => void this.died.set(e.id, this.o.now()));
+    on('entityDead', (e: Entity) => {
+      this.died.set(e.id, this.o.now());
+      this.ended(e);
+    });
+    on('playerJoined', (p: { username: string }) => void this.joined.set(p.username, this.o.now()));
     on('entityGone', (e: Entity) => this.gone(e));
     // Our own world changed under us (a respawn, a portal): what is around is new, not a surprise.
     on('respawn', () => {
@@ -647,8 +659,51 @@ export class SceneEyes {
     if (s.kind === 'player' && !bot.players[s.name]) return;
     const at = bot.blockAt(e.position.floored());
     if (at && /portal|end_gateway/.test(at.name)) return;
+    this.ended(e);
+    if (this.ordinary(e, s.kind, now)) return;
     if ((e as unknown as { vehicle?: unknown }).vehicle) return;
     this.add(this.expectations.vanished({ id: e.id, name: s.name, kind: s.kind, type: s.kind === 'player' ? 'player' : (e.name ?? s.name), distance: e.position.distanceTo(bot.entity.position), visible: s.visible }));
+  }
+
+  private ended(e: Entity): void {
+    const now = this.o.now();
+    if (e.name === 'item' || e.name === 'experience_orb') return;
+    this.ends = [...this.ends.filter((x) => now - x.t < 5000), { type: e.name ?? '', pos: e.position.clone(), t: now }].slice(-20);
+  }
+
+  /**
+   * What the game itself makes come and go, as anyone who has played knows: bees in and out of their nests, a
+   * spawner's mobs, what comes through a portal, a player joining, silverfish out of stone, an evoker's vexes, a slime
+   * split in two, a wandering trader and its llamas, a village's golems and cats, one creature turned into another
+   * (a zombie drowned, a villager struck by lightning). None of it surprises a player.
+   */
+  private ordinary(e: Entity, kind: EntityKind, now: number): boolean {
+    const bot = this.o.bot;
+    const type = e.name ?? '';
+    const near = (re: RegExp, r: number): boolean => {
+      let ids = this.blockIds.get(re.source);
+      if (!ids) {
+        ids = bot.registry.blocksArray.filter((b) => re.test(b.name)).map((b) => b.id);
+        this.blockIds.set(re.source, ids);
+      }
+      if (ids.length === 0) return false;
+      try {
+        return bot.findBlock({ point: e.position, matching: ids, maxDistance: r }) !== null;
+      } catch {
+        return false;
+      }
+    };
+    const others = (re: RegExp, r: number) => Object.values(bot.entities).some((o) => o !== e && re.test(o.name ?? '') && o.position.distanceTo(e.position) <= r);
+    if (near(/^(spawner|trial_spawner|nether_portal|end_portal|end_gateway)$/, 5)) return true;
+    if (kind === 'player') return now - (this.joined.get(e.username ?? '') ?? -Infinity) < 8000;
+    if (/^(silverfish|wandering_trader|trader_llama)$/.test(type)) return true;
+    if (type === 'bee') return near(/^(bee_nest|beehive)$/, 5);
+    if (type === 'vex') return others(/^evoker$/, 24);
+    if (/^(iron_golem|cat)$/.test(type)) return others(/^villager$/, 32);
+    if (/^(slime|magma_cube)$/.test(type) && this.ends.some((x) => x.type === type && now - x.t < 4000 && x.pos.distanceTo(e.position) <= 6)) return true;
+    // (Whichever of the two the client hears of first.)
+    if (this.ends.some((x) => x.type !== type && now - x.t < 4000 && x.pos.distanceTo(e.position) <= 2)) return true;
+    return Object.values(bot.entities).some((o) => o !== e && o.name !== type && now - (this.spawned.get(o.id) ?? -Infinity) < 1500 && o.position.distanceTo(e.position) <= 2);
   }
 
   /** Recent notices, newest last. */
@@ -673,7 +728,7 @@ export class SceneEyes {
       this.known.add(s.e.id);
       if (!settled) continue;
       const fresh = now - (this.spawned.get(s.e.id) ?? -Infinity) < 1500;
-      if (!fresh) continue;
+      if (!fresh || this.ordinary(s.e, s.kind, now)) continue;
       this.add(this.expectations.appeared({ id: s.e.id, name: s.name, kind: s.kind, type: s.e.name ?? s.name, distance: s.distance, visible: s.visible, baby: metaOf(bot, s.e, 'baby') === true }));
     }
     for (const id of [...this.known]) if (!ids.has(id) && !bot.entities[id]) this.known.delete(id);
@@ -798,13 +853,24 @@ export class SceneEyes {
     if (moved >= 8 && moved / dt > 40 && !(bot.entity as unknown as { vehicle?: unknown }).vehicle) {
       this.add(this.expectations.aboutSelf('blink', `You were suddenly somewhere else: in an instant you went ${Math.round(moved)} m, from ${Math.round(prev.pos.x)},${Math.round(prev.pos.y)},${Math.round(prev.pos.z)} to ${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)}`, 0.8));
     }
+    // The sun getting low, seen from under the sky: anyone looks up and thinks of the night coming (not a surprise:
+    // it comes every evening, and matters every evening).
+    if (dim === 'overworld' && prev.time < DUSK_AT && time >= DUSK_AT && time < 13_000 && !this.roofed) {
+      const min = Math.max(1, Math.round((13_000 - time) / 1200));
+      this.add({ id: `n${now.toString(36)}dusk`, ts: now, kind: 'cue', about: 'the world', key: 'dusk', text: `The sun is low in the west: dark in about ${min} min, and in the dark the monsters come out`, strength: 0.65, seenBefore: 0 });
+    }
     const skipped = (time - prev.time + 24000) % 24000;
     const sleeping = bot.isSleeping || Object.values(bot.entities).some((e) => e.type === 'player' && metaOf(bot, e, 'pose') === 2);
     if (skipped > 2400 && dt < 3 && !sleeping) {
       const part = (t: number) => (t < 12000 ? 'day' : t < 13000 ? 'evening' : t < 23000 ? 'night' : 'dawn');
       this.add(this.expectations.aboutWorld('time', `The sky changed in an instant: it was ${part(prev.time)}, now it is ${part(time)}`, 0.6));
     }
-    if (now - this.lastPickupAt > 3000 && !(this.o.handsBusy?.() ?? false) && !bot.currentWindow) {
+    // Our own hands put things in our pockets: while they work, and a little after (a craft's result can land after
+    // the skill has ended, and a skill can start and end between two looks).
+    const last = this.o.store.state.actionLog.at(-1);
+    if ((this.o.handsBusy?.() ?? false) || bot.currentWindow) this.lastHandsAt = now;
+    if (last) this.lastHandsAt = Math.max(this.lastHandsAt, last.ts + last.durationMs);
+    if (now - this.lastPickupAt > 3000 && now - this.lastHandsAt > 3000) {
       const gained = [...items].filter(([n, c]) => c > (prev.items.get(n) ?? 0)).map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
       if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.65));
     }

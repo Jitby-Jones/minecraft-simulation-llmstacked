@@ -133,9 +133,11 @@ export class Expectations {
       }
     }
     if (!found && m.medium !== 'riding' && m.medium !== 'gliding' && m.medium !== 'water') {
-      const limit = (m.supported ? env.ground : env.air) * 1.35;
-      if (m.speed > limit && m.speed > 7.5) {
-        found = { key: 'speed', text: `${cap(who)} is moving at ${Math.round(m.speed)} m/s${m.supported ? '' : ' through the air'}, far faster than anyone can run`, strength: Math.min(1, 0.5 + (m.speed - limit) / 15) };
+      // Kept up, not a burst: a sprint's jump, a knock back or a lagging player catching up surprises nobody.
+      const limit = Math.max(env.ground, env.air) * 1.35;
+      const fast = m.sustained ?? 0;
+      if (fast > limit && fast > 8) {
+        found = { key: 'speed', text: `${cap(who)} has been moving at ${Math.round(fast)} m/s${m.supported ? '' : ' through the air'}, far faster than anyone can run`, strength: Math.min(1, 0.5 + (fast - limit) / 15) };
       }
     }
     if (!found) {
@@ -198,9 +200,11 @@ export class Expectations {
     if (!prior) return;
     const cur = this.o.state().knowledge.envelopes?.[type];
     const hovering = !m.supported && m.medium === 'air' && Math.abs(m.vy) < 1.2;
+    // Speed kept up is what a kind can do; a burst says nothing of it.
+    const kept = m.sustained ?? 0;
     const next: Envelope = {
-      ground: m.supported ? Math.max(cur?.ground ?? 0, m.speed) : (cur?.ground ?? 0),
-      air: m.supported ? (cur?.air ?? 0) : Math.max(cur?.air ?? 0, m.speed),
+      ground: m.supported ? Math.max(cur?.ground ?? 0, kept) : (cur?.ground ?? 0),
+      air: m.supported ? (cur?.air ?? 0) : Math.max(cur?.air ?? 0, kept),
       hover: hovering ? Math.max(cur?.hover ?? 0, m.airborneSec) : (cur?.hover ?? 0),
       height: hovering ? Math.max(cur?.height ?? 0, m.aboveGround) : (cur?.height ?? 0),
       n: (cur?.n ?? 0) + 1,

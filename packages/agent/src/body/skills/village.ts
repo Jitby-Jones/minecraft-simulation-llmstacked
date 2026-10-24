@@ -237,7 +237,7 @@ export const build = defineSkill({
     if (have < HUT_BLOCKS) return { ok: false, observed: `have ${have} building blocks`, error: `need ${HUT_BLOCKS - have} more building blocks (cobblestone, planks or dirt)` };
     const center = ctx.home ?? bot.entity.position;
     const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z));
-    if (!corner) return { ok: false, observed: 'no room', error: 'no level spot for a hut near home' };
+    if (!corner) return { ok: false, observed: 'no room', error: 'no level spot for a hut near home (the quick hut needs level ground; a design, e.g. build {design: "starter-hut"}, clears and levels its own)' };
     const at = { x: corner.x, y: corner.y, z: corner.z };
     // The holes in the ground first, so the floor is whole.
     for (const hole of hutSiteHoles(bot, corner) ?? []) {

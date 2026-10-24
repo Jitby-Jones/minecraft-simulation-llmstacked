@@ -444,9 +444,12 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
   }
 }
 
+/** Kinds of thing that are found as they come (any log, any flower), not made in one kind. */
+const FOUND_KINDS = new Set(['log', 'flower', 'leaves', 'sapling']);
+
 function resolveTarget(bot: Bot, raw: string): string {
   const n = normalizeItemName(raw);
-  if (CATEGORIES[n]) return n === 'planks' ? (resolveCraftTarget(bot, 'planks') ?? 'oak_planks') : n;
+  if (CATEGORIES[n] && FOUND_KINDS.has(n)) return n;
   return resolveCraftTarget(bot, raw) ?? n;
 }
 

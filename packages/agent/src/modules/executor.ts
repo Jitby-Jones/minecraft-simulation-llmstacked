@@ -187,8 +187,12 @@ export class SkillExecutor {
       ac.abort(new Error('time is up'));
     }, opt.maxSeconds * 1000);
     let warned = false;
+    // "Until" is until it comes true: one true already (asked to gather 5 more logs, holding 10, until there are 5)
+    // says nothing about when to stop, and stopping at once would leave the work undone.
+    const trueAlready = opt.until ? evalCondition(opt.until, store.state) === true : false;
+    if (trueAlready) logger.debug({ module: 'executor', until: opt.until }, 'until-condition true already; not watched');
     const watch = setInterval(() => {
-      if (!opt.until) return;
+      if (!opt.until || trueAlready) return;
       const v = evalCondition(opt.until, store.state);
       if (v === null && !warned) {
         warned = true;
@@ -267,17 +271,19 @@ export class SkillExecutor {
           return null;
         },
       });
-      ok = r.ok && !r.mismatch;
+      // Stopped because what it was for came true: that is the work done, not a failure.
+      const reached = me.reason?.startsWith('until ') === true;
+      ok = (r.ok && !r.mismatch) || reached;
       rec = {
         id: r.id,
         skill: r.skill,
         args: r.args,
         expected: r.expected,
-        observed: r.observed,
+        observed: reached ? [r.observed.replace(/^interrupted;?\s*/, ''), `stopped once ${opt.until ?? 'it'} came true`].filter(Boolean).join('; ') : r.observed,
         ok,
         ts: r.startedAt,
         durationMs: r.durationMs,
-        ...(r.error ? { error: r.error } : r.mismatch ? { error: `expected ${r.expected}, saw ${r.observed}` } : {}),
+        ...(reached ? {} : r.error ? { error: r.error } : r.mismatch ? { error: `expected ${r.expected}, saw ${r.observed}` } : {}),
         ...(!ok && r.progressed ? { progressed: true } : {}),
         ...(r.data ? { data: r.data } : {}),
       };

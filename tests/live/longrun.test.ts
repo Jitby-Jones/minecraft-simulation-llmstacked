@@ -49,7 +49,9 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
   it(
     `${variant ?? ''}: seed ${seed}, ${difficulty}, up to ${minutes} min`,
     async () => {
-      server = await startLiveServer({ name, port: 25650, rconPort: 25651, flat: false, monsters: true, props: { 'level-seed': seed, 'spawn-protection': '0', 'view-distance': '10', 'simulation-distance': '10' } });
+      // Ports by variant, so the two can run side by side.
+      const port = variant === 'duo' ? 25652 : 25650;
+      server = await startLiveServer({ name, port, rconPort: port + 1, flat: false, monsters: true, props: { 'level-seed': seed, 'spawn-protection': '0', 'view-distance': '10', 'simulation-distance': '10' } });
       const srv = server;
       await srv.cmd(`difficulty ${difficulty}`);
       const rt: LlmRuntime = await startLlm({ apiKey: key ?? '', config: loadModelsConfig(), logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), background: false, pollUsage: false });

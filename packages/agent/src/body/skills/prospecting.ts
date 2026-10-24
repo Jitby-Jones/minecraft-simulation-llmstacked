@@ -9,6 +9,7 @@ import { Vec3 } from 'vec3';
 import { itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { blockIdsDropping, isAirLike, isSolid } from '../world';
+import { lightTheWay } from './light';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -183,6 +184,7 @@ export const prospect = defineSkill({
         if (found) return { ok: true, observed: `found ${found.name} at ${found.position.toString()} after digging ${dug} blocks` };
         await stepTo(ctx, next);
         dug++;
+        await lightTheWay(ctx);
         // Out of the rock for a while (digging dirt or sand): head back toward rock if there is any around.
         outOfRock = dugHere.some((n) => n !== null && HOST_ROCK.has(n)) ? 0 : outOfRock + 1;
         if (!down && outOfRock >= 6 && turns < 2) {

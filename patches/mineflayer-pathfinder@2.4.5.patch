@@ -1,3 +1,19 @@
+diff --git a/index.js b/index.js
+index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..c878d2440de5385ce80c803832bb6853c868dc27 100644
+--- a/index.js
++++ b/index.js
+@@ -116,8 +116,9 @@
+ 
+   function detectDiggingStopped () {
+     digging = false
+-    bot.removeAllListeners('diggingAborted', detectDiggingStopped)
+-    bot.removeAllListeners('diggingCompleted', detectDiggingStopped)
++    // Only our own listener: removeAllListeners ignores its second argument and would strip everyone else's.
++    bot.removeListener('diggingAborted', detectDiggingStopped)
++    bot.removeListener('diggingCompleted', detectDiggingStopped)
+   }
+ 
+   function resetPath (reason, clearStates = true) {
 diff --git a/lib/movements.js b/lib/movements.js
 index a7e35053cde64e3cd32880af2aafa5f03e919ff8..a558220c5163716a05fa0c293485656e1921f7d3 100644
 --- a/lib/movements.js

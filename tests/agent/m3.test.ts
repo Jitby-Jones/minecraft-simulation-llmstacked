@@ -378,6 +378,24 @@ describe('Skill Executor termination (§4.4)', () => {
     expect(ends).toEqual(['until inventoryHas:oak_log>=2|true']);
     expect(s.state.option?.status).toBe('terminated');
     expect(s.state.actionLog).toHaveLength(1);
+    // What it was for came true: the work done, not a failure.
+    expect(s.state.actionLog[0]).toMatchObject({ ok: true, observed: 'stopped once inventoryHas:oak_log>=2 came true' });
+    expect(s.state.actionLog[0]?.error).toBeUndefined();
+    ex.stop();
+  });
+
+  it('an until-condition true from the start is not watched: the work goes on (5 more logs, holding 10)', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const ends: string[] = [];
+    bus.on('optionTerminated', (e) => ends.push(e.reason));
+    const ex = new SkillExecutor({ store: s, bus, body: fakeBody(), logger: nullLogger(), levers: () => leversFor(0.5) });
+    ex.start();
+    s.update('self', (x) => ({ ...x, inventory: [{ item: 'oak_log', qty: 10 }] }));
+    s.set('option', { decisionId: 'd2', option: 'work', startedAt: Date.now(), maxSeconds: 60, until: 'inventoryHas:oak_log>=5', skill: 'gather', args: { item: 'oak_log', qty: 5 }, status: 'running' });
+    await wait(1600);
+    expect(ends).toEqual([]);
+    expect(ex.busy).toBe(true);
     ex.stop();
   });
 

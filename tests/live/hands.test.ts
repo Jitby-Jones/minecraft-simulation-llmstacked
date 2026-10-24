@@ -1,7 +1,7 @@
 // The hands a player has, live (owner request, 2026-10-24): right-click with an item on a creature or a block (shears
 // on a sheep, wheat on two cows), lead an animal by holding out its food, pick a field and plant it again, get wool
-// by shearing when there are sheep to shear (and they live), and walk a chosen way. Code only: what they are for is
-// the mind's to know.
+// by shearing when there are sheep to shear (and they live), walk a chosen way, and light the way digging in the dark.
+// Code only: what they are for is the mind's to know.
 
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -123,6 +123,25 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Object.values(body.bot.entities).filter((e) => e.name === 'sheep' && Math.hypot(e.position.x - (x + 6), e.position.z) <= 9)).toHaveLength(3);
     expect(countItem(body.bot, 'oak_fence')).toBe(0);
   }, 180_000);
+
+  it('in the dark underground, with torches on hand, lights the way as it digs', async () => {
+    const x = 5500;
+    await at(x, 0);
+    // A sealed pocket in the stone, 11 blocks down: no sky, no light.
+    await server.cmd(`fill ${x - 1} ${Y - 11} -1 ${x + 1} ${Y - 10} 1 air`);
+    await server.cmd(`tp Ada ${x} ${Y - 11} 0`);
+    await server.cmd('give Ada minecraft:torch 16');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(2500);
+    const lit = () => body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.torch?.id ?? -1, body.bot.registry.blocksByName.wall_torch?.id ?? -1], maxDistance: 24, count: 20 }).length;
+    const feetBlock = body.bot.blockAt(body.bot.entity.position.floored());
+    logger.info({ light: feetBlock?.light, skyLight: feetBlock?.skyLight, name: feetBlock?.name }, 'light at feet');
+    expect(feetBlock?.skyLight).toBe(0);
+    const r = await run('prospect', { item: 'diamond', maxBlocks: 16, direction: 'east' });
+    logger.info({ r, torches: countItem(body.bot, 'torch'), lit: lit() }, 'dark dig');
+    expect(lit()).toBeGreaterThanOrEqual(1);
+    expect(countItem(body.bot, 'torch')).toBeLessThan(16);
+  }, 240_000);
 
   it('explores a chosen way', async () => {
     const x = 5400;

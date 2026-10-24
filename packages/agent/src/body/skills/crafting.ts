@@ -18,17 +18,21 @@ interface Recipe {
   requiresTable: boolean;
 }
 
-/** Turns categories into a concrete craftable item: "planks" → planks of a log we own. */
+/**
+ * Turns a kind of thing into a concrete craftable item, as a player means it: "planks" or "a sign" or "a door" in the
+ * wood on hand (planks or logs we carry, else oak), "a bed" or "wool" or "a carpet" in a colour on hand (else white).
+ */
 export function resolveCraftTarget(bot: Bot, raw: string): string | null {
   const n = normalizeItemName(raw);
   if (bot.registry.itemsByName[n]) return n;
-  if (n === 'planks') {
-    const log = bot.inventory.items().find((i) => CATEGORIES.log?.(i.name));
-    const wood = log ? log.name.replace(/_(log|stem)$/, '') : 'oak';
-    const name = `${wood}_planks`;
-    return bot.registry.itemsByName[name] ? name : 'oak_planks';
-  }
-  if (n === 'bed') return 'white_bed';
+  const items = bot.inventory.items();
+  const fromPlanks = items.filter((i) => i.name.endsWith('_planks')).map((i) => i.name.replace(/_planks$/, ''));
+  const fromLogs = items.filter((i) => CATEGORIES.log?.(i.name)).map((i) => i.name.replace(/_(log|stem)$/, ''));
+  // Planks are made from logs; the rest from planks.
+  const woods = n === 'planks' ? [...fromLogs, ...fromPlanks, 'oak'] : [...fromPlanks, ...fromLogs, 'oak'];
+  for (const wood of woods) if (bot.registry.itemsByName[`${wood}_${n}`]) return `${wood}_${n}`;
+  const colours = [...items.filter((i) => i.name.endsWith('_wool')).map((i) => i.name.replace(/_wool$/, '')), 'white'];
+  for (const colour of colours) if (bot.registry.itemsByName[`${colour}_${n}`]) return `${colour}_${n}`;
   return null;
 }
 
@@ -73,6 +77,78 @@ export function describeMissing(best: readonly Missing[], others: readonly (read
     .join(', ');
 }
 
+interface PocketCraft {
+  recipe: Recipe;
+  times: number;
+  name: string;
+}
+
+/** All a recipe takes, `times` over. */
+function needsOf(bot: Bot, recipe: Recipe, times: number): Missing[] {
+  return recipe.delta.filter((d) => d.count < 0).map((d) => ({ name: bot.registry.items[d.id]?.name ?? `item#${d.id}`, count: -d.count * times }));
+}
+
+/**
+ * How the pockets can make up what a recipe needs by crafting alone, as a player does without a second thought
+ * (planks from the logs on hand, sticks from those planks), without touching what the recipe itself takes: the crafts
+ * in order (none if all is on hand), or null if anything would have to be got. Two steps deep at most; a table recipe
+ * only with a table at hand.
+ */
+export function pocketPlan(bot: Bot, needs: readonly Missing[], table: boolean, knows: (item: string) => boolean = () => true): PocketCraft[] | null {
+  let have = new Map<string, number>();
+  for (const it of bot.inventory.items()) have.set(it.name, (have.get(it.name) ?? 0) + it.count);
+  const steps: PocketCraft[] = [];
+  const take = (name: string, count: number, depth: number): boolean => {
+    const h = have.get(name) ?? 0;
+    if (h >= count) {
+      have.set(name, h - count);
+      return true;
+    }
+    const id = bot.registry.itemsByName[name]?.id;
+    if (depth === 0 || id === undefined || !knows(name)) return false;
+    const recipes = (bot.recipesAll(id, null, table ? true : null) as unknown as Recipe[]).filter((r) => table || !r.requiresTable);
+    for (const r of recipes) {
+      const saved = new Map(have);
+      const n = steps.length;
+      const times = Math.ceil((count - h) / Math.max(1, r.result.count));
+      const ok = r.delta.every((d) => {
+        if (d.count >= 0) return true;
+        const ing = bot.registry.items[d.id]?.name;
+        return ing !== undefined && ing !== name && take(ing, -d.count * times, depth - 1);
+      });
+      if (ok) {
+        steps.push({ recipe: r, times, name });
+        have.set(name, (have.get(name) ?? 0) + times * r.result.count - count);
+        return true;
+      }
+      have = saved;
+      steps.length = n;
+    }
+    return false;
+  };
+  // What is on hand for the recipe is kept for it first.
+  const onHand = (m: Missing) => (have.get(m.name) ?? 0) >= m.count;
+  for (const m of [...needs].sort((a, b) => Number(onHand(b)) - Number(onHand(a)))) if (!take(m.name, m.count, 2)) return null;
+  return steps;
+}
+
+/** Makes what `pocketPlan` found; what was made, in words, or null if the server would not have it. */
+async function craftFromPockets(ctx: SkillContext, plan: readonly PocketCraft[], table: Block | null): Promise<string | null> {
+  const { bot } = ctx;
+  const made: string[] = [];
+  for (const step of plan) {
+    throwIfAborted(ctx.signal);
+    const before = countItem(bot, step.name);
+    const want = step.times * step.recipe.result.count;
+    await abortable(ctx.signal, bot.craft(step.recipe as never, step.times, step.recipe.requiresTable ? (table ?? undefined) : undefined), () => undefined);
+    const deadline = Date.now() + 1500;
+    while (countItem(bot, step.name) - before < want && Date.now() < deadline) await waitMs(ctx, 100);
+    if (countItem(bot, step.name) - before <= 0) return null;
+    made.push(`${countItem(bot, step.name) - before} ${step.name}`);
+  }
+  return made.join(', ');
+}
+
 async function findOrPlace(ctx: SkillContext, blockName: string, itemName: string): Promise<Block | null> {
   const { bot } = ctx;
   const id = bot.registry.blocksByName[blockName]?.id;
@@ -113,6 +189,19 @@ export const craft = defineSkill({
         table = await findOrPlace(ctx, 'crafting_table', 'crafting_table');
         if (table) recipes = bot.recipesFor(item.id, null, 1, table);
       }
+      let first = '';
+      if (recipes.length === 0) {
+        // What is missing, made from what is on hand if it can be (for the variant closest to what we carry).
+        for (const r of all) {
+          if (r.requiresTable && !table) continue;
+          const plan = pocketPlan(bot, needsOf(bot, r, Math.ceil(args.qty / Math.max(1, r.result.count))), table !== null, ctx.knowsRecipe);
+          if (!plan || plan.length === 0) continue;
+          const made = await craftFromPockets(ctx, plan, table);
+          if (made) first = `made ${made} from what I had, then `;
+          recipes = bot.recipesFor(item.id, null, 1, table);
+          break;
+        }
+      }
       const recipe = recipes[0];
       if (!recipe) {
         // Report against the variant closest to what we carry (oak planks, not cherry planks).
@@ -136,6 +225,12 @@ export const craft = defineSkill({
         return { ok: false, observed: 'missing ingredients', error: `missing ${text || 'ingredients'}` };
       }
       let times = Math.ceil(args.qty / Math.max(1, recipe.result.count));
+      if (missingFor(bot, recipe, times).length > 0) {
+        // Short for all of it: what can be made on the spot is made first.
+        const plan = pocketPlan(bot, needsOf(bot, recipe, times), table !== null, ctx.knowsRecipe);
+        const made = plan && plan.length > 0 ? await craftFromPockets(ctx, plan, table) : null;
+        if (made) first = `made ${made} from what I had, then `;
+      }
       const missing = missingFor(bot, recipe, times);
       if (missing.length > 0) {
         // Craft what we can.
@@ -159,7 +254,7 @@ export const craft = defineSkill({
       }
       const got = countItem(bot, name) - before;
       if (got <= 0) return { ok: false, observed: `could not craft ${name}`, error: 'the server did not accept the craft' };
-      return { ok: got >= want, observed: `crafted ${got} ${name}` };
+      return { ok: got >= want, observed: `${first}crafted ${got} ${name}` };
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: `could not craft ${name}`, error: errMsg(err) };

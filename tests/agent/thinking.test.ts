@@ -4,6 +4,7 @@
 // to mind on its cue; lessons are kept; what it knows of the game is looked up for what matters; the packet carries
 // its train of thought; and the steps it means to take next are taken without stopping to think.
 
+import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { type AgentState, ModelsConfigSchema, PersonaSchema, type Scene, nullLogger } from '@agora/shared';
@@ -22,7 +23,8 @@ import { tidyDecision } from '@agora/agent/modules/decisionTidy';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
 import { type Motion, MotionTracker } from '@agora/agent/perception/motion';
-import { featureKindOf, featuresOf } from '@agora/agent/perception/scene';
+import { type Seen, SceneEyes, featureKindOf, featuresOf } from '@agora/agent/perception/scene';
+import { pocketPlan, resolveCraftTarget } from '@agora/agent/body/skills/crafting';
 import { bearingOf, countOf, describeScene } from '@agora/agent/perception/sceneWords';
 import { createInitialState } from '@agora/agent/state/initial';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -85,7 +87,9 @@ describe('expectations: what does not fit what is known to be possible stands ou
 
   it('too fast for anyone, there in an instant, out of nowhere, inside a wall: each its own surprise', () => {
     const ex = expectations(store());
-    expect(ex.observe({ id: 1, name: 'Kelby', kind: 'player', type: 'player', motion: motion({ speed: 11 }), distance: 8, visible: true })?.text).toMatch(/moving at 11 m\/s, far faster than anyone can run/);
+    // A burst is nothing (a sprint's jump, a knock back); kept up, it is.
+    expect(ex.observe({ id: 1, name: 'Kelby', kind: 'player', type: 'player', motion: motion({ speed: 11, sustained: 6 }), distance: 8, visible: true })).toBeNull();
+    expect(ex.observe({ id: 1, name: 'Kelby', kind: 'player', type: 'player', motion: motion({ speed: 11, sustained: 11 }), distance: 8, visible: true })?.text).toMatch(/has been moving at 11 m\/s, far faster than anyone can run/);
     expect(ex.observe({ id: 2, name: 'Kelby', kind: 'player', type: 'player', motion: motion({ jumpedM: 25, jumpedFrom: new Vec3(10, 64, 10) }), distance: 8, visible: true })?.text).toMatch(/just went 25 m in an instant, from 10,64,10/);
     expect(ex.appeared({ id: 3, name: 'zombie', kind: 'hostile', type: 'zombie', distance: 5, visible: true, baby: false })?.text).toMatch(/^A zombie appeared out of nowhere, 5 m from you/);
     expect(ex.appeared({ id: 4, name: 'cow', kind: 'passive', type: 'cow', distance: 3, visible: true, baby: true })).toBeNull();
@@ -95,7 +99,7 @@ describe('expectations: what does not fit what is known to be possible stands ou
   it('what fits is learned too: the fastest seen of a kind widens what is expected of it', () => {
     const s = store();
     const ex = expectations(s);
-    ex.observe({ id: 1, name: 'horse', kind: 'passive', type: 'horse', motion: motion({ speed: 7 }), distance: 8, visible: true });
+    ex.observe({ id: 1, name: 'horse', kind: 'passive', type: 'horse', motion: motion({ speed: 7, sustained: 7 }), distance: 8, visible: true });
     expect(s.state.knowledge.envelopes?.horse?.ground).toBe(7);
     expect(ex.envelope('horse').ground).toBe(7);
   });
@@ -122,6 +126,154 @@ describe('motion, as a player sees it', () => {
     e.position = new Vec3(60, ground + 7, 0);
     m.update([e as never], 4250);
     expect(m.of(9)?.jumpedM).toBe(56);
+  });
+});
+
+/** A flat world of grass at y 63, with a few blocks of its own, for the eyes to look about in. */
+function fakeWorld(extra: Record<string, string> = {}) {
+  const blocks: Record<string, string> = { ...extra };
+  const nameAt = (x: number, y: number, z: number) => blocks[`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`] ?? (Math.floor(y) === 63 ? 'grass_block' : null);
+  const block = (p: Vec3) => {
+    const n = nameAt(p.x, p.y, p.z);
+    const b = n ? data.blocksByName[n] : undefined;
+    return n && b ? { name: n, type: b.id, boundingBox: 'block', position: p.floored(), getProperties: () => ({}) } : null;
+  };
+  const inv: { name: string; count: number }[] = [];
+  const entity = { id: 0, name: 'player', type: 'player', username: 'Pip', position: new Vec3(0.5, 64, 0.5), velocity: new Vec3(0, 0, 0), onGround: true, height: 1.8, width: 0.6, yaw: 0, pitch: 0, metadata: [] };
+  const entities: Record<number, unknown> = { 0: entity };
+  const bot = Object.assign(new EventEmitter(), {
+    registry: data,
+    entity,
+    entities,
+    players: {},
+    username: 'Pip',
+    game: { dimension: 'overworld' },
+    time: { timeOfDay: 1000 },
+    isSleeping: false,
+    isRaining: false,
+    currentWindow: null,
+    inventory: { items: () => inv, slots: [] },
+    blockAt: block,
+    world: { getBlockStateId: (p: Vec3) => { const n = nameAt(p.x, p.y, p.z); return n ? (data.blocksByName[n]?.minStateId ?? 0) : 0; }, getBiome: () => null },
+    findBlock: (o: { point: Vec3; matching: number[]; maxDistance: number }) => {
+      for (const [k, n] of Object.entries(blocks)) {
+        const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+        const id = data.blocksByName[n]?.id;
+        if (id !== undefined && o.matching.includes(id) && new Vec3(x, y, z).distanceTo(o.point) <= o.maxDistance) return block(new Vec3(x, y, z));
+      }
+      return null;
+    },
+    findBlocks: () => [],
+  });
+  const creature = (id: number, name: string, x: number, z: number) => ({ id, name, type: 'animal', position: new Vec3(x, 64, z), velocity: new Vec3(0, 0, 0), onGround: true, height: 0.6, width: 0.7, yaw: 0, pitch: 0, metadata: [] });
+  return { bot, inv, creature };
+}
+
+describe('what the game does by itself is no surprise; what comes from nowhere is', () => {
+  it('a bee out of its nest is nothing; a cow out of thin air is', () => {
+    const w = fakeWorld({ '6,66,0': 'bee_nest' });
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    const seen: Seen[] = [];
+    t.now = 9000;
+    eyes.tick(seen);
+    const bee = w.creature(7, 'bee', 5.5, 0.5);
+    w.bot.entities[7] = bee;
+    w.bot.emit('entitySpawn', bee);
+    seen.push({ e: bee as never, kind: 'passive', name: 'bee', visible: true, distance: 5 });
+    t.now = 9250;
+    eyes.tick(seen);
+    expect(eyes.recent().filter((n) => n.key === 'appear')).toEqual([]);
+    const cow = w.creature(8, 'cow', 0.5, 6.5);
+    w.bot.entities[8] = cow;
+    w.bot.emit('entitySpawn', cow);
+    seen.push({ e: cow as never, kind: 'passive', name: 'cow', visible: true, distance: 6 });
+    t.now = 9500;
+    eyes.tick(seen);
+    expect(eyes.recent().filter((n) => n.key === 'appear').map((n) => n.about)).toEqual(['cow']);
+    eyes.stop();
+  });
+
+  it('the sun getting low is noticed each evening, under the sky', () => {
+    const w = fakeWorld();
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    w.bot.time.timeOfDay = 11_000;
+    t.now = 9000;
+    eyes.tick([]);
+    w.bot.time.timeOfDay = 11_700;
+    t.now = 10_000;
+    eyes.tick([]);
+    const dusk = eyes.recent().filter((n) => n.key === 'dusk');
+    expect(dusk.map((n) => n.text)).toEqual(['The sun is low in the west: dark in about 1 min, and in the dark the monsters come out']);
+    expect(dusk[0]?.strength).toBeGreaterThanOrEqual(0.6);
+    eyes.stop();
+  });
+
+  it('what our own hands made is no surprise, even landing after the skill is done; what turns up in our pockets with idle hands is', () => {
+    const w = fakeWorld();
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now, handsBusy: () => false });
+    eyes.start();
+    t.now = 9000;
+    eyes.tick([]);
+    // A craft that took half a second, its furnace landing just after it ended.
+    s.update('actionLog', (l) => [...l, { id: 'a1', skill: 'craft', args: { item: 'furnace' }, expected: '+1 furnace', observed: 'crafted 1 furnace', ok: true, ts: 9200, durationMs: 500 }], 'test');
+    w.inv.push({ name: 'furnace', count: 1 });
+    t.now = 10_000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'pockets')).toEqual([]);
+    // Later, with idle hands: diamonds from nowhere (someone ran /give).
+    w.inv.push({ name: 'diamond', count: 3 });
+    t.now = 14_000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'pockets').map((n) => n.text)).toEqual([expect.stringMatching(/^3 diamond appeared in your inventory out of nowhere/)]);
+    eyes.stop();
+  });
+});
+
+describe('the hands make what is one craft away, as a player does without a thought', () => {
+  const mineflayerDir = require.resolve('mineflayer', { paths: [`${process.cwd()}/packages/agent`] });
+  const recipeLib = require(require.resolve('prismarine-recipe', { paths: [mineflayerDir] })) as (d: unknown) => { Recipe: { find(id: number, meta: number | null): { requiresTable: boolean }[] } };
+  const { Recipe } = recipeLib(data);
+  const pockets = (items: Record<string, number>) => ({
+    registry: data,
+    inventory: { items: () => Object.entries(items).map(([name, count]) => ({ name, count })), slots: [] },
+    recipesAll: (id: number, meta: number | null, table: unknown) => Recipe.find(id, meta).filter((r) => table || !r.requiresTable),
+  });
+  const need = (name: string, count: number) => ({ name, count });
+  const plan = (items: Record<string, number>, needs: { name: string; count: number }[], table = false) =>
+    pocketPlan(pockets(items) as never, needs, table)?.map((s) => `${s.times}x ${s.name}`) ?? null;
+
+  it('planks from the logs on hand for a table; sticks from planks, and planks from logs for those', () => {
+    expect(plan({ oak_planks: 1, oak_log: 10 }, [need('oak_planks', 4)])).toEqual(['1x oak_planks']);
+    expect(plan({ oak_log: 3 }, [need('oak_planks', 3), need('stick', 2)], true)).toEqual(['1x oak_planks', '1x oak_planks', '1x stick']);
+    expect(plan({ oak_planks: 4, stick: 2 }, [need('oak_planks', 3), need('stick', 2)], true)).toEqual([]);
+  });
+
+  it('a kind of thing means it in the wood or colour on hand: a sign, a door, planks, a bed, wool', () => {
+    const r = (items: Record<string, number>, what: string) => resolveCraftTarget(pockets(items) as never, what);
+    expect(r({ spruce_planks: 6 }, 'sign')).toBe('spruce_sign');
+    expect(r({ birch_log: 2 }, 'door')).toBe('birch_door');
+    expect(r({}, 'boat')).toBe('oak_boat');
+    // Planks come from logs: the logs' wood, whatever planks are about.
+    expect(r({ spruce_planks: 2, birch_log: 3 }, 'planks')).toBe('birch_planks');
+    expect(r({ red_wool: 3 }, 'bed')).toBe('red_bed');
+    expect(r({}, 'wool')).toBe('white_wool');
+    expect(r({}, 'stick')).toBe('stick');
+  });
+
+  it("never takes what the recipe itself needs, and nothing that would have to be got first", () => {
+    // 3 planks and no logs: the pickaxe's planks can't also become its sticks.
+    expect(plan({ oak_planks: 3 }, [need('oak_planks', 3), need('stick', 2)], true)).toBeNull();
+    expect(plan({ oak_planks: 5 }, [need('oak_planks', 3), need('stick', 2)], true)).toEqual(['1x stick']);
+    // Iron is smelted, not crafted: the pockets can't make it.
+    expect(plan({ raw_iron: 3, stick: 2 }, [need('iron_ingot', 3), need('stick', 2)], true)).toBeNull();
   });
 });
 
@@ -248,6 +400,22 @@ describe('what it knows of the game, looked up for what matters', () => {
     const lines = knowledgeLines(k, st);
     expect(lines[0]).toMatch(/^white wool: shear an adult sheep/);
     expect(lines.join('\n')).toMatch(/Armor: a set is a helmet, a chestplate, leggings and boots; in iron that is 5 \+ 8 \+ 7 \+ 4 = 24 iron ingots/);
+  });
+
+  it('what bears on the moment comes before what the tasks are about: down a mine, the dark', () => {
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    const many = ['Secure a renewable source of food.', 'Make a cow farm.', 'Go to the Nether.', 'Make an enchanting table.'].map((text, i) => ({ id: `t${i}`, text, from: 'op', at: 0, status: 'open' as const }));
+    const st: AgentState = {
+      ...s,
+      goals: { ...s.goals, tasks: many, current: { id: 'g', text: 'Dig a staircase down, mining the coal and iron along the way', kind: 'current', createdAt: 0, status: 'active' } },
+      scene: { ...s.scene, where: 'In stony peaks, standing on stone, underground, the ceiling 3 m up' },
+    };
+    const lines = knowledgeLines(k, st);
+    expect(lines.some((l) => l.startsWith('Underground: it is dark down there at any hour'))).toBe(true);
+    // Come the night, what the night means.
+    const night = knowledgeLines(k, { ...st, self: { ...st.self, isDay: false, time: 14_000 }, scene: { ...st.scene, where: 'In plains, under the open sky' } });
+    expect(night.some((l) => l.startsWith('Night: about 8 minutes of dark'))).toBe(true);
+    expect(lines.filter((l) => /^(Food that keeps coming|Animals|The Nether|Enchanting|Underground)/.test(l))).toHaveLength(3);
   });
 });
 

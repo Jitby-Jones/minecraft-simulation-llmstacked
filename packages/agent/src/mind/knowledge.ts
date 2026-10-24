@@ -103,6 +103,14 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
     text: 'Diamonds: deep down, most between y -64 and -54; strip or branch mining at around y -58 with tunnels a few blocks apart, or exploring deep caves, finds them; mind the lava there; it takes an iron pickaxe, and lots of torches help.',
   },
   {
+    about: /\b(diamonds?|iron|ore|ores|mine|mining|cave|caves|underground|dig|digging)\b/i,
+    text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
+  },
+  {
+    about: /\b(night|evening|dusk|nightfall)\b/i,
+    text: 'Night: about 8 minutes of dark; monsters (zombies, skeletons, spiders, creepers) spawn in the dark all over the surface and come for anyone near, more of them the longer it lasts; a bed (3 wool and 3 planks) lets you sleep through it and sets where you wake after dying; walls and a roof, or a hole sealed over, keep them off; zombies and skeletons burn when the sun comes up; a torch only keeps them from spawning right beside it.',
+  },
+  {
     about: /\b(romance|romantic|partner|relationship|love|date|marry|married|girlfriend|boyfriend)\b/i,
     text: 'People are won over by time spent together, kindness, small gifts and help, and by being asked when the time is right.',
   },
@@ -299,7 +307,10 @@ export function knowledgeLines(k: GameKnowledge, s: AgentState): string[] {
     const d = k.describe(item);
     if (d) lines.push(d);
   }
-  const texts = [...(s.goals.tasks ?? []).filter((t) => t.status === 'open').map((t) => t.text), s.goals.current?.text ?? '', s.goals.plan?.aim ?? ''].join('. ');
-  for (const t of k.topics(texts).slice(0, 3)) lines.push(t);
+  // What bears on the moment first (the step at hand, the plan, where one is), then what the tasks are about.
+  const hour = !s.self.isDay ? 'night' : s.self.time >= 9600 && s.self.time < 13_000 ? 'evening' : '';
+  const now = [hour, s.goals.current?.text ?? '', s.goals.plan?.aim ?? '', s.scene.where].join('. ');
+  const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open').map((t) => t.text).join('. ');
+  for (const t of [...new Set([...k.topics(now), ...k.topics(tasks)])].slice(0, 3)) lines.push(t);
   return lines;
 }
