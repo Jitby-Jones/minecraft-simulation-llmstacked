@@ -217,9 +217,11 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     const day = withState((x) => ({ ...x, self: { ...x.self, isDay: true, time: 6000 } }));
     const byDay = codeDecision(day, {}, false, never)?.task;
     expect([byDay?.skill, byDay?.args.radius]).toEqual(['wander', 16]);
-    // Out after dark far from home: back home.
-    const away = withState((x) => ({ ...x, self: { ...x.self, isDay: false, pos: { x: 100, y: 64, z: 0 } }, village: { ...x.village, home: { x: 0, y: 64, z: 0 } }, scene: { ...x.scene, where: 'In plains, standing on grass block, under the open sky' } }));
+    // Out after dark a short run from home: back home. Far off: a night's hut there, not the whole dark way home.
+    const away = withState((x) => ({ ...x, self: { ...x.self, isDay: false, pos: { x: 60, y: 64, z: 0 } }, village: { ...x.village, home: { x: 0, y: 64, z: 0 } }, scene: { ...x.scene, where: 'In plains, standing on grass block, under the open sky' } }));
     expect(codeDecision(away, {}, false, never)?.task).toEqual({ skill: 'goTo', args: { x: 0, y: 64, z: 0, range: 4 } });
+    const farOff = { ...away, self: { ...away.self, pos: { x: 200, y: 64, z: 0 } } };
+    expect(codeDecision(farOff, {}, false, never)?.task).toEqual({ skill: 'build', args: { structure: 'hut', room: 1 } });
     // In a tunnel, the dark is no news: no walk home across the open in it.
     const below = { ...away, scene: { ...away.scene, where: 'In plains, standing on stone, under a roof' } };
     expect(codeDecision(below, {}, false, never)?.task?.skill).not.toBe('goTo');

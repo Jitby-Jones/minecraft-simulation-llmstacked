@@ -218,6 +218,9 @@ function groundAt(bot: Bot, x: number, z: number, y: number): number | null {
  * it and a free cell all round; of those at the same distance, the one with the fewest holes. The height follows
  * the ground (on a hillside the level patch is rarely at home's own height).
  */
+/** Within this of home, a hut goes up about home; farther off, where one is. */
+const HUT_HOME_RANGE = 48;
+
 export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4, room = 3): Vec3 | null {
   const base = center.floored();
   const mid = Math.floor(sideOf(room) / 2);
@@ -272,9 +275,13 @@ export const build = defineSkill({
     const need = hutBlocks(room);
     const have = buildingBlocks(bot);
     if (have < need) return { ok: false, observed: `have ${have} building blocks`, error: `need ${need - have} more building blocks (cobblestone, planks or dirt)` };
-    const center = ctx.home ?? bot.entity.position;
-    const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z), 20, 4, room);
-    if (!corner) return { ok: false, observed: 'no room', error: 'no level spot for a hut near home (the quick hut needs level ground; a design, e.g. build {design: "starter-hut"}, clears and levels its own)' };
+    // Near home, about home; far from it, where one is (one 200 blocks off at dusk was told there was no spot "near
+    // home", and walked home through the night).
+    const me = bot.entity.position;
+    const nearHome = ctx.home !== undefined && ctx.home !== null && ctx.home.distanceTo(me) <= HUT_HOME_RANGE;
+    const center = nearHome && ctx.home ? ctx.home : me;
+    const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z), 20, nearHome ? 4 : 2, room);
+    if (!corner) return { ok: false, observed: 'no room', error: `no level spot for a hut within 20 blocks of ${nearHome ? 'home' : 'here'} (the quick hut needs level ground; a design, e.g. build {design: "starter-hut"}, clears and levels its own)` };
     const at = { x: corner.x, y: corner.y, z: corner.z };
     // The holes in the ground first, so the floor is whole.
     for (const hole of hutSiteHoles(bot, corner, room) ?? []) {

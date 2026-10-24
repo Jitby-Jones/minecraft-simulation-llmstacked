@@ -862,6 +862,9 @@ export async function buildDesign(
     const side = Math.max(bp.size.x, bp.size.z);
     ctx.progress(`looking for a place to build the ${b.name}`);
     const found = findBuildSite(bot, { x: side, z: side }, home, { avoid: ctx.projects?.taken() ?? [] });
+    // Home out of sight: nothing there to judge by, so say so (one far off at dusk was told "water, or too steep").
+    const off = Math.round(home.distanceTo(bot.entity.position));
+    if (!found && off > 96) return { ok: false, observed: 'no room', error: `home is ${off} blocks off: a building goes up near home, or at x,y,z (say where you are to build it here)` };
     if (!found) return { ok: false, observed: 'no room', error: `no place near home for the ${b.name}: water, or too steep, everywhere` };
     const turn = turnToFace(bp.entrance, at.facing ?? facingToward({ x: found.origin.x + side / 2, z: found.origin.z + side / 2 }, home));
     const ts = turnedSize(bp, turn);

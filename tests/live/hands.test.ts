@@ -203,6 +203,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.crafting_table?.id ?? -1], maxDistance: 5, count: 1 }).length).toBe(1);
   }, 120_000);
 
+  it('a bed in a nook: set down the way there is room for its head (one facing a hillside was refused five times at dusk)', async () => {
+    const x = 5650;
+    await server.cmd(`forceload add ${x - 8} -8 ${x + 8} 8`);
+    // Rock all about at the feet and head, but for a cell north of where it stands and two south.
+    await server.cmd(`fill ${x - 3} ${Y} -3 ${x + 3} ${Y + 1} 3 stone`);
+    await server.cmd(`fill ${x} ${Y} -1 ${x} ${Y + 1} 2 air`);
+    await server.cmd(`tp Ada ${x}.5 ${Y} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:red_bed 1');
+    await sleep(1500);
+    const r = await run('place', { block: 'red_bed' });
+    logger.info({ r }, 'bed in a nook');
+    expect(r.ok).toBe(true);
+    expect(body.bot.blockAt(new Vec3(x, Y, 1))?.name).toBe('red_bed');
+    expect(body.bot.blockAt(new Vec3(x, Y, 2))?.name).toBe('red_bed');
+  }, 120_000);
+
   it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
     const x = 5800;
     await at(x, 0);

@@ -975,10 +975,13 @@ function companyOf(s: AgentStateStore['state'], people: readonly SeenEntity[], l
   return [...people].sort((a, b) => a.distance - b.distance).find((e) => close(e.name))?.name;
 }
 
+/** A run home in the dark this long at most (about twenty seconds at a sprint). */
+const HOME_RUN = 80;
+
 /**
  * Night without digging in (§16.3): a code-only agent badly scared, alone and far from anyone may hide (the gate);
- * otherwise, far from home, back toward it; with someone in sight farther off, over to them. Null: the day's
- * business goes on (the reflexes deal with the monsters).
+ * otherwise, a short run from home, back to it, and farther off, a night's hut there; with someone in sight farther
+ * off, over to them. Null: the day's business goes on (the reflexes deal with the monsters).
  */
 function nightMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck'], mayHide: boolean): DecisionOutput | null {
   if (mayHide && !isStuck('shelter', { untilMorning: true })) {
@@ -989,9 +992,16 @@ function nightMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck'
   if (!/under the open sky/.test(s.scene.where)) return null;
   const home = s.village.home;
   const p = s.self.pos;
-  if (home && Math.hypot(p.x - home.x, p.z - home.z) > 32) {
+  const off = home ? Math.hypot(p.x - home.x, p.z - home.z) : 0;
+  // Home a short run off, back to it; far off, a night's hut where one is (one sent home so from 200 blocks off walked
+  // the whole dark way, and came in with one heart left).
+  if (home && off > 32 && off <= HOME_RUN) {
     const args = { x: Math.round(home.x), y: Math.round(home.y), z: Math.round(home.z), range: 4 };
     if (!isStuck('goTo', args)) return { option: 'work', task: { skill: 'goTo', args }, terminate: { maxSeconds: 120 }, rationale: 'code default: dark now; back home' };
+  }
+  if (home && off > HOME_RUN) {
+    const args = { structure: 'hut', room: 1 };
+    if (!isStuck('build', args)) return { option: 'work', task: { skill: 'build', args }, terminate: { maxSeconds: 120 }, rationale: "code default: dark now, and home far off; a night's hut here" };
   }
   const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player').sort((a, b) => a.distance - b.distance);
   const nearest = people[0];

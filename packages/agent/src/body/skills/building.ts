@@ -50,11 +50,27 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
     if (outByHand(there)) await digBlock(ctx, there);
     if (!placeableInto(bot.blockAt(target))) throw new Error(`${target.toString()} is not free: the ${there.name} there is in the way`);
   }
+  // A bed lies over two cells, its head the way one faces as it goes down: room for the head, and that facing.
+  let head: Vec3 | null = null;
+  if (TWO_LONG.test(item.name)) {
+    const way = bedWay(bot, target);
+    if (!way) throw new Error(`no room at ${target.toString()} for a bed: its head needs a free cell on the ground beside it, and somewhere to stand facing that way`);
+    if (!facingTo(bot, target).equals(way)) {
+      const stand = target.minus(way);
+      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), 8000), () => stopMotion(bot)).catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+      });
+      if (!facingTo(bot, target).equals(way)) throw new Error('could not get round to face the way the bed must lie');
+    }
+    head = target.plus(way);
+    const h = bot.blockAt(head);
+    if (h && outByHand(h)) await digBlock(ctx, h);
+  }
   const r = referenceFor(bot, target, item.name);
   if (!r) throw new Error(ATTACHED.test(item.name) ? `nothing there for a ${item.name} to go on (it needs the face of a whole block: not leaves, not a slab)` : 'nothing solid to place against');
   // Never place into our own body: a door is two high, and the server refuses one that touches us at all (at a hut's
   // doorway, a hair over its edge, it was refused). A step clear first.
-  const cells = TWO_HIGH.test(item.name) ? [target, target.offset(0, 1, 0)] : [target];
+  const cells = TWO_HIGH.test(item.name) ? [target, target.offset(0, 1, 0)] : head ? [target, head] : [target];
   if (cells.some((c) => overlapsCell(bot.entity, c))) await stepClear(ctx, cells);
   if (cells.some((c) => overlapsCell(bot.entity, c))) throw new Error('would place inside myself');
   await bot.equip(item, 'hand');
@@ -72,6 +88,58 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
 const SIDE_CELLS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
 /** What stands two blocks high once placed. */
 const TWO_HIGH = /_door$|^(tall_grass|large_fern|sunflower|lilac|rose_bush|peony|pitcher_plant|small_dripleaf)$/;
+/** What lies over two cells once placed, its head the way one faces as it goes down. */
+const TWO_LONG = /(^|_)bed$/;
+
+/** The way one faces, from where one stands, toward a cell (the way a bed's head goes). */
+function facingTo(bot: Bot, target: Vec3): Vec3 {
+  const dx = target.x + 0.5 - bot.entity.position.x;
+  const dz = target.z + 0.5 - bot.entity.position.z;
+  return Math.abs(dx) >= Math.abs(dz) ? new Vec3(Math.sign(dx) || 1, 0, 0) : new Vec3(0, 0, Math.sign(dz) || 1);
+}
+
+/** Room to stand in a cell: for the body, with ground under it. */
+function standable(bot: Bot, p: Vec3): boolean {
+  return isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0)));
+}
+
+/**
+ * The way a bed set down at `foot` can lie: its head into a free cell on the ground (a flower there is picked first),
+ * from somewhere to stand facing that way; the way one faces now first. One set down facing a tree, then a hillside,
+ * was refused five times over at dusk.
+ */
+export function bedWay(bot: Bot, foot: Vec3): Vec3 | null {
+  const now = facingTo(bot, foot);
+  for (const d of [now, ...SIDE_CELLS]) {
+    const cell = foot.plus(d);
+    const b = bot.blockAt(cell);
+    if (!(placeableInto(b) || outByHand(b)) || !isSolid(bot.blockAt(cell.offset(0, -1, 0)))) continue;
+    if (d.equals(now) || standable(bot, foot.minus(d))) return d;
+  }
+  return null;
+}
+
+/** A spot within reach for a bed: free, on the ground, with room for its head one way or another. */
+function bedSpot(bot: Bot): Vec3 | null {
+  const me = bot.entity.position.floored();
+  const bodies = Object.values(bot.entities).filter((e) => e === bot.entity || e.type === 'player' || e.type === 'mob' || e.type === 'hostile');
+  for (let r = 1; r <= 3; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        for (const dy of [0, 1, -1]) {
+          const p = me.offset(dx, dy, dz);
+          const b = bot.blockAt(p);
+          const below = bot.blockAt(p.offset(0, -1, 0));
+          if (!(placeableInto(b) || outByHand(b)) || !isAirLike(bot.blockAt(p.offset(0, 1, 0))) || !isSolid(below) || USABLE_BLOCK.test(below?.name ?? '')) continue;
+          if (bodies.some((e) => overlapsCell(e, p))) continue;
+          if (bedWay(bot, p)) return p;
+        }
+      }
+    }
+  }
+  return null;
+}
 
 /** A step to a cell beside one's feet with room to stand and ground under it, clear of `cells`, away from them. */
 async function stepClear(ctx: SkillContext, cells: readonly Vec3[]): Promise<void> {
@@ -123,6 +191,7 @@ export function besideAFace(bot: Bot, item?: string): Vec3 | null {
  */
 export async function spotOrNotch(ctx: SkillContext, item?: string): Promise<Vec3 | null> {
   const { bot } = ctx;
+  if (item !== undefined && TWO_LONG.test(item)) return bedSpot(bot);
   const onFace = item !== undefined && ATTACHED.test(item);
   const spot = findPlaceableSpot(bot, 3, { sturdy: onFace });
   if (spot) return spot;
