@@ -2,7 +2,7 @@
 // runs the matching verified skill until a code-checked termination (maxSeconds, the `until` condition, the skill
 // finishing, or a danger preemption), records expected vs. observed, and wakes the CC.
 
-import type { ActionRecord, ActiveOption, Logger } from '@agora/shared';
+import type { ActionRecord, ActiveOption, AgentState, Logger } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
 import type { AnySkill, DesignAsk, SkillResult } from '../body/skills/types';
@@ -185,7 +185,7 @@ export class SkillExecutor {
     const deadline = setTimeout(() => {
       me.reason = 'time is up';
       ac.abort(new Error('time is up'));
-    }, opt.maxSeconds * 1000);
+    }, Math.max(opt.maxSeconds, walkSeconds(opt, store.state)) * 1000);
     let warned = false;
     // "Until" is until it comes true: one true already (asked to gather 5 more logs, holding 10, until there are 5)
     // says nothing about when to stop, and stopping at once would leave the work undone.
@@ -316,4 +316,17 @@ export class SkillExecutor {
     store.update('flags', (f) => ({ ...f, busyLevel: f.inDanger ? 'critical' : this.current ? 'working' : 'idle' }), 'option ended');
     bus.emit({ type: 'optionTerminated', reason, ok: success, option: opt.option, ...(opt.targetAgent ? { targetAgent: opt.targetAgent } : {}) });
   }
+}
+
+/**
+ * How long a walk takes at the least, so the time given for it doesn't cut it off halfway (a long way over hills
+ * takes its time): 20 s and 1.5 s a block, up to 4 min. Zero for anything that isn't a walk somewhere.
+ */
+export function walkSeconds(opt: ActiveOption, s: AgentState): number {
+  const a = opt.args ?? {};
+  const n = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN);
+  let far = 0;
+  if (opt.skill === 'goTo' && Number.isFinite(n(a.x)) && Number.isFinite(n(a.z))) far = Math.hypot(n(a.x) - s.self.pos.x, n(a.z) - s.self.pos.z);
+  else if (opt.skill === 'explore' && Number.isFinite(n(a.distance))) far = n(a.distance);
+  return far > 0 ? Math.min(240, 20 + far * 1.5) : 0;
 }

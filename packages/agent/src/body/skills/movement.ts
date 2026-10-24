@@ -28,8 +28,10 @@ export const goTo = defineSkill({
       if (!e) return { ok: false, observed: `cannot see ${args.agent}`, error: `${args.agent} is not in sight` };
       target = e.position.clone();
     } else target = new Vec3(args.x, args.y, args.z);
+    // A long way takes its time (over hills, round water): a minute, and about 1.5 s a block past 30, up to 4 min.
+    const far = ctx.bot.entity.position.distanceTo(target);
     try {
-      await gotoNear(ctx, target, args.range);
+      await gotoNear(ctx, target, args.range, Math.min(240_000, 60_000 + Math.max(0, far - 30) * 1500));
     } catch (err) {
       return { ok: false, observed: `stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err) };
     }

@@ -16,7 +16,7 @@ import { weaponTier } from './items';
 import { reflexDelta } from './quirks';
 import { bestToHitWith, bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
-import { bestFood, eatNow, equipBestArmor } from './skills/survival';
+import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { createMovements } from './plugins';
 import { isCover, referenceFor } from './skills/building';
 import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isPlayer, isSolid, wallsAround } from './world';
@@ -910,7 +910,8 @@ export class ReflexController {
     const idle = this.hooks.isIdle();
     if (hungry && (idle || starving)) {
       const food = bestFood(bot, bot.food <= 6);
-      if (food) {
+      // Raw meat that cooks waits for the furnace while hunger isn't pressing, as a player keeps it.
+      if (food && (!COOKS.has(food.name) || bot.food <= 8 || bot.health < 10)) {
         this.busy = true;
         this.hooks.onSoftPreempt?.('eat');
         try {

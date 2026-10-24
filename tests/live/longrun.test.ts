@@ -5,7 +5,8 @@
 //                       enchanting table, a renewable source of food.
 //   AGORA_LONGRUN=duo   a woman and a man: a house, a romantic relationship, a renewable source of food, two sets of
 //                       iron armor and iron tools.
-//   AGORA_LONGRUN_SEED (world seed), AGORA_LONGRUN_MIN (time limit, minutes), AGORA_LONGRUN_DIFFICULTY (easy|normal).
+//   AGORA_LONGRUN_SEED (world seed), AGORA_LONGRUN_MIN (time limit, minutes), AGORA_LONGRUN_DIFFICULTY (easy|normal),
+//   AGORA_LONGRUN_PORT (the server's port, RCON on the next; for more than one run of a variant at once).
 // Progress goes to data/live-test/longrun-<variant>-<seed>.json as it happens. Spends real subscription quota: only with
 // NANOGPT_API_KEY set and AGORA_LIVE_LLM=1.
 
@@ -49,8 +50,8 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
   it(
     `${variant ?? ''}: seed ${seed}, ${difficulty}, up to ${minutes} min`,
     async () => {
-      // Ports by variant, so the two can run side by side.
-      const port = variant === 'duo' ? 25652 : 25650;
+      // Ports by variant, so the two can run side by side (AGORA_LONGRUN_PORT for more at once).
+      const port = Number(process.env.AGORA_LONGRUN_PORT ?? (variant === 'duo' ? 25652 : 25650));
       server = await startLiveServer({ name, port, rconPort: port + 1, flat: false, monsters: true, props: { 'level-seed': seed, 'spawn-protection': '0', 'view-distance': '10', 'simulation-distance': '10' } });
       const srv = server;
       await srv.cmd(`difficulty ${difficulty}`);

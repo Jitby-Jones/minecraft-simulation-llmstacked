@@ -12,6 +12,9 @@ import { defineSkill, SkillAbortedError } from './types';
 /** Avoid foods with bad effects unless starving. */
 const BAD_FOODS = new Set(['rotten_flesh', 'spider_eye', 'poisonous_potato', 'pufferfish', 'suspicious_stew', 'chorus_fruit']);
 
+/** Raw food that cooks into far better (raw beef 3, steak 8), eaten raw only in need. */
+export const COOKS = new Set(['beef', 'porkchop', 'chicken', 'mutton', 'rabbit', 'cod', 'salmon', 'potato']);
+
 export function bestFood(bot: Bot, allowBad = false): Item | null {
   const foods = bot.registry.foodsByName;
   const candidates = bot.inventory.items().filter((i) => foods[i.name] && (allowBad || !BAD_FOODS.has(i.name)));

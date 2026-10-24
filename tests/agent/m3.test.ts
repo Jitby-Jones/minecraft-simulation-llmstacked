@@ -384,6 +384,17 @@ describe('Skill Executor termination (§4.4)', () => {
     ex.stop();
   });
 
+  it('a walk somewhere gets the time it takes: 100 blocks off, more than the minute it was given', async () => {
+    const { walkSeconds } = await import('@agora/agent/modules/executor');
+    const s = store();
+    const opt = (skill: string, args: Record<string, unknown>) => ({ decisionId: 'd', option: 'move', startedAt: 0, maxSeconds: 60, skill, args, status: 'running' }) as never;
+    expect(walkSeconds(opt('goTo', { x: 100, y: 64, z: 0 }), s.state)).toBe(170);
+    expect(walkSeconds(opt('goTo', { x: 1000, y: 64, z: 0 }), s.state)).toBe(240);
+    expect(walkSeconds(opt('explore', { distance: 64 }), s.state)).toBe(116);
+    expect(walkSeconds(opt('goTo', { agent: 'Bram' }), s.state)).toBe(0);
+    expect(walkSeconds(opt('gather', { item: 'log', qty: 4 }), s.state)).toBe(0);
+  });
+
   it('an until-condition true from the start is not watched: the work goes on (5 more logs, holding 10)', async () => {
     const s = store();
     const bus = new AgentBus();
