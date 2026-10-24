@@ -142,6 +142,8 @@ export interface RunSkillDeps {
   talkingWith?: () => string | null;
   /** Someone just seen attacking another, if anyone. */
   fightNearby?: () => string | null;
+  /** Who should make a chest when there is none (types.ts). */
+  chestMaker?: () => string | null;
 }
 
 export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkillDeps): Promise<SkillRunRecord> {
@@ -186,6 +188,7 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     ...(deps.combat !== undefined ? { combat: deps.combat } : {}),
     ...(deps.talkingWith ? { talkingWith: deps.talkingWith } : {}),
     ...(deps.fightNearby ? { fightNearby: deps.fightNearby } : {}),
+    ...(deps.chestMaker ? { chestMaker: deps.chestMaker } : {}),
   };
   let ok = false;
   let observed: string;

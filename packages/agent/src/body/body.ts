@@ -36,6 +36,8 @@ export interface RunOptions {
   talkingWith?: () => string | null;
   /** Someone just seen attacking another, if anyone. */
   fightNearby?: () => string | null;
+  /** Who should make a chest when there is none: null for us, else the builder to ask. */
+  chestMaker?: () => string | null;
 }
 
 const MAX_PLACED = 4000;
@@ -180,6 +182,7 @@ export class Body {
       ...(opts.combat !== undefined ? { combat: opts.combat } : {}),
       ...(opts.talkingWith ? { talkingWith: opts.talkingWith } : {}),
       ...(opts.fightNearby ? { fightNearby: opts.fightNearby } : {}),
+      ...(opts.chestMaker ? { chestMaker: opts.chestMaker } : {}),
     });
   }
 

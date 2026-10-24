@@ -15,6 +15,7 @@ import { villageView } from './social/village';
 import { EDIBLE } from './modules/villageMove';
 import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
+import { Vec3 as BlockPos } from './body/bot';
 import { cannedBusyLine } from './body/reflexes';
 import { ActionAwareness } from './modules/awareness';
 import { CognitiveController } from './modules/cc';
@@ -217,6 +218,10 @@ export class Agent {
       isItem: (word) => {
         const n = normalizeItemName(word);
         return n in CATEGORIES || n === 'food' || Boolean(body.bot.registry.itemsByName[n]);
+      },
+      chestAt: (pos) => {
+        const b = body.bot.blockAt(new BlockPos(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z)));
+        return b ? /^(chest|trapped_chest|barrel)$/.test(b.name) : null;
       },
       liking: (name) => this.mind.liking(name),
       conflict: {

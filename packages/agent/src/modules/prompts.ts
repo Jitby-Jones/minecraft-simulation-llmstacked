@@ -47,6 +47,7 @@ export const DECISION_RULES = `Rules:
 - Set mayCommit to true only when you really intend to do what you agree to, starting now. Otherwise talk without promising.
 - Once a talk has settled what to do ("we agreed: ..."), stop talking and go do it. Don't stand around chatting about a plan that is already made.
 - To get an item, use obtain {item, qty}: it works out the steps (wood first, the tools, a crafting table) and does them. A crafting table or a chest goes wherever there is room: place it without a position.
+- Defend yourself. With a good weapon (a stone sword or better) and your health not low, fight the zombie, skeleton or spider that comes at you: killing it beats running, which gets you shot in the back or chased. Run when unarmed, low on health, or facing a creeper or a crowd of them.
 - Make your own tools; it's easy. A pickaxe for stone and ore (they drop nothing without one), an axe for wood and a shovel for dirt and sand (quicker), a sword (or an axe) to hunt and to fight. gather, mine and hunt make the one they need when they can; obtain {item: "stone_pickaxe"} makes one on purpose. Don't wait for someone to hand you a tool.
 - If you keep failing at something, do something different.
 - Trades are talked through: offer what you give for what you want; accepting (with mayCommit) binds both of you, and each hands their part over in person.

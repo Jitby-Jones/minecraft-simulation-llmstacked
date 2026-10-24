@@ -9,6 +9,7 @@ import type { AnySkill } from '../body/skills/types';
 import type { AgentStateStore } from '../state/store';
 import { evalCondition } from './conditions';
 import type { MindLevers } from './levers';
+import { whoMakesChests } from '../social/village';
 
 export interface ExecutorOptions {
   store: AgentStateStore;
@@ -220,6 +221,8 @@ export class SkillExecutor {
           const t = this.now();
           return Object.values(store.state.conversations).find((c) => c.status === 'active' && t - c.lastActivity < TALK_LIVE_MS)?.participants.find((n) => n !== me) ?? null;
         },
+        // No chest about: a builder makes one, anyone when there's no builder (owner request, 2026-10-24).
+        chestMaker: () => whoMakesChests(store.state, this.now()),
         fightNearby: () => {
           const me = store.state.self.username;
           const t = this.now();

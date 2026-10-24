@@ -19,6 +19,7 @@ import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
 import { HIGH_FEAR, whyNotHide } from '@agora/agent/modules/hiding';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking, cleanReply } from '@agora/agent/modules/talking';
+import { whoMakesChests, whyNoChest } from '@agora/agent/social/village';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -299,7 +300,7 @@ describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389
   });
   it('the packet says where home is', () => {
     const packet = buildPacket({ state: s, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
-    expect(packet).toContain('Home (the village): 220,66,450, 3 m away; no huts yet.');
+    expect(packet).toContain('Home (the village): 220,66,450, 3 m away; no village chest yet (a chest is 8 planks; a builder makes it, or anyone if there is no builder); no huts yet.');
     const withHut = buildPacket({ state: { ...s, village: { ...s.village, huts: [{ x: 224, y: 66, z: 452 }] } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
     expect(withHut).toContain('huts with doors at 224,66,452.');
   });
@@ -309,5 +310,39 @@ describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389
     expect(dayPart(12900, true)).toBe('evening, dark in about 1 min');
     expect(dayPart(14000, false)).toBe('night, light in about 8 min');
     expect(dayPart(23500, false)).toBe('night');
+  });
+});
+
+describe('a chest is a thing in the world (owner request, 2026-10-24)', () => {
+  const T = 1_000_000;
+  const base = () => {
+    const s = createInitialState({ persona: PersonaSchema.parse({ name: 'Pip', sex: 'male', traits: ['curious'] }), username: 'Pip', now: T });
+    return s;
+  };
+
+  it('a builder makes the chest when there is none; anyone else asks the builder they saw lately, or makes it if there is none', () => {
+    const s = base();
+    expect(whoMakesChests(s, T)).toBeNull();
+    const withBram = { ...s, social: { Bram: { ...newSocialProfile('Bram', s.self.persona, T), perceivedRole: 'builder', lastSeen: T - 60_000 } } };
+    expect(whoMakesChests(withBram, T)).toBe('Bram');
+    // Not seen for a long while, or seen to die: no builder to wait for.
+    expect(whoMakesChests(withBram, T + 20 * 60_000)).toBeNull();
+    const dead = { ...withBram, perception: { ...withBram.perception, systemEvents: [{ kind: 'death' as const, subject: 'Bram', text: 'Bram was slain by Zombie', ts: T }] } };
+    expect(whoMakesChests(dead, T)).toBeNull();
+    // We're the builder: ours to make.
+    expect(whoMakesChests({ ...withBram, goals: { ...withBram.goals, role: 'builder' } }, T)).toBeNull();
+  });
+
+  it('a chest named by its spot must be there: the village chest, or one seen there; otherwise said so', () => {
+    const s = base();
+    expect(whyNoChest(s, { x: 10, y: 64, z: 10 }, false)).toMatch(/there is no chest at 10,64,10 that you know of, and no village chest yet/);
+    expect(whyNoChest(s, { x: 10, y: 64, z: 10 }, true)).toBeNull();
+    const withChest = { ...s, village: { ...s.village, chest: { pos: { x: 3, y: 64, z: 4 }, contents: null, seenAt: T } } };
+    expect(whyNoChest(withChest, { x: 3, y: 64, z: 4 }, null)).toBeNull();
+    expect(whyNoChest(withChest, { x: 10, y: 64, z: 10 }, null)).toBe('there is no chest at 10,64,10; the village chest is at 3,64,4');
+    // Validation turns a made-up chest away with that reason.
+    const env = { me: 'Pip', isStuck: () => false, canPerceive: () => false, chestThere: (p: { x: number; y: number; z: number }) => whyNoChest(withChest, p, false) };
+    expect(validateDecision({ option: 'work', task: { skill: 'deposit', args: { item: 'oak_log', x: 10, y: 64, z: 10 } }, terminate: { maxSeconds: 60 }, rationale: 'store logs' }, env)).toMatch(/no chest at 10,64,10/);
+    expect(validateDecision({ option: 'work', task: { skill: 'deposit', args: { item: 'oak_log' } }, terminate: { maxSeconds: 60 }, rationale: 'store logs' }, env)).toBeNull();
   });
 });

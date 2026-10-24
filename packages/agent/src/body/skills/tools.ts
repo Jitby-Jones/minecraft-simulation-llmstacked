@@ -2,12 +2,12 @@
 // common tools is easy in Minecraft, so a skill that needs one makes it when it can, as a player would: a pickaxe for
 // stone and ore (without one they drop nothing), a weapon to hunt with, and an axe or a shovel when there is a lot of
 // wood or earth to dig. It goes through `obtain` (planner.ts), which gets the wood, the sticks, the cobblestone and the
-// crafting table it takes. A tool being made makes no tool of its own (TOOL_DEPTH), so it never goes in circles.
+// crafting table it takes. A tool being made makes no tool of its own (`toolDepth`), so it never goes in circles.
 
 import type { Bot } from 'mineflayer';
 import { countItem } from '../inventory';
 import { itemMatcher } from '../items';
-import type { SkillContext } from './types';
+import type { SkillContext, SkillResult } from './types';
 
 export type ToolKind = 'pickaxe' | 'axe' | 'shovel' | 'sword';
 
@@ -26,6 +26,13 @@ export function toolOf(bot: Bot, kind: ToolKind): string | null {
 /** The one to make now: stone when we carry the cobblestone for it, otherwise wood. */
 export function toolToMake(bot: Bot, kind: ToolKind): string {
   return countItem(bot, itemMatcher('cobblestone')) >= STONE_FOR[kind] ? `stone_${kind}` : `wooden_${kind}`;
+}
+
+/** Another skill run from within one (the registry imports every skill: looked up when needed, not at load). */
+export async function runOther(ctx: SkillContext, name: string, args: Record<string, unknown>): Promise<SkillResult | null> {
+  const { getSkill } = await import('./registry');
+  const skill = getSkill(name);
+  return skill ? skill.run(ctx, args) : null;
 }
 
 /** Makes it, with whatever that takes (obtain). True when we hold it after. */

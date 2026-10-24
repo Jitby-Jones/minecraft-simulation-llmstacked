@@ -43,7 +43,7 @@ import { DEATH_RULE, DECISION_FORMAT, DECISION_RULES, personaCore } from './prom
 import { tidyDecision } from './decisionTidy';
 import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
-import { villageWorkOf } from '../social/village';
+import { villageWorkOf, whyNoChest } from '../social/village';
 import { deathNoticeMove, foodMove, hungerMove, hurtMove, villageMove } from './villageMove';
 import { whyNotHide } from './hiding';
 import { isOff } from '../state/switches';
@@ -85,6 +85,8 @@ export interface ValidationEnv {
   mayHide?: () => string | null;
   /** Null when a move there makes sense (near, or somewhere the agent knows), else why not (a made-up far place). */
   mayGo?: (pos: { x: number; y: number; z: number }) => string | null;
+  /** Null when a chest is known at that spot, else why not (a made-up chest). */
+  chestThere?: (pos: { x: number; y: number; z: number }) => string | null;
 }
 
 /** A move farther than this goes only to somewhere the agent knows (home, the chest, a hut, a find). */
@@ -121,6 +123,12 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
     if (env.isStuck(skill.name, d.task.args)) return `you are stuck on ${skill.name} ${JSON.stringify(d.task.args)}; choose something else`;
     const hiding = skill.name === 'shelter' ? (env.mayHide?.() ?? null) : null;
     if (hiding) return `you can't dig in to hide now: ${hiding}`;
+    // A chest is a thing in the world: one named by its position must be there.
+    const a = d.task.args;
+    if ((skill.name === 'deposit' || skill.name === 'withdraw') && env.chestThere && [a.x, a.y, a.z].every((n) => Number.isFinite(Number(n)) && n !== undefined && n !== null)) {
+      const why = env.chestThere({ x: Number(a.x), y: Number(a.y), z: Number(a.z) });
+      if (why) return why;
+    }
   }
   if ((d.option === 'talk' || d.option === 'follow' || d.option === 'court') && !d.target?.agent) return `option ${d.option} needs target.agent`;
   // §19.2: courting only whom one may court; a step in romance is with someone, by name.
@@ -1000,6 +1008,8 @@ export interface CCOptions {
   socialCandidates?: () => AgentName[];
   /** Whether a word names an item or a kind of item (the body's registry). */
   isItem?: (word: string) => boolean;
+  /** Whether a chest (or barrel) stands at that spot, as the body sees it now; null when it can't tell (out of sight). */
+  chestAt?: (pos: { x: number; y: number; z: number }) => boolean | null;
   /** The nearest unchecked claim worth a look (§6.5). */
   claimToCheck?: () => SocialChance['claim'] | undefined;
   /** Gut/facts mix about someone (§18.5) and the packet's lines on feelings and people (§18.2). */
@@ -1248,6 +1258,7 @@ export class CognitiveController {
       // The gate is for a mind with a model; the code-only brain digs in at night (see codeDecision).
       mayHide: () => (!this.o.llm || this.o.store.state.flags.codeOnly ? null : whyNotHide(this.o.store.state)),
       mayGo: (pos) => whyNotGo(this.o.store.state, pos),
+      ...(this.o.chestAt ? { chestThere: (pos: { x: number; y: number; z: number }) => whyNoChest(this.o.store.state, pos, this.o.chestAt?.(pos) ?? null) } : {}),
     };
   }
 

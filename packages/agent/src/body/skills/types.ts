@@ -72,6 +72,11 @@ export interface SkillContext {
   fightNearby?: () => string | null;
   /** How deep in making tools for the job we are (tools.ts): a tool being made makes none of its own. */
   toolDepth?: number;
+  /**
+   * Who should make a chest when there is none (owner request, 2026-10-24): null when we should (a builder, or anyone
+   * when there's no builder), else the builder's name, to ask.
+   */
+  chestMaker?: () => string | null;
 }
 
 export interface SkillDef<A> {

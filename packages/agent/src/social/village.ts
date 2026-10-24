@@ -2,7 +2,7 @@
 // doing what. Division of labor comes from perception alone (§13 rule 4): need × liking ÷ (1 + others on it), the
 // code default of Social Goal Gen, which is how roles diverge (Sid's emergent roles) without a model.
 
-import { type AgentState, type Persona, shannonEntropy } from '@agora/shared';
+import { type AgentName, type AgentState, type Persona, shannonEntropy } from '@agora/shared';
 
 export const VILLAGE_KINDS = ['wood', 'stone', 'food', 'build', 'guard', 'tools', 'scout'] as const;
 export type VillageKind = (typeof VILLAGE_KINDS)[number];
@@ -56,6 +56,8 @@ export function preferences(p: Persona): Record<VillageKind, number> {
 export interface VillageView {
   /** What the village chest held when this agent last looked (item → count); null: it hasn't looked in one. */
   chest: Readonly<Record<string, number>> | null;
+  /** A village chest is known to stand (seen, by home). */
+  chestKnown?: boolean;
   /** Hostile mobs seen near home in the last 10 minutes, plus deaths to mobs heard of lately. */
   threats: number;
   /** Huts seen near home. */
@@ -135,6 +137,7 @@ export function villageView(s: AgentState, others: Partial<Record<VillageKind, n
   const t = s.self.time;
   return {
     chest: v.chest?.contents ?? null,
+    chestKnown: Boolean(v.chest),
     threats: v.threats.filter((x) => now - x < 10 * 60_000).length + mobDeaths,
     huts: v.huts.length,
     night: !s.self.isDay || (t >= 11_500 && t < 13_000),
@@ -147,7 +150,8 @@ export function villageView(s: AgentState, others: Partial<Record<VillageKind, n
 /** The village in a sentence for a prompt. */
 export function describeVillage(v: VillageView): string {
   const parts: string[] = [];
-  if (!v.chest) parts.push("you haven't looked inside a village chest");
+  if (!v.chestKnown) parts.push('no village chest yet');
+  else if (!v.chest) parts.push("you haven't looked inside the village chest");
   else {
     const top = Object.entries(v.chest)
       .sort((a, b) => b[1] - a[1])
@@ -191,4 +195,35 @@ export function villageWorkDone(s: AgentState, kind: VillageKind, since: number)
 export function villageWorkOf(doneWhen: string | undefined): VillageKind | null {
   const k = doneWhen ? /^villageWork:([a-z]+)$/.exec(doneWhen.trim())?.[1] : undefined;
   return isVillageKind(k) ? k : null;
+}
+
+/** A builder seen this lately (and not seen to die) is about to make a chest. */
+const BUILDER_SEEN_MS = 15 * 60_000;
+
+/**
+ * Who should make a chest when there is none (owner request, 2026-10-24): null when we should (we're the builder, or
+ * nobody we've seen lately is), else the builder to ask.
+ */
+export function whoMakesChests(s: AgentState, now: number): AgentName | null {
+  if (s.goals.role === 'builder') return null;
+  const dead = new Set(s.perception.systemEvents.filter((e) => e.kind === 'death').map((e) => e.subject));
+  const builder = Object.values(s.social)
+    .filter((p) => p.perceivedRole === 'builder' && !dead.has(p.name) && now - p.lastSeen < BUILDER_SEEN_MS)
+    .sort((a, b) => b.lastSeen - a.lastSeen)[0];
+  return builder?.name ?? null;
+}
+
+/**
+ * Null when a chest is known at `pos` (the village chest, or a chest seen there), else why not, said so the model can
+ * act on it (owner request, 2026-10-24: agents put things in chests that weren't there). `seen`: what is at that spot
+ * as far as we can tell now (null when it is out of sight).
+ */
+export function whyNoChest(s: AgentState, pos: { x: number; y: number; z: number }, seen: boolean | null): string | null {
+  const v = s.village.chest?.pos;
+  const at = (p: { x: number; y: number; z: number }) => Math.round(p.x) === Math.round(pos.x) && Math.round(p.y) === Math.round(pos.y) && Math.round(p.z) === Math.round(pos.z);
+  if (seen === true || (seen === null && v && at(v))) return null;
+  const where = `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)}`;
+  return v
+    ? `there is no chest at ${where}; the village chest is at ${v.x},${v.y},${v.z}`
+    : `there is no chest at ${where} that you know of, and no village chest yet: deposit with no position (one is made if none is about), or make one (obtain chest) and place it by home`;
 }

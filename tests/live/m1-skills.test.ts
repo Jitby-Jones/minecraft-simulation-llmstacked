@@ -130,6 +130,25 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     expect(r3.error).toMatch(/need a stone_pickaxe or better to harvest iron_ore/);
   }, 300_000);
 
+  it('deposit with no chest about makes one and fills it; asked for one at a spot with none, it says so', async () => {
+    const o = await zone();
+    await server.cmd('clear Pip');
+    await server.cmd('give Pip minecraft:oak_log 3');
+    await server.cmd('give Pip minecraft:cobblestone 5');
+    await sleep(800);
+    // Owner request (2026-10-24): agents put things in chests that weren't there.
+    const none = await run(pip, 'deposit', { item: 'cobblestone', x: o.x + 2, y: Y, z: o.z + 2 });
+    expect(none.ok).toBe(false);
+    expect(none.error).toBe(`there is no chest at ${o.x + 2},${Y},${o.z + 2}`);
+    const r = await run(pip, 'deposit', { item: 'cobblestone' }, 150_000);
+    expect(r.ok).toBe(true);
+    expect(countItem(pip.bot, 'cobblestone')).toBe(0);
+    const chest = r.data?.chest as { x: number; y: number; z: number } | undefined;
+    expect(chest).toBeDefined();
+    if (chest) expect(pip.bot.blockAt(new Vec3(chest.x, chest.y, chest.z))?.name).toBe('chest');
+    expect(r.data?.contents).toMatchObject({ cobblestone: 5 });
+  }, 200_000);
+
   it('hunt makes a sword first when it has none; gather makes an axe for a lot of wood and still brings the full count', async () => {
     const o = await zone();
     await server.cmd('clear Pip');
@@ -308,16 +327,33 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       expect(cleared.length).toBeGreaterThan(0);
     });
 
+    it('armed and not low on health, it fights a zombie rather than running (owner request, 2026-10-24)', async () => {
+      const o = await zone();
+      dangers.length = 0;
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await sleep(1000);
+      await waitFor(() => pip.bot.health >= 19, 5000, 'full health');
+      // Seven hearts and an iron sword: before, an agent this careful ran below eight and a half.
+      await server.cmd('damage Pip 6');
+      await waitFor(() => pip.bot.health <= 14.5, 5000, 'hurt a little');
+      await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
+      await waitFor(() => dangers.some((d) => d.kind === 'fight' && d.source === 'zombie'), 10000, 'fight reflex');
+      await waitFor(() => !pip.bot.nearestEntity((e) => e.name === 'zombie' && e.position.distanceTo(pip.bot.entity.position) < 16), 30000, 'zombie dead');
+      expect(dangers.some((d) => d.kind === 'flee')).toBe(false);
+      await waitFor(() => pip.reflexes.mode === 'idle', 10000, 'danger cleared');
+    });
+
     it('flees instead of fighting when badly hurt', async () => {
       const o = await zone();
       dangers.length = 0;
-      // From full health, whatever the zombie before did: 13 off a lower health would kill instead of hurt. The
+      // From full health, whatever the zombie before did: 16 off a lower health would kill instead of hurt. The
       // instant effect lands on the next tick, so let it land before the damage (or it heals the damage away).
       await server.cmd('effect give Pip minecraft:instant_health 1 3');
       await sleep(1000);
       await waitFor(() => pip.bot.health >= 19, 5000, 'full health');
-      await server.cmd('damage Pip 13');
-      await waitFor(() => pip.bot.health <= 8, 5000, 'hurt');
+      // Two hearts: low, sword or no sword.
+      await server.cmd('damage Pip 16');
+      await waitFor(() => pip.bot.health <= 5, 5000, 'hurt');
       await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
       await waitFor(() => dangers.some((d) => d.kind === 'flee'), 10000, 'flee reflex');
       expect(pip.reflexes.mode).toBe('flee');

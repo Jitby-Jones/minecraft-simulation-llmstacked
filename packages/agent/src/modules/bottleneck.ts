@@ -78,7 +78,7 @@ export function buildPacket(i: PacketInput): string {
     // Huts, by their doors: where to be at night.
     const huts = s.village.huts.slice(0, 3).map((d) => `${d.x},${d.y},${d.z}`);
     out.push(
-      `Home (the village): ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}; ${huts.length > 0 ? `huts with doors at ${huts.join(' and ')}` : 'no huts yet'}.`,
+      `Home (the village): ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away; ${chest ? `the village chest at ${chest.x},${chest.y},${chest.z}` : 'no village chest yet (a chest is 8 planks; a builder makes it, or anyone if there is no builder)'}; ${huts.length > 0 ? `huts with doors at ${huts.join(' and ')}` : 'no huts yet'}.`,
     );
   }
 

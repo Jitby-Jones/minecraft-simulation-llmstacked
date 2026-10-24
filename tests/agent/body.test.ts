@@ -666,3 +666,22 @@ describe('a tool for the job (owner request, 2026-10-24)', () => {
     expect(notes).toEqual([]);
   });
 });
+
+describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
+  const rig = (weapon: string | null) => {
+    const bot = Object.assign(new EventEmitter(), { entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 }, entities: {}, health: 20, inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] } });
+    const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
+    return new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
+  };
+  const zombie = { id: 3, type: 'hostile', name: 'zombie', position: new Vec3(3, 64, 0), height: 1.95 } as never;
+  const person = { id: 4, type: 'player', username: 'Rex', name: 'player', position: new Vec3(3, 64, 0), height: 1.8 } as never;
+
+  it('armed, one fights a monster on down to about three hearts; with a wooden weapon four; unarmed, or with a person among them, five', () => {
+    expect(rig('stone_sword').fleeThreshold([zombie])).toBe(6);
+    expect(rig('iron_axe').fleeThreshold([zombie])).toBe(6);
+    expect(rig('wooden_sword').fleeThreshold([zombie])).toBe(8);
+    expect(rig(null).fleeThreshold([zombie])).toBe(10);
+    expect(rig('stone_sword').fleeThreshold([zombie, person])).toBe(10);
+    expect(rig('stone_sword').fleeThreshold()).toBe(10);
+  });
+});
