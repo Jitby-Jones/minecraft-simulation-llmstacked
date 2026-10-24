@@ -9,7 +9,7 @@ import type { Body } from '@agora/agent/body/body';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { AgentBus } from '@agora/agent/bus';
 import { Feelings } from '@agora/agent/mind/feelings';
-import { buildPacket, dayPart, hunger } from '@agora/agent/modules/bottleneck';
+import { buildPacket, dayPart, healing, hunger } from '@agora/agent/modules/bottleneck';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { routeItemTask } from '@agora/agent/modules/itemTasks';
 import { codeDecision, validateDecision, whyNotGo } from '@agora/agent/modules/cc';
@@ -256,6 +256,23 @@ describe('hunger said plainly (an agent starved with "food 3/20" in its packet)'
     expect(hunger(at(7))).toBe('You are getting hungry, and you carry nothing to eat.');
     expect(hunger(at(3))).toBe('You are starving and carry nothing to eat: without food you will soon die.');
     expect(hunger(at(3, [{ item: 'apple', qty: 1 }]))).toBe('You are starving; you carry apple.');
+  });
+});
+
+describe('how the body heals, said as a fact (a model at 1 health and food 10 waited to heal "on its own")', () => {
+  const at = (health: number, food: number) => {
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    return { ...s, self: { ...s.self, health, food } };
+  };
+  it('whole, barely hurt, or fed enough to heal: nothing to say', () => {
+    expect(healing(at(20, 10))).toBeNull();
+    expect(healing(at(18, 10))).toBeNull();
+    expect(healing(at(4, 18))).toBeNull();
+  });
+  it('hurt and short of food: health will not come back by itself', () => {
+    expect(healing(at(1, 10))).toBe('Health comes back by itself only with food at 18 of 20 or more; at food 10 it stays where it is.');
+    expect(healing(at(6, 0))).toBe('Health comes back by itself only with food at 18 of 20 or more; with no food at all, hunger itself does harm.');
+    expect(buildPacket({ state: at(1, 10), levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 })).toContain('only with food at 18 of 20');
   });
 });
 

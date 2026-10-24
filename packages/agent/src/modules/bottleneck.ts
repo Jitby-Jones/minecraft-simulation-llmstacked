@@ -90,6 +90,8 @@ export function buildPacket(i: PacketInput): string {
   out.push(`Carrying: ${inv || 'nothing'}${self.equipped ? ` (holding ${self.equipped})` : ''}${self.armor.length > 0 ? `; wearing ${self.armor.join(', ')}` : ''}.`);
   const hungerLine = hunger(s);
   if (hungerLine) out.push(hungerLine);
+  const healingLine = healing(s);
+  if (healingLine) out.push(healingLine);
   // Where home is: without it a model's "head home" went to a made-up 0,64,0, hundreds of blocks off.
   const home = s.village.home;
   if (home && world === 'overworld') {
@@ -248,6 +250,21 @@ export function lessonsFor(s: AgentState, now: number, k = 5): Lesson[] {
     return { l, score: shared / Math.sqrt(1 + lw.length) + idx / (all.length * 10) + (now - l.ts < 30 * 60_000 ? 0.3 : 0) };
   });
   return scored.sort((a, b) => b.score - a.score).slice(0, k).map((x) => x.l);
+}
+
+/** Hurt enough to think about healing at this much health or less; the body heals by itself from this much food up. */
+const HURT_AT = 16;
+const HEALS_FROM = 18;
+
+/**
+ * How the body heals, once hurt enough to matter: by itself only with food at 18 of 20 or more. A model at 1 health
+ * and food 10 waited for health that "regenerates on its own" (null: whole, barely hurt, or fed enough to heal).
+ */
+export function healing(s: AgentState): string | null {
+  const { health, food } = s.self;
+  if (!(health > 0) || health > HURT_AT || food >= HEALS_FROM) return null;
+  const now = food > 0 ? `at food ${food} it stays where it is` : 'with no food at all, hunger itself does harm';
+  return `Health comes back by itself only with food at ${HEALS_FROM} of 20 or more; ${now}.`;
 }
 
 /** A line about hunger once it matters: hungry with nothing to eat, or starving (null: fed, or food at hand). */
