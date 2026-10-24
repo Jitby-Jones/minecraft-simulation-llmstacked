@@ -178,13 +178,23 @@ async function bridge(ctx: SkillContext, p: Vec3): Promise<void> {
   await bot.placeBlock(ref, p.minus(ref.position));
 }
 
+/** A way said as a player says it: down (or deeper) is no way along; of two, the first. */
+function wayOf(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const w = v.trim().toLowerCase();
+  if (/^(down|downward|downwards|deeper|below|straight down)$/.test(w)) return undefined;
+  return /^(north|south|east|west)/.exec(w)?.[1] ?? v;
+}
+
 export const prospect = defineSkill({
   name: 'prospect',
   description: 'prospect {item, maxBlocks?, direction?, outside?} — dig down and tunnel to look for an ore you have not seen yet (needs a pickaxe); outside: start at least this many blocks from home',
   argsSchema: z.object({
     item: z.string().min(1),
-    maxBlocks: z.coerce.number().min(4).max(96).default(48),
-    direction: z.enum(['north', 'south', 'east', 'west']).optional(),
+    // A dig of more than the most is a dig of the most; "down" is the way it goes first anyway, and "north-east" goes
+    // north (the models asked for both, and were refused).
+    maxBlocks: z.coerce.number().min(4).transform((n) => Math.min(96, n)).default(48),
+    direction: z.preprocess((v) => wayOf(v), z.enum(['north', 'south', 'east', 'west']).optional()),
     /** Start the mine at least this far from home (a tunnel under a village lets mobs in among the people there). */
     outside: z.coerce.number().min(0).max(64).optional(),
   }),
