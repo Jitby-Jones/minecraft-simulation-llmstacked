@@ -51,6 +51,29 @@ export function inventoryStacks(bot: Bot): ItemStack[] {
   });
 }
 
+/** Free slots of the 36 in the inventory and hotbar. */
+export function freeSlots(bot: Bot): number {
+  return Math.max(0, 36 - bot.inventory.items().length);
+}
+
+/** What a full inventory is to a player, said so (a plugin's "There are no defined chest locations!" said nothing). */
+export const INVENTORY_FULL = "your inventory is full (no free slot): nothing more fits until you drop what you don't need (drop {item, qty})";
+
+/** Items one threw away oneself, left where they lie rather than picked up again (by entity id, till when). */
+const thrown = new WeakMap<Bot, Map<number, number>>();
+const THROWN_MS = 10 * 60_000;
+
+export function markThrown(bot: Bot, ids: Iterable<number>, now = Date.now()): void {
+  const m = thrown.get(bot) ?? new Map<number, number>();
+  for (const id of ids) m.set(id, now + THROWN_MS);
+  for (const [id, until] of m) if (until < now) m.delete(id);
+  thrown.set(bot, m);
+}
+
+export function wasThrown(bot: Bot, id: number, now = Date.now()): boolean {
+  return (thrown.get(bot)?.get(id) ?? 0) > now;
+}
+
 /** Below this much of its wear left, a tool is nearly worn out (a player sees the bar turn red). */
 export const WORN = 0.2;
 

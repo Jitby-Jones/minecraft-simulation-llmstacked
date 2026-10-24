@@ -10,8 +10,8 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
-import { describeDiff, diffInventory, snapshotInventory } from '../inventory';
-import { normalizeBlockName, normalizeItemName } from '../items';
+import { describeDiff, diffInventory, markThrown, snapshotInventory } from '../inventory';
+import { itemMatcher, normalizeBlockName, normalizeItemName } from '../items';
 import { canSee, canSeeBlock } from '../world';
 import { stopCollecting } from './gathering';
 import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
@@ -139,6 +139,49 @@ async function collectAround(ctx: SkillContext, where: Vec3, radius = 4, which?:
     await waitMs(ctx, 250);
   }
 }
+
+// --- drop ----------------------------------------------------------------------------------------------------------
+
+/**
+ * Throws items out onto the ground, as a player does to make room: all of that item, or `qty`. What is thrown is left
+ * where it lies (the pickup reflex would walk over and take it back). An agent with full pockets dug on, nothing
+ * coming of it, and had no way to make room.
+ */
+export const drop = defineSkill({
+  name: 'drop',
+  description: "drop {item, qty?} — throw items out of your inventory onto the ground (all of that item if no qty), to make room or get rid of what you don't need",
+  argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(2304).optional() }),
+  talkOverable: true,
+  slipKinds: [],
+  expect: () => ({ kind: 'none' }),
+  async run(ctx, args) {
+    const { bot } = ctx;
+    const m = itemMatcher(args.item);
+    const types = new Map<number, { name: string; count: number }>();
+    for (const i of bot.inventory.items()) {
+      if (!m.matches(i.name)) continue;
+      const t = types.get(i.type) ?? { name: i.name, count: 0 };
+      t.count += i.count;
+      types.set(i.type, t);
+    }
+    if (types.size === 0) return { ok: false, observed: `no ${m.label} carried`, error: `no ${m.label} in inventory` };
+    const before = new Set(Object.values(bot.entities).filter((e) => e.name === 'item').map((e) => e.id));
+    let left = args.qty ?? Infinity;
+    const out: string[] = [];
+    for (const [type, t] of types) {
+      if (left <= 0) break;
+      throwIfAborted(ctx.signal);
+      const n = Math.min(t.count, left);
+      await bot.toss(type, null, n);
+      out.push(`${n} ${t.name}`);
+      left -= n;
+    }
+    await waitMs(ctx, 500);
+    const me = bot.entity.position;
+    markThrown(bot, Object.values(bot.entities).filter((e) => e.name === 'item' && !before.has(e.id) && e.position.distanceTo(me) < 6).map((e) => e.id));
+    return { ok: true, observed: `dropped ${out.join(', ')}` };
+  },
+});
 
 // --- use -----------------------------------------------------------------------------------------------------------
 

@@ -16,7 +16,7 @@ import { design } from './design';
 import { scout, settle } from './settle';
 import { enchant, nameItem } from './enchanting';
 import { eye, fill, portal, travel } from './expedition';
-import { harvest, lead, use } from './hands';
+import { drop, harvest, lead, use } from './hands';
 import type { AnySkill } from './types';
 
 export const SKILLS: readonly AnySkill[] = [
@@ -62,6 +62,7 @@ export const SKILLS: readonly AnySkill[] = [
   use,
   lead,
   harvest,
+  drop,
 ];
 
 const BY_NAME = new Map(SKILLS.map((s) => [s.name.toLowerCase(), s]));

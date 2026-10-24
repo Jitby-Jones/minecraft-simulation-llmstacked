@@ -536,6 +536,8 @@ export interface SelfState {
   food: number;
   oxygen: number;
   inventory: ItemStack[];
+  /** Free slots of the 36 in the inventory and hotbar. */
+  slotsFree?: number;
   equipped: string | null;
   armor: string[];
   dimension: string;

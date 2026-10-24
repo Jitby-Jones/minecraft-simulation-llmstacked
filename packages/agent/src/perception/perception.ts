@@ -8,7 +8,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { AgentBus } from '../bus';
 import { SwingTracker } from '../body/attribution';
-import { inventoryDigest, inventoryStacks } from '../body/inventory';
+import { freeSlots, inventoryDigest, inventoryStacks } from '../body/inventory';
 import { Sightings } from '../body/sightings';
 import { CREATURE_SIGHT, canSee, canSeeBlock, isHostile, isNight } from '../body/world';
 import { detectAddressee } from '../modules/conversations';
@@ -289,6 +289,7 @@ export class Perception {
   private updateSelf(): void {
     const bot = this.o.bot;
     const inv = inventoryStacks(bot);
+    const slotsFree = freeSlots(bot);
     const armor = [5, 6, 7, 8].map((s) => bot.inventory.slots[s]?.name).filter((n): n is string => Boolean(n));
     const pos = v(bot.entity.position);
     const time = bot.time.timeOfDay;
@@ -296,7 +297,7 @@ export class Perception {
     const light = (bot.blockAt(bot.entity.position) as unknown as { skyLight?: number; light?: number } | null) ?? null;
     const lightLevel = Math.max(light?.light ?? 0, isDay ? (light?.skyLight ?? 15) : Math.max(0, (light?.skyLight ?? 15) - 11));
     const key = [
-      Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z), bot.health.toFixed(0), bot.food, bot.oxygenLevel, inventoryDigest(inv, 40),
+      Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z), bot.health.toFixed(0), bot.food, bot.oxygenLevel, inventoryDigest(inv, 40), slotsFree,
       bot.heldItem?.name ?? '', armor.join(','), bot.game.dimension, isDay, bot.isSleeping, Math.floor(time / 600), lightLevel,
     ].join('|');
     if (key === this.lastSelfKey) return;
@@ -311,6 +312,7 @@ export class Perception {
         food: bot.food,
         oxygen: bot.oxygenLevel,
         inventory: inv,
+        slotsFree,
         equipped: bot.heldItem?.name ?? null,
         armor,
         dimension: String(bot.game.dimension),

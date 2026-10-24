@@ -18,7 +18,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
-import { WORN, toolWear } from '../body/inventory';
+import { WORN, freeSlots, toolWear } from '../body/inventory';
 import { biomeAt, canSeeBlock, isEnclosed } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
@@ -611,6 +611,8 @@ export class SceneEyes {
   private lastSelf: { pos: Vec3; t: number; time: number; items: Map<string, number>; dim: string } | null = null;
   /** The wear on each kind of tool at the last look, and those already said to be nearly worn out. */
   private lastWear = new Map<string, number>();
+  /** Free inventory slots at the last look. */
+  private lastFree = -1;
   private readonly wornSaid = new Set<string>();
   private lastPickupAt = -Infinity;
   private lastHandsAt = -Infinity;
@@ -878,7 +880,14 @@ export class SceneEyes {
     const wear = toolWear(bot);
     const wornBefore = this.lastWear;
     this.lastWear = wear;
+    const free = freeSlots(bot);
+    const freeBefore = this.lastFree;
+    this.lastFree = free;
     if (!prev || prev.dim !== dim) return;
+    // The pockets full: what one digs stays on the ground (one dug on, nothing coming of it, and took it for a bug).
+    if (free === 0 && freeBefore > 0) {
+      this.add({ id: `n${now.toString(36)}full`, ts: now, kind: 'cue', about: 'inventory', key: 'full', text: "Your inventory is full: what you dig or pick up now won't fit", strength: 0.6, seenBefore: 0 });
+    }
     // A tool's wear, as its bar shows it: one nearly gone, or gone, is thought about then and there (one dug on with its
     // last pickaxe till it broke, then on by hand, underground into the night, and died with nothing to fight with).
     for (const [name, left] of wear) {

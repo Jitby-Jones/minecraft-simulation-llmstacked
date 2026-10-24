@@ -367,6 +367,7 @@ What each is for is the mind's to know. `obtain` knows shearing and mob drops as
 - An exploration goes the way and as far as the mind said, and a follow at its distance ("south, 150 blocks" for open grassland and its sheep had become 32 blocks any way, over and over).
 - A door, a gate or a lamp used says it opened, shut, lit or went out, not that an oak door became an oak door.
 - Far from home (more than 48 blocks), the quick hut goes up where one is: one 200 blocks off at dusk was told there was no spot "near home", and walked home through the night. A design far from home says how far home is and that x,y,z builds it here. The code's own night fallback runs home only from a short way off (80 blocks), and farther builds a night's hut on the spot.
+- A full inventory is seen as a player sees the hotbar and the pockets: the packet says so once two slots or fewer are free ("Your inventory is full (0 of 36 slots free): what you dig or pick up next won't fit. Drop what you don't need (drop {item, qty})"), filling up is a notice, and a dig or a craft refused for it says "your inventory is full" (the collect plugin's "There are no defined chest locations!" said nothing: a seed-1 agent with its pockets full of cobblestone took it for a bug in mining, tried every way to dig but making room, and then a chest). `drop {item, qty?}` throws things out, and what was thrown is left where it lies, not walked over and picked up again (live, `hands`: pockets full of cobblestone, a dig refused, some dropped, the dig goes on).
 - A walk never steps onto a stalagmite nor drops onto one: a fall onto a point is as one 2.5 blocks higher, twice over, and a seed-2 agent at 7 health walking down a dripstone cave "fell from a high place" (live, `hands`: off a pillar ringed with points, by its stair; the old walk stood over points four times).
 - What the end-of-talk social update hears said of others counts for people only: those one knows of, those about, or a name as one writes a person's in what was said ("Cass stole my iron"). Asked for "a name they talked about", the model also brought back "chicken", "village" and "woodcutting", and each became a person in the agent's social world.
 - An archer closed in on for 10 s without coming within reach can't be got at from there: it is run from, out of its sight, for 30 s (one "fought" a skeleton for 81 s, never nearer than 9 blocks, shot from 20 health to 8, and died to it after; live, `melee`, across a trench it can't cross, it gives up and gets away). And one sees that one wears no armor ("wearing no armor"), as one sees what one does wear: that agent had twelve iron ingots and went deep in none.
@@ -2986,10 +2987,10 @@ they could not walk into. Solo, the best had 8 diamonds by 19 minutes (`solo, se
 twelve ingots by 20 (`solo, seed 1 (9)`); none has yet lived past its second night with the full list in reach. What
 kills them is still the night, now mostly through what the hands could not do (walk through a door, build a pillar
 on a slope, hear "lie low until healed" by day) or did not tell (where a room is, what a building lacks as a kind),
-each answered as above; and every death's post-mortem says how the last fight went. Verified: 701 unit tests; live,
-`hands` (26: dyeing, the hut's corner, a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop,
+each answered as above; and every death's post-mortem says how the last fight went. Verified: 703 unit tests; live,
+`hands` (27: dyeing, the hut's corner, a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop,
 climbing out of a hollow, a night's hut for one, a tunnel under gravel, a meadow of tulips, a bed in a nook, a
-pickaxe on its last uses, digs for diamonds over the bedrock, off a pillar ringed with stalagmites),
+pickaxe on its last uses, digs for diamonds over the bedrock, off a pillar ringed with stalagmites, full pockets),
 `thinking` (the flyer still seen, hops no longer taken for floating), `melee` (6: an
 archer across a trench, zombies on open ground, gravel on the head, a flooded pit), `cornered` (2), `m1-water` (4), `m1-skills`, `m1-night`, `m4` (no x-ray), `build`. The long
 runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live longrun`), and what they show is answered the

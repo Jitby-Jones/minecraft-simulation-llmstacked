@@ -19,6 +19,7 @@ import { EDIBLE } from './modules/villageMove';
 import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
 import { Vec3 as BlockPos } from './body/bot';
+import { wasThrown } from './body/inventory';
 import { cannedBusyLine } from './body/reflexes';
 import { ActionAwareness } from './modules/awareness';
 import { CognitiveController } from './modules/cc';
@@ -661,7 +662,7 @@ export class Agent {
       settled: (name, since) => this.conflict.settled(name, since),
       isIdle: () => this.executor.idleBody,
       between: () => !this.executor.busy,
-      mayPickUp: (item) => this.perception.mayPickUp(item.id),
+      mayPickUp: (item) => this.perception.mayPickUp(item.id) && !wasThrown(body.bot, item.id),
       fearBoost: (source) => this.biases.fearBoost(source),
       onAllyAttacked: (ally, by) => {
         this.deeds.allyAttacked(ally, by);

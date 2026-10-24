@@ -262,6 +262,26 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     eyes.stop();
   });
 
+  it('the pockets filling up is noticed once, as they fill; the packet says so, and what to do', () => {
+    const w = fakeWorld();
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    for (let i = 0; i < 35; i++) w.inv.push({ name: 'cobblestone', count: 64 });
+    t.now = 9000;
+    eyes.tick([]);
+    w.inv.push({ name: 'granite', count: 64 });
+    t.now = 10_000;
+    eyes.tick([]);
+    t.now = 11_000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'full').map((n) => n.text)).toEqual(["Your inventory is full: what you dig or pick up now won't fit"]);
+    eyes.stop();
+    s.update('self', (x) => ({ ...x, slotsFree: 0 }));
+    expect(buildPacket({ state: s.state, levers: leversFor(0.5), reason: 'test', now: 0 })).toMatch(/Your inventory is full \(0 of 36 slots free\): what you dig or pick up next won't fit\. Drop what you don't need \(drop \{item, qty\}\)\./);
+  });
+
   it('what our own hands made is no surprise, even landing after the skill is done; what turns up in our pockets with idle hands is', () => {
     const w = fakeWorld();
     const s = store();

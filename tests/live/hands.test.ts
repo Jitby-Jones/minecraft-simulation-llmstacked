@@ -251,6 +251,28 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.health).toBe(before);
   }, 120_000);
 
+  it('pockets full of cobblestone: a dig says the inventory is full; some dropped, the dig goes on, and what was dropped stays dropped', async () => {
+    const x = 5550;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 3} ${Y} -3 ${x + 3} ${Y + 3} 3 air`);
+    await server.cmd(`setblock ${x + 2} ${Y} 0 stone`);
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await server.cmd('give Ada minecraft:cobblestone 2240');
+    await sleep(2000);
+    expect(body.bot.inventory.items().length).toBe(36);
+    const full = await run('mine', { block: 'stone', qty: 1 });
+    logger.info({ full }, 'full pockets');
+    expect(full.ok).toBe(false);
+    expect(full.error).toMatch(/^your inventory is full/);
+    const dropped = await run('drop', { item: 'cobblestone', qty: 128 });
+    expect(dropped.ok).toBe(true);
+    expect(dropped.observed).toMatch(/^dropped 128 cobblestone/);
+    const r = await run('mine', { block: 'stone', qty: 1 });
+    logger.info({ dropped, r }, 'room made');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'cobblestone')).toBe(2240 - 128 + 1);
+  }, 120_000);
+
   it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
     const x = 5800;
     await at(x, 0);
