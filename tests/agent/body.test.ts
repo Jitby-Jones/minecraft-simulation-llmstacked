@@ -9,7 +9,7 @@ import { armorSlotOf, gearScore, itemMatcher, normalizeItemName, weaponTier } fr
 import { compileCondition, pathCostRules, reflexDelta } from '@agora/agent/body/quirks';
 import { SKILLS, getSkill, skillCatalog } from '@agora/agent/body/skills/registry';
 import { describeMissing } from '@agora/agent/body/skills/crafting';
-import { checkExpectation, describeExpectation, runSkill } from '@agora/agent/body/skills/runner';
+import { bodyNote, checkExpectation, describeExpectation, runSkill } from '@agora/agent/body/skills/runner';
 import { SkillAbortedError, defineSkill } from '@agora/agent/body/skills/types';
 import { SwingTracker } from '@agora/agent/body/attribution';
 import { ReflexController, shoots } from '@agora/agent/body/reflexes';
@@ -758,5 +758,18 @@ describe('a pathfinder stuck on a dig that never ended', () => {
     bot.targetDigBlock = { name: 'dirt' };
     expect(releaseStuckDig(bot as unknown as Bot)).toBe(false);
     expect(digging).toBe(true);
+  });
+});
+
+describe('what the body did over an action (a model waiting at 1 health "learned" that waiting heals)', () => {
+  const at = (health: number, food: number) => ({ inventory: new Map<string, number>(), pos: new Vec3(0, 64, 0), health, food, ts: 0 });
+  it('health and food that changed are said; whole and unchanged, nothing', () => {
+    expect(bodyNote(at(20, 20), at(20, 20), 120_000)).toBe('');
+    expect(bodyNote(at(12, 18), at(8, 17), 5000)).toBe('health 12 to 8, food 18 to 17');
+    expect(bodyNote(at(4, 19), at(9, 19), 40_000)).toBe('health 4 to 9');
+  });
+  it('a long while hurt with none of it back: said too; a moment, not', () => {
+    expect(bodyNote(at(1, 10), at(1, 10), 120_000)).toBe('health still 1');
+    expect(bodyNote(at(1, 10), at(1, 10), 3000)).toBe('');
   });
 });

@@ -120,6 +120,23 @@ export function checkExpectation(bot: Bot, e: Expectation, before: BodySnapshot,
   }
 }
 
+/** Long enough at it to notice whether hurt comes back (healing, when it does, is a point every few seconds). */
+const LONG_MS = 30_000;
+
+/**
+ * What the body did over an action, as one notices it: health lost or back, food gone down; and after a long while
+ * hurt, that none came back. A model waiting at 1 health "learned" that waiting heals, with nothing to tell it otherwise.
+ */
+export function bodyNote(before: BodySnapshot, after: BodySnapshot, ms: number): string {
+  const h0 = Math.round(before.health);
+  const h1 = Math.round(after.health);
+  const parts: string[] = [];
+  if (h1 !== h0) parts.push(`health ${h0} to ${h1}`);
+  else if (h1 > 0 && h1 < 20 && ms >= LONG_MS) parts.push(`health still ${h1}`);
+  if (after.food !== before.food) parts.push(`food ${before.food} to ${after.food}`);
+  return parts.join(', ');
+}
+
 export interface RunSkillDeps {
   bot: Bot;
   logger: Logger;
@@ -234,12 +251,14 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     check = checkExpectation(deps.bot, expectation, before, after);
   }
   const mismatch = ok && !check.ok && expectation.kind !== 'none';
+  const said = observed === check.observed ? observed : `${observed}; ${check.observed}`;
+  const body = bodyNote(before, after, Date.now() - startedAt);
   const record: SkillRunRecord = {
     id,
     skill: skill.name,
     args: argsObj,
     expected: describeExpectation(expectation),
-    observed: observed === check.observed ? observed : `${observed}; ${check.observed}`,
+    observed: body ? `${said}; ${body}` : said,
     ok: ok && check.ok,
     mismatch,
     aborted,
