@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 import { Vec3 } from '@agora/agent/body/bot';
 import { CALL_OFF_RE, SURRENDER_RE, beaten, reckonBlow, runningAway, yieldAt } from '@agora/agent/body/skills/duel';
 import { stopMotion } from '@agora/agent/body/skills/util';
-import { type PvpTuning, keepPvpInReach } from '@agora/agent/body/plugins';
+import { type PvpTuning, deepGap, keepPvpInReach } from '@agora/agent/body/plugins';
 import { Feelings } from '@agora/agent/mind/feelings';
 import { appraise, zeroEmotions } from '@agora/agent/mind/emotions';
 import { type ConflictView, codeDecision, validateDecision } from '@agora/agent/modules/cc';
@@ -456,6 +456,33 @@ describe('a yield is let stand (§17.6)', () => {
     talking.stop();
     conversations.stop();
   }, 10_000);
+});
+
+describe('jumping a gap (a ditch, never a ravine)', () => {
+  // Ground at y 63 everywhere but where it says; the agent stands on it at x 0 and would jump east.
+  const world = (cols: Record<number, { floor: number | null; water?: number }>) => ({
+    maxDropDown: 3,
+    getBlock: (n: { x: number; y: number; z: number }, dx: number, dy: number, dz: number) => {
+      const x = n.x + dx;
+      const y = n.y + dy;
+      void dz;
+      const c = cols[x] ?? { floor: 63 };
+      if (c.water !== undefined && y === c.water) return { physical: false, liquid: true, name: 'water' };
+      return c.floor !== null && y <= c.floor ? { physical: true, name: 'stone' } : { physical: false, name: 'air' };
+    },
+  });
+  const me = { x: 0, y: 64, z: 0 };
+  const east = { x: 1, z: 0 };
+
+  it('a gap a miss lands safe in (a ditch two deep, water below) is jumped; one over a deep drop is not', () => {
+    expect(deepGap(world({}) as never, me, east)).toBe(false);
+    expect(deepGap(world({ 1: { floor: 61 } }) as never, me, east)).toBe(false);
+    expect(deepGap(world({ 1: { floor: 40, water: 60 } }) as never, me, east)).toBe(false);
+    // A ravine: the first cell over it falls thirteen blocks.
+    expect(deepGap(world({ 1: { floor: 50 } }) as never, me, east)).toBe(true);
+    // Two cells across, the second of them deep.
+    expect(deepGap(world({ 1: { floor: 62 }, 2: { floor: 30 } }) as never, me, east)).toBe(true);
+  });
 });
 
 describe('staying within reach in a fight', () => {

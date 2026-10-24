@@ -57,6 +57,29 @@ export function keepPvpInReach(bot: Bot, pvp: PvpTuning): void {
   });
 }
 
+type GridNode = { x: number; y: number; z: number };
+
+/** The gap a jump from `node` along `dir` would cross is deep: nothing to land on or in, within a fall that doesn't hurt, under its first two cells. */
+export function deepGap(m: MovementsType, node: GridNode, dir: { x: number; z: number }): boolean {
+  const get = (dx: number, dy: number, dz: number) => (m as unknown as { getBlock(n: GridNode, dx: number, dy: number, dz: number): { physical?: boolean; liquid?: boolean; name?: string } }).getBlock(node, dx, dy, dz);
+  for (const d of [1, 2]) {
+    const dx = dir.x * d;
+    const dz = dir.z * d;
+    // Ground where the gap would be: no gap there.
+    if (get(dx, -1, dz).physical) return false;
+    let safe = false;
+    for (let dy = -2; dy >= -(m.maxDropDown + 2); dy--) {
+      const b = get(dx, dy, dz);
+      if (b.physical || b.liquid || b.name === 'water') {
+        safe = true;
+        break;
+      }
+    }
+    if (!safe) return true;
+  }
+  return false;
+}
+
 /** Movements for going after someone in a fight: the safe defaults, but walking, jumping and sprinting only (no
  *  digging or towering one's way there). */
 export function createFightMovements(bot: Bot): MovementsType {
@@ -64,6 +87,9 @@ export function createFightMovements(bot: Bot): MovementsType {
   m.canDig = false;
   m.allow1by1towers = false;
   m.scafoldingBlocks = [];
+  // No jumping gaps after someone: at a ravine's edge, closing in on a skeleton across it, an agent went over and fell
+  // thirteen blocks into the zombies below.
+  m.allowParkour = false;
   return m;
 }
 
@@ -183,6 +209,13 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
   m.dontCreateFlow = true;
   m.dontMineUnderFallingBlock = true;
   m.allow1by1towers = true;
+  // A gap is jumped only where a miss lands safe (ground or water within a fall that doesn't hurt), as a player
+  // jumps a ditch but not a ravine: a missed jump is a fall into the gap.
+  const parkour = m.getMoveParkourForward.bind(m) as (node: GridNode, dir: { x: number; z: number }, neighbors: unknown[]) => void;
+  (m as unknown as { getMoveParkourForward: typeof parkour }).getMoveParkourForward = (node, dir, neighbors) => {
+    if (deepGap(m, node, dir)) return;
+    parkour(node, dir, neighbors);
+  };
   // A walk digs through earth and stone, never through what someone built (a fence, a door, a wall of planks, a
   // bed, a chest, a field): a player goes round it, opens the gate or reaches over (owner request, 2026-10-24).
   for (const b of bot.registry.blocksArray) if (BUILT.test(b.name)) m.blocksCantBreak.add(b.id);
