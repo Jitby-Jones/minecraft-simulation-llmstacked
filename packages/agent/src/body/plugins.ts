@@ -147,7 +147,11 @@ export function doorsAsPlayers(bot: Bot): void {
     const p = lower(now);
     opened.set(`${p.x},${p.y},${p.z}`, p);
   });
-  let opening = false;
+  /** Since when a door is being opened (0: none); a try that never settles is let go after a while. */
+  let opening = 0;
+  /** When each door was last clicked open: clicked again before the server's answer came, it opened and shut again
+   *  (under load, an agent hurt and running stood at its hut's shut door until a zombie killed it). */
+  const clicked = new Map<string, number>();
   // Looks in a row with the walk over: a walk between two paths is no stop.
   let still = 0;
   const inCell = (p: Vec3) => {
@@ -157,14 +161,28 @@ export function doorsAsPlayers(bot: Bot): void {
   const watch = setInterval(() => {
     still = bot.pathfinder?.isMoving() ? 0 : still + 1;
     // A shut door at hand while walking: opened, as one does going through.
+    if (opening && Date.now() - opening > 2000) opening = 0;
     if (bot.pathfinder?.isMoving() && !opening && bot.entity) {
       const feet = bot.entity.position.floored();
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]] as const) {
         const b = bot.blockAt(feet.offset(dx, 0, dz));
         if (!b || !DOOR.test(b.name) || b.getProperties?.().open !== false) continue;
         if (b.position.offset(0.5, 0, 0.5).distanceTo(bot.entity.position) > 1.6) continue;
-        opening = true;
-        void bot.activateBlock(b).catch(() => undefined).finally(() => (opening = false));
+        const at = Date.now();
+        const key = lower(b).toString();
+        if (at - (clicked.get(key) ?? 0) < 1500) break;
+        clicked.set(key, at);
+        for (const [k, t] of clicked) if (at - t > 10_000) clicked.delete(k);
+        opening = at;
+        // Looked at at once, then clicked: the click's own look waits on a turn of the head that a run's looks keep
+        // taking over, and the click was never sent.
+        void bot
+          .lookAt(b.position.offset(0.5, 0.5, 0.5), true)
+          .then(() => bot.activateBlock(b))
+          .catch(() => undefined)
+          .finally(() => {
+            if (opening === at) opening = 0;
+          });
         break;
       }
     }
