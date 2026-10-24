@@ -228,9 +228,17 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     t.now = 10_000;
     eyes.tick([]);
     expect(eyes.recent().filter((n) => n.key === 'pockets')).toEqual([]);
+    // A craft's result landing long after the craft (the window's sync): what one made, one knows.
+    s.update('actionLog', (l) => [...l, { id: 'a2', skill: 'craft', args: { item: 'stone_shovel' }, expected: '+1 stone_shovel', observed: 'crafted 1 stone_shovel', ok: true, ts: 10_500, durationMs: 500 }], 'test');
+    t.now = 11_500;
+    eyes.tick([]);
+    w.inv.push({ name: 'stone_shovel', count: 1 });
+    t.now = 18_000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'pockets')).toEqual([]);
     // Later, with idle hands: diamonds from nowhere (someone ran /give).
     w.inv.push({ name: 'diamond', count: 3 });
-    t.now = 14_000;
+    t.now = 24_000;
     eyes.tick([]);
     expect(eyes.recent().filter((n) => n.key === 'pockets').map((n) => n.text)).toEqual([expect.stringMatching(/^3 diamond appeared in your inventory out of nowhere/)]);
     eyes.stop();

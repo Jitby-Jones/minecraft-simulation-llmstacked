@@ -871,7 +871,12 @@ export class SceneEyes {
     if ((this.o.handsBusy?.() ?? false) || bot.currentWindow) this.lastHandsAt = now;
     if (last) this.lastHandsAt = Math.max(this.lastHandsAt, last.ts + last.durationMs);
     if (now - this.lastPickupAt > 3000 && now - this.lastHandsAt > 3000) {
-      const gained = [...items].filter(([n, c]) => c > (prev.items.get(n) ?? 0)).map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
+      // And what our own hands made or got lately, whenever it landed (a craft's result can reach the pockets well
+      // after the window closed): what one just did, one knows.
+      const ours = this.o.store.state.actionLog.filter((r) => now - (r.ts + r.durationMs) < 60_000).map((r) => `${JSON.stringify(r.args)} ${r.observed}`).join(' ');
+      const gained = [...items]
+        .filter(([n, c]) => c > (prev.items.get(n) ?? 0) && !ours.includes(n))
+        .map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
       if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.65));
     }
   }

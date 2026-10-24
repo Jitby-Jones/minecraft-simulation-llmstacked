@@ -155,6 +155,24 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'charcoal')).toBeGreaterThanOrEqual(3);
   }, 240_000);
 
+  it('a crafting table far off, a log on hand: sets one down here rather than walk there', async () => {
+    const x = 5700;
+    await at(x, 0);
+    await server.cmd(`setblock ${x + 16} ${Y} 0 crafting_table`);
+    await server.cmd('give Ada minecraft:oak_log 2');
+    await server.cmd('give Ada minecraft:cobblestone 3');
+    await server.cmd('give Ada minecraft:stick 2');
+    await sleep(1500);
+    const t0 = Date.now();
+    const r = await run('craft', { item: 'stone_pickaxe', qty: 1 });
+    logger.info({ r, ms: Date.now() - t0 }, 'table here');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'stone_pickaxe')).toBe(1);
+    // It stayed put: a new table within reach, not a walk of 16 blocks.
+    expect(Math.abs(body.bot.entity.position.x - x)).toBeLessThan(4);
+    expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.crafting_table?.id ?? -1], maxDistance: 5, count: 2 }).length).toBeGreaterThanOrEqual(1);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

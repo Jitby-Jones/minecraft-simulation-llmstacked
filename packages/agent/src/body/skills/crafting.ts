@@ -149,15 +149,22 @@ async function craftFromPockets(ctx: SkillContext, plan: readonly PocketCraft[],
   return made.join(', ');
 }
 
+/** A station farther than this is not worth the walk when one can be set down here (a table is one log). */
+const NEAR_STATION = 8;
+
 async function findOrPlace(ctx: SkillContext, blockName: string, itemName: string): Promise<Block | null> {
   const { bot } = ctx;
   const id = bot.registry.blocksByName[blockName]?.id;
   if (id === undefined) return null;
   const near = findKnownBlocks(bot, [id], 24, 1)[0];
-  if (near) {
+  // One of our own to set down, or one the pockets make on the spot (planks from a log, then the table).
+  const makeable = countItem(bot, itemName) === 0 ? pocketPlan(bot, [{ name: itemName, count: 1 }], false, ctx.knowsRecipe) : [];
+  const ours = countItem(bot, itemName) > 0 || (makeable !== null && makeable.length > 0);
+  if (near && (near.position.distanceTo(bot.entity.position) <= NEAR_STATION || !ours)) {
     if (near.position.distanceTo(bot.entity.position) > 3.5) await gotoNear(ctx, near.position, 2);
     return bot.blockAt(near.position);
   }
+  if (countItem(bot, itemName) === 0 && makeable && makeable.length > 0) await craftFromPockets(ctx, makeable, null);
   if (countItem(bot, itemName) === 0) return null;
   const spot = findPlaceableSpot(bot, 3);
   if (!spot) return null;

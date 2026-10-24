@@ -48,6 +48,21 @@ export function lacksHarvestTool(bot: Bot, block: Block): boolean {
 
 const COMMON_TOOL_MATERIALS = ['wooden', 'stone', 'iron', 'diamond', 'netherite'];
 
+const LAVA_AROUND = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+] as const;
+
+/** Lava touching this block on any side. */
+export function lavaBeside(bot: Bot, p: Vec3): boolean {
+  for (const [dx, dy, dz] of LAVA_AROUND) if (bot.blockAt(p.offset(dx, dy, dz))?.name === 'lava') return true;
+  return false;
+}
+
 /** The cheapest common tool that harvests the block, e.g. stone_pickaxe for iron_ore. */
 export function toolNameFor(bot: Bot, block: Block): string {
   const tools = (block as unknown as { harvestTools?: Record<string, boolean> }).harvestTools ?? {};
@@ -158,7 +173,9 @@ async function collectUntil(
     }
     // Prefer blocks within reach of the ground we stand on: low logs before the canopy, near before far.
     const feetY = bot.entity.position.y;
-    const near = findKnownBlocks(bot, blockIds, maxDistance, 24).filter((b) => !skipped.has(b.position.toString()));
+    // Never one with lava against it: broken, it lets the lava in (as anyone who has
+    // played knows; prospecting keeps the same rule).
+    const near = findKnownBlocks(bot, blockIds, maxDistance, 24).filter((b) => !skipped.has(b.position.toString()) && !lavaBeside(bot, b.position));
     const outside = home ? awayFromHome(near, home) : near;
     if (home && outside.length === 0 && near.length > 0 && walkedOut < 3) {
       walkedOut++;
