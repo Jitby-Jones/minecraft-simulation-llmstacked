@@ -17,6 +17,7 @@ import { Conversations } from '@agora/agent/modules/conversations';
 import { tidyDecision } from '@agora/agent/modules/decisionTidy';
 import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
 import { HIGH_FEAR, whyNotHide } from '@agora/agent/modules/hiding';
+import { hurtFear } from '@agora/agent/mind/feelings';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking, cleanReply } from '@agora/agent/modules/talking';
 import { whoMakesChests, whyNoChest } from '@agora/agent/social/village';
@@ -196,6 +197,10 @@ describe('hiding is for one badly scared, alone and far from anyone', () => {
     expect(whyNotHide(far)).toMatch(/not scared enough/);
     expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 10)] } })).toMatch(/not alone/);
     expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 30)] } })).toMatch(/people in sight/);
+    // Badly hurt, one stays afraid: the wounds keep fear up (3.6 of 20 is well past scared enough).
+    expect(hurtFear(3.6)).toBeGreaterThan(HIGH_FEAR);
+    expect(hurtFear(8)).toBeCloseTo(0.3);
+    expect(hurtFear(12)).toBe(0);
     // Close to home: back there, once there is a hut to shelter in; an empty field is no refuge.
     const near = { ...scared, self: { ...scared.self, pos: { x: 20, y: 64, z: 0 } } };
     expect(whyNotHide(near)).toBeNull();

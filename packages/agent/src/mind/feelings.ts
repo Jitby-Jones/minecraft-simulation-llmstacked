@@ -42,6 +42,12 @@ const HEAT_HALF_LIFE_MS = 90_000;
 const DARK_EVERY_MS = 10_000;
 /** A blow this recent means we're in a fight (§21.3 arousal cap). */
 const FIGHT_MS = 10_000;
+
+/** The fear one's wounds keep up: none above 8 health, 0.3 at 8, over 0.5 below about 5, 0.8 at nothing left. */
+export function hurtFear(health: number): number {
+  if (!(health > 0) || health > 8) return 0;
+  return 0.3 + 0.5 * (1 - health / 8);
+}
 const STOP_WORDS = new Set(['being', 'called', 'getting', 'seen', 'as', 'the', 'and', 'that', 'with', 'from', 'about']);
 
 /** Words of a known insecurity ("being called lazy" → lazy) that an insult can hit. */
@@ -233,7 +239,9 @@ export class Feelings {
     const dt = t - this.lastTick;
     this.lastTick = t;
     const s = this.o.store.state;
-    const e = this.capped(decayEmotions(s.emotions, dt, s.self.persona, s.mood));
+    const decayed = this.capped(decayEmotions(s.emotions, dt, s.self.persona, s.mood));
+    // Badly hurt, one stays afraid while one is that easy to kill: fear doesn't fade below what the wounds say.
+    const e = { ...decayed, fear: Math.max(decayed.fear, hurtFear(s.self.health)) };
     // Only write when something visibly moved: the state version stays meaningful.
     const moved = (Object.keys(e) as (keyof EmotionState)[]).some((k) => Math.abs(e[k] - s.emotions[k]) >= 0.005);
     if (moved) this.write(e, 'feelings fade');
