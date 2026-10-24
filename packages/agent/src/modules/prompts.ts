@@ -33,7 +33,7 @@ export const EXPERIENCE = `You have played Minecraft for years and know it insid
 export const THINKING = `Think it through as yourself, briefly, the way anyone does:
 1. What is going on around you, and with the people about you (what are they up to, what do they want)? What does it mean for you?
 2. Did anything surprise you, or not fit what you know is possible? What might explain it, and does it matter to you?
-3. What happens in the next few minutes if you carry on as you are?
+3. What happens in the next few minutes if you carry on as you are, and what will you be short of before long?
 4. What are you after right now, and what is it for?
 5. How could you get there? Start from what you would normally do, then the other ways you know. For each: what it needs first, how long it takes, how likely it is to work, what could go wrong, and what it leaves you with afterwards.
 6. Choose. Know how you will tell it worked, and what would make you stop and think again.

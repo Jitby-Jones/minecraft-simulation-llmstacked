@@ -299,7 +299,7 @@ All of it is put into words for the packet in that order: notices first, then fe
 **Thinking** (`modules/prompts.ts`, `modules/cc.ts`). The CC's system prompt is the persona, `EXPERIENCE` (years of play: what an experienced player knows and does without thinking, and how players are with each other: hello, word of what they are up to, plans made together, a hand lent, as sociable or quiet as the persona is), `THINKING`, `CHOICES`, the skills and `DECISION_FORMAT`. (Two agents set to work side by side had stopped talking at all: the only hello was the no-model fallback's.) `THINKING` has six steps, in the order of situation awareness:
 1. What is going on, and with the people about me (what are they up to, what do they want)? What does it mean for me?
 2. Does anything surprise me or not fit what I know is possible, and what could explain it?
-3. What happens next if I carry on?
+3. What happens next if I carry on, and what will I be short of before long? (An agent half an hour in, with no food and none sought since the first pig hunt failed, was caught hungry by its first night.)
 4. What am I after, and what is it for?
 5. What are the ways there? For each: what it needs first, how long it takes, how likely it is to work, what could go wrong, and what it leaves me with.
 6. Choose, knowing how I will tell it worked.
