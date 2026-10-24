@@ -39,6 +39,11 @@ describe('item names and tiers', () => {
     expect(itemMatcher('oak_log').matches('birch_log')).toBe(false);
     // An ore is the same ore in deepslate, either way it is named; other blocks are what they are named.
     expect(blockMatcher('iron_ore').matches('deepslate_iron_ore')).toBe(true);
+    // Raw meat as players say it is the game's plain name; raw iron stays raw iron.
+    expect(normalizeItemName('raw_porkchop')).toBe('porkchop');
+    expect(normalizeItemName('raw beef')).toBe('beef');
+    expect(normalizeItemName('raw_chickens')).toBe('chicken');
+    expect(normalizeItemName('raw_iron')).toBe('raw_iron');
     expect(blockMatcher('deepslate_diamond_ore').matches('diamond_ore')).toBe(true);
     expect(blockMatcher('iron_ore').matches('gold_ore')).toBe(false);
     expect(blockMatcher('stone').matches('deepslate')).toBe(false);

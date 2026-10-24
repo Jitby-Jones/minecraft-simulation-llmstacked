@@ -96,6 +96,17 @@ const SYNONYMS: Readonly<Record<string, string>> = {
   seeds: 'wheat_seeds',
   flower: 'flower',
   flowers: 'flower',
+  // Raw meat as players say it; the game's own name is the plain one ("eat raw_porkchop" found none, starving).
+  raw_beef: 'beef',
+  steak: 'cooked_beef',
+  raw_porkchop: 'porkchop',
+  raw_pork: 'porkchop',
+  pork: 'porkchop',
+  raw_chicken: 'chicken',
+  raw_mutton: 'mutton',
+  raw_rabbit: 'rabbit',
+  raw_cod: 'cod',
+  raw_salmon: 'salmon',
 };
 
 /**
