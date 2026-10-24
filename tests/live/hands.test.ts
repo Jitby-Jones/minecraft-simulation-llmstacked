@@ -579,6 +579,20 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 120_000);
 
+  it('"mine cobblestone" in a pit in the stone: it mines the stone cobblestone comes from', async () => {
+    // Told to mine cobblestone, an agent standing on stone was told it had seen none around.
+    const x = 7100;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 2} ${Y - 4} -2 ${x + 2} ${Y - 1} 2 air`);
+    await server.cmd(`tp Ada ${x} ${Y - 4} 0`);
+    await server.cmd('give Ada minecraft:wooden_pickaxe 1');
+    await sleep(2000);
+    const r = await run('mine', { block: 'cobblestone', qty: 3 });
+    logger.info({ r }, 'mine cobblestone');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'cobblestone')).toBeGreaterThanOrEqual(3);
+  }, 120_000);
+
   it('one ingot short: the craft says how many in all and how many on hand; obtain, asked for what is held, says so', async () => {
     // "missing 1 iron_ingot" with 2 on hand was read as wanting 1 in all: obtain {qty: 1} found 2 there, three times.
     const x = 7000;

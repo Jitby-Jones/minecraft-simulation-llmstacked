@@ -341,12 +341,15 @@ export const mine = defineSkill({
     return drop ? { kind: 'inventoryGain', item: drop, atLeast: args.qty } : { kind: 'none' };
   },
   async run(ctx, args) {
-    const ids = blockIdsNamed(ctx.bot, args.block);
-    if (ids.length === 0) return { ok: false, observed: 'nothing to mine', error: `unknown block ${args.block}` };
-    const block = ctx.bot.registry.blocks[ids[0] as number];
+    const named = blockIdsNamed(ctx.bot, args.block);
+    if (named.length === 0) return { ok: false, observed: 'nothing to mine', error: `unknown block ${args.block}` };
+    const block = ctx.bot.registry.blocks[named[0] as number];
     const dropId = (block as unknown as { drops?: number[] } | undefined)?.drops?.[0];
     const dropName = typeof dropId === 'number' ? ctx.bot.registry.items[dropId]?.name : undefined;
     const matcher = itemMatcher(dropName ?? args.block);
+    // As a player means it: "mine cobblestone" is mining the stone it comes from, "mine dirt" takes grass too (an
+    // agent was told it had seen no cobblestone, standing on stone).
+    const ids = [...new Set([...named, ...blockIdsDropping(ctx.bot, matcher)])];
     return collectUntil(ctx, matcher, ids, args.qty, args.maxDistance, args.block);
   },
 });
