@@ -673,6 +673,22 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(p.observed).toMatch(/already holding 1 stone_pickaxe \(wear left: 16%\)/);
   }, 120_000);
 
+  it('a long way up out of the deep: 40 blocks down in the stone to a spot on the surface 40 blocks off', async () => {
+    // One search for the whole way up ran out of time ("took too long to decide"), and a zombie found the one waiting.
+    const x = 7600;
+    await server.cmd(`forceload add ${x - 8} -48 ${x + 56} 16`);
+    await server.cmd(`tp Ada ${x} ${Y - 40} 0`);
+    await server.cmd(`fill ${x} ${Y - 40} 0 ${x} ${Y - 39} 0 air`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_pickaxe 2');
+    await server.cmd('give Ada minecraft:cobblestone 64');
+    await sleep(3000);
+    const t0 = Date.now();
+    const r = await run('goTo', { x: x + 40, y: Y, z: 0, range: 2 });
+    logger.info({ r, s: (Date.now() - t0) / 1000, at: body.bot.entity.position.toString() }, 'a long way up');
+    expect(r.ok).toBe(true);
+  }, 400_000);
+
   it('torches with too little coal: it makes what it can and says it is the coal that is short', async () => {
     const x = 6800;
     await at(x, 0);

@@ -3020,12 +3020,12 @@ renewable food alone by 22 (`duo (22)`); and in `duo (12)` the two came to a cru
 the hands than food and the deep: no solo has made food come to it (a field, a pen) before it went down to mine, and
 underground, hungry and hurt, they starve below the health that heals, or die on the long walk up (one search for a
 path 70 blocks up runs out of time). Each death and stall is answered as above, in the general mind and hands; every
-death's post-mortem says how the last fight went. Verified: 706 unit tests; live, `hands` (38: dyeing, the hut's corner,
+death's post-mortem says how the last fight went. Verified: 706 unit tests; live, `hands` (39: dyeing, the hut's corner,
 a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop, climbing out of a hollow, a night's hut for
 one, a tunnel under gravel, a meadow of tulips, a bed in a nook, a pickaxe on its last uses, digs for diamonds over the
 bedrock, off a pillar ringed with stalagmites, full pockets, a worn pickaxe spared, a hut on a slope, a hut where asked,
 up out of the stone, torches short of coal, cobblestone from stone, one ingot short, a hut of granite, a furnace made to
-smelt, a cow 45 m off, an egg is no food), `thinking` (the flyer still seen, hops no longer taken for floating),
+smelt, a cow 45 m off, an egg is no food, 40 down and 40 across to the surface in a minute), `thinking` (the flyer still seen, hops no longer taken for floating),
 `melee` (6: an archer across a trench, zombies on open ground, gravel on the head, a flooded pit), `cornered` (2),
 `m1-water` (4), `m1-skills` (22, with into its own hut at night and a zombie at a hut's door no fight; twice in a row),
 `m1-night`, `m4` (no x-ray), `build`. The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live
