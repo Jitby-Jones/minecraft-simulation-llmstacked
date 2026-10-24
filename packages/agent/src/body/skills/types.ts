@@ -2,7 +2,7 @@
 // real inventory/world diff afterwards. Skills are verified code primitives — never LLM-generated here (M10 adds
 // sandboxed generated skills behind a separate gate).
 
-import type { Logger, Random, Volume } from '@agora/shared';
+import type { BuildProject, Logger, PortalNote, Random, Volume } from '@agora/shared';
 import type { Bot } from 'mineflayer';
 import type { Movements } from 'mineflayer-pathfinder';
 import type { Vec3 } from 'vec3';
@@ -70,6 +70,51 @@ export interface SkillContext {
   talkingWith?: () => string | null;
   /** Someone just seen attacking another, if anyone (a stroll stops to watch). */
   fightNearby?: () => string | null;
+  /** How deep in making tools for the job we are (tools.ts): a tool being made makes none of its own. */
+  toolDepth?: number;
+  /**
+   * Who should make a chest when there is none (owner request, 2026-10-24): null when we should (a builder, or anyone
+   * when there's no builder), else the builder's name, to ask.
+   */
+  chestMaker?: () => string | null;
+  /** The buildings we have begun (construct.ts): where each one is, so a second go carries on there. */
+  projects?: ProjectBook;
+  /** The architect (building/architect.ts): draws a building for what is asked and makes building it our plan. */
+  architect?: (ask: DesignAsk) => Promise<SkillResult>;
+  /** Makes a place home (settle.ts): the village moves with its people. */
+  setHome?: (pos: Vec3) => void;
+  /** Portals we built or went through (expedition.ts): the way back. */
+  portals?: { list(): PortalNote[]; note(p: PortalNote): void };
+}
+
+/** What the `design` skill asks the architect for, with what it saw of the land around home. */
+export interface DesignAsk {
+  purpose: string;
+  kind?: string;
+  /** The biome at home. */
+  biome: string;
+  /** What there is to build with, in a line. */
+  materials: string;
+  /** Trees here, the commonest first. */
+  woods: string[];
+  /** What one of each raw material takes here (dear where nobody has seen any). */
+  raw: Record<string, number>;
+}
+
+/** Ground taken, from corner to corner (x0 ≤ x1, z0 ≤ z1). */
+export interface Footprint {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+}
+
+/** What an agent knows of the buildings it has begun and of the others near home. */
+export interface ProjectBook {
+  get(design: string): BuildProject | null;
+  set(p: BuildProject): void;
+  /** The ground other buildings and the village's things stand on (a chest is a box of one), to build clear of. */
+  taken(): Footprint[];
 }
 
 export interface SkillDef<A> {

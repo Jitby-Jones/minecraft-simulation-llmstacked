@@ -5,8 +5,8 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, wallsAround } from '../world';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
+import { USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, wallsAround } from '../world';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 const FACES = [
@@ -20,11 +20,15 @@ const FACES = [
 
 /** A solid neighbor of `target` to place against, preferring the block below. */
 export function referenceFor(bot: Bot, target: Vec3): { ref: Block; face: Vec3 } | null {
+  // A plain block first: one a right-click uses (a crafting table) takes a sneak to place against (placeItemAt).
+  let usable: { ref: Block; face: Vec3 } | null = null;
   for (const f of FACES) {
     const ref = bot.blockAt(target.plus(f));
-    if (isSolid(ref) && ref) return { ref, face: f.scaled(-1) };
+    if (!isSolid(ref) || !ref) continue;
+    if (!USABLE_BLOCK.test(ref.name)) return { ref, face: f.scaled(-1) };
+    usable ??= { ref, face: f.scaled(-1) };
   }
-  return null;
+  return usable;
 }
 
 /** Places an inventory item at `target` (walks near first). Throws with a readable message on failure. */
@@ -42,7 +46,14 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
   if (target.equals(feet) || target.equals(feet.offset(0, 1, 0))) throw new Error('would place inside myself');
   await bot.equip(item, 'hand');
   throwIfAborted(ctx.signal);
-  await bot.placeBlock(r.ref, r.face);
+  // Against a crafting table, a chest or a door, a click would use it: sneak to place, as players do.
+  const sneak = USABLE_BLOCK.test(r.ref.name);
+  if (sneak) bot.setControlState('sneak', true);
+  try {
+    await bot.placeBlock(r.ref, r.face);
+  } finally {
+    if (sneak) bot.setControlState('sneak', false);
+  }
 }
 
 export const place = defineSkill({
@@ -193,7 +204,7 @@ async function climbOut(ctx: SkillContext, done = 'survived the night'): Promise
   try {
     const feet = bot.entity.position.floored();
     const coverBlock = bot.blockAt(feet.offset(0, 2, 0));
-    if (coverBlock && !isAirLike(coverBlock)) await abortable(ctx.signal, bot.dig(coverBlock, true), () => bot.stopDigging());
+    if (coverBlock && !isAirLike(coverBlock)) await digBlock(ctx, coverBlock);
     const exit = shaftExit(bot, feet);
     if (!exit) return { ok: true, observed: `${done} but found no way out yet` };
     bot.pathfinder.setMovements(ctx.movements());
@@ -242,7 +253,7 @@ export const shelter = defineSkill({
         if (b) {
           const tool = bot.pathfinder.bestHarvestTool(b);
           if (tool) await bot.equip(tool, 'hand');
-          await abortable(ctx.signal, bot.dig(b, true), () => bot.stopDigging());
+          await digBlock(ctx, b);
         }
         // Drop into the hole.
         for (let t = 0; t < 15 && bot.entity.position.floored().y >= feet.y; t++) await waitMs(ctx, 100);

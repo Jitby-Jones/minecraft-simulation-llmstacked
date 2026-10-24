@@ -9,9 +9,12 @@ import { Vec3 } from 'vec3';
 import { isSignBlock, readSign, wrapForSign } from '../signs';
 import { canSee, isAirLike, isHostile, isSolid } from '../world';
 import { BOARD_RADIUS } from '../../perception/village';
+import { sharedRepertoire } from '../../building/repertoire';
 import { placeItemAt } from './building';
-import { equipBestWeapon, pvp } from './combat';
+import { bestWeapon, equipBestWeapon, pvp } from './combat';
+import { buildDesign } from './construct';
 import { stopCollecting } from './gathering';
+import { ensureTool } from './tools';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -56,6 +59,12 @@ export const hunt = defineSkill({
     const kinds = args.animal ? [args.animal] : [...ANIMALS];
     const deadline = Date.now() + 120_000;
     let kills = 0;
+    // Hunting with bare hands takes many blows: a sword first, made if we can (tools.ts); without one, hands.
+    if (!bestWeapon(bot) && nearestAnimal(bot, kinds, 24)) {
+      await ensureTool(ctx, 'sword').catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+      });
+    }
     await stopCollecting(bot);
     try {
       while (meat() - start < args.qty && Date.now() < deadline && kills < args.qty + 2) {
@@ -208,12 +217,21 @@ function buildingBlocks(bot: Bot): number {
 
 export const build = defineSkill({
   name: 'build',
-  description: `build {structure: hut} — build a small hut near home (walls, a doorway, a flat roof) from ${HUT_BLOCKS} blocks you carry (cobblestone, planks or dirt), and a door if you have one`,
-  argsSchema: z.object({ structure: z.enum(['hut']).default('hut') }),
+  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut} is the quick ${HUT_BLOCKS}-block hut of cobblestone, planks or dirt`,
+  argsSchema: z.object({
+    structure: z.string().min(1).optional(),
+    design: z.string().min(1).optional(),
+    x: z.coerce.number().optional(),
+    y: z.coerce.number().optional(),
+    z: z.coerce.number().optional(),
+    facing: z.enum(['north', 'east', 'south', 'west']).optional(),
+  }),
   talkOverable: false,
   slipKinds: [],
   expect: () => ({ kind: 'none' }),
-  async run(ctx) {
+  async run(ctx, args) {
+    const asked = args.design ?? (args.structure && args.structure !== 'hut' ? args.structure : null);
+    if (asked) return buildDesign(ctx, asked, { x: args.x, y: args.y, z: args.z, facing: args.facing }, async () => sharedRepertoire());
     const { bot } = ctx;
     const have = buildingBlocks(bot);
     if (have < HUT_BLOCKS) return { ok: false, observed: `have ${have} building blocks`, error: `need ${HUT_BLOCKS - have} more building blocks (cobblestone, planks or dirt)` };

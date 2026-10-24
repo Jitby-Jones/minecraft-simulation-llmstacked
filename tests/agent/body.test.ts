@@ -644,3 +644,85 @@ describe('a stroll (wander): clear of those to keep away from, close to the one 
     }
   });
 });
+
+describe('a tool for the job (owner request, 2026-10-24)', () => {
+  const bot = (names: [string, number][]) => ({ inventory: { items: () => names.map(([name, count]) => ({ name, count })), slots: [] } }) as unknown as Bot;
+
+  it('finds the best tool of a kind carried, and makes stone when the cobblestone is there, wood otherwise', async () => {
+    const { toolOf, toolToMake } = await import('@agora/agent/body/skills/tools');
+    expect(toolOf(bot([['wooden_pickaxe', 1], ['iron_pickaxe', 1], ['stone_axe', 1]]), 'pickaxe')).toBe('iron_pickaxe');
+    expect(toolOf(bot([['stone_axe', 1]]), 'sword')).toBeNull();
+    expect(toolToMake(bot([['cobblestone', 3]]), 'pickaxe')).toBe('stone_pickaxe');
+    expect(toolToMake(bot([['cobblestone', 2]]), 'pickaxe')).toBe('wooden_pickaxe');
+    expect(toolToMake(bot([['cobblestone', 2]]), 'sword')).toBe('stone_sword');
+    expect(toolToMake(bot([]), 'shovel')).toBe('wooden_shovel');
+  });
+
+  it('a tool being made makes no tool of its own (never in circles)', async () => {
+    const { makeTool } = await import('@agora/agent/body/skills/tools');
+    const notes: string[] = [];
+    const ctx = { bot: bot([]), progress: (n: string) => void notes.push(n), logger: nullLogger(), toolDepth: 1 } as unknown as Parameters<typeof makeTool>[0];
+    expect(await makeTool(ctx, 'wooden_pickaxe')).toBe(false);
+    expect(notes).toEqual([]);
+  });
+});
+
+describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
+  const rig = (weapon: string | null) => {
+    const bot = Object.assign(new EventEmitter(), { entity: { id: 0, position: new Vec3(0, 64, 0), height: 1.8 }, entities: {}, health: 20, inventory: { items: () => (weapon ? [{ name: weapon, count: 1 }] : []), slots: [] } });
+    const hooks = { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true };
+    return new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
+  };
+  const zombie = { id: 3, type: 'hostile', name: 'zombie', position: new Vec3(3, 64, 0), height: 1.95 } as never;
+  const person = { id: 4, type: 'player', username: 'Rex', name: 'player', position: new Vec3(3, 64, 0), height: 1.8 } as never;
+
+  it('armed, one fights a monster on down to about three hearts; with a wooden weapon four; unarmed, or with a person among them, five', () => {
+    expect(rig('stone_sword').fleeThreshold([zombie])).toBe(6);
+    expect(rig('iron_axe').fleeThreshold([zombie])).toBe(6);
+    expect(rig('wooden_sword').fleeThreshold([zombie])).toBe(8);
+    expect(rig(null).fleeThreshold([zombie])).toBe(10);
+    expect(rig('stone_sword').fleeThreshold([zombie, person])).toBe(10);
+    expect(rig('stone_sword').fleeThreshold()).toBe(10);
+  });
+});
+
+describe('digging that the server refuses', () => {
+  it("gives up once digging the block should long be done, and stops the dig, instead of waiting for ever", async () => {
+    const { digBlock } = await import('@agora/agent/body/skills/util');
+    let stopped = 0;
+    // A dig the server never lets finish: the block never turns to air.
+    const bot = { digTime: () => 50, dig: () => new Promise<void>(() => undefined), stopDigging: () => void stopped++ } as unknown as Bot;
+    const block = { name: 'oak_leaves', position: new Vec3(0, 0, 0) } as never;
+    const t0 = Date.now();
+    await expect(digBlock({ bot, signal: new AbortController().signal }, block)).rejects.toThrow(/oak_leaves would not break/);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(5000);
+    expect(stopped).toBe(1);
+    // One that breaks is done.
+    const ok = { digTime: () => 50, dig: () => Promise.resolve(), stopDigging: () => void stopped++ } as unknown as Bot;
+    await expect(digBlock({ bot: ok, signal: new AbortController().signal }, block)).resolves.toBeUndefined();
+    expect(stopped).toBe(1);
+  }, 15_000);
+});
+
+describe('a pathfinder stuck on a dig that never ended', () => {
+  it('is let go of the block, and walks again; one digging for real is left alone', async () => {
+    const { releaseStuckDig } = await import('@agora/agent/body/skills/util');
+    // The pathfinder's own bookkeeping, as mineflayer-pathfinder keeps it: a reset while digging waits for the dig's end.
+    const bot = new EventEmitter() as EventEmitter & { targetDigBlock: unknown; pathfinder: { isMining(): boolean; setGoal(g: null): void } };
+    let digging = true;
+    bot.targetDigBlock = null;
+    bot.pathfinder = {
+      isMining: () => digging,
+      setGoal: () => {
+        if (digging) bot.once('diggingAborted', () => (digging = false));
+      },
+    };
+    expect(releaseStuckDig(bot as unknown as Bot)).toBe(true);
+    expect(digging).toBe(false);
+    // A dig under way (mineflayer has hold of the block): not touched.
+    digging = true;
+    bot.targetDigBlock = { name: 'dirt' };
+    expect(releaseStuckDig(bot as unknown as Bot)).toBe(false);
+    expect(digging).toBe(true);
+  });
+});

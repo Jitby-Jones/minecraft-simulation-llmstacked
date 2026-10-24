@@ -12,6 +12,10 @@ import { explore, flee, follow, goTo, look, lookAround, wait, wander } from './m
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
 import { build, hunt, patrol, sign } from './village';
+import { design } from './design';
+import { scout, settle } from './settle';
+import { enchant, nameItem } from './enchanting';
+import { eye, fill, portal, travel } from './expedition';
 import type { AnySkill } from './types';
 
 export const SKILLS: readonly AnySkill[] = [
@@ -43,6 +47,15 @@ export const SKILLS: readonly AnySkill[] = [
   say,
   hunt,
   build,
+  design,
+  scout,
+  settle,
+  nameItem,
+  enchant,
+  portal,
+  travel,
+  eye,
+  fill,
   sign,
   patrol,
 ];
@@ -91,6 +104,17 @@ const ALIASES: Readonly<Record<string, string>> = {
   write_sign: 'sign',
   notice: 'sign',
   construct: 'build',
+  architect: 'design',
+  rename: 'name',
+  name_item: 'name',
+  enchanting: 'enchant',
+  nether_portal: 'portal',
+  build_portal: 'portal',
+  go_through: 'travel',
+  throw_eye: 'eye',
+  fill_portal: 'fill',
+  draw: 'design',
+  plan_building: 'design',
   build_hut: 'build',
   guard: 'patrol',
   hunt_animals: 'hunt',

@@ -69,14 +69,14 @@ const VALUE_RULES: readonly [string, (n: Record<string, number>) => number][] = 
 ];
 
 const LIFE_GOALS: Readonly<Record<string, readonly string[]>> = {
-  exploration: ['see what lies beyond the hills', 'map the land around home', 'find a cave full of ore'],
+  exploration: ['see what lies beyond the hills', 'map the land around home', 'find a cave full of ore', 'walk the Nether and come back with its riches'],
   friendship: ['make good friends', 'get to know everyone nearby', 'help a neighbor build a home'],
   'hard work': ['build a sturdy house', 'keep a well-stocked storehouse', 'run a tidy farm'],
-  success: ['own the best tools around', 'become someone people look up to', 'gather a big pile of iron'],
+  success: ['own the best tools around', 'become someone people look up to', 'gather a big pile of iron', 'carry a sword with a name and an enchantment on it'],
   safety: ['build a safe home with walls', 'always have food put aside', 'light up the paths at night'],
   loyalty: ['look after the people close to me', 'stand by my friends'],
   independence: ['live on my own terms', 'build a home of my own away from the crowd'],
-  fun: ['have a good time with others', 'build something silly and big'],
+  fun: ['have a good time with others', 'build something silly and big', 'see the End with my own eyes'],
 };
 
 const QUIRK_IDEAS: readonly ((rng: Random) => Quirk)[] = [

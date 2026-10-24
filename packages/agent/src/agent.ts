@@ -2,8 +2,8 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
-import type { Embedder, LlmClient, QuotaGovernor } from '@agora/llm';
+import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Urge, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
+import type { Embedder, LlmCallOptions, LlmClient, LlmResult, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
 import { Memory } from './memory/memory';
@@ -15,9 +15,11 @@ import { villageView } from './social/village';
 import { EDIBLE } from './modules/villageMove';
 import { QuirkRunner } from './modules/quirkRunner';
 import type { Body } from './body/body';
+import { Vec3 as BlockPos } from './body/bot';
 import { cannedBusyLine } from './body/reflexes';
 import { ActionAwareness } from './modules/awareness';
 import { CognitiveController } from './modules/cc';
+import { Consensus } from './modules/consensus';
 import { Conversations } from './modules/conversations';
 import { SkillExecutor } from './modules/executor';
 import { type MindLevers, leversFor } from './modules/levers';
@@ -53,6 +55,11 @@ import { applyBirthFacts } from './state/birth';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
+import { buildingPlan, describeDesign, designBuilding } from './building/architect';
+import { sharedRepertoire } from './building/repertoire';
+import type { DesignAsk, SkillResult } from './body/skills/types';
+import { isOff } from './state/switches';
+import { applyUrge } from './modules/urges';
 
 export interface AgentOptions {
   body: Body;
@@ -77,6 +84,12 @@ export interface AgentOptions {
   birth?: { facts: BirthFacts; youthUntil: number };
   /** The tier Talking writes lines with (models.yaml speech.tier). */
   speechTier?: 'L1' | 'L2' | 'L3';
+  /** Models tried first for a line, and their per-try timeout (models.yaml speech.models, speech.timeoutMs). */
+  speechModels?: readonly string[];
+  speechTimeoutMs?: number;
+  /** The architect's models, tried first when a building is designed, and the time each may take (models.yaml architect). */
+  architectModels?: readonly string[];
+  architectTimeoutMs?: number;
   /** §19.3: the bed ritual done beside our partner: the Hub is told (conception), with what we believe of them. */
   onConception?: (c: { partner: AgentName; bedPos: Vec3; partnerModel: Record<string, number>; partnerSex: Sex | 'unknown' }) => void;
   now?: () => number;
@@ -90,6 +103,8 @@ export class Agent {
   readonly executor: SkillExecutor;
   readonly awareness: ActionAwareness;
   readonly talking: Talking;
+  /** Ends a talk once it has settled what to do (owner request, 2026-10-24). */
+  readonly consensus: Consensus;
   readonly selfMonitor: SelfMonitor;
   readonly cc: CognitiveController;
   readonly memory: Memory | null;
@@ -130,9 +145,14 @@ export class Agent {
   private readonly calledOffAt = new Map<AgentName, number>();
   private readonly fightCapReached: () => boolean;
   private readonly offs: (() => void)[] = [];
+  /** Aborted at death: every model call of this agent, under way or to come, ends there. */
+  private readonly halting = new AbortController();
+  private dead = false;
+  private modulesHalted = false;
 
   constructor(private readonly o: AgentOptions) {
-    const { body, persona, username, llm, logger } = o;
+    const { body, persona, username, logger } = o;
+    const llm = o.llm ? haltable(o.llm, this.halting.signal) : null;
     const now = o.now ?? Date.now;
     const world = o.world ?? WorldConfigSchema.parse({});
     const sw = world.skillWriter;
@@ -165,6 +185,7 @@ export class Agent {
           }
         : {}),
       extraSkills: () => this.skills.skills(this.skillWriter.onTrial()),
+      architect: (ask) => this.design(ask, llm),
       now,
     });
     this.awareness = new ActionAwareness({ store: this.store, bus: this.bus, logger, now });
@@ -183,8 +204,11 @@ export class Agent {
       ...(mem ? { recall: (text: string, k: number) => mem.relevantTo(text, k) } : {}),
       rungOf: (name) => this.conflict.rungOf(name),
       ...(o.speechTier ? { tier: o.speechTier } : {}),
+      ...(o.speechModels && o.speechModels.length > 0 ? { models: o.speechModels } : {}),
+      ...(o.speechTimeoutMs ? { timeoutMs: o.speechTimeoutMs } : {}),
       now,
     });
+    this.consensus = new Consensus({ store: this.store, bus: this.bus, logger, llm, conversations: this.conversations, me: username, now });
     this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
     this.cc = new CognitiveController({
       store: this.store,
@@ -203,6 +227,10 @@ export class Agent {
       isItem: (word) => {
         const n = normalizeItemName(word);
         return n in CATEGORIES || n === 'food' || Boolean(body.bot.registry.itemsByName[n]);
+      },
+      chestAt: (pos) => {
+        const b = body.bot.blockAt(new BlockPos(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z)));
+        return b ? /^(chest|trapped_chest|barrel)$/.test(b.name) : null;
       },
       liking: (name) => this.mind.liking(name),
       conflict: {
@@ -748,7 +776,71 @@ export class Agent {
     return lines;
   }
 
+  /** Died (owner request, 2026-10-24). */
+  /**
+   * The architect at work (owner request, 2026-10-24): draws the building asked for (with what we saw of the land,
+   * who could help and what is built here), keeps it for the village, and makes building it our plan.
+   */
+  private async design(ask: DesignAsk, llm: LlmClient | null): Promise<SkillResult> {
+    const s = this.store.state;
+    const t = (this.o.now ?? Date.now)();
+    const dead = new Set(s.perception.systemEvents.filter((e) => e.kind === 'death').map((e) => e.subject));
+    const helpers = Object.values(s.social)
+      .filter((p) => p.perceivedRole && !dead.has(p.name) && t - p.lastSeen < 30 * 60_000)
+      .map((p) => ({ name: p.name, does: p.perceivedRole ?? '' }));
+    const p = s.self.persona;
+    const persona = `${p.name}: ${p.traits.join(', ')}${p.values.length > 0 ? `; values ${p.values.join(', ')}` : ''}${p.description ? `. ${p.description}` : ''}`;
+    const village = [...new Set(s.village.projects.map((x) => x.name))];
+    if (s.village.huts.length > village.length) village.push(`${s.village.huts.length - village.length} other houses`);
+    const chest = s.village.chest?.contents;
+    const inChest = chest
+      ? Object.entries(chest)
+          .filter(([, n]) => n >= 8)
+          .map(([item, n]) => `${n} ${item.replace(/_/g, ' ')}`)
+          .slice(0, 5)
+          .join(', ')
+      : '';
+    // Iron is known where we have found its ore.
+    const raw = { ...ask.raw, ...(s.village.finds.some((f) => /iron/.test(f.what)) ? { raw_iron: Math.min(ask.raw.raw_iron ?? 12, 4) } : {}) };
+    const have = new Map(s.self.inventory.map((x) => [x.item, x.qty] as const));
+    const r = await designBuilding(
+      {
+        purpose: ask.purpose,
+        ...(ask.kind ? { kind: ask.kind } : {}),
+        by: s.self.username,
+        persona,
+        biome: ask.biome,
+        raw,
+        materials: `${ask.materials}${inChest ? `; in the village chest: ${inChest}` : ''}`,
+        village,
+        // A careful one draws what can be finished.
+        maxEffort: Math.round(90 + 90 * p.big5.conscientiousness),
+        helpers,
+        have,
+      },
+      {
+        llm: s.flags.codeOnly || isOff(s, 'architect') ? null : llm,
+        repertoire: sharedRepertoire(),
+        logger: this.o.logger,
+        ...(this.o.architectModels && this.o.architectModels.length > 0 ? { models: this.o.architectModels } : {}),
+        ...(this.o.architectTimeoutMs ? { timeoutMs: this.o.architectTimeoutMs } : {}),
+        signal: this.halting.signal,
+      },
+    );
+    const text = describeDesign(r);
+    pushWorkmem(this.store, `my plan for ${ask.purpose}: ${text}`.slice(0, 300), 0.8, 'self_observed', { now: t });
+    this.goalGen?.adopt(buildingPlan(r, ask.purpose), r.how === 'repertoire' ? 'default' : 'llm', `designed the ${r.building.name}`);
+    return { ok: true, observed: text, data: { design: r.building.id, name: r.building.name, how: r.how, effort: r.materials.effort, asks: r.asks } };
+  }
+
+  get isDead(): boolean {
+    return this.dead;
+  }
+
   start(): void {
+    const onDeath = (): void => this.die();
+    this.o.body.bot.on('death', onDeath);
+    this.offs.push(() => this.o.body.bot.off('death', onDeath));
     this.o.body.reflexes.start();
     this.perception.start();
     // Before the deed watch: it forgets a block we set down once someone breaks it.
@@ -757,6 +849,7 @@ export class Agent {
     this.awareness.start();
     this.executor.start();
     this.talking.start();
+    this.consensus.start();
     this.selfMonitor.start();
     this.memory?.start();
     this.cc.start();
@@ -784,8 +877,33 @@ export class Agent {
     this.o.logger.info({ module: 'agent', persona: this.o.persona.name, llm: this.o.llm ? 'on' : 'code-only', memory: this.memory ? 'on' : 'off' }, 'agent started');
   }
 
+  /**
+   * A death ends every activity at once (owner request, 2026-10-24; §16.3): the body stops and says nothing more,
+   * every module stops and every model call is cut off. Perception still hears the death's cause for the report, and
+   * memory is written when the process ends (stop()).
+   */
+  die(): void {
+    if (this.dead) return;
+    this.dead = true;
+    this.halting.abort(new Error('died'));
+    this.o.body.halt();
+    this.haltModules();
+    this.o.logger.info({ module: 'agent' }, 'died: every activity stopped');
+  }
+
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */
   async stop(): Promise<void> {
+    this.haltModules();
+    this.memory?.stop();
+    await this.memory?.flush();
+    this.perception.stop();
+    for (const off of this.offs.splice(0)) off();
+  }
+
+  /** Every module but memory (written last) and perception (it hears a death's cause): once only. */
+  private haltModules(): void {
+    if (this.modulesHalted) return;
+    this.modulesHalted = true;
     this.skillWriter.stop();
     this.family.stop();
     this.romance.stop();
@@ -809,22 +927,24 @@ export class Agent {
     this.roles.stop();
     this.goalGen?.stop();
     this.cc.stop();
-    this.memory?.stop();
-    await this.memory?.flush();
     this.selfMonitor.stop();
+    this.consensus.stop();
     this.talking.stop();
     this.executor.stop();
     this.awareness.stop();
     this.conversations.stop();
-    this.perception.stop();
     this.o.body.reflexes.stop();
-    for (const off of this.offs.splice(0)) off();
   }
 
   /**
    * §17.6: running from a person, say we give up so they stop. A duel that is giving up says so itself, so wait a
    * moment to hear it first; and say it only once.
    */
+  /** An urge of our own (the Hub's `urge`): a talk going round in circles left, standing stuck walked out of, … */
+  urge(u: Urge): Promise<string> {
+    return applyUrge({ store: this.store, talking: this.talking, awareness: this.awareness, cc: this.cc, executor: this.executor, logger: this.o.logger, ...(this.o.now ? { now: this.o.now } : {}) }, u);
+  }
+
   /** §17.10 extinction brake: our own caution baseline is raised for a while (a mood), never what we perceive. */
   brake(shift: number, until: number): void {
     this.store.update('drives', (d) => ({ ...d, brakeShift: shift, brakeUntil: until, caution: Math.max(d.caution, Math.min(1, d.cautionBaseline + shift)) }), 'extinction brake');
@@ -864,4 +984,18 @@ export class Agent {
   setGoal(text: string, doneWhen?: string): void {
     this.cc.setGoal(text, doneWhen);
   }
+}
+
+/**
+ * The agent's model client, cut off at `halt`: a call made after it, or under way when it comes, ends there as an
+ * aborted call (its fallback), as a call's own signal would end it.
+ */
+export function haltable(llm: LlmClient, halt: AbortSignal): LlmClient {
+  return new Proxy(llm, {
+    get(target, prop) {
+      if (prop === 'call') return <T>(opts: LlmCallOptions<T>): Promise<LlmResult<T>> => target.call({ ...opts, signal: opts.signal ? AbortSignal.any([opts.signal, halt]) : halt });
+      const v: unknown = Reflect.get(target, prop, target);
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+    },
+  });
 }

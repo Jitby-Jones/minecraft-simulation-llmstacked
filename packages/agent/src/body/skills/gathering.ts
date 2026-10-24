@@ -8,7 +8,8 @@ import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, blockIdsNamed, canSee } from '../world';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { type ToolKind, ensureTool, makeTool } from './tools';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 interface CollectBlockApi {
@@ -64,7 +65,7 @@ async function breakAndCollect(ctx: SkillContext, b: Block, matcher: ItemMatcher
   await gotoNear(ctx, b.position, 1.5, 20_000);
   const fresh = bot.blockAt(b.position);
   if (fresh?.name !== b.name) return;
-  await abortable(ctx.signal, bot.dig(fresh, true), () => bot.stopDigging());
+  await digBlock(ctx, fresh);
   for (let i = 0; i < 10; i++) {
     const drop = bot.nearestEntity((e) => {
       if (e.name !== 'item' || e.position.distanceTo(b.position.offset(0.5, 0, 0.5)) > 2.5) return false;
@@ -146,6 +147,7 @@ async function collectUntil(
   const skipped = new Set<string>();
   const home = ctx.home && blockIds.every((id) => GROUND.test(bot.registry.blocks[id]?.name ?? '')) ? ctx.home : null;
   let walkedOut = 0;
+  let madeTool = false;
   // Every loop has a cap (§13): enough rounds for the job and a few failures, never more.
   const maxRounds = qty + 12;
   for (let round = 0; countItem(bot, matcher) - start < qty; round++) {
@@ -183,6 +185,11 @@ async function collectUntil(
     const harvestable = candidates.filter((b) => !lacksHarvestTool(bot, b));
     if (harvestable.length === 0) {
       const first = candidates[0];
+      // Stone and ore drop nothing without a pickaxe: make one, as a player would (tools.ts), once.
+      if (first && !madeTool) {
+        madeTool = true;
+        if (await makeTool(ctx, toolNameFor(bot, first))) continue;
+      }
       return {
         ok: false,
         observed: `got ${countItem(bot, matcher) - start}/${qty} ${matcher.label}`,
@@ -251,9 +258,29 @@ export const gather = defineSkill({
     const matcher = itemMatcher(args.item, isFoodName(ctx.bot));
     const ids = blockIdsDropping(ctx.bot, matcher);
     if (ids.length === 0) return { ok: false, observed: 'nothing to dig', error: `no block drops ${matcher.label}` };
-    return collectUntil(ctx, matcher, ids, args.qty, args.maxDistance, matcher.label);
+    // A lot of wood or earth goes quicker with an axe or a shovel: made first when it can be (not a must). An axe
+    // made of the logs we are after is made up for: as many more are gathered.
+    const speed = speedTool(ctx.bot.registry.blocks[ids[0] ?? -1]?.name ?? '');
+    const before = countItem(ctx.bot, matcher);
+    if (speed && args.qty >= SPEED_TOOL_FROM) {
+      await ensureTool(ctx, speed).catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+      });
+    }
+    const used = Math.max(0, before - countItem(ctx.bot, matcher));
+    return collectUntil(ctx, matcher, ids, args.qty + used, args.maxDistance, matcher.label);
   },
 });
+
+/** How much wood or earth to dig before an axe or a shovel is worth making. */
+const SPEED_TOOL_FROM = 6;
+
+/** The tool that digs this kind of block quicker, when hands will do but slowly. */
+function speedTool(block: string): ToolKind | null {
+  if (/_(log|stem|wood|hyphae)$/.test(block)) return 'axe';
+  if (GROUND.test(block)) return 'shovel';
+  return null;
+}
 
 export const mine = defineSkill({
   name: 'mine',

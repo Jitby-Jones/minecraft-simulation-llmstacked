@@ -1,0 +1,23 @@
+{
+  "id": "plains-cottage",
+  "name": "plains cottage",
+  "kind": "cottage",
+  "description": "a one-room cottage of cobblestone between oak log corners, a hip roof of oak stairs, a window on each side; a bed, a chest, a crafting table and a chair inside",
+  "style": ["plains", "cosy", "starter"],
+  "source": "drawn from the plains small house of Minecraft villages (minecraft.wiki photographs, and the game's own structure file)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [5, 5],
+      "foundation": "cobblestone",
+      "walls": "cobblestone",
+      "posts": "stripped_oak_log",
+      "floor": "oak_planks",
+      "roof": { "style": "hip", "material": "oak", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 2 }
+    }
+  ],
+  "door": { "side": "south" },
+  "interior": ["bed", "chest", "crafting_table", "chair"],
+  "lights": "torches"
+}

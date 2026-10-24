@@ -28,7 +28,38 @@ export const ModelsConfigSchema = z
       })
       .prefault({}),
     /** What agents speak with: the tier lines are written with (a small model's lines come late and short). */
-    speech: z.object({ tier: TierNameSchema.default('L2') }).prefault({}),
+    // The tier lines are written with, and models tried first for them (each must be on the subscription list) with
+    // a timeout of their own: talk drives the agents' dealings with each other, so a line is worth a better model and
+    // a few seconds (owner request, 2026-10-24).
+    speech: z
+      .object({
+        tier: TierNameSchema.default('L2'),
+        models: z.array(z.string().min(1)).default([]),
+        timeoutMs: z.number().int().min(1000).max(60_000).optional(),
+      })
+      .prefault({}),
+    // The architect (owner request, 2026-10-24): called only when a building is designed, with the strongest models
+    // tried first and time to think.
+    architect: z
+      .object({
+        models: z.array(z.string().min(1)).default([]),
+        timeoutMs: z.number().int().min(5000).max(300_000).default(90_000),
+      })
+      .prefault({}),
+    // The controller (owner request, 2026-10-24): a master model over all the agents that steps in only on something
+    // odd (a talk going round in circles, standing stuck, the same failure over and over). Code finds those; the model
+    // judges each and words the urge that ends it.
+    controller: z
+      .object({
+        enabled: z.boolean().default(true),
+        models: z.array(z.string().min(1)).default([]),
+        timeoutMs: z.number().int().min(5000).max(300_000).default(45_000),
+        /** How often the agents are looked over. */
+        everySec: z.number().int().min(5).max(600).default(20),
+        /** At most this many urges an hour, everyone together. */
+        maxPerHour: z.number().int().min(0).max(240).default(20),
+      })
+      .prefault({}),
     embeddings: z
       .object({
         provider: z.enum(['local', 'nanogpt']).default('local'),

@@ -37,7 +37,11 @@ export const give = defineSkill({
         const collecting = whoCollects(bot, dropped, m, left, 8000);
         await stepBack(ctx, target);
         const got = await collecting;
-        if ((got.get(target.id) ?? 0) >= left) return { ok: true, observed: `tossed ${args.qty} ${m.label} to ${args.to}` };
+        // All of it gone and only they picked any up: theirs. (Two stacks thrown together merge on the ground, and the
+        // pickup of the merged one can still say one.)
+        const allGone = [...dropped].every((id) => bot.entities[id] === undefined);
+        const onlyThem = got.has(target.id) && [...got.keys()].every((id) => id === target.id);
+        if ((got.get(target.id) ?? 0) >= left || (allGone && onlyThem)) return { ok: true, observed: `tossed ${args.qty} ${m.label} to ${args.to}` };
         // We picked them back up: try again from closer.
         if ((got.get(bot.entity.id) ?? 0) > 0) {
           observed = 'the items came back to me';
@@ -137,9 +141,11 @@ function whoCollects(bot: Bot, ids: ReadonlySet<number>, m: ItemMatcher, qty: nu
       resolve(got);
       return;
     }
+    const gone = new Set<number>();
     const done = () => {
       clearTimeout(timer);
       bot.off('playerCollect', onCollect);
+      bot.off('entityGone', onGone);
       resolve(got);
     };
     const onCollect = (collector: Entity, collected: Entity) => {
@@ -151,8 +157,16 @@ function whoCollects(bot: Bot, ids: ReadonlySet<number>, m: ItemMatcher, qty: nu
       taken += n;
       if (taken >= qty) done();
     };
+    // Picked up or merged into another of ours: once none is left lying, there is nothing more to wait for (the
+    // pickup comes just before the entity goes).
+    const onGone = (e: Entity) => {
+      if (!ids.has(e.id)) return;
+      gone.add(e.id);
+      if (gone.size >= ids.size) setTimeout(done, 300);
+    };
     const timer = setTimeout(done, ms);
     bot.on('playerCollect', onCollect);
+    bot.on('entityGone', onGone);
   });
 }
 

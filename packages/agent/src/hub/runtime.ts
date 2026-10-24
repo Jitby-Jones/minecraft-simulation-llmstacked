@@ -1,7 +1,7 @@
 // One bot process under the Hub (§3): connect to the Hub, learn who it is this life (assign), join the server and run
-// the agent. Shutdown (§23.4): flush memory, write the state snapshot, disconnect, say bye. Death (§16.3): in test
-// mode the server would respawn the player, but the life ends anyway (simulated permadeath); in live mode hardcore
-// does it. Either way the bot reports `died` and exits, and the supervisor archives its memory and replaces it.
+// the agent. Shutdown (§23.4): flush memory, write the state snapshot, disconnect, say bye. Death (§16.3): the life
+// ends there in either mode. The agent stops every activity at once (Agent.die: no respawn, nothing more said or
+// done, no model call); then the bot reports `died` and exits, and the supervisor archives its memory and replaces it.
 
 import path from 'node:path';
 import {
@@ -111,6 +111,10 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     governor: rt?.governor,
     memory: { db, embedder },
     speechTier: o.models.speech.tier,
+    speechModels: o.models.speech.models,
+    ...(o.models.speech.timeoutMs ? { speechTimeoutMs: o.models.speech.timeoutMs } : {}),
+    architectModels: o.models.architect.models,
+    architectTimeoutMs: o.models.architect.timeoutMs,
     fightSlot: { acquire: () => hub.fightSlot(), release: () => hub.fightDone() },
     // §19.4: born in-world, on its first start (a restart resumes from the snapshot instead).
     ...(a.birthFacts && !a.resume ? { birth: { facts: a.birthFacts, youthUntil: Date.now() + o.world.reproduction.youthSec * 1000 } } : {}),
@@ -163,6 +167,7 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   if (early.reason) void finish(`shutdown: ${early.reason}`, { snapshot: true });
   hub.on('retire', (m) => void finish(`retired: ${m.reason}`, { snapshot: true, goodbye: true }));
   hub.on('cautionShift', (m) => agent.brake(m.shift, m.untilTs));
+  hub.on('urge', (m) => void agent.urge(m.urge).catch((err: unknown) => logger.warn({ module: 'urge', err: String(err) }, 'urge failed')));
   hub.on('snapshot', (m) => {
     saveSnapshot(db, agent.store.state);
     // Checkpointed too, so a hot export (§23.4) copies a consistent database.

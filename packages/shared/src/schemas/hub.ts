@@ -26,6 +26,8 @@ export const TUNABLE_MODULES = [
   'romance',
   'family',
   'skillWriter',
+  'architect',
+  'controller',
 ] as const;
 export const TunableModuleSchema = z.enum(TUNABLE_MODULES);
 export type TunableModule = z.infer<typeof TunableModuleSchema>;
@@ -42,6 +44,24 @@ export const TuningSchema = z.object({
   paused: z.boolean().default(false),
 });
 export type Tuning = z.infer<typeof TuningSchema>;
+
+export const URGE_ACTS = ['move_on', 'wander', 'drop_task', 'rethink'] as const;
+export const UrgeActSchema = z.enum(URGE_ACTS);
+export type UrgeAct = z.infer<typeof UrgeActSchema>;
+
+export const UrgeSchema = z.object({
+  /** move_on: end the talk and walk off; wander: walk a little way; drop_task: give up what keeps failing; rethink: think again. */
+  act: UrgeActSchema,
+  /** First person, as the agent's own thought. */
+  thought: z.string().min(3).max(200),
+  /** A short goodbye to whoever it was talking with (move_on). */
+  say: z.string().min(1).max(100).optional(),
+  /** Whom to leave be for a while: the people the talk went round in circles with. */
+  avoid: z.array(z.string().min(1)).max(8).default([]),
+  /** What keeps failing (drop_task): the skill and the thing it was for. */
+  task: z.object({ skill: z.string().min(1), item: z.string().min(1).optional() }).optional(),
+});
+export type Urge = z.infer<typeof UrgeSchema>;
 
 export const HubToBotSchema = z.discriminatedUnion('t', [
   z.object({
@@ -77,6 +97,13 @@ export const HubToBotSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('tuning'), tuning: TuningSchema }),
   /** An operator's debug request (inspect, memory, goal, plan, decide, …); answered with debugResult. */
   z.object({ t: z.literal('debug'), reqId: z.string(), op: z.string().min(1).max(40), args: z.record(z.string(), z.unknown()).default({}) }),
+  /**
+   * The controller (owner request, 2026-10-24): something gone wrong (a talk going round in circles, standing stuck,
+   * the same failure over and over) ended by an urge the agent takes as its own. Like cautionShift it changes the
+   * agent's own inclination, never what it perceives: the thought is in its own words about what it did itself, and
+   * `avoid` names only the people it was just talking with.
+   */
+  z.object({ t: z.literal('urge'), urge: UrgeSchema }),
 ]);
 export type HubToBot = z.infer<typeof HubToBotSchema>;
 

@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
-import { isInferable } from '@agora/agent/body/sightings';
+import { Sightings, isInferable } from '@agora/agent/body/sightings';
 import { canSeeBlock } from '@agora/agent/body/world';
 
 type Cell = 'solid' | 'air' | 'flower' | 'unloaded';
@@ -49,5 +49,22 @@ describe('line of sight to blocks', () => {
     expect(isInferable('oak_log')).toBe(true);
     expect(isInferable('poppy')).toBe(false);
     expect(isInferable('diamond_ore')).toBe(false);
+  });
+});
+
+describe('remembered blocks', () => {
+  it('are remembered in the world they were seen in, not at the same place in another', () => {
+    const bot = fakeBot({});
+    const game = { dimension: 'overworld' };
+    Object.assign(bot, { game, on: () => bot, registry: { blocks: { 1: { name: 'stone' } } } });
+    const s = Sightings.for(bot);
+    const seen = bot.blockAt(new Vec3(3, -1, 0));
+    expect(seen && s.knows(seen, 16)).toBe(true);
+    expect(s.remembered([1], 16)).toHaveLength(1);
+    // Through a portal: the same coordinates are another place.
+    game.dimension = 'the_nether';
+    expect(s.remembered([1], 16)).toHaveLength(0);
+    game.dimension = 'overworld';
+    expect(s.remembered([1], 16)).toHaveLength(1);
   });
 });

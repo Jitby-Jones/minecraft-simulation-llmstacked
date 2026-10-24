@@ -57,7 +57,7 @@ const WrittenSchema = z.object({
 export type Written = z.infer<typeof WrittenSchema>;
 
 /** Words a person of this world wouldn't use about themselves: games, machines, the world as a program. */
-const OUT_OF_WORLD = /\b(ai|a\.i\.|bots?|robots?|npcs?|language model|assistant|simulation|simulated|minecraft|video ?games?|gamer|players?|servers?|program(med)?|algorithm|chatgpt|gpt)\b/i;
+export const OUT_OF_WORLD = /\b(ai|a\.i\.|bots?|robots?|npcs?|language model|assistant|simulation|simulated|minecraft|video ?games?|gamer|players?|servers?|program(med)?|algorithm|chatgpt|gpt)\b/i;
 
 /** Where they come from and what they did: a spark to start from, drawn by code. */
 const ORIGINS = [
@@ -145,7 +145,7 @@ export function describeNumbers(p: Persona): string {
 }
 
 const RULES = `You write people for a village in a world of blocky hills, forests and caves, one new person at a time. Write them from their numbers (each 0..1, 0.5 is average): a high number shows plainly in who they are, an average one not at all. Their sex decides only their name and how others speak of them, never their character. Make them their own person, unlike the people already here: a fresh name, their own way of talking, their own wants. Plain, warm words, PG. No famous people, no real places, nothing about games or machines.
-JSON: {"givenName": "a first name, letters only, 3-12 letters, not one already taken", "traits": ["3 to 5 words for their character"], "description": "1 or 2 short sentences, under 220 characters, in the third person, starting with their name: who they are, told the way asked", "speechStyle": "how they talk, a few words to follow 'talks', like 'quick and teasing' or 'slowly, weighing each word'", "catchphrases": ["0 to 2 short things they often say, a few words each, in their own voice"], "values": ["2 or 3 things they care about most, a word or two each"], "lifeGoals": ["2 or 3 things they want to do here, each starting with a verb, plain and doable: building, farming, mining, crafting, exploring, trading, friends and family"], "insecurities": ["0 to 2 sore spots: a few words for what stings them to hear, like 'being called lazy' or 'looking foolish'"]}`;
+JSON: {"givenName": "a first name, letters only, 3-12 letters, not one already taken", "traits": ["3 to 5 words for their character"], "description": "1 or 2 short sentences, under 220 characters, in the third person, starting with their name: who they are, told the way asked", "speechStyle": "how they talk, a few words to follow 'talks', like 'quick and teasing' or 'slowly, weighing each word'", "catchphrases": ["0 to 2 short things they often say, a few words each, in their own voice"], "values": ["2 or 3 things they care about most, a word or two each"], "lifeGoals": ["2 or 3 things they want to do here, each starting with a verb, plain and doable: building, farming, mining, crafting, exploring, trading, friends and family; a bold one may dream bigger: a named, enchanted sword, a trip into the Nether or the End"], "insecurities": ["0 to 2 sore spots: a few words for what stings them to hear, like 'being called lazy' or 'looking foolish'"]}`;
 
 export class PersonaWriter {
   /** The sparks drawn for the last few people, not drawn again for a while. */

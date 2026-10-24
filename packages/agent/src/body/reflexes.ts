@@ -12,6 +12,7 @@ import { Vec3 } from 'vec3';
 import { type AttackKind, SwingTracker } from './attribution';
 import { armorPoints, asDifficulty, expectedFightDamage } from './combatOdds';
 import { equippedArmor } from './inventory';
+import { weaponTier } from './items';
 import { reflexDelta } from './quirks';
 import { bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
@@ -34,6 +35,8 @@ export function shoots(e: Entity): boolean {
   const ent = e as unknown as { heldItem?: { name: string } | null; equipment?: ({ name: string } | null | undefined)[] };
   return e.name === 'drowned' && (ent.heldItem?.name ?? ent.equipment?.[0]?.name) === 'trident';
 }
+/** A weapon this good (a stone sword or axe, or better) makes a monster worth fighting rather than running from. */
+const ARMED_TIER = 2;
 /** Having called a fight off on someone, we fight on if they come back for more this soon after. */
 const CALLED_OFF_MS = 30_000;
 /** A head under water this long is a hazard, whatever the air reading says (air lasts 15 s). */
@@ -196,8 +199,20 @@ export class ReflexController {
     this.bot.off('playerCollect', this.onCollect);
   }
 
-  fleeThreshold(): number {
-    return clamp(6 + 8 * this.hooks.caution() + reflexDelta(this.hooks.quirks(), 'flee'), 3, 18);
+  /**
+   * The health at or below which we run. Against monsters only, a weapon in hand lowers it (owner request, 2026-10-24:
+   * a zombie or a skeleton killed beats running from it, armed and not low on health): with a stone weapon or better,
+   * an average agent fights on down to about three hearts; with a wooden one, four; unarmed, or with a person among
+   * them, as before.
+   */
+  fleeThreshold(threats: readonly Entity[] = []): number {
+    const caution = this.hooks.caution();
+    const quirk = reflexDelta(this.hooks.quirks(), 'flee');
+    const mobsOnly = threats.length > 0 && !threats.some(isPlayer);
+    const tier = mobsOnly ? weaponTier(bestWeapon(this.bot)?.name) : 0;
+    if (tier >= ARMED_TIER) return clamp(4 + 4 * caution + quirk, 3, 10);
+    if (tier >= 1) return clamp(5 + 6 * caution + quirk, 3, 14);
+    return clamp(6 + 8 * caution + quirk, 3, 18);
   }
 
   private readonly onHealth = (): void => {
@@ -423,7 +438,7 @@ export class ReflexController {
   private shouldFlee(threats: Entity[]): boolean {
     const me = this.bot.entity.position;
     const health = this.bot.health;
-    const fleeAt = this.fleeThreshold() + Math.max(0, ...threats.map((t) => this.hooks.fearBoost?.(entityLabel(t)) ?? 0));
+    const fleeAt = this.fleeThreshold(threats) + Math.max(0, ...threats.map((t) => this.hooks.fearBoost?.(entityLabel(t)) ?? 0));
     if (health <= fleeAt) return true;
     if (threats.some((e) => e.name === 'creeper' && e.position.distanceTo(me) <= 5)) return true;
     if (threats.some((e) => e.name === 'warden')) return true;
@@ -734,7 +749,7 @@ export class ReflexController {
         this.allyAttacks.delete(id);
         continue;
       }
-      if (bot.health > this.fleeThreshold() && (!isPlayer(cur) || this.hooks.mayFightBack(cur.username ?? ''))) {
+      if (bot.health > this.fleeThreshold([cur]) && (!isPlayer(cur) || this.hooks.mayFightBack(cur.username ?? ''))) {
         this.lastThreatAt = now;
         this.fight(cur, 'defend');
         return;

@@ -31,7 +31,7 @@ interface MemoryRow {
 
 const TOKEN_KEY = 'agora-ctl-token';
 const TIERS = ['L1', 'L2', 'L3'] as const;
-const MODULES = ['llm', 'cc.llm', 'talking.llm', 'goalGen', 'socialGoals', 'reflection', 'selfMonitor', 'impulses', 'conflict', 'romance', 'family', 'skillWriter'];
+const MODULES = ['llm', 'cc.llm', 'talking.llm', 'goalGen', 'socialGoals', 'reflection', 'selfMonitor', 'impulses', 'conflict', 'romance', 'family', 'skillWriter', 'architect', 'controller'];
 const MODULE_NOTES: Readonly<Record<string, string>> = {
   llm: 'every model call',
   'cc.llm': 'decides with the model',
@@ -45,6 +45,8 @@ const MODULE_NOTES: Readonly<Record<string, string>> = {
   romance: 'courting',
   family: 'families',
   skillWriter: 'writes new skills',
+  architect: 'designs its own buildings',
+  controller: 'the controller may step in when something goes wrong',
 };
 const FEELINGS = ['caution', 'fear', 'anger', 'joy', 'sadness', 'disgust', 'shame', 'envy', 'affection'];
 
@@ -170,7 +172,23 @@ export function renderControls(root: HTMLElement, hooks: ControlsHooks): void {
   const speech = select([['auto', 'own choice'], ...TIERS.map((t): [string, string] => [t, t])]);
   root.replaceChildren(
     h('div', { cls: 'card-head' }, [h('h2', { text: 'Controls' }), h('p', { cls: 'muted', text: 'The operator’s hands: outside the simulation, and every use is logged.' })]),
-    h('div', { cls: 'ctl-row' }, [field('Control token', tok), unlock]),
+    h('div', { cls: 'ctl-row' }, [
+      field('Control token', tok),
+      unlock,
+      h('span', { cls: 'spacer' }),
+      button('Restart', async () => {
+        if (!window.confirm('Restart agora? Every agent saves and leaves, the server saves and starts again, and everyone comes back. The page picks it up again by itself.')) return;
+        report(out, await ctl('restart'));
+      }),
+      button(
+        'Stop',
+        async () => {
+          if (!window.confirm('Stop agora? Every agent saves and leaves, then the server saves and stops. Start it again with `pnpm start`.')) return;
+          report(out, await ctl('stop'));
+        },
+        'danger',
+      ),
+    ]),
     h('div', { cls: 'ctl-row' }, [
       h('span', { cls: 'badge', text: testOn ? 'test mode on' : 'test mode off (hardcore)' }),
       modeBtn,
@@ -349,4 +367,109 @@ export function renderAgentDebug(root: HTMLElement, name: string | null, refresh
     out,
     inspector,
   );
+}
+
+interface ConsoleLine {
+  n: number;
+  ts: number;
+  kind: 'server' | 'in' | 'out';
+  text: string;
+}
+
+const CONSOLE_KEEP = 1000;
+const CONSOLE_POLL_MS = 2000;
+
+/**
+ * The server console card: what the Minecraft server prints, and a line to run commands on it as its own console
+ * does (the slash is optional). The same refusals as `pnpm ctl rcon`: op and chat spying only for the owner.
+ */
+export function renderConsole(root: HTMLElement): void {
+  const view = h('pre', { cls: 'console-out' });
+  view.setAttribute('aria-live', 'polite');
+  view.tabIndex = 0;
+  const input = h('input', { cls: 'console-in', placeholder: 'a server command, e.g. time set day', name: 'command' });
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  const note = h('p', { cls: 'muted', text: 'Enter the control token in Controls to use the console.' });
+  const history: string[] = [];
+  let at = 0;
+  let next = 0;
+  let polling = false;
+
+  const atBottom = () => view.scrollTop + view.clientHeight >= view.scrollHeight - 4;
+  const append = (lines: readonly Pick<ConsoleLine, 'kind' | 'text'>[]) => {
+    if (lines.length === 0) return;
+    const stick = atBottom();
+    for (const l of lines) view.append(h('span', { cls: `line ${l.kind}`, text: l.kind === 'in' ? `> ${l.text}` : l.text }));
+    while (view.childElementCount > CONSOLE_KEEP) view.firstElementChild?.remove();
+    if (stick) view.scrollTop = view.scrollHeight;
+  };
+  const poll = async () => {
+    if (polling) return;
+    if (!token()) {
+      note.hidden = false;
+      note.textContent = 'Enter the control token in Controls to use the console.';
+      return;
+    }
+    polling = true;
+    try {
+      const r = await ctl('console', [String(next)]);
+      if (!r.ok) {
+        note.hidden = false;
+        note.textContent = /token/.test(r.message) ? 'Enter the control token in Controls to use the console.' : r.message;
+        return;
+      }
+      note.hidden = true;
+      const d = r.data as { next: number; lines: ConsoleLine[] };
+      // A restart begins the count again: start over rather than miss what the new server says.
+      if (d.next < next) {
+        view.replaceChildren();
+        next = 0;
+        return;
+      }
+      append(d.lines);
+      next = d.next;
+    } finally {
+      polling = false;
+    }
+  };
+  const run = async () => {
+    const cmd = input.value.trim();
+    if (!cmd) return;
+    if (history.at(-1) !== cmd) history.push(cmd);
+    at = history.length;
+    input.value = '';
+    const r = await ctl('rcon', [cmd]);
+    // What ran (or was refused) comes back with the console's own lines; anything else is said here.
+    if (!r.ok && /token|not available|not running|fetch/i.test(r.message)) append([{ kind: 'in', text: cmd }, { kind: 'out', text: r.message }]);
+    await poll();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void run();
+    } else if (e.key === 'ArrowUp' && history.length > 0) {
+      e.preventDefault();
+      at = Math.max(0, at - 1);
+      input.value = history[at] ?? '';
+    } else if (e.key === 'ArrowDown' && history.length > 0) {
+      e.preventDefault();
+      at = Math.min(history.length, at + 1);
+      input.value = history[at] ?? '';
+    }
+  });
+
+  root.replaceChildren(
+    h('div', { cls: 'card-head' }, [
+      h('h2', { text: 'Server console' }),
+      h('p', { cls: 'muted', text: 'What the Minecraft server prints. Commands run as on its own console: no slash needed, and the agents never see them typed.' }),
+    ]),
+    note,
+    view,
+    h('div', { cls: 'ctl-row' }, [input, button('Run', run), button('Clear view', () => view.replaceChildren())]),
+  );
+  void poll();
+  setInterval(() => {
+    if (document.visibilityState === 'visible') void poll();
+  }, CONSOLE_POLL_MS);
 }

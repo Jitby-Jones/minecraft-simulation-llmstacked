@@ -445,6 +445,9 @@ button.danger {
   max-height: 14em;
   overflow: auto;
 }
+.ctl-row .spacer {
+  flex: 1 1 auto;
+}
 .ctl-out.ok {
   border-color: var(--good);
 }
@@ -461,4 +464,37 @@ button.danger {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 8px;
+}
+
+/* ---- the server console (controls.ts, renderConsole) ---- */
+.console-out {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  height: 22em;
+  overflow: auto;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.console-out .line {
+  display: block;
+}
+.console-out .line.server {
+  color: var(--ink-2);
+}
+.console-out .line.in {
+  color: var(--accent);
+  font-weight: 600;
+}
+.console-out .line.out {
+  color: var(--ink);
+}
+.ctl-row input.console-in {
+  flex: 1 1 280px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

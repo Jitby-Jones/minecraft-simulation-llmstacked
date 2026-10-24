@@ -35,6 +35,8 @@ export const LLM_MODULES = [
   'memory',
   'reflection',
   'skillWriter',
+  'architect',
+  'controller',
   'bench',
   'persona',
 ] as const;
@@ -53,6 +55,9 @@ export const MODULE_PRIORITY: Readonly<Record<LlmModule, number>> = {
   memory: 45,
   reflection: 40,
   skillWriter: 30,
+  // A building's design waits its turn; the controller steps in when something has gone wrong.
+  architect: 35,
+  controller: 65,
   bench: 20,
   persona: 10,
 };

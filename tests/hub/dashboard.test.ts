@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HubConfigSchema, nullLogger } from '@agora/shared';
 import type { QuotaStatus } from '@agora/llm';
 import { Hub } from '@agora/hub';
+import { ConsoleLog } from '@agora/hub/dashboard/console';
 import { controlHandler, grantRefusal } from '@agora/hub/dashboard/control';
 import { DashboardModel } from '@agora/hub/dashboard/model';
 import { DashboardServer, attachDashboard } from '@agora/hub/dashboard/server';
@@ -252,7 +253,12 @@ describe('control commands (§23.3)', () => {
       },
       online: () => new Set(['Pip']),
       snapshotAll: async () => (calls.push('snapshots'), 2),
-      rcon: async (c: string) => (calls.push(`rcon ${c}`), c.startsWith('save-all') ? 'Saved the game' : 'ok'),
+      rcon: async (c: string) => {
+        calls.push(`rcon ${c}`);
+        if (c === 'broken') throw new Error('rcon command timeout: broken');
+        return c.startsWith('save-all') ? 'Saved the game' : 'ok';
+      },
+      console: new ConsoleLog(() => 5),
       serverState: () => 'running',
       quota: () => quota,
       dashboardUrl: 'http://127.0.0.1:8080',
@@ -296,6 +302,44 @@ describe('control commands (§23.3)', () => {
     expect(grantRefusal('lp user Pip permission set pchat.spy true Owner', 'Owner')).toMatch(/chat spying only to the owner/);
     expect(grantRefusal('lp group default permission set pchat.spy true', 'Owner')).toMatch(/chat spying only to the owner/);
     expect(grantRefusal('lp user owner permission set pchat.spy true', 'Owner')).toBeNull();
+  });
+
+  it("keeps the dashboard's console: what the server printed, each command run (slash or not) and its answer", async () => {
+    const { h, d, calls } = deps();
+    d.console?.push('server', '\u001b[32m[12:00:00 INFO]: Done (4.2s)! For help, type "help"\u001b[0m');
+    d.console?.push('server', '   ');
+    expect((await h('rcon', ['/time', 'set', 'day'])).message).toBe('ok');
+    expect((await h('rcon', ['op', 'Pip'])).ok).toBe(false);
+    expect(await h('rcon', ['broken'])).toEqual({ ok: false, message: 'rcon command timeout: broken' });
+    const all = await h('console', []);
+    expect(all.data).toEqual({
+      next: 7,
+      lines: [
+        { n: 1, ts: 5, kind: 'server', text: '[12:00:00 INFO]: Done (4.2s)! For help, type "help"' },
+        { n: 2, ts: 5, kind: 'in', text: 'time set day' },
+        { n: 3, ts: 5, kind: 'out', text: 'ok' },
+        { n: 4, ts: 5, kind: 'in', text: 'op Pip' },
+        { n: 5, ts: 5, kind: 'out', text: 'ctl gives op only to the owner in config/world.yaml (§13: never a bot)' },
+        { n: 6, ts: 5, kind: 'in', text: 'broken' },
+        { n: 7, ts: 5, kind: 'out', text: 'rcon command timeout: broken' },
+      ],
+    });
+    // Asked again from where it left off: only what came since.
+    d.console?.push('server', 'Pip joined the game');
+    expect((await h('console', ['7'])).data).toEqual({ next: 8, lines: [{ n: 8, ts: 5, kind: 'server', text: 'Pip joined the game' }] });
+    expect(calls).toEqual(['rcon time set day', 'rcon broken']);
+    // Without a server here, there is no console to read.
+    expect((await controlHandler({ ...d, console: undefined })('console', [])).ok).toBe(false);
+  });
+
+  it('keeps the last thousand console lines', () => {
+    const c = new ConsoleLog();
+    for (let i = 0; i < 1200; i++) c.push('server', `line ${i}`);
+    const r = c.since(0, 2000);
+    expect(r.next).toBe(1200);
+    expect(r.lines).toHaveLength(1000);
+    expect(r.lines[0]?.text).toBe('line 200');
+    expect(c.since(0).lines).toHaveLength(300);
   });
 
   it('stops and restarts after answering', async () => {

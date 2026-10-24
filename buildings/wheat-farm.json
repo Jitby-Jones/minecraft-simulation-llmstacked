@@ -1,0 +1,9 @@
+{
+  "id": "wheat-farm",
+  "name": "wheat farm",
+  "kind": "farm",
+  "description": "a fenced field of tilled earth round a water hole, nine by nine, a gate on the south side",
+  "style": ["food", "farm"],
+  "source": "the classic nine-by-nine farm around one water block (Minecraft wiki)",
+  "plot": { "type": "farm", "size": [11, 11], "material": "oak", "side": "south" }
+}

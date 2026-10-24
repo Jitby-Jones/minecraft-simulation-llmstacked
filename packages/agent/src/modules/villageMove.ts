@@ -29,13 +29,18 @@ const work = (skill: string, args: Record<string, unknown>, maxSeconds: number, 
 });
 
 /** An ore this agent found away from home that no sign it has read mentions yet (newest first). */
+/** Home, when we are in its world: from the Nether or the End it is no walk away (owner request, 2026-10-24). */
+export function homeHere(s: AgentState): Vec3 | null {
+  return String(s.self.dimension ?? 'overworld').replace(/^minecraft:/, '') === 'overworld' ? s.village.home : null;
+}
+
 export function unpostedFind(s: AgentState): { what: string; pos: Vec3 } | null {
   const posted = s.village.signs.map((x) => x.text.toLowerCase());
   return [...s.village.finds].reverse().find((f) => !posted.some((t) => t.includes(f.what))) ?? null;
 }
 
 export function villageMove(s: AgentState, kind: VillageKind, v: VillageMoveCtx): DecisionOutput | null {
-  const home = s.village.home;
+  const home = homeHere(s);
   const chest = s.village.chest?.pos ?? null;
   const me = s.self.pos;
   const obtain = (item: string, qty: number, why: string, secs = 600) => (v.isStuck('obtain', { item, qty }) ? null : work('obtain', { item, qty }, secs, why));
@@ -115,7 +120,7 @@ export function hurtMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | nul
   const mob = s.perception.nearbyEntities.some((e) => e.kind === 'hostile' && e.distance <= 24);
   const hide = { untilMorning: false, untilHealed: true };
   if (v.mayHide && mob && s.self.food >= 18 && !v.isStuck('shelter', hide)) return work('shelter', hide, 200, 'badly hurt and alone, lying low until I heal');
-  const home = s.village.home;
+  const home = homeHere(s);
   if (home && dist(s.self.pos, home) > 24) {
     const args = { x: Math.round(home.x), y: Math.round(home.y), z: Math.round(home.z), range: 3 };
     if (!v.isStuck('goTo', args)) return work('goTo', args, 120, 'badly hurt, going home to recover');
@@ -155,7 +160,7 @@ export function foodMove(s: AgentState, v: VillageMoveCtx, why = 'getting food')
  * the death message, and where if it saw the body fall.
  */
 export function unpostedDeath(s: AgentState): { name: string; text: string } | null {
-  if (!s.village.home) return null;
+  if (!homeHere(s)) return null;
   const posted = s.village.signs.map((x) => x.text.toLowerCase());
   for (const d of [...s.perception.systemEvents].reverse()) {
     const name = d.subject;
@@ -169,7 +174,7 @@ export function unpostedDeath(s: AgentState): { name: string; text: string } | n
 
 /** Posting a death at the board: with a sign in hand (or the planks for one), near home. */
 export function deathNoticeMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | null {
-  const home = s.village.home;
+  const home = homeHere(s);
   const news = unpostedDeath(s);
   if (!news || !home || dist(s.self.pos, home) > 24) return null;
   if (held(s, /_sign$/) === 0) {

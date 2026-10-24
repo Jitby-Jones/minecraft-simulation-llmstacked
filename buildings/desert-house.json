@@ -1,0 +1,23 @@
+{
+  "id": "desert-house",
+  "name": "desert house",
+  "kind": "house",
+  "description": "a flat-roofed house of smooth sandstone with sandstone corners, a sandstone roof with a slab rim, a jungle-wood door; cool and dark inside",
+  "style": ["desert", "flat roof", "sandstone"],
+  "source": "drawn from the desert small and medium houses of Minecraft villages (photographs and the game's structure files)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [6, 6],
+      "foundation": "sandstone",
+      "walls": "smooth_sandstone",
+      "posts": "cut_sandstone",
+      "floor": "smooth_sandstone",
+      "roof": { "style": "flat", "material": "sandstone", "overhang": 0 },
+      "windows": { "block": "glass_pane", "every": 3, "sides": ["east", "west"] }
+    }
+  ],
+  "door": { "side": "south", "material": "jungle" },
+  "interior": ["bed", "chest", "crafting_table", "barrel", "plant"],
+  "lights": "torches"
+}

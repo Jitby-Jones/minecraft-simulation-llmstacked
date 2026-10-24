@@ -1,0 +1,85 @@
+{
+  "id": "plains-l-house",
+  "name": "plains L house",
+  "kind": "house",
+  "description": "an L-shaped house: a long wing of oak planks and a short wing of cobblestone off its middle, oak log corners, gable roofs of oak stairs meeting in a valley; a kitchen and a sleeping wing",
+  "style": [
+    "plains",
+    "family",
+    "L-shaped"
+  ],
+  "source": "drawn from the plains medium house of Minecraft villages (photographs and the game's structure file)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "at": [
+        0,
+        0
+      ],
+      "size": [
+        11,
+        5
+      ],
+      "foundation": "cobblestone",
+      "walls": "oak_planks",
+      "posts": "oak_log",
+      "floor": "oak_planks",
+      "roof": {
+        "style": "gable",
+        "material": "oak",
+        "axis": "x",
+        "overhang": 1
+      },
+      "windows": {
+        "block": "glass_pane",
+        "every": 3
+      }
+    },
+    {
+      "at": [
+        0,
+        3
+      ],
+      "size": [
+        5,
+        6
+      ],
+      "foundation": "cobblestone",
+      "walls": "cobblestone",
+      "posts": "oak_log",
+      "floor": "oak_planks",
+      "roof": {
+        "style": "gable",
+        "material": "oak",
+        "axis": "z",
+        "overhang": 1
+      },
+      "windows": {
+        "block": "glass_pane",
+        "every": 2
+      }
+    }
+  ],
+  "door": {
+    "part": 0,
+    "side": "south",
+    "offset": 7
+  },
+  "interior": [
+    "bed",
+    "bed",
+    "chest",
+    "crafting_table",
+    "furnace",
+    "table",
+    "chair",
+    "barrel"
+  ],
+  "lights": "torches",
+  "features": [
+    {
+      "type": "chimney",
+      "side": "north"
+    }
+  ]
+}

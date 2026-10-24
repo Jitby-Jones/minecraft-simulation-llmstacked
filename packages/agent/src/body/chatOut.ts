@@ -19,9 +19,13 @@ export interface ChatOutOptions {
 
 export interface SayResult {
   sent: boolean;
-  reason?: 'empty' | 'command' | 'guard' | 'global' | 'pair' | 'disconnected' | 'superseded';
+  reason?: 'empty' | 'command' | 'guard' | 'global' | 'pair' | 'disconnected' | 'superseded' | 'silenced';
   parts: number;
 }
+
+/** Turn-taking: the most a line waits for the floor, and the beat at random before it looks. */
+const FLOOR_MAX_MS = 6000;
+const FLOOR_JITTER_MS = 600;
 
 export class ChatOut {
   private lastSentAt = 0;
@@ -30,6 +34,10 @@ export class ChatOut {
   private urgentSaid = 0;
   private readonly pairLog = new Map<string, number[]>();
   private guardHits = 0;
+  /** Dead (owner request, 2026-10-24): nothing more is said, what was waiting included. */
+  private silenced = false;
+  /** How long until nobody else is speaking (turn-taking): asked right before a line goes out. */
+  private floor: (() => number) | null = null;
 
   constructor(
     private readonly bot: Bot,
@@ -38,6 +46,27 @@ export class ChatOut {
 
   get guardHitCount(): number {
     return this.guardHits;
+  }
+
+  /** No line goes out from now on, what is waiting or being typed included. */
+  silence(): void {
+    this.silenced = true;
+  }
+
+  /** Turn-taking (owner request, 2026-10-24): a line waits until `wait()` says nobody else is speaking. */
+  setFloor(wait: () => number): void {
+    this.floor = wait;
+  }
+
+  /**
+   * Waits for the floor: a beat at random first (two who waited for the same quiet don't both go at once), then as
+   * long as someone else is speaking, up to FLOOR_MAX_MS.
+   */
+  private async holdFloor(): Promise<void> {
+    if (!this.floor) return;
+    await sleep(Math.random() * FLOOR_JITTER_MS);
+    const giveUp = this.now() + FLOOR_MAX_MS;
+    for (let w = this.floor(); w > 0 && this.now() < giveUp && !this.silenced; w = this.floor()) await sleep(w + Math.random() * FLOOR_JITTER_MS);
   }
 
   private now(): number {
@@ -51,6 +80,7 @@ export class ChatOut {
    * What was waiting then is dropped ("back off, or else" after "I yield" would be a lie).
    */
   say(text: string, volume: Volume = 'normal', listeners: readonly string[] = [], stillWanted?: () => boolean, urgent = false): Promise<SayResult> {
+    if (this.silenced) return Promise.resolve({ sent: false, reason: 'silenced', parts: 0 });
     if (urgent) {
       this.urgentSaid++;
       return this.sendNow(text, volume, listeners, stillWanted, true);
@@ -92,11 +122,13 @@ export class ChatOut {
       const typing = Math.min(this.opts.maxTypingMs ?? 3000, part.length * (this.opts.msPerChar ?? 40));
       const wait = urgent ? 0 : Math.max(typing, this.lastSentAt + minInterval - this.now());
       if (wait > 0) await sleep(wait);
+      if (!urgent) await this.holdFloor();
       if (!urgent && this.opts.acquireGlobalToken && !(await this.opts.acquireGlobalToken())) {
         this.guardHits++;
         this.opts.logger?.warn({ module: 'chat' }, 'global speech guard hit; staying silent');
         return { sent: sentParts > 0, reason: 'global', parts: sentParts };
       }
+      if (this.silenced) return { sent: sentParts > 0, reason: 'silenced', parts: sentParts };
       if (stillWanted && !stillWanted()) return { sent: sentParts > 0, reason: 'superseded', parts: sentParts };
       // The bot may have disconnected while we waited.
       const client = this.bot._client as { ended?: boolean } | undefined;

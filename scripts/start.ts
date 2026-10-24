@@ -39,8 +39,10 @@ import {
   startLlm,
 } from '@agora/llm';
 import {
+  ConsoleLog,
   DashboardModel,
   DashboardServer,
+  Controller,
   Hub,
   type ManagedServer,
   PersonaWriter,
@@ -114,6 +116,8 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
 
   let server: ManagedServer | null = null;
   let serverState = 'not managed here (--no-server)';
+  // The dashboard's console: what the server prints, and the commands run from the page with their answers.
+  const consoleLog = new ConsoleLog();
   if (!process.argv.includes('--no-server')) {
     server = await startManagedServer({
       paths,
@@ -123,6 +127,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
       logger,
       botNames: readRosterNames(paths),
     });
+    server.paper.on('line', (line: string) => consoleLog.push('server', line));
     serverState = 'running';
   }
 
@@ -192,6 +197,30 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
   const sendTuning = (scope: string) => {
     for (const s of hub.list()) if (s.username && (scope === 'all' || s.username === scope)) s.send({ t: 'tuning', tuning: tuning.for(s.username) });
   };
+  // The controller (owner request, 2026-10-24): the master model over all the agents, stepping in only when
+  // something has plainly gone wrong (controller.ts); never for an agent it is switched off for, or a paused one.
+  const controller = new Controller({
+    llm: master?.client ?? null,
+    logger,
+    config: models.controller,
+    send: (name, urge) => {
+      const s = hub.byName(name);
+      if (!s) return false;
+      s.send({ t: 'urge', urge });
+      return true;
+    },
+    leaveBe: (name) => {
+      const t = tuning.for(name);
+      return t.paused || t.off.includes('controller');
+    },
+    onStep: (step) => model.controllerStep(step),
+  });
+  hub.on('telemetry', (s, m) => {
+    if (m.t === 'telemetry' && s.username) controller.observe(s.username, m.kind, m.data);
+  });
+  hub.on('died', (_s, m) => controller.gone(m.username));
+  hub.on('bye', (_s, m) => controller.gone(m.username));
+  controller.start();
   let modelList: { at: number; list: { id: string; capabilities: string[]; thinking: boolean }[] } | null = null;
   const subscriptionModels = async () => {
     if (!key) return null;
@@ -208,6 +237,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     stopping = true;
     ending = how;
     logger.info({ module: 'agora', why }, how === 'restart' ? 'restarting' : 'shutting down');
+    controller.stop();
     await supervisor.shutdown(why);
     await dashboard?.close();
     detachDashboard();
@@ -241,7 +271,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
           supervisor,
           online: () => new Set(hub.list().map((s) => s.username).filter((n): n is string => Boolean(n))),
           snapshotAll: () => hub.snapshotAll(),
-          ...(server ? { rcon: (c: string) => server.rcon.command(c) } : {}),
+          ...(server ? { rcon: (c: string) => server.rcon.command(c), console: consoleLog } : {}),
           serverState: () => serverState,
           quota: () => governor?.status ?? null,
           dashboardUrl: url,

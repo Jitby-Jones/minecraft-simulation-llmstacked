@@ -1,4 +1,6 @@
-// Container skills: deposit, withdraw (chests and barrels).
+// Container skills: deposit, withdraw (chests and barrels). A chest is a thing in the world (owner request, 2026-10-24:
+// agents spoke of putting things in a chest that wasn't there): one asked for at a place where there is none is said to
+// be missing, and with none about, a deposit makes one (makeChest).
 
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
@@ -7,6 +9,7 @@ import { Vec3 } from 'vec3';
 import { countItem } from '../inventory';
 import { armorSlotOf, isWeapon, itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
+import { runOther } from './tools';
 import { errMsg, gotoNear, throwIfAborted } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -39,6 +42,35 @@ function contentsOf(container: { containerItems(): { name: string; count: number
 }
 
 const where = (b: Block) => ({ x: b.position.x, y: b.position.y, z: b.position.z });
+const given = (a: { x?: number; y?: number; z?: number }) => a.x !== undefined && a.y !== undefined && a.z !== undefined;
+
+/** Home is this near: the chest goes by it, where the village keeps its things. */
+const CHEST_BY_HOME = 64;
+
+/**
+ * No chest about: a builder makes one (anyone, when there is no builder), sets it down by home when home is near, and
+ * it is used. Otherwise why not: the builder to ask, or what went wrong.
+ */
+async function makeChest(ctx: SkillContext): Promise<Block | string> {
+  const { bot } = ctx;
+  const builder = ctx.chestMaker?.() ?? null;
+  if (builder) return `there's no chest here yet; ${builder} is the builder: ask them to make one`;
+  if (countItem(bot, itemMatcher('chest')) === 0) {
+    ctx.progress('no chest about: making one');
+    const made = await runOther(ctx, 'obtain', { item: 'chest', qty: 1 });
+    if (!made?.ok) return `there's no chest here, and I couldn't make one: ${made?.error ?? 'no way to'}`;
+  }
+  const home = ctx.home;
+  if (home && home.distanceTo(bot.entity.position) <= CHEST_BY_HOME && home.distanceTo(bot.entity.position) > 4) {
+    ctx.progress('taking the chest home');
+    await gotoNear(ctx, home, 3).catch((err: unknown) => {
+      if (err instanceof SkillAbortedError) throw err;
+    });
+  }
+  const placed = await runOther(ctx, 'place', { block: 'chest' });
+  if (!placed?.ok) return `made a chest but couldn't set it down: ${placed?.error ?? 'no room'}`;
+  return (await reachContainer(ctx, {})) ?? 'set a chest down but lost sight of it';
+}
 
 function keepItem(bot: Bot, name: string): boolean {
   return Boolean(bot.registry.foodsByName[name]) || isWeapon(name) || armorSlotOf(name) !== null || /_(pickaxe|axe|shovel)$/.test(name);
@@ -54,8 +86,16 @@ export const deposit = defineSkill({
   async run(ctx, args) {
     const { bot } = ctx;
     try {
-      const block = await reachContainer(ctx, args);
-      if (!block) return { ok: false, observed: 'no chest', error: 'no chest nearby' };
+      const m0 = args.item ? itemMatcher(args.item) : null;
+      if (m0 && !bot.inventory.items().some((i) => m0.matches(i.name))) return { ok: false, observed: 'nothing to deposit', error: `no ${m0.label} in inventory` };
+      let block = await reachContainer(ctx, args);
+      // Asked for one at a place where there is none: said so, not made up.
+      if (!block && given(args)) return { ok: false, observed: 'no chest there', error: `there is no chest at ${args.x},${args.y},${args.z}` };
+      if (!block) {
+        const made = await makeChest(ctx);
+        if (typeof made === 'string') return { ok: false, observed: 'no chest', error: made };
+        block = made;
+      }
       const container = await bot.openContainer(block);
       let moved = 0;
       let seen: Record<string, number> = {};
@@ -96,7 +136,7 @@ export const withdraw = defineSkill({
     const { bot } = ctx;
     try {
       const block = await reachContainer(ctx, args);
-      if (!block) return { ok: false, observed: 'no chest', error: 'no chest nearby' };
+      if (!block) return { ok: false, observed: 'no chest', error: given(args) ? `there is no chest at ${args.x},${args.y},${args.z}` : 'no chest nearby' };
       const container = await bot.openContainer(block);
       const m = itemMatcher(args.item);
       const start = countItem(bot, m);

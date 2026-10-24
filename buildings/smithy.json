@@ -1,0 +1,24 @@
+{
+  "id": "smithy",
+  "name": "smithy",
+  "kind": "smithy",
+  "description": "a smithy of cobblestone and stone bricks with oak log corners under a lean-to roof of cobblestone slabs; a furnace, a blast furnace, an anvil, a smithing table and a chest inside",
+  "style": ["work", "stone", "iron"],
+  "source": "drawn from the weaponsmith, armorer and toolsmith of Minecraft villages (photographs and the game's structure files)",
+  "wallHeight": 4,
+  "parts": [
+    {
+      "size": [7, 6],
+      "foundation": "cobblestone",
+      "walls": "cobblestone",
+      "posts": "oak_log",
+      "floor": "stone_bricks",
+      "roof": { "style": "shed", "material": "cobblestone", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 3, "sides": ["east", "west"] }
+    }
+  ],
+  "door": { "side": "south", "double": true },
+  "interior": ["furnace", "blast_furnace", "anvil", "smithing_table", "chest", "crafting_table", "grindstone"],
+  "lights": "torches",
+  "features": [{ "type": "chimney", "side": "north" }]
+}

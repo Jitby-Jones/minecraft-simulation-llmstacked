@@ -193,6 +193,12 @@ export function wetAt(bot: Bot, x: number, z: number, y: number): boolean {
 }
 
 /** A spot within `radius` where a block can be placed (air with solid ground below), excluding our own column. */
+/**
+ * Blocks a right-click uses rather than builds against (a crafting table opens, a door swings): placing against one
+ * needs a sneak, as players do, and a spot on top of one isn't where a block is set down.
+ */
+export const USABLE_BLOCK = /(crafting_table|chest|barrel|furnace|smoker|anvil|enchanting_table|_door|_trapdoor|_bed|lever|_button|note_block|loom|stonecutter|grindstone|cartography_table|smithing_table|fletching_table|brewing_stand|hopper|dispenser|dropper|beacon|lectern|bell|shulker_box|_fence_gate|composter|cauldron|crafter|jukebox|respawn_anchor)$/;
+
 export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
   const me = bot.entity.position.floored();
   // The server refuses a block inside anyone's hitbox, ours included (standing near a cell's edge overlaps it).
@@ -204,7 +210,8 @@ export function findPlaceableSpot(bot: Bot, radius = 3): Vec3 | null {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         for (const dy of [0, 1, -1]) {
           const p = me.offset(dx, dy, dz);
-          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0))) && !occupied(p)) {
+          const below = bot.blockAt(p.offset(0, -1, 0));
+          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(below) && !USABLE_BLOCK.test(below?.name ?? '') && !occupied(p)) {
             return p;
           }
         }

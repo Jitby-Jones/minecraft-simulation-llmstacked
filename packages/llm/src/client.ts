@@ -60,6 +60,13 @@ export interface LlmCallOptions<T> {
   /** A specific model (bench, tests). Must be on the allowlist. */
   model?: string;
   /**
+   * Models tried first, in order, before the tier's own chain (models.yaml speech.models). One not on the subscription
+   * list is skipped, never sent anything; the operator's model for the tier still comes first.
+   */
+  prefer?: readonly string[];
+  /** This call's per-try timeout instead of the tier's. */
+  timeoutMs?: number;
+  /**
    * The prompt already describes the reply's JSON (the CC's decision format): the schema itself isn't appended, only
    * a line asking for that object.
    */
@@ -229,9 +236,15 @@ export class LlmClient {
     } else {
       if (this.deps.router.codeOnly) return fallback('code-only', 'no subscription model fits any tier');
       chain = this.chainFor(tier).filter((m) => !this.circuit.isOpen(m));
+      if (o.prefer && o.prefer.length > 0) {
+        const routed = this.route.tierModel?.[tier];
+        const head = routed && chain[0] === routed ? [routed] : [];
+        const pref = o.prefer.filter((m) => this.deps.router.allowlist.has(m) && !this.circuit.isOpen(m) && !head.includes(m));
+        chain = [...head, ...pref, ...chain.filter((m) => !head.includes(m) && !pref.includes(m))];
+      }
       if (chain.length === 0) return fallback('failed', `every ${tier} model is circuit-broken`);
     }
-    const spec = this.deps.specs[tier];
+    const spec = o.timeoutMs ? { ...this.deps.specs[tier], timeoutMs: o.timeoutMs } : this.deps.specs[tier];
 
     let lastError = '';
     for (const model of chain) {

@@ -301,6 +301,13 @@ export class GoalGen {
     if (planFinished(next)) this.soon('plan finished', 2000);
   }
 
+  /** A plan made elsewhere (the architect's, to build what it drew) put in place of the current one. */
+  adopt(draft: PlanDraft, source: Plan['source'], reason: string): Plan {
+    const plan = this.fromDraft(draft, source);
+    this.install(plan, reason);
+    return plan;
+  }
+
   /** Puts the plan in place and makes its step at hand the current goal. */
   install(plan: Plan, reason: string): void {
     const p = beginNext(plan, this.now());

@@ -1,0 +1,9 @@
+{
+  "id": "lamp-post",
+  "name": "lamp post",
+  "kind": "lamp",
+  "description": "a lantern on an oak post, to light a path at night",
+  "style": ["village", "light"],
+  "source": "village lamp posts (photographs)",
+  "plot": { "type": "lamp", "size": [1, 1], "material": "oak" }
+}

@@ -53,6 +53,9 @@ importers:
       eslint:
         specifier: 10.13.0
         version: 10.13.0
+      prismarine-nbt:
+        specifier: 2.8.0
+        version: 2.8.0
       tsx:
         specifier: 4.23.15
         version: 4.23.15
@@ -101,6 +104,9 @@ importers:
       prismarine-item:
         specifier: 1.18.0
         version: 1.18.0
+      prismarine-nbt:
+        specifier: 2.8.0
+        version: 2.8.0
       vec3:
         specifier: 0.1.10
         version: 0.1.10

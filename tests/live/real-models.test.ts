@@ -26,6 +26,7 @@ import {
   inheritPersona,
   loadEnv,
   loadModelsConfig,
+  loadPersonaPool,
   loadVersionsConfig,
   repoRoot,
   seedFromString,
@@ -253,6 +254,85 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
         await body.disconnect();
       }
     }, 300_000);
+
+    it('three talk a plan over like players, one at a time; once they agree, the talk ends and they go do it', async () => {
+      // Owner request (2026-10-24): people stood about talking after they had agreed, talked over each other, and
+      // didn't sound like players. The lines come from the speech models (models.yaml speech.models).
+      const x = 1800;
+      const Y = -60;
+      await server.cmd(`forceload add ${x - 32} -32 ${x + 32} 32`);
+      await server.cmd('time set 1000');
+      // A few oaks just east of them: wood to be had.
+      for (const dz of [-6, 0, 6]) await server.cmd(`place feature minecraft:oak ${x + 12} ${Y} ${dz}`);
+      const cfg = loadModelsConfig();
+      const pool = loadPersonaPool();
+      const names = ['Mira', 'Pip', 'Wren'] as const;
+      const bodies: Body[] = [];
+      const agents: Agent[] = [];
+      const lines: { who: string; at: number; text: string }[] = [];
+      const agreed: { who: string; at: number; what: string; mine?: string }[] = [];
+      const ends: string[] = [];
+      try {
+        for (const [i, name] of names.entries()) {
+          const persona = pool.find((p) => p.name === name);
+          if (!persona) throw new Error(`no ${name} in the persona pool`);
+          const body = await Body.connect({ host: server.host, port: server.port, username: name, version: versions.minecraft.version, logger });
+          await server.cmd(`tp ${name} ${x + i * 2} ${Y} ${i % 2}`);
+          await server.cmd(`clear ${name}`);
+          bodies.push(body);
+          const agent = new Agent({
+            body,
+            persona: { ...persona, social: { ...persona.social, initiateChance: 0 } },
+            username: name,
+            llm: rt.client,
+            logger,
+            world: WorldConfigSchema.parse({}),
+            goalGen: false,
+            socialGoals: false,
+            speechTier: cfg.speech.tier,
+            speechModels: cfg.speech.models,
+            ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
+          });
+          agent.bus.on('spoke', (e) => void lines.push({ who: name, at: Date.now(), text: e.text }));
+          agent.bus.on('agreed', (e) => void agreed.push({ who: name, at: Date.now(), what: e.what, ...(e.mine ? { mine: e.mine } : {}) }));
+          agent.bus.on('conversationEnded', (e) => void ends.push(`${name}: ${e.reason}`));
+          agents.push(agent);
+        }
+        await sleep(2000);
+        for (const a of agents) a.start();
+        const [mira] = agents;
+        if (!mira) throw new Error('no Mira');
+        const t0 = Date.now();
+        const why = mira.cc.force({
+          option: 'talk',
+          target: { agent: 'Pip' },
+          speechIntent: { stance: 'ask', gist: 'ask Pip and Wren to go chop the oaks just east of here together, so there is wood for a hut before dark', mayCommit: false },
+          terminate: { maxSeconds: 60 },
+          rationale: 'we need wood for a hut',
+        });
+        expect(why).toBeNull();
+        await waitFor(() => agreed.length > 0 || null, 150_000, 'the talk settled', 1000).catch(() => null);
+        const settledAt = agreed[0]?.at ?? null;
+        // Once settled: on to it (anything but more talk), within a minute.
+        const acting = () => agents.filter((a) => a.store.state.option && a.store.state.option.option !== 'talk' && a.store.state.option.status === 'running').map((a) => a.name);
+        let busy: string[] = [];
+        if (settledAt) await waitFor(() => ((busy = acting()), busy.length >= 2 || null), 60_000, 'two of them on to it', 1000).catch(() => null);
+        const after = settledAt ? lines.filter((l) => l.at > settledAt + 5000) : [];
+        const sorted = [...lines].sort((a, b) => a.at - b.at);
+        const overlaps = sorted.filter((l, i) => i > 0 && l.who !== sorted[i - 1]?.who && l.at - (sorted[i - 1]?.at ?? 0) < 1000);
+        const lower = lines.filter((l) => /^[^A-Z]*[a-z]/.test(l.text.replace(/^[^A-Za-z]+/, '')) && !/^[A-Z]/.test(l.text.replace(/^[^A-Za-z]+/, '')));
+        console.log(
+          `[real talk] lines:\n${sorted.map((l) => `  ${((l.at - t0) / 1000).toFixed(1)} s ${l.who}: ${l.text}`).join('\n')}\n[real talk] agreed: ${JSON.stringify(agreed)}\n[real talk] ends: ${ends.join(' | ')}\n[real talk] on to it: ${busy.join(', ') || 'nobody'} (${agents.map((a) => `${a.name} ${a.store.state.option?.option ?? '-'} ${a.store.state.option?.skill ?? ''}`).join('; ')}); lines 5 s after: ${after.length}; overlaps: ${overlaps.length}; lowercase: ${lower.length}/${lines.length}`,
+        );
+        expect(settledAt).not.toBeNull();
+        expect(busy.length).toBeGreaterThanOrEqual(2);
+        expect(overlaps.length).toBeLessThanOrEqual(1);
+        expect(lower.length / Math.max(1, lines.length)).toBeGreaterThanOrEqual(0.6);
+      } finally {
+        for (const a of agents) await a.stop();
+        for (const b of bodies) await b.disconnect();
+      }
+    }, 400_000);
 
     it('wants a skill it lacks, L3 writes it, it is tried in the world and kept, and used again', async () => {
       const x = 1500;

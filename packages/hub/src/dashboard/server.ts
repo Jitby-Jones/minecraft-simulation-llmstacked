@@ -148,7 +148,8 @@ export class DashboardServer {
     const o = body as { cmd?: unknown; args?: unknown };
     if (typeof o.cmd !== 'string' || (o.args !== undefined && (!Array.isArray(o.args) || !o.args.every((x) => typeof x === 'string')))) return this.fail(res, 400, 'expected {cmd, args[]}');
     const args = o.args ?? [];
-    this.o.logger.info({ module: 'dashboard', cmd: o.cmd, args: o.cmd === 'rcon' ? ['…'] : args }, 'control command');
+    // The console page asks for new lines every two seconds: reading isn't worth a log line.
+    if (o.cmd !== 'console') this.o.logger.info({ module: 'dashboard', cmd: o.cmd, args: o.cmd === 'rcon' ? ['…'] : args }, 'control command');
     const r = await c.handle(o.cmd, args);
     this.json(res, r.ok ? 200 : 400, r);
   }

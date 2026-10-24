@@ -1,0 +1,24 @@
+{
+  "id": "longhouse",
+  "name": "longhouse",
+  "kind": "hall",
+  "description": "a long meeting hall of spruce logs and dark oak planks, a high gable roof of dark oak stairs, a double door at the end; tables and chairs for the village to gather at",
+  "style": ["hall", "nordic", "gathering"],
+  "source": "drawn from players' Viking longhouses and village meeting halls (photographs)",
+  "wallHeight": 4,
+  "parts": [
+    {
+      "size": [9, 15],
+      "foundation": "cobblestone",
+      "walls": "dark_oak_planks",
+      "posts": "spruce_log",
+      "floor": "spruce_planks",
+      "roof": { "style": "gable", "material": "dark_oak", "axis": "z", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 3, "sides": ["east", "west"] }
+    }
+  ],
+  "door": { "side": "south", "double": true },
+  "interior": ["table", "chair", "chair", "table", "chair", "chair", "table", "chair", "chair", "barrel", "chest", "furnace", "crafting_table"],
+  "lights": "lanterns",
+  "features": [{ "type": "lamp" }, { "type": "path" }]
+}

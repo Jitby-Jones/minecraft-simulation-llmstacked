@@ -5,10 +5,11 @@
 import type { ActionRecord, ActiveOption, Logger } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
-import type { AnySkill } from '../body/skills/types';
+import type { AnySkill, DesignAsk, SkillResult } from '../body/skills/types';
 import type { AgentStateStore } from '../state/store';
 import { evalCondition } from './conditions';
 import type { MindLevers } from './levers';
+import { whoMakesChests } from '../social/village';
 
 export interface ExecutorOptions {
   store: AgentStateStore;
@@ -25,6 +26,8 @@ export interface ExecutorOptions {
   releaseFight?: () => void;
   /** M10: the skills the agent wrote for itself (verified, and the one on trial), to run by name. */
   extraSkills?: () => readonly AnySkill[];
+  /** The architect, for the `design` skill (owner request, 2026-10-24). */
+  architect?: (ask: DesignAsk) => Promise<SkillResult>;
   now?: () => number;
 }
 
@@ -219,6 +222,38 @@ export class SkillExecutor {
           const me = store.state.self.username;
           const t = this.now();
           return Object.values(store.state.conversations).find((c) => c.status === 'active' && t - c.lastActivity < TALK_LIVE_MS)?.participants.find((n) => n !== me) ?? null;
+        },
+        // No chest about: a builder makes one, anyone when there's no builder (owner request, 2026-10-24).
+        chestMaker: () => whoMakesChests(store.state, this.now()),
+        ...(this.o.architect ? { architect: this.o.architect } : {}),
+        portals: {
+          list: () => store.state.village.portals ?? [],
+          note: (p) =>
+            store.update(
+              'village',
+              (v) => ({ ...v, portals: [...(v.portals ?? []).filter((x) => !(x.dimension === p.dimension && Math.abs(x.pos.x - p.pos.x) <= 2 && Math.abs(x.pos.y - p.pos.y) <= 3 && Math.abs(x.pos.z - p.pos.z) <= 2)), p].slice(-12) }),
+              'portal',
+            ),
+        },
+        // A new home: the old village's chest, huts and board are behind us (owner request, 2026-10-24).
+        setHome: (pos) => {
+          body.home = pos.clone();
+          store.update('village', (v) => ({ ...v, home: { x: pos.x, y: pos.y, z: pos.z }, chest: null, huts: [], board: null, signs: [] }), 'settled');
+        },
+        // Buildings begun, carried on where they were left (owner request, 2026-10-24).
+        projects: {
+          get: (design) => store.state.village.projects.find((p) => p.design === design && p.doneAt === null) ?? null,
+          set: (p) => store.update('village', (v) => ({ ...v, projects: [...v.projects.filter((x) => !(x.design === p.design && x.startedAt === p.startedAt)), p].slice(-12) }), 'building'),
+          taken: () => {
+            const v = store.state.village;
+            const spot = (q: { x: number; z: number }, r: number) => ({ x0: q.x - r, z0: q.z - r, x1: q.x + r, z1: q.z + r });
+            return [
+              ...v.huts.map((h) => spot(h, 3)),
+              ...(v.chest ? [spot(v.chest.pos, 1)] : []),
+              ...(v.board ? [spot(v.board, 1)] : []),
+              ...v.projects.map((p) => ({ x0: p.origin.x, z0: p.origin.z, x1: p.origin.x + p.size.x - 1, z1: p.origin.z + p.size.z - 1 })),
+            ];
+          },
         },
         fightNearby: () => {
           const me = store.state.self.username;

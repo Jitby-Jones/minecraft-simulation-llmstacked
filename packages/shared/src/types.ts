@@ -464,6 +464,42 @@ export interface VillageState {
   threats: number[];
   /** Ore this agent found away from home (newest last, ring): what a scout comes back to post. */
   finds: { what: string; pos: Vec3; at: number }[];
+  /** Buildings this agent has begun (owner request, 2026-10-24): where, how far along, what they still lack. */
+  projects: BuildProject[];
+  /** Portals this agent has built or been through (owner request, 2026-10-24): the way to the Nether and back. */
+  portals: PortalNote[];
+}
+
+/** A portal: which world it stands in (overworld, the_nether, the_end), where, and where it leads. */
+export interface PortalNote {
+  dimension: string;
+  pos: Vec3;
+  leadsTo: string;
+  at: number;
+}
+
+/** A building begun: one of the village's designs, put up at a site, a second go carrying on where the first stopped. */
+export interface BuildProject {
+  /** The design's id ("plains-cottage", "vanilla:plains_small_house_1"). */
+  design: string;
+  name: string;
+  /** The box's north-west corner at the ground's top layer. */
+  origin: Vec3;
+  /** Quarter turns clockwise. */
+  turn: number;
+  /** Its size on the ground as it stands (east-west, north-south). */
+  size: { x: number; z: number };
+  /** Where its door is, if it has one. */
+  door: Vec3 | null;
+  startedAt: number;
+  /** Blocks in, of all of them. */
+  placed: number;
+  total: number;
+  /** What it still lacks, by item. */
+  missing: Record<string, number>;
+  /** Blocks put in place of the design's own, decided when it was begun (oak_planks → spruce_planks). */
+  swaps: Record<string, string>;
+  doneAt: number | null;
 }
 
 export interface AgentFlags {
@@ -581,6 +617,10 @@ export type AgentEvent =
   | { type: 'decision'; decision: Decision }
   | { type: 'conversationStarted'; convId: ConvId }
   | { type: 'conversationEnded'; convId: ConvId; reason: string }
+  /** A line of ours went out in a conversation. */
+  | { type: 'spoke'; convId: ConvId; text: string }
+  /** A talk settled on something to do now (owner request, 2026-10-24): what, with whom, and our part in it. */
+  | { type: 'agreed'; with: AgentName[]; what: string; mine?: string }
   | { type: 'observedAction'; action: ObservedAction }
   | { type: 'systemEvent'; event: SystemEvent }
   /** A death notice about someone else (§16.3); grief −1 (relief) … 1 by how we felt about them. */
