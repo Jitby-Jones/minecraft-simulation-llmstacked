@@ -155,6 +155,10 @@ export function blockMatcher(raw: string): ItemMatcher {
   const n = normalizeBlockName(raw);
   const cat = CATEGORIES[n];
   if (cat) return { label: n, matches: cat };
+  // An ore is the same ore in stone or in deepslate, as a player says it ("mine iron_ore" found none, looking at
+  // deepslate_iron_ore at y -4).
+  const ore = /^(?:deepslate_)?(\w+_ore)$/.exec(n)?.[1];
+  if (ore) return { label: n, matches: (x) => x === ore || x === `deepslate_${ore}` };
   return { label: n, matches: (x) => x === n };
 }
 

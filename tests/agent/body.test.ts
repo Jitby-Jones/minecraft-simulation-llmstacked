@@ -5,7 +5,7 @@ import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
 import { ChatOut } from '@agora/agent/body/chatOut';
 import { countIn, describeDiff, diffInventory, inventoryDigest } from '@agora/agent/body/inventory';
-import { armorSlotOf, gearScore, itemMatcher, normalizeItemName, weaponTier } from '@agora/agent/body/items';
+import { armorSlotOf, blockMatcher, gearScore, itemMatcher, normalizeItemName, weaponTier } from '@agora/agent/body/items';
 import { compileCondition, pathCostRules, reflexDelta } from '@agora/agent/body/quirks';
 import { SKILLS, getSkill, skillCatalog } from '@agora/agent/body/skills/registry';
 import { describeMissing } from '@agora/agent/body/skills/crafting';
@@ -37,6 +37,11 @@ describe('item names and tiers', () => {
     expect(log.matches('oak_planks')).toBe(false);
     expect(itemMatcher('planks').matches('birch_planks')).toBe(true);
     expect(itemMatcher('oak_log').matches('birch_log')).toBe(false);
+    // An ore is the same ore in deepslate, either way it is named; other blocks are what they are named.
+    expect(blockMatcher('iron_ore').matches('deepslate_iron_ore')).toBe(true);
+    expect(blockMatcher('deepslate_diamond_ore').matches('diamond_ore')).toBe(true);
+    expect(blockMatcher('iron_ore').matches('gold_ore')).toBe(false);
+    expect(blockMatcher('stone').matches('deepslate')).toBe(false);
   });
 
   it('scores gear monotonically', () => {
