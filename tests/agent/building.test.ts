@@ -531,4 +531,22 @@ describe("what a model's design names, made real", () => {
     expect(side?.half).toBe('top');
     expect(side?.yaw).toBeUndefined();
   });
+
+  it('a building asked for well above the ground goes down onto it; on it, or a block over it, it stays', async () => {
+    const { onTheGround } = await import('@agora/agent/body/skills/construct');
+    const { Vec3 } = await import('@agora/agent/body/bot');
+    // Ground at 76 under a forest, its leaves from 80 to 83; a bank rising to 78 along the north edge.
+    const world = {
+      blockAt: (p: { x: number; y: number; z: number }) => {
+        const ground = p.z === 0 ? 78 : 76;
+        const name = p.y <= ground ? 'dirt' : p.y >= 80 && p.y <= 83 ? 'oak_leaves' : 'air';
+        return { position: new Vec3(p.x, p.y, p.z), name, boundingBox: name === 'air' ? 'empty' : 'block' };
+      },
+    } as never;
+    const size = { x: 5, z: 5 };
+    expect(onTheGround(world, new Vec3(0, 82, 0), size).y).toBe(76);
+    expect(onTheGround(world, new Vec3(0, 76, 0), size).y).toBe(76);
+    expect(onTheGround(world, new Vec3(0, 77, 0), size).y).toBe(77);
+    expect(onTheGround(world, new Vec3(0, 78, 0), size).y).toBe(78);
+  });
 });

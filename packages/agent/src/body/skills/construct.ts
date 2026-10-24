@@ -658,6 +658,23 @@ function groundAt(bot: Bot, x: number, z: number, y: number): number | null | 'w
   return null;
 }
 
+/**
+ * Where a building asked for at `origin` stands: there, unless that is well above the ground under it, and then on
+ * that ground (its middle height). A height taken from the treetops put a hut five blocks up in the air, its door out
+ * of reach of the two who built it.
+ */
+export function onTheGround(bot: Bot, origin: Vec3, size: { x: number; z: number }): Vec3 {
+  const hs: number[] = [];
+  for (let x = origin.x; x < origin.x + size.x; x++) {
+    for (let z = origin.z; z < origin.z + size.z; z++) {
+      const g = groundAt(bot, x, z, origin.y);
+      if (typeof g === 'number') hs.push(g);
+    }
+  }
+  const level = [...hs].sort((a, b) => a - b)[Math.floor(hs.length / 2)];
+  return level !== undefined && origin.y > level + 2 ? new Vec3(origin.x, level, origin.z) : origin;
+}
+
 export interface SiteChoice extends Site {
   /** Blocks to dig and to fill to level it, and trees to fell. */
   work: number;
@@ -822,8 +839,11 @@ export async function buildDesign(
   let site: Site;
   if (prior) site = { origin: new Vec3(prior.origin.x, prior.origin.y, prior.origin.z), turn: prior.turn };
   else if (at.x !== undefined && at.y !== undefined && at.z !== undefined) {
-    const origin = new Vec3(Math.floor(at.x), Math.floor(at.y), Math.floor(at.z));
-    site = { origin, turn: turnToFace(bp.entrance, at.facing ?? facingToward({ x: origin.x + bp.size.x / 2, z: origin.z + bp.size.z / 2 }, home)) };
+    const asked = new Vec3(Math.floor(at.x), Math.floor(at.y), Math.floor(at.z));
+    const turn = turnToFace(bp.entrance, at.facing ?? facingToward({ x: asked.x + bp.size.x / 2, z: asked.z + bp.size.z / 2 }, home));
+    const origin = onTheGround(bot, asked, turnedSize(bp, turn));
+    if (origin.y !== asked.y) ctx.logger.info({ module: 'build', asked: asked.toString(), origin: origin.toString() }, 'down to the ground under it');
+    site = { origin, turn };
   } else {
     const side = Math.max(bp.size.x, bp.size.z);
     ctx.progress(`looking for a place to build the ${b.name}`);
