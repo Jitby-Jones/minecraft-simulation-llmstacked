@@ -56,9 +56,16 @@ export const eat = defineSkill({
   expect: (_args, before) => ({ kind: 'foodAbove', value: Math.min(19, before.food) }),
   async run(ctx, args) {
     const { bot } = ctx;
-    if (bot.food >= 20) return { ok: true, observed: 'not hungry' };
     const m = args.item ? itemMatcher(args.item) : null;
-    const item = m ? (bot.inventory.items().find((i) => m.matches(i.name)) ?? null) : bestFood(bot, bot.food <= 6);
+    const named = m ? (bot.inventory.items().find((i) => m.matches(i.name)) ?? null) : null;
+    // What the game won't have eaten, it won't, hungry or not: an egg in the hand is thrown (starving, an agent tried
+    // to eat its egg, threw it, and waited on the bite).
+    if (named && !bot.registry.foodsByName[named.name]) {
+      const food = bestFood(bot, true);
+      return { ok: false, observed: 'not food', error: `${named.name.replace(/_/g, ' ')} can't be eaten${food ? `; the food you carry: ${food.name}` : '; you carry no food'}` };
+    }
+    if (bot.food >= 20) return { ok: true, observed: 'not hungry' };
+    const item = m ? named : bestFood(bot, bot.food <= 6);
     if (!item) return { ok: false, observed: 'no food', error: m ? `no ${m.label} to eat` : 'no food in inventory' };
     const had = countOf(bot, item.name);
     try {

@@ -579,6 +579,19 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 120_000);
 
+  it('an egg is no food: eating it is refused, and what can be eaten is named (one starving threw its egg trying)', async () => {
+    const x = 7500;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:egg 1');
+    await server.cmd('give Ada minecraft:bread 1');
+    await sleep(1500);
+    const r = await run('eat', { item: 'egg' });
+    logger.info({ r }, 'an egg');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/egg can't be eaten; the food you carry: bread/);
+    expect(countItem(body.bot, 'egg')).toBe(1);
+  }, 120_000);
+
   it('a hunt for a cow in view 45 m off: it walks to it and brings back the beef', async () => {
     const x = 7400;
     await at(x, 0);

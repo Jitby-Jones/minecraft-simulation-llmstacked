@@ -1,5 +1,5 @@
 diff --git a/index.js b/index.js
-index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..a1bbe869e5bfd2c07defd9dfa29ab6184c7c7c89 100644
+index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..01dead239e2508833c165358cd5eb0509040ad2f 100644
 --- a/index.js
 +++ b/index.js
 @@ -116,8 +116,9 @@ function inject (bot) {
@@ -34,6 +34,18 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..a1bbe869e5bfd2c07defd9dfa29ab618
              const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
              if (!lockPlaceBlock.tryAcquire()) return
              if (interactableBlocks.includes(refBlock.name)) {
+@@ -568,7 +574,10 @@ function inject (bot) {
+                 lastNodeTime = performance.now()
+               })
+           })
+-          .catch(_ignoreError => {})
++          .catch(_ignoreError => {
++            // A refused equip kept the lock for good: no block was set again until the path was reset.
++            lockEquipItem.release()
++          })
+       }
+       return
+     }
 diff --git a/lib/movements.js b/lib/movements.js
 index a7e35053cde64e3cd32880af2aafa5f03e919ff8..a558220c5163716a05fa0c293485656e1921f7d3 100644
 --- a/lib/movements.js

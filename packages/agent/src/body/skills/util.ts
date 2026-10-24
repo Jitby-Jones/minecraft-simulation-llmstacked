@@ -121,7 +121,17 @@ export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, time
       const at = bot.entity.position;
       const f = at.floored();
       // Where exactly it stopped, for one that never moved at all (in a hole, or in a block).
-      const stuck = { exact: `${at.x.toFixed(2)},${at.y.toFixed(2)},${at.z.toFixed(2)}`, onGround: bot.entity.onGround, feet: bot.blockAt(f)?.name ?? null, head: bot.blockAt(f.offset(0, 1, 0))?.name ?? null };
+      // And what the walk was at when it stopped: a dig or a placement never finishing holds a walk where it is.
+      const pf = bot.pathfinder as unknown as { isMining?: () => boolean; isBuilding?: () => boolean };
+      const stuck = {
+        exact: `${at.x.toFixed(2)},${at.y.toFixed(2)},${at.z.toFixed(2)}`,
+        onGround: bot.entity.onGround,
+        feet: bot.blockAt(f)?.name ?? null,
+        head: bot.blockAt(f.offset(0, 1, 0))?.name ?? null,
+        mining: pf.isMining?.() ?? null,
+        building: pf.isBuilding?.() ?? null,
+        holding: bot.heldItem?.name ?? null,
+      };
       ctx.logger.info({ module: 'skill', from: from.floored().toString(), at: f.toString(), to: pos.floored().toString(), range, events, err: errMsg(err), ...stuck }, 'walk failed');
       stopMotion(bot);
     }
