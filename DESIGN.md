@@ -3012,17 +3012,21 @@ and out of their nest, bursts of speed, one's own digs (a pathfinder patch: `rem
 argument and took everyone's dig listeners with it).
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
-renewable food source, at 27 minutes (`duo (7)`); the house alone twice before, once by 10 minutes (`duo (16)`); and in `duo (12)` the two came to a crush
-on each other (interest 0.75 and 0.71, the question due at 0.75), sheltering together, before both died outside a hut
-they could not walk into. Solo, the best had 8 diamonds by 19 minutes (`solo, seed 2 (4)`), and an iron pickaxe and
-twelve ingots by 20 (`solo, seed 1 (9)`); none has yet lived past its second night with the full list in reach. What
-kills them is still the night, now mostly through what the hands could not do (walk through a door, build a pillar
-on a slope, hear "lie low until healed" by day) or did not tell (where a room is, what a building lacks as a kind),
-each answered as above; and every death's post-mortem says how the last fight went. Verified: 705 unit tests; live,
-`hands` (38: dyeing, the hut's corner, a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop,
-climbing out of a hollow, a night's hut for one, a tunnel under gravel, a meadow of tulips, a bed in a nook, a
-pickaxe on its last uses, digs for diamonds over the bedrock, off a pillar ringed with stalagmites, full pockets, a worn pickaxe spared, a hut on a slope, a hut where asked, up out of the stone, torches short of coal, cobblestone from stone, one ingot short, a hut of granite, a furnace made to smelt, a cow 45 m off, an egg is no food),
-`thinking` (the flyer still seen, hops no longer taken for floating), `melee` (6: an
-archer across a trench, zombies on open ground, gravel on the head, a flooded pit), `cornered` (2), `m1-water` (4), `m1-skills` (into its own hut at night, a zombie at a hut's door no fight), `m1-night`, `m4` (no x-ray), `build`. The long
-runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live longrun`), and what they show is answered the
-same way: in the general mind and hands, never for the case.
+renewable food source, at 27 minutes (`duo (7)`) and again in `duo (18)`; the house alone by 5 minutes (`duo (21)`), and
+renewable food alone by 22 (`duo (22)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and
+0.71, the question due at 0.75) before both died outside a hut they could not walk into. Solo, the best is `solo, seed 1
+(19)`: 7 diamonds by 27 minutes, an iron pickaxe by 14, iron boots and a chestplate by 87, alive past its second hour
+(some five nights of the game); earlier, 8 diamonds by 19 minutes (`solo, seed 2 (4)`). What ends the runs now is less the night and
+the hands than food and the deep: no solo has made food come to it (a field, a pen) before it went down to mine, and
+underground, hungry and hurt, they starve below the health that heals, or die on the long walk up (one search for a
+path 70 blocks up runs out of time). Each death and stall is answered as above, in the general mind and hands; every
+death's post-mortem says how the last fight went. Verified: 706 unit tests; live, `hands` (38: dyeing, the hut's corner,
+a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop, climbing out of a hollow, a night's hut for
+one, a tunnel under gravel, a meadow of tulips, a bed in a nook, a pickaxe on its last uses, digs for diamonds over the
+bedrock, off a pillar ringed with stalagmites, full pockets, a worn pickaxe spared, a hut on a slope, a hut where asked,
+up out of the stone, torches short of coal, cobblestone from stone, one ingot short, a hut of granite, a furnace made to
+smelt, a cow 45 m off, an egg is no food), `thinking` (the flyer still seen, hops no longer taken for floating),
+`melee` (6: an archer across a trench, zombies on open ground, gravel on the head, a flooded pit), `cornered` (2),
+`m1-water` (4), `m1-skills` (22, with into its own hut at night and a zombie at a hut's door no fight; twice in a row),
+`m1-night`, `m4` (no x-ray), `build`. The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live
+longrun`), and what they show is answered the same way: in the general mind and hands, never for the case.
