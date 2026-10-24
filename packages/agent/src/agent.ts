@@ -588,8 +588,13 @@ export class Agent {
     // §6.8: what we saw inside a chest we opened (the village chest's contents), and what signs say.
     this.offs.push(
       this.bus.on('actionRecorded', (e) => {
-        const d = e.record.data as { chest?: { x: number; y: number; z: number }; contents?: Record<string, number> } | undefined;
+        const d = e.record.data as { chest?: { x: number; y: number; z: number }; contents?: Record<string, number>; room?: { x: number; y: number; z: number } } | undefined;
         if ((e.record.skill === 'deposit' || e.record.skill === 'withdraw') && d?.chest && d.contents) this.perception.village?.sawInside(d.chest, d.contents);
+        // A hut of one's own: where to run to when caught out at night.
+        const room = d?.room;
+        if (e.record.skill === 'build' && e.record.ok && room) {
+          this.store.update('village', (v) => ({ ...v, rooms: [...(v.rooms ?? []).filter((r) => r.x !== room.x || r.y !== room.y || r.z !== room.z), room].slice(-6) }), 'a hut of my own');
+        }
       }),
     );
     this.offs.push(this.bus.on('signRead', (e) => this.readSign(e.sign.text, e.sign.pos, e.board)));
@@ -663,6 +668,7 @@ export class Agent {
       isIdle: () => this.executor.idleBody,
       between: () => !this.executor.busy,
       mayPickUp: (item) => this.perception.mayPickUp(item.id) && !wasThrown(body.bot, item.id),
+      rooms: () => (this.store.state.village.rooms ?? []).map((r) => new BlockPos(r.x, r.y, r.z)),
       fearBoost: (source) => this.biases.fearBoost(source),
       onAllyAttacked: (ally, by) => {
         this.deeds.allyAttacked(ally, by);

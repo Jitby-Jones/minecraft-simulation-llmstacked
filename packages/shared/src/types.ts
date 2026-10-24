@@ -466,6 +466,8 @@ export interface VillageState {
   chest: { pos: Vec3; contents: Record<string, number> | null; seenAt: number } | null;
   /** Huts near home, by their doors. */
   huts: Vec3[];
+  /** The rooms of the huts this agent built itself, where one goes in to be inside (newest last). */
+  rooms?: Vec3[];
   /** Where the signs near home stand: the first one seen there. */
   board: Vec3 | null;
   /** Signs read, newest last (ring). */

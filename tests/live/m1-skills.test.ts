@@ -19,6 +19,8 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
   let bram: Body;
   const dangers: DangerInfo[] = [];
   const cleared: string[] = [];
+  /** The rooms of huts Pip built (as the agent remembers them). */
+  const rooms: Vec3[] = [];
   let zoneIndex = 0;
 
   /** Teleports the bots to a fresh, flat area and returns its origin. */
@@ -49,7 +51,7 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     const logger = createLogger({ name: 'm1-live', console: false });
     pip = await Body.connect(
       { host: server.host, port: server.port, username: 'Pip', version: versions.minecraft.version, logger, chat: { minIntervalMs: 300 } },
-      { onDanger: (d) => dangers.push(d), onDangerCleared: (s) => cleared.push(s), caution: () => 0.3 },
+      { onDanger: (d) => dangers.push(d), onDangerCleared: (s) => cleared.push(s), caution: () => 0.3, rooms: () => rooms },
     );
     bram = await Body.connect({ host: server.host, port: server.port, username: 'Bram', version: versions.minecraft.version, logger });
     await sleep(1000);
@@ -360,6 +362,41 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await server.cmd('kill @e[type=minecraft:zombie]');
       await server.cmd('effect give Pip minecraft:instant_health 1 3');
       await waitFor(() => pip.reflexes.mode === 'idle', 12000, 'got away');
+    });
+
+    it('caught out at night and hurt, it runs into its own hut, not off across the open', async () => {
+      const o = await zone();
+      dangers.length = 0;
+      // Its hut 10 blocks north: cobblestone round a 3×3 room, a roof, an oak door in the south wall. The zombie
+      // comes from the east: away from it alone is west, across the open.
+      const c = { x: o.x - 2, z: o.z - 12 };
+      const room = new Vec3(o.x, Y, o.z - 10);
+      await server.cmd(`fill ${c.x} ${Y - 1} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:cobblestone hollow`);
+      await server.cmd(`setblock ${o.x} ${Y} ${c.z + 4} minecraft:oak_door[facing=south,half=lower]`);
+      await server.cmd(`setblock ${o.x} ${Y + 1} ${c.z + 4} minecraft:oak_door[facing=south,half=upper]`);
+      rooms.push(room);
+      await server.cmd('time set 18000');
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await sleep(1000);
+      await waitFor(() => pip.bot.health >= 19, 5000, 'full health');
+      await server.cmd('damage Pip 15');
+      await waitFor(() => pip.bot.health <= 6, 5000, 'hurt');
+      await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
+      try {
+        await waitFor(() => dangers.some((d) => d.kind === 'flee'), 10000, 'flee reflex');
+        const inside = () => Math.abs(pip.bot.entity.position.x - (room.x + 0.5)) <= 1.5 && Math.abs(pip.bot.entity.position.z - (room.z + 0.5)) <= 1.5;
+        await waitFor(inside, 25000, 'in its hut');
+        // The door shut behind it, and the zombie at it outside is no fight to go out to.
+        await waitFor(() => pip.bot.blockAt(new Vec3(o.x, Y, c.z + 4))?.getProperties().open === false, 8000, 'door shut');
+        await waitFor(() => pip.reflexes.mode === 'idle', 15000, 'safe inside');
+        expect(inside()).toBe(true);
+      } finally {
+        rooms.length = 0;
+        await server.cmd('kill @e[type=minecraft:zombie]');
+        await server.cmd('time set 1000');
+        await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);
+        await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      }
     });
 
     it('eats when hungry and wears better armor', async () => {

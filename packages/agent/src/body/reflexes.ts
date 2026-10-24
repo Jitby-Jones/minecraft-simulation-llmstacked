@@ -20,9 +20,12 @@ import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { carefulWhenHurt, createMovements } from './plugins';
 import { isCover, referenceFor } from './skills/building';
-import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isPlayer, isSolid, wallsAround } from './world';
+import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isNight, isPlayer, isSolid, wallsAround } from './world';
 
 const { goals } = pathfinderPkg;
+
+/** Caught out at night, a hut of one's own this near (blocks) is run to rather than just away from what chases. */
+const SHELTER_RUN = 48;
 
 export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim';
 
@@ -153,6 +156,8 @@ export interface ReflexHooks {
   between?: () => boolean;
   /** Whether a drop is ours to take (not what someone else is digging or dropping). Default: yes. */
   mayPickUp?: (item: Entity) => boolean;
+  /** The rooms of the huts one built oneself, where one stands to be inside. */
+  rooms?: () => readonly Vec3[];
   /** Someone else hit a mob that was after us. */
   onHelpedFight?: (helper: string) => void;
   /** Extra health points of fear toward a threat (availability bias after a death to it, §18.4). */
@@ -236,6 +241,8 @@ export class ReflexController {
   private fleeSince = 0;
   /** Since when a flight has been going nowhere (the pathfinder not moving), or null. */
   private fleeStillSince: number | null = null;
+  /** This flight's run for a hut of one's own got nowhere: it runs as any other now. */
+  private noRoomRun = false;
   /** Until when we stand and fight because running isn't working. */
   private standUntil = 0;
   /** Where we stood lately, on the ground, a couple of blocks apart. */
@@ -650,8 +657,9 @@ export class ReflexController {
     const t = Date.now();
     const me = this.bot.entity.position;
     const out = new Map<number, Entity>();
-    // Sealed in a shelter, a mob we can't see can't reach us either; fighting it would dig us out.
-    const sealed = isEnclosed(this.bot);
+    // Sealed in a shelter, a mob we can't see can't reach us either; fighting it would dig us out. So in a hut of
+    // one's own, its door shut: what bumps at the door outside is no fight to go out to.
+    const sealed = isEnclosed(this.bot) || this.inOwnRoom();
     for (const e of Object.values(this.bot.entities)) {
       if (e === this.bot.entity || !isHostile(e)) continue;
       const d = e.position.distanceTo(me);
@@ -675,6 +683,21 @@ export class ReflexController {
       out.set(id, cur);
     }
     return [...out.values()].sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me));
+  }
+
+  /** The room of the nearest hut of one's own within a run of here, or null. */
+  private nearestRoom(): Vec3 | null {
+    const me = this.bot.entity.position;
+    const near = (this.hooks.rooms?.() ?? []).filter((r) => r.distanceTo(me) <= SHELTER_RUN);
+    return near.sort((a, b) => a.distanceTo(me) - b.distanceTo(me))[0] ?? null;
+  }
+
+  /** Standing in the room of a hut of one's own, under its roof. */
+  private inOwnRoom(): boolean {
+    const me = this.bot.entity.position;
+    const feet = me.floored();
+    if (!isSolid(this.bot.blockAt(feet.offset(0, 2, 0))) && !isSolid(this.bot.blockAt(feet.offset(0, 3, 0)))) return false;
+    return (this.hooks.rooms?.() ?? []).some((r) => Math.abs(me.x - (r.x + 0.5)) <= 1.5 && Math.abs(me.z - (r.z + 0.5)) <= 1.5 && Math.abs(feet.y - r.y) < 1);
   }
 
   private shouldFlee(threats: Entity[]): boolean {
@@ -818,6 +841,7 @@ export class ReflexController {
     }
     this.mode = 'flee';
     this.fleePlannedAt = 0;
+    this.noRoomRun = false;
     this.fleeHits = [];
     this.fleeStillSince = null;
     this.fleeSince = Date.now();
@@ -843,9 +867,19 @@ export class ReflexController {
     this.fleeStillSince = moving ? null : (this.fleeStillSince ?? now);
     if (now - this.fleePlannedAt < 1500 && moving) return;
     this.fleePlannedAt = now;
+    const avoid = this.inTheWay(threats);
+    // At night, near a hut of one's own, into it, when the way there isn't through what chases (an agent caught by the
+    // water at night, its hut a short run off, fought three zombies and a drowned in the open, and died). A run for it
+    // that gets nowhere (the way blocked, the door gone) is given up for this flight.
+    const room = isNight(this.bot) && !this.noRoomRun ? this.nearestRoom() : null;
+    const me = this.bot.entity.position;
+    if (room && this.fleeStillSince !== null && now - this.fleeStillSince > 2500 && me.distanceTo(room.offset(0.5, 0, 0.5)) > 1) this.noRoomRun = true;
+    else if (room && avoid.every((t) => t.position.distanceTo(room) > me.distanceTo(room) || t.position.distanceTo(me) > 8)) {
+      this.bot.pathfinder.setGoal(new goals.GoalBlock(room.x, room.y, room.z));
+      return;
+    }
     // Back the way we came first: ground we know is open. Clear of the others in sight too: an agent knocked away by
     // one creeper ran back along its trail into a second.
-    const avoid = this.inTheWay(threats);
     const back = this.trailSpot(avoid);
     if (back) {
       this.bot.pathfinder.setGoal(new goals.GoalNear(back.x, back.y, back.z, 1));
