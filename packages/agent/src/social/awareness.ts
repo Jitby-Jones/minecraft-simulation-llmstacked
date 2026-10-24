@@ -139,6 +139,14 @@ const SETTLE_MS = 8000;
 /** Giving in to a demand of ours this long after it was made still counts as giving in to it. */
 const DEMAND_HEARD_MS = 10 * 60_000;
 
+/** A name as one writes a person's, in something said: a username's letters, with a capital ("Cass stole my iron"). */
+export function writtenAsName(name: string, said: readonly string[]): boolean {
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return false;
+  const cap = `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+  const re = new RegExp(`(^|[^A-Za-z0-9_])${cap}([^A-Za-z0-9_]|$)`);
+  return said.some((t) => re.test(t));
+}
+
 export class SocialAwareness {
   private readonly flight = new SingleFlight<void>();
   private readonly offs: (() => void)[] = [];
@@ -309,7 +317,7 @@ export class SocialAwareness {
       const theirs = conv.transcript.filter((u) => u.from === partner).map((u) => u.text);
       if (theirs.length === 0) continue;
       const update = await this.socialUpdate(partner, conv);
-      this.apply(partner, update);
+      this.apply(partner, update, conv.transcript.map((t) => t.text));
       // In a group, a promise to someone else isn't one to us: only what they said to us counts.
       const toMe = conv.participants.length <= 2 ? theirs : conv.transcript.filter((u) => u.from === partner && (u.addressedToMe || u.heardAs === 'me')).map((u) => u.text);
       if (toMe.some((t) => looksLikePromise(t))) await this.extractPromises(partner, conv, toMe);
@@ -336,7 +344,7 @@ export class SocialAwareness {
       messages: [
         {
           role: 'system',
-          content: `${personaCore(this.persona, s.traitAnnotations)}\n\nYou just finished talking with ${partner}. Update what you think of them, as yourself (your values and temper decide how their manner strikes you). JSON: {"sentimentDelta": -2..2, "frictionDelta": -0.3..0.3, "frictionReason": "...", "perceivedGoals": ["..."], "perceivedRole": "...", "facts": ["new things you learned about them or from them"], "summary": "at most 60 words about ${partner}", "opinions": [{"target": "a name they talked about", "valence": -1..1}], "insultedMe": false, "seemedClever": 0..1, "theirSex": "male|female|unknown", "compatibility": 0..1}. theirSex: male or female as you take them to be, from what they say of themselves, the he or she others use for them, or their name (most names tell you, as they would anyone); unknown only if none of that does. compatibility: how well you two would get on as partners (shared values and humor, an energy that suits yours), from what you saw of them; leave it out if you can't tell.`,
+          content: `${personaCore(this.persona, s.traitAnnotations)}\n\nYou just finished talking with ${partner}. Update what you think of them, as yourself (your values and temper decide how their manner strikes you). JSON: {"sentimentDelta": -2..2, "frictionDelta": -0.3..0.3, "frictionReason": "...", "perceivedGoals": ["..."], "perceivedRole": "...", "facts": ["new things you learned about them or from them"], "summary": "at most 60 words about ${partner}", "opinions": [{"target": "the name of a person they talked about (never a creature, a thing or a place)", "valence": -1..1}], "insultedMe": false, "seemedClever": 0..1, "theirSex": "male|female|unknown", "compatibility": 0..1}. theirSex: male or female as you take them to be, from what they say of themselves, the he or she others use for them, or their name (most names tell you, as they would anyone); unknown only if none of that does. compatibility: how well you two would get on as partners (shared values and humor, an energy that suits yours), from what you saw of them; leave it out if you can't tell.`,
         },
         {
           role: 'user',
@@ -353,7 +361,7 @@ export class SocialAwareness {
     return r.value;
   }
 
-  private apply(partner: AgentName, u: SocialUpdate): void {
+  private apply(partner: AgentName, u: SocialUpdate, said: readonly string[] = []): void {
     const now = this.now();
     const before = this.profile(partner);
     // §18.4 confirmation: what fits how we already feel counts more, what goes against it less.
@@ -380,9 +388,14 @@ export class SocialAwareness {
     // §17.3: lasting friction wears sentiment down slowly.
     if (p.friction > 0.5) p = { ...p, sentiment: Math.max(0, p.sentiment - 0.2) };
     this.write(this.aligned(p), `talked with ${partner}`);
+    // About people only: those we know of, those around, or a name as one writes a person's in what was said ("Cass
+    // stole my iron"). Asked for "a name they talked about", the model also brought back "chicken", "village" and
+    // "woodcutting", each made a person of.
+    const st = this.o.store.state;
+    const people = new Set([...Object.keys(st.social), ...st.perception.nearbyEntities.filter((x) => x.kind === 'player').map((x) => x.name)]);
     const opinions: HeardOpinion[] = u.opinions
-      .filter((o) => o.target !== partner)
-      .map((o) => ({ speaker: partner, target: o.target === 'you' || o.target === 'me' ? this.o.me : o.target, valence: o.valence, ts: now }));
+      .map((o) => ({ speaker: partner, target: o.target === 'you' || o.target === 'me' ? this.o.me : o.target, valence: o.valence, ts: now }))
+      .filter((o) => o.target !== partner && (o.target === this.o.me || people.has(o.target) || writtenAsName(o.target, said)));
     if (opinions.length > 0) this.heard(opinions);
     if (u.insultedMe) this.o.bus.emit({ type: 'insulted', by: partner });
     this.o.logger.info({ module: 'social', partner, delta: u.sentimentDelta, sentiment: p.sentiment, friction: p.friction }, 'social update');

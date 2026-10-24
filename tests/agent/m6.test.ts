@@ -86,7 +86,12 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
             perceivedRole: 'builder',
             facts: ['Bram is building a house by the lake'],
             summary: 'Bram is friendly and busy building.',
-            opinions: [{ target: 'Cass', valence: -0.8 }],
+            // Only Cass is a person; the rest the model brought back from what they talked about.
+            opinions: [
+              { target: 'Cass', valence: -0.8 },
+              { target: 'chicken', valence: 0.5 },
+              { target: 'village', valence: 0.4 },
+            ],
             seemedClever: 0.9,
             theirSex: 'male',
             compatibility: 0.7,
@@ -104,6 +109,7 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
       ['Bram', 'hey Pip, I am building a house by the lake'],
       ['Pip', 'ooh nice'],
       ['Bram', "Cass stole my iron. Anyway, I'll bring you 8 logs for the help"],
+      ['Pip', 'want to go after the chickens by the village later?'],
     ]);
     s.update('conversations', (cs) => ({ ...cs, c1: conv }));
     bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
@@ -118,6 +124,7 @@ describe('Social Awareness with a model (§6.3, §6.4)', () => {
     sa.claimFailed('Bram');
     expect(s.state.social.Bram?.estIntelligence).toBeCloseTo(0.65, 5);
     expect(s.state.heardOpinions).toEqual([{ speaker: 'Bram', target: 'Cass', valence: -0.8, ts: 5000 }]);
+    expect(Object.keys(s.state.social).sort()).toEqual(['Bram', 'Cass']);
     // §19.1, §19.2: what he came across as, and how well they'd get on as partners.
     expect(p?.perceivedSex).toBe('male');
     expect(p?.estTraits.compatibility).toBe(0.7);
@@ -379,5 +386,18 @@ describe('notable deeds seen in the world (§6.3 rule 2)', () => {
     expect(s.state.social.Tobin?.sentiment).toBe(7);
     expect(s.state.workmem.at(-1)?.text).toBe('Tobin helped me fight');
     dw.stop();
+  });
+});
+
+describe('a name as one writes a person\'s (the model also brought back "chicken" and "village" as people)', () => {
+  it('a username written with a capital in what was said; not a lowercase word, nor one never said', async () => {
+    const { writtenAsName } = await import('@agora/agent/social/awareness');
+    const said = ['Cass stole my iron', 'go after the chickens by the village', 'Rex_99, over here'];
+    expect(writtenAsName('Cass', said)).toBe(true);
+    expect(writtenAsName('Rex_99', said)).toBe(true);
+    expect(writtenAsName('chicken', said)).toBe(false);
+    expect(writtenAsName('village', said)).toBe(false);
+    expect(writtenAsName('woodcutting', said)).toBe(false);
+    expect(writtenAsName('the chicken', said)).toBe(false);
   });
 });
