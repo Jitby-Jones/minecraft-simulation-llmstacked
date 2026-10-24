@@ -243,6 +243,9 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
   // A full inventory, said as a player knows it: the collect plugin's "There are no defined chest locations!", and a
   // craft refused with no slot for what it makes (an agent took both for a bug in mining, and stopped mining).
   if (error && (/no defined chest locations/i.test(error) || (freeSlots(deps.bot) === 0 && /did not accept the craft/.test(error)))) error = INVENTORY_FULL;
+  // Anything that came to nothing in the pockets with them full says why: an agent starving among its kills ("killed
+  // but picked nothing up", the meat on the ground) had 36 stacks of stone.
+  else if (!ok && freeSlots(deps.bot) === 0 && (expectation.kind === 'inventoryGain' || expectation.kind === 'inventoryHas')) error = `${error ? `${error}: ` : ''}${INVENTORY_FULL}`;
   // Server updates (inventory, block changes) can trail the client's view by a few hundred ms: give the
   // world time to settle before calling a result a mismatch.
   let after = snapshotBody(deps.bot);
