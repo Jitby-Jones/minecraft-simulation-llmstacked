@@ -220,6 +220,37 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.blockAt(new Vec3(x, Y, 2))?.name).toBe('red_bed');
   }, 120_000);
 
+  it('down off a pillar ringed with stalagmites: by the stair, never a drop onto a point (one at 7 health "fell from a high place" so)', async () => {
+    const x = 5600;
+    await server.cmd(`forceload add ${x - 12} -12 ${x + 12} 12`);
+    await server.cmd(`fill ${x - 6} ${Y} -6 ${x + 10} ${Y + 6} 6 air`);
+    // A pillar three high, points all round its foot, and a stair down its west side.
+    await server.cmd(`fill ${x} ${Y} 0 ${x + 2} ${Y + 2} 2 stone`);
+    await server.cmd(`fill ${x - 1} ${Y} -1 ${x + 3} ${Y} 3 pointed_dripstone[vertical_direction=up] replace air`);
+    await server.cmd(`setblock ${x - 1} ${Y} 1 stone`);
+    await server.cmd(`setblock ${x - 1} ${Y + 1} 1 stone`);
+    await server.cmd(`setblock ${x - 2} ${Y} 1 stone`);
+    await server.cmd(`tp Ada ${x + 1}.5 ${Y + 3} 1.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('effect give Ada minecraft:instant_health 1 3');
+    await sleep(2000);
+    const before = body.bot.health;
+    // Where it stands, every tick of the walk: never over a point.
+    const over: string[] = [];
+    const look = () => {
+      const under = body.bot.blockAt(body.bot.entity.position.offset(0, -0.2, 0));
+      if (under?.name === 'pointed_dripstone') over.push(body.bot.entity.position.toString());
+    };
+    body.bot.on('physicsTick', look);
+    const r = await run('goTo', { x: x + 7, y: Y, z: 1, range: 1 });
+    body.bot.off('physicsTick', look);
+    await sleep(1000);
+    logger.info({ r, before, health: body.bot.health, over: over.slice(0, 5), at: body.bot.entity.position.toString() }, 'off the pillar');
+    expect(r.ok).toBe(true);
+    expect(over).toEqual([]);
+    expect(body.bot.health).toBe(before);
+  }, 120_000);
+
   it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
     const x = 5800;
     await at(x, 0);

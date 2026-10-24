@@ -8,7 +8,7 @@ import { plugin as pvpPlugin } from 'mineflayer-pvp';
 import { plugin as collectBlockPlugin } from 'mineflayer-collectblock';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
-import type { Vec3 } from 'vec3';
+import { Vec3 } from 'vec3';
 import { type PathCostRule, pathCostRules } from './quirks';
 
 const { pathfinder, Movements, goals } = pathfinderPkg;
@@ -240,6 +240,19 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
     }
     return b;
   };
+  // Never a step onto a stalagmite, nor a drop onto one: a fall onto a point is as one from three blocks higher, twice
+  // over (a drop that does nothing elsewhere takes five hearts; an agent at 7 health walking down a dripstone cave
+  // "fell from a high place").
+  const pointId = bot.registry.blocksByName.pointed_dripstone?.id;
+  if (pointId !== undefined) {
+    const onPoint = (p: { x: number; y: number; z: number }) => bot.blockAt(new Vec3(p.x, p.y - 1, p.z))?.type === pointId;
+    m.exclusionAreasStep.push((block: StepBlock) => (loaded(block) && onPoint(block.position) ? 100 : 0));
+    const landing = (m as unknown as { getLandingBlock: (node: GridNode, dir: { x: number; z: number }) => (Block & { liquid?: boolean }) | null }).getLandingBlock.bind(m);
+    (m as unknown as { getLandingBlock: typeof landing }).getLandingBlock = (node, dir) => {
+      const b = landing(node, dir);
+      return b?.position && !b.liquid && onPoint(b.position) ? null : b;
+    };
+  }
   m.scafoldingBlocks = SCAFFOLD.map((n) => bot.registry.itemsByName[n]?.id).filter((v): v is number => v !== undefined);
   // Keep a step away from lava: a slip or a failed jump next to it is deadly (the pathfinder only refuses
   // stepping into it).
