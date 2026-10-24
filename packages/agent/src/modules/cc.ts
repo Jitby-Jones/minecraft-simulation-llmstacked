@@ -979,6 +979,9 @@ function nightMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck'
   if (mayHide && !isStuck('shelter', { untilMorning: true })) {
     return { option: 'work', task: { skill: 'shelter', args: { untilMorning: true } }, terminate: { maxSeconds: 900 }, rationale: 'code default: night, and no mind to choose otherwise; digging in until morning' };
   }
+  // Under a roof or in the ground the dark is no news: going home from there crosses the open in it (an agent sent
+  // home so from a tunnel 40 m down died on the way, among a skeleton, two zombies and a spider).
+  if (!/under the open sky/.test(s.scene.where)) return null;
   const home = s.village.home;
   const p = s.self.pos;
   if (home && Math.hypot(p.x - home.x, p.z - home.z) > 32) {
@@ -1071,6 +1074,12 @@ export class CognitiveController {
   private readonly waiting = new Set<NodeJS.Timeout>();
   private stopped = false;
   private lastDecisionAt = 0;
+  /**
+   * The option under way is the mind's own, or a step it meant (not a panic, a reflex or a fallback taking over): only
+   * then does what it meant next follow on. An agent ran in a panic out of the hole it was digging, and on finishing
+   * the run went straight on to the mining it had meant for after the night.
+   */
+  private ownOption = false;
   private deferred: { reason: string; ctx: DecideContext } | null = null;
   /** A question put to us, still to be answered: a later reason to decide doesn't push it out of the queue. */
   private asked: { reason: string; ctx: DecideContext; at: number } | null = null;
@@ -1519,6 +1528,7 @@ export class CognitiveController {
       if (skill) decision.task = { skill: skill.name, args: decision.task.args };
     }
     this.lastDecisionAt = now;
+    this.ownOption = source === 'llm' || source === 'intention';
     store.set('decision', decision, `decision ${decision.option}`);
     // Warning someone off, or walking away from them, counts toward the next one (WARN_EVERY_MS).
     const stance = decision.speechIntent?.stance;
@@ -1587,7 +1597,7 @@ export class CognitiveController {
       this.trigger(`what you were doing is done (${reason}), and you have made a new plan since you decided what to do after it`);
       return;
     }
-    if (ok && meant && meant.steps.length > 0 && !s.flags.inDanger && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
+    if (ok && meant && this.ownOption && meant.steps.length > 0 && !s.flags.inDanger && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
       const [step, ...rest] = meant.steps;
       this.o.store.update('mind', (m) => ({ ...m, intention: rest.length > 0 ? { ...meant, steps: rest } : null }), 'next step');
       if (step?.skill) {

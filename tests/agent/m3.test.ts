@@ -218,8 +218,11 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     const byDay = codeDecision(day, {}, false, never)?.task;
     expect([byDay?.skill, byDay?.args.radius]).toEqual(['wander', 16]);
     // Out after dark far from home: back home.
-    const away = withState((x) => ({ ...x, self: { ...x.self, isDay: false, pos: { x: 100, y: 64, z: 0 } }, village: { ...x.village, home: { x: 0, y: 64, z: 0 } } }));
+    const away = withState((x) => ({ ...x, self: { ...x.self, isDay: false, pos: { x: 100, y: 64, z: 0 } }, village: { ...x.village, home: { x: 0, y: 64, z: 0 } }, scene: { ...x.scene, where: 'In plains, standing on grass block, under the open sky' } }));
     expect(codeDecision(away, {}, false, never)?.task).toEqual({ skill: 'goTo', args: { x: 0, y: 64, z: 0, range: 4 } });
+    // In a tunnel, the dark is no news: no walk home across the open in it.
+    const below = { ...away, scene: { ...away.scene, where: 'In plains, standing on stone, under a roof' } };
+    expect(codeDecision(below, {}, false, never)?.task?.skill).not.toBe('goTo');
     // With a model, hiding is the model's call (gated below); a decision of the code default's never hides.
     const scared = { ...away, emotions: { ...away.emotions, fear: 0.8 } };
     expect(codeDecision(scared, {}, false, never, { candidates: [], roll: 0.9 })?.task?.skill).toBe('goTo');
