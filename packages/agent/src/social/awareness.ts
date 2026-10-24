@@ -106,7 +106,9 @@ export function codePromises(theirLines: readonly string[], known: readonly Agen
       const t = withoutOpeningName(line, isName);
       const foe = parseFightPromise(t, known);
       if (foe) return { what: { kind: 'fight' as const, target: foe, text: t.slice(0, 160) }, dueInSec: FIGHT_DUE_SEC };
-      const m = /\b(?:bring|give|get|fetch|grab)\s+(?:you\s+)?(?:some\s+|the\s+|a\s+|an\s+|those\s+|these\s+)?(\d{1,3})?\s*([a-z_]{3,24})/i.exec(t);
+      // Bringing or giving is to us; getting, fetching or grabbing only when it is "you" it is for ("gonna grab some
+      // chicken", said of one's share of the work, was taken for a promise to hand it over, and broken).
+      const m = /\b(?:(?:bring|give)\s+(?:you\s+)?|(?:get|fetch|grab)\s+you\s+)(?:some\s+|the\s+|a\s+|an\s+|those\s+|these\s+)?(\d{1,3})?\s*([a-z_]{3,24})/i.exec(t);
       const qty = m?.[1] ? Number(m[1]) : NUM.exec(t)?.[1] ? Number(NUM.exec(t)?.[1]) : undefined;
       const item = m?.[2] ?? ITEMISH.exec(t)?.[1];
       return m ? { what: { kind: 'give' as const, ...(item ? { item: item.toLowerCase().replace(/s$/, '') } : {}), ...(qty ? { qty } : {}), text: t.slice(0, 160) } } : { what: { kind: 'custom' as const, text: t.slice(0, 160) } };
@@ -454,7 +456,7 @@ export class SocialAwareness {
         messages: [
           {
             role: 'system',
-            content: `List only the promises ${partner} made to you in this conversation (things ${partner} said they would do for you). JSON: {"promises": [{"what": {"kind": "give|gather|meet|help|build|follow|fight|custom", "item": "minecraft item id", "qty": 1, "target": "for fight: whom they will fight with you", "text": "what they promised"}, "dueInSec": 600}]}`,
+            content: `List only the promises ${partner} made to you in this conversation (things ${partner} said they would do for you). "give" only when they said they would hand something over to you ("I'll give you", "I'll bring you", "here, take"); what they said they would do as their share of the work, or for themselves ("I'll handle food", "gonna grab some chicken", "I'll get the wood") is "custom", in their words, and no promise to hand anything over. JSON: {"promises": [{"what": {"kind": "give|gather|meet|help|build|follow|fight|custom", "item": "minecraft item id", "qty": 1, "target": "for fight: whom they will fight with you", "text": "what they promised"}, "dueInSec": 600}]}`,
           },
           { role: 'user', content: this.transcriptText(conv) },
         ],

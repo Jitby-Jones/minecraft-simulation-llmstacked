@@ -52,6 +52,9 @@ describe('Social Awareness without a model (§6.3 code defaults)', () => {
     expect(rude.insultedMe).toBe(true);
     const p = codePromises(["sure, I'll bring you 8 logs later", 'nice weather']);
     expect(p.promises).toEqual([{ what: { kind: 'give', item: 'log', qty: 8, text: "sure, I'll bring you 8 logs later" } }]);
+    // One's share of the work is no promise to hand anything over; getting something for you is.
+    expect(codePromises(["ok so you do tools, i'll handle food, gonna grab some chicken"]).promises[0]?.what.kind).toBe('custom');
+    expect(codePromises(["i'll grab you some chicken"]).promises[0]?.what).toMatchObject({ kind: 'give', item: 'chicken' });
   });
 
   it('applies deeds and resolved promises with code-only deltas', () => {
