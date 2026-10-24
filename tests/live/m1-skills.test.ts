@@ -375,7 +375,6 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await server.cmd(`setblock ${o.x} ${Y} ${c.z + 4} minecraft:oak_door[facing=south,half=lower]`);
       await server.cmd(`setblock ${o.x} ${Y + 1} ${c.z + 4} minecraft:oak_door[facing=south,half=upper]`);
       rooms.push(room);
-      await server.cmd('time set 18000');
       await server.cmd('effect give Pip minecraft:instant_health 1 3');
       await sleep(1000);
       await waitFor(() => pip.bot.health >= 19, 5000, 'full health');
@@ -393,9 +392,35 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       } finally {
         rooms.length = 0;
         await server.cmd('kill @e[type=minecraft:zombie]');
-        await server.cmd('time set 1000');
         await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);
         await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      }
+    });
+
+    it("in a hut's room at night, its door shut, a zombie at the door outside is no fight to go out to", async () => {
+      // One in her companion's hut went out of the door after a zombie at it, left it open, and was taken from 20 to 1.
+      const o = await zone();
+      dangers.length = 0;
+      const c = { x: o.x - 2, z: o.z - 2 };
+      await server.cmd(`fill ${c.x} ${Y - 1} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:cobblestone hollow`);
+      await server.cmd(`setblock ${o.x} ${Y} ${c.z + 4} minecraft:oak_door[facing=south,half=lower]`);
+      await server.cmd(`setblock ${o.x} ${Y + 1} ${c.z + 4} minecraft:oak_door[facing=south,half=upper]`);
+      await server.cmd(`tp Pip ${o.x} ${Y} ${o.z}`);
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await sleep(1500);
+      const door = new Vec3(o.x, Y, c.z + 4);
+      try {
+        await server.cmd(`summon minecraft:zombie ${o.x} ${Y} ${c.z + 5} {PersistenceRequired:1b}`);
+        const inside = () => Math.abs(pip.bot.entity.position.x - (o.x + 0.5)) <= 1.5 && Math.abs(pip.bot.entity.position.z - (o.z + 0.5)) <= 1.5;
+        for (let i = 0; i < 20; i++) {
+          await sleep(500);
+          expect(inside()).toBe(true);
+          expect(pip.bot.blockAt(door)?.getProperties().open).toBe(false);
+        }
+        expect(dangers.some((d) => d.kind === 'fight')).toBe(false);
+      } finally {
+        await server.cmd('kill @e[type=minecraft:zombie]');
+        await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);
       }
     });
 

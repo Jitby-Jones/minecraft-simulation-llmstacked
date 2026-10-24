@@ -579,6 +579,25 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 120_000);
 
+  it('smelting with no furnace near: one made of the cobblestone on hand at the table carried; without stone, it says what is short', async () => {
+    const x = 7300;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:raw_iron 2');
+    await server.cmd('give Ada minecraft:coal 1');
+    await sleep(1500);
+    const none = await run('smelt', { item: 'raw_iron', qty: 2 });
+    logger.info({ none }, 'smelt, nothing for a furnace');
+    expect(none.ok).toBe(false);
+    expect(none.error).toMatch(/need a furnace, and could not make one: .*cobblestone/);
+    await server.cmd('give Ada minecraft:cobblestone 8');
+    await server.cmd('give Ada minecraft:crafting_table 1');
+    await sleep(1500);
+    const r = await run('smelt', { item: 'raw_iron', qty: 2 });
+    logger.info({ r }, 'smelt, a furnace made');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'iron_ingot')).toBe(2);
+  }, 180_000);
+
   it('a hut of what the digging brought: granite and andesite', async () => {
     // Prospectors carried dozens of granite and andesite and were told they needed more building blocks.
     const x = 7200;

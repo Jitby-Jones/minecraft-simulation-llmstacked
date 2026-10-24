@@ -309,6 +309,15 @@ export function isEnclosed(bot: Bot, feet: Vec3 = bot.entity.position.floored())
   return wallsAround(bot, feet) && isSolid(bot.blockAt(feet.offset(0, 2, 0)));
 }
 
+/**
+ * Inside a room: a roof over the head and a wall within two blocks every way (a hut's room up to 3 across, its door
+ * shut). What is outside the walls can only come in by the door, and is seen if it does.
+ */
+export function isIndoors(bot: Bot, feet: Vec3 = bot.entity.position.floored()): boolean {
+  if (!isSolid(bot.blockAt(feet.offset(0, 2, 0))) && !isSolid(bot.blockAt(feet.offset(0, 3, 0)))) return false;
+  return SIDES.every((s) => [1, 2].some((k) => isSolid(bot.blockAt(feet.plus(s.scaled(k)))) || isSolid(bot.blockAt(feet.plus(s.scaled(k)).offset(0, 1, 0)))));
+}
+
 const COMPASS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'] as const;
 
 /** Where a block is from where one stands, in words ("beside you to the north, at head height", "3 m to the east"). */

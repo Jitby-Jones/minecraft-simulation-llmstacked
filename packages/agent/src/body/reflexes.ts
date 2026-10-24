@@ -20,7 +20,7 @@ import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { carefulWhenHurt, createMovements } from './plugins';
 import { isCover, referenceFor } from './skills/building';
-import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isNight, isPlayer, isSolid, wallsAround } from './world';
+import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isIndoors, isNight, isPlayer, isSolid, wallsAround } from './world';
 
 const { goals } = pathfinderPkg;
 
@@ -657,9 +657,10 @@ export class ReflexController {
     const t = Date.now();
     const me = this.bot.entity.position;
     const out = new Map<number, Entity>();
-    // Sealed in a shelter, a mob we can't see can't reach us either; fighting it would dig us out. So in a hut of
-    // one's own, its door shut: what bumps at the door outside is no fight to go out to.
-    const sealed = isEnclosed(this.bot) || this.inOwnRoom();
+    // Sealed in a shelter, a mob we can't see can't reach us either; fighting it would dig us out. So in a hut's room,
+    // its door shut: what bumps at the door outside is no fight to go out to (an agent in her companion's hut went
+    // out of the door after a zombie at it, left it open, and was taken from 20 health to 1).
+    const sealed = isEnclosed(this.bot) || this.inOwnRoom() || isIndoors(this.bot);
     for (const e of Object.values(this.bot.entities)) {
       if (e === this.bot.entity || !isHostile(e)) continue;
       const d = e.position.distanceTo(me);

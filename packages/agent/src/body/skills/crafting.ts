@@ -433,6 +433,13 @@ export const smelt = defineSkill({
     const carried = countItem(bot, 'furnace');
     try {
       furnaceBlock = await findOrPlace(ctx, 'furnace', 'furnace');
+      if (!furnaceBlock && countItem(bot, 'furnace') === 0) {
+        // None near nor carried: one made on the spot of the stone on hand, at a table near or carried, as a player
+        // does ("need a furnace" alone came 22 times over the runs, cobblestone in the pockets).
+        const made = await craft.run(ctx, { item: 'furnace', qty: 1 });
+        if (!made.ok) return { ok: false, observed: 'no furnace', error: `need a furnace, and could not make one: ${made.error ?? made.observed}` };
+        furnaceBlock = await findOrPlace(ctx, 'furnace', 'furnace');
+      }
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'no furnace', error: errMsg(err) };
