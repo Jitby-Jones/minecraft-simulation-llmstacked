@@ -2931,6 +2931,9 @@ was in) and answered with a change to the general mind or hands, never a rule fo
 | solo, seed 1 (5) | 45 min | hunting worked from what it saw ("the nearest in view is a cow 36 m west"); slain by a zombie on its staircase down | where each ore lies by height; a live test of fighting while digging (`melee`: the fight itself is sound) |
 | solo, seed 2 (3) | 14 min | its model call failed in a tunnel at dusk and the fallback sent it home across the open; a panic took it out of the hole it was digging; a spider | the night fallback moves no one under cover; after a panic, a reflex or a fallback, the steps meant follow on no more: think |
 | duo (7) | 49 min | **house and renewable food met at 27 min**; Ada, worn down by three skeletons and a spider to one heart, ate to heal and was caught by a zombie | (before the last two fixes) |
+| solo, seed 1 (6) | 8 min | drowned in a flooded tunnel, holding jump against the stone overhead | under water with a roof over it, swim for the nearest air (live, `m1-water`) |
+| duo (8) | 20 min (stopped) | the two had stopped talking; each took the other's sex for unknown; one dug up the other's crafting table to get one | how players are with each other, in how the mind sees play and thinks; a name counts plainly; what people made is no source to dig for |
+| solo, seed 2 (4) | 24 min | **8 diamonds by 19 min**, then its iron pickaxe broke; asked for "9 more diamonds" three times; at 8 health fell to its death crossing a dripstone cave | a tool's wear in view; the same attempt known again whatever the amount; hurt, no jumps over gaps |
 
 Smaller things from the same runs: torches only on a sturdy face (leaves refused three in a row); "haven't seen any
 iron_ore … raw_iron comes from mining it" in place of "any raw_iron" (asked for five times over); where each ore lies by
@@ -2942,9 +2945,9 @@ and out of their nest, bursts of speed, one's own digs (a pathfinder patch: `rem
 argument and took everyone's dig listeners with it).
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
-renewable food source, at 27 minutes (`duo (7)`); the house alone once before. Solo, the best has an iron pickaxe at
-19 minutes and goes deep for diamonds; none has yet lived past its second night with the full list in reach. Deaths are
+renewable food source, at 27 minutes (`duo (7)`); the house alone once before. Solo, the best had 8 diamonds by 19
+minutes (`solo, seed 2 (4)`), and none has yet lived past its second night with the full list in reach. Deaths are
 now mostly fights at night and low health in the open, each answered as above; and every death's post-mortem says how
-the last fight went. Verified: 683 unit tests; live, `hands` (11), `melee` (2), `m1-water` (4, with the flooded tunnel),
+the last fight went. Verified: 687 unit tests; live, `hands` (11), `melee` (2), `m1-water` (4, with the flooded tunnel),
 `cornered`, `m4` (no x-ray), `build`. The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live
 longrun`), and what they show is answered the same way: in the general mind and hands, never for the case.
