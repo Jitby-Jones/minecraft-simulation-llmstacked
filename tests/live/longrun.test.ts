@@ -175,6 +175,8 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
               thoughts: s.mind.thoughts.slice(-3).map((t) => t.text),
               lessons: (s.knowledge.lessons ?? []).map((l) => l.text),
               recent: s.actionLog.slice(-6).map((r) => `${r.skill} ${JSON.stringify(r.args)}: ${r.ok ? 'ok' : `FAILED ${r.error ?? ''}`}`),
+              // How each sees the others: what a romance grows from (§19.2).
+              others: Object.values(s.social).map((p) => `${p.name}: liking ${Math.round(p.sentiment)}, takes them for ${p.perceivedSex}, interest ${p.romanticInterest.toFixed(2)}, ${p.relationship}`),
               ...(bot ? { time: bot.time.timeOfDay } : {}),
             };
           }),
