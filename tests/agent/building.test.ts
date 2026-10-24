@@ -187,6 +187,44 @@ describe('the building language', () => {
     expect(bp.blocks.find((b) => b.state.startsWith('chest'))?.y).toBe(1);
   });
 
+  it('a door asked for where a wing covers the wall goes to the nearest place that works, said so', () => {
+    const bp = compileDesign(
+      design({
+        name: 'ell',
+        parts: [
+          { at: [0, 0], size: [9, 5], walls: 'oak_planks', roof: { style: 'gable', material: 'oak', axis: 'x' } },
+          { at: [2, 3], size: [5, 6], walls: 'cobblestone', roof: { style: 'gable', material: 'oak', axis: 'z' } },
+        ],
+        // The middle of part 0's south wall is inside the wing.
+        door: { part: 0, side: 'south' },
+      }),
+    );
+    expect(bp.problems).toEqual([]);
+    expect(unplaceable(bp)).toEqual([]);
+    expect(bp.entrance).not.toBeNull();
+    const e = bp.entrance;
+    if (e) {
+      const v = e.out === 'north' ? [0, -1] : e.out === 'south' ? [0, 1] : e.out === 'east' ? [1, 0] : [-1, 0];
+      // Open ground before it.
+      expect(bp.blocks.some((b) => b.x === e.x + (v[0] ?? 0) && b.z === e.z + (v[1] ?? 0) && b.y === 1)).toBe(false);
+    }
+    // Still on part 0's south side, beside the wing, or said where it went.
+    expect(e?.out === 'south' || (bp.notes ?? []).some((n) => n.includes('the door went on'))).toBe(true);
+  });
+
+  it('a detail with nothing to go against is left out with a note, not an error', () => {
+    const bp = compileDesign(design({ ...box(), details: [{ block: 'lantern[hanging=true]', at: [2, 5, 2] }, { block: 'oak_log', at: [9, 9, 9] }] }));
+    expect(bp.problems).toEqual([]);
+    expect((bp.notes ?? []).some((n) => n.includes('left out oak_log'))).toBe(true);
+    expect(bp.blocks.some((b) => b.state === 'oak_log' && b.y === 9)).toBe(false);
+  });
+
+  it('reads blocks and things inside written loosely: case, the minecraft: prefix, a state, spaces', () => {
+    const d = design({ ...box({ interior: ['Crafting Table', 'minecraft:chest', 'oak_stairs[facing=north]', 'bed@1'] }, { walls: 'Minecraft:Oak_Planks' }) });
+    expect(d.interior).toEqual(['crafting_table', 'chest', 'oak_stairs', 'bed@1']);
+    expect(d.parts[0]?.walls).toBe('oak_planks');
+  });
+
   it('says what is wrong with a design rather than building it wrong', () => {
     const bp = compileDesign(design({ ...box({ interior: Array(24).fill('chest') }), parts: [{ size: [3, 3], walls: 'cobblestone', roof: { style: 'gable', material: 'gold' } }] as never }));
     expect(bp.problems.some((p) => p.includes('no roof of gold'))).toBe(true);

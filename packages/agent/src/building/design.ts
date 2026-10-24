@@ -8,7 +8,10 @@
 import { z } from 'zod';
 
 const Side = z.enum(['north', 'east', 'south', 'west']);
-const Block = z.string().regex(/^[a-z0-9_]+(\[[a-z0-9_=,]+\])?$/, 'a block name like oak_planks');
+const Block = z.preprocess(
+  (v) => (typeof v === 'string' ? v.trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '') : v),
+  z.string().regex(/^[a-z0-9_]+(\[[a-z0-9_=,]+\])?$/, 'a block name like oak_planks'),
+);
 const Cell = z.tuple([z.number().int().min(-2).max(40), z.number().int().min(-1).max(40), z.number().int().min(-2).max(40)]);
 
 export const RoofSchema = z.object({
@@ -85,7 +88,15 @@ export const DesignSchema = z
      * Along the inside walls, the ground floor first (upstairs when it is full): bed, chest, crafting_table, furnace,
      * bookshelf, barrel, table, chair, lantern, plant, anvil, ... "bed@1" puts it on the floor above the ground.
      */
-    interior: z.array(z.string().regex(/^[a-z_]+(@[0-2])?$/, 'a block name, or name@floor like bed@1')).max(24).default([]),
+    interior: z
+      .array(
+        z.preprocess(
+          (v) => (typeof v === 'string' ? v.trim().toLowerCase().replace(/^minecraft:/, '').replace(/\[.*\]/, '').replace(/\s+/g, '_') : v),
+          z.string().regex(/^[a-z_]+(@[0-2])?$/, 'a block name, or name@floor like bed@1'),
+        ),
+      )
+      .max(24)
+      .default([]),
     lights: z.enum(['torches', 'lanterns', 'none']).default('torches'),
     features: z.array(FeatureSchema).max(6).default([]),
     /** Blocks of its own, by position in the design (west-north-bottom corner of the first part at 0,0,0; y 0 is the ground). */

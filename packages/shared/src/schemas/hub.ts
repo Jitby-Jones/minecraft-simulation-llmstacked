@@ -26,6 +26,8 @@ export const TUNABLE_MODULES = [
   'romance',
   'family',
   'skillWriter',
+  'architect',
+  'controller',
 ] as const;
 export const TunableModuleSchema = z.enum(TUNABLE_MODULES);
 export type TunableModule = z.infer<typeof TunableModuleSchema>;

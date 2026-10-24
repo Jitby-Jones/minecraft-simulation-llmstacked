@@ -41,6 +41,8 @@ export interface Blueprint {
   footprint: { x: number; z: number }[];
   /** What is wrong with the design (empty when nothing is). */
   problems: string[];
+  /** What was changed from the design to make it work (a door moved, a floating detail left out). */
+  notes?: string[];
 }
 
 const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'] as const;
@@ -115,6 +117,10 @@ interface Built {
   /** Cells only a forced put may change: the door, the ladder, the way in. */
   fixed: Set<string>;
   problems: string[];
+  /** What was changed from the design to make it work (a door moved, a floating detail left out). */
+  notes: string[];
+  /** Cells set by the design's own details: one with nothing to go against is left out, not an error. */
+  details: Set<string>;
 }
 
 function put(b: Built, x: number, y: number, z: number, state: string, force = false): void {
@@ -167,13 +173,16 @@ function shapeOf(parts: PartBox[]): Shape {
 
 /** The blocks of a design: a building of parts, or a plot. */
 export function compileDesign(d: Design): Blueprint {
-  const b: Built = { states: new Map(), air: new Set(), fixed: new Set(), problems: [] };
+  const b: Built = { states: new Map(), air: new Set(), fixed: new Set(), problems: [], notes: [], details: new Set() };
   const entrance = d.plot ? compilePlot(d, b) : compileParts(d, b);
   for (const det of d.details) {
     const [x, y, z] = det.at;
     try {
       if (parseState(det.block).name === 'air') clear(b, x, y, z);
-      else put(b, x, y, z, det.block);
+      else {
+        put(b, x, y, z, det.block);
+        b.details.add(k(x, y, z));
+      }
     } catch {
       b.problems.push(`detail ${det.block} at ${det.at.join(',')} is not a block`);
     }
@@ -254,42 +263,72 @@ function compileParts(d: Design, b: Built): Entrance | null {
     }
   }
 
-  // The door, the step outside it kept clear and the one inside kept free.
-  const dq = parts[d.door.part] ?? parts[0];
+  // The door, the step outside it kept clear and the one inside kept free. Where it was asked for if it fits there (in
+  // an outside wall, not at a corner, open ground before it); else the nearest place on that side that does, then
+  // another side, then another part, said so.
+  let dq = parts[d.door.part] ?? parts[0];
   let entrance: Entrance | null = null;
   const reserved = new Set<string>();
   const doorCells: { x: number; z: number }[] = [];
   /** The wall either side of the door, along its side. */
   const besideDoor: { x: number; z: number }[] = [];
   if (dq) {
-    const side = d.door.side;
-    const run = sideRun(dq, side);
-    const idx = Math.max(1, Math.min(run.length - 2 - (d.door.double ? 1 : 0), d.door.offset ?? Math.floor((run.length - 1) / 2)));
-    const cells = (d.door.double ? [idx, idx + 1] : [idx]).map((i) => run[i]).filter((c): c is { x: number; z: number } => c !== undefined);
-    for (const c of [run[idx - 1], run[idx + cells.length]]) if (c) besideDoor.push(c);
-    const v = facingVec(side);
-    const name = `${d.door.material ?? wood}_door`;
-    for (const [n, c] of cells.entries()) {
-      if (!S.onEdge(1, c.x, c.z) || S.inUnion(1, c.x + v.x, c.z + v.z)) {
-        b.problems.push(`the door on the ${side} side of part ${dq.i} is not in an outside wall`);
-        continue;
+    const asked = dq;
+    const width = d.door.double ? 2 : 1;
+    const fits = (q: PartBox, side: Side, idx: number) => {
+      const run = sideRun(q, side);
+      if (idx < 1 || idx + width - 1 > run.length - 2) return null;
+      const cells = run.slice(idx, idx + width);
+      const v = facingVec(side);
+      return cells.every((c) => S.onEdge(1, c.x, c.z) && S.onEdge(2, c.x, c.z) && !S.inUnion(1, c.x + v.x, c.z + v.z)) ? cells : null;
+    };
+    const tries: { q: PartBox; side: Side }[] = [
+      { q: asked, side: d.door.side },
+      ...FACINGS.filter((f) => f !== d.door.side).map((side) => ({ q: asked, side })),
+      ...parts.filter((q) => q !== asked).flatMap((q) => FACINGS.map((side) => ({ q, side }))),
+    ];
+    let found: { q: PartBox; side: Side; idx: number; cells: { x: number; z: number }[] } | null = null;
+    for (const t of tries) {
+      const run = sideRun(t.q, t.side);
+      const want = t.q === asked && t.side === d.door.side ? (d.door.offset ?? Math.floor((run.length - 1) / 2)) : Math.floor((run.length - width) / 2);
+      const idxs = Array.from({ length: run.length }, (_, i) => i).sort((a, c) => Math.abs(a - want) - Math.abs(c - want));
+      for (const i of idxs) {
+        const cells = fits(t.q, t.side, i);
+        if (cells) {
+          found = { ...t, idx: i, cells };
+          break;
+        }
       }
-      // Placed from outside looking in; double doors open from the middle.
-      const hinge = d.door.double && n === 1 ? 'right' : 'left';
-      for (const [y, half] of [
-        [1, 'lower'],
-        [2, 'upper'],
-      ] as const) {
-        put(b, c.x, y, c.z, formatState({ name, props: { facing: opposite(side), half, hinge } }), true);
-        b.fixed.add(k(c.x, y, c.z));
-        clear(b, c.x + v.x, y, c.z + v.z, true);
-        b.fixed.add(k(c.x + v.x, y, c.z + v.z));
+      if (found) break;
+    }
+    if (!found) b.problems.push('no outside wall with room for a door');
+    else {
+      if (found.q !== asked || found.side !== d.door.side) b.notes.push(`the door went on the ${found.side} side${parts.length > 1 ? ` of part ${found.q.i}` : ''}: there was no room for it on the ${d.door.side} side`);
+      dq = found.q;
+      const side = found.side;
+      const run = sideRun(found.q, side);
+      for (const c of [run[found.idx - 1], run[found.idx + width]]) if (c) besideDoor.push(c);
+      const v = facingVec(side);
+      const name = `${d.door.material ?? wood}_door`;
+      for (const [n, c] of found.cells.entries()) {
+        // Placed from outside looking in; double doors open from the middle.
+        const hinge = d.door.double && n === 1 ? 'right' : 'left';
+        for (const [y, half] of [
+          [1, 'lower'],
+          [2, 'upper'],
+        ] as const) {
+          put(b, c.x, y, c.z, formatState({ name, props: { facing: opposite(side), half, hinge } }), true);
+          b.fixed.add(k(c.x, y, c.z));
+          clear(b, c.x + v.x, y, c.z + v.z, true);
+          b.fixed.add(k(c.x + v.x, y, c.z + v.z));
+        }
+        reserved.add(k(c.x - v.x, 1, c.z - v.z));
+        doorCells.push(c);
+        entrance ??= { x: c.x, y: 1, z: c.z, out: side };
       }
-      reserved.add(k(c.x - v.x, 1, c.z - v.z));
-      doorCells.push(c);
-      entrance ??= { x: c.x, y: 1, z: c.z, out: side };
     }
   }
+  const doorSide = entrance?.out ?? d.door.side;
 
   roofs(b, S, wood, wallOf);
 
@@ -342,7 +381,7 @@ function compileParts(d: Design, b: Built): Entrance | null {
 
   // Light: a torch either side of the door outside, and inside a few torches high on the walls (or lanterns on the floor).
   if (d.lights !== 'none' && doorCells.length > 0) {
-    const side = d.door.side;
+    const side = doorSide;
     const v = facingVec(side);
     const ty = H >= 3 ? 2 : 1;
     for (const c of besideDoor) {
@@ -465,6 +504,13 @@ function furnish(b: Built, item: string, slots: Slot[], wood: string): boolean {
     // An anvil lies along the wall.
     if (item === 'anvil') return take(formatState({ name: 'anvil', props: { facing: turnRight(c.wall) } }));
     if (item === 'plant') return take('potted_poppy');
+    // On the wall it stands by.
+    if (item === 'ladder') return take(formatState({ name: 'ladder', props: { facing: room } }));
+    if (item === 'torch' || item === 'wall_torch') {
+      put(b, c.x, c.y + 1, c.z, formatState({ name: 'wall_torch', props: { facing: room } }));
+      c.used = true;
+      return true;
+    }
     if (item === 'lamp' || item === 'lantern') return take(formatState({ name: 'lantern', props: { hanging: 'false' } }));
     return take(item);
   }
@@ -801,7 +847,7 @@ export const cellKey = k;
 
 /** A blueprint from blocks by cell (`cellKey`) and the cells to leave empty: as a design compiles, or as a structure file reads. */
 export function blueprintOf(name: string, states: Map<string, string>, air: Set<string>, entrance: Entrance | null, problems: string[] = []): Blueprint {
-  return finish(name, { states, air, fixed: new Set(), problems }, entrance);
+  return finish(name, { states, air, fixed: new Set(), problems, notes: [], details: new Set() }, entrance);
 }
 
 /** The blocks in an order they can be placed in, from the ground up, each against one already there. */
@@ -857,7 +903,11 @@ function finish(name: string, b: Built, entrance: Entrance | null): Blueprint {
     if (left.length === pending.length) break;
     pending = left;
   }
-  for (const c of pending) problems.push(`${c.state} at ${c.x},${c.y},${c.z} has nothing to go against`);
+  const notes = [...b.notes];
+  for (const c of pending) {
+    if (b.details.has(k(c.x, c.y, c.z))) notes.push(`left out ${c.state} at ${c.x},${c.y},${c.z}: nothing to go against`);
+    else problems.push(`${c.state} at ${c.x},${c.y},${c.z} has nothing to go against`);
+  }
 
   // From the north-west corner (heights stay as they are: 0 is the ground).
   const all = [...order, ...[...b.air].map((key) => key.split(',').map(Number) as [number, number, number]).map(([x, y, z]) => ({ x, y, z }))];
@@ -882,5 +932,6 @@ function finish(name: string, b: Built, entrance: Entrance | null): Blueprint {
     entrance: entrance ? shift(entrance) : null,
     footprint: [...columns.values()],
     problems: [...new Set(problems)],
+    notes,
   };
 }

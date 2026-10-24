@@ -29,3 +29,12 @@ llm:
   allowlistRefreshHours: 6
   usagePollSec: 300
   structuredOutput: object         # object: JSON reply, schema in the prompt | schema: the API's json_schema format
+
+# The architect (owner request, 2026-10-24): called only when an agent designs a building, so a strong model and time
+# to think. Measured with the real architect prompt (four buildings each: a home, a smithy, a tower, a hall): glm-5.3
+# drew all four first time in 7-12 s, buildable and good to look at; deepseek-v4-pro and glm-5.1 needed a second try
+# for some; kimi-k2.6 and qwen3.5-397b often drew what couldn't be built. A model not on the subscription list is
+# skipped; after these, the L3 chain.
+architect:
+  models: [z-ai/glm-5.3, z-ai/glm-5.1, deepseek/deepseek-v4-pro]
+  timeoutMs: 90000

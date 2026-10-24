@@ -11,7 +11,7 @@ import { createMovements, loadBodyPlugins } from './plugins';
 import { ReflexController, type ReflexHooks, type ReflexOptions } from './reflexes';
 import { getSkill } from './skills/registry';
 import { type SkillRunRecord, runSkill } from './skills/runner';
-import type { AnySkill } from './skills/types';
+import type { AnySkill, DesignAsk, ProjectBook, SkillResult } from './skills/types';
 
 export interface BodyConfig extends BodyOptions {
   logger: Logger;
@@ -38,6 +38,12 @@ export interface RunOptions {
   fightNearby?: () => string | null;
   /** Who should make a chest when there is none: null for us, else the builder to ask. */
   chestMaker?: () => string | null;
+  /** The buildings we have begun. */
+  projects?: ProjectBook;
+  /** The architect, for the `design` skill. */
+  architect?: (ask: DesignAsk) => Promise<SkillResult>;
+  /** Makes a place home, for the `settle` skill. */
+  setHome?: (pos: Vec3) => void;
 }
 
 const MAX_PLACED = 4000;
@@ -183,6 +189,9 @@ export class Body {
       ...(opts.talkingWith ? { talkingWith: opts.talkingWith } : {}),
       ...(opts.fightNearby ? { fightNearby: opts.fightNearby } : {}),
       ...(opts.chestMaker ? { chestMaker: opts.chestMaker } : {}),
+      ...(opts.projects ? { projects: opts.projects } : {}),
+      ...(opts.architect ? { architect: opts.architect } : {}),
+      ...(opts.setHome ? { setHome: opts.setHome } : {}),
     });
   }
 

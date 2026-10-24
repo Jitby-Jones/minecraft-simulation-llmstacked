@@ -38,6 +38,14 @@ export const ModelsConfigSchema = z
         timeoutMs: z.number().int().min(1000).max(60_000).optional(),
       })
       .prefault({}),
+    // The architect (owner request, 2026-10-24): called only when a building is designed, with the strongest models
+    // tried first and time to think.
+    architect: z
+      .object({
+        models: z.array(z.string().min(1)).default([]),
+        timeoutMs: z.number().int().min(5000).max(300_000).default(90_000),
+      })
+      .prefault({}),
     embeddings: z
       .object({
         provider: z.enum(['local', 'nanogpt']).default('local'),

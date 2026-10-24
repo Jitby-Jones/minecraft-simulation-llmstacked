@@ -81,6 +81,22 @@ export function buildPacket(i: PacketInput): string {
       `Home (the village): ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away; ${chest ? `the village chest at ${chest.x},${chest.y},${chest.z}` : 'no village chest yet (a chest is 8 planks; a builder makes it, or anyone if there is no builder)'}; ${huts.length > 0 ? `huts with doors at ${huts.join(' and ')}` : 'no huts yet'}.`,
     );
   }
+  // A building begun and not finished: where, how far along, what it still lacks (build again to carry on).
+  const begun = (s.village.projects ?? []).filter((p) => p.doneAt === null).slice(-2);
+  if (begun.length > 0) {
+    out.push(
+      `Building: ${begun
+        .map((p) => {
+          const lacks = Object.entries(p.missing)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([item, n]) => `${n} ${item.replace(/_/g, ' ')}`)
+            .join(', ');
+          return `the ${p.name} (build {design: "${p.design}"}) at ${p.origin.x},${p.origin.y},${p.origin.z}, ${p.placed}/${p.total} blocks in${lacks ? `, still lacking ${lacks}` : ''}`;
+        })
+        .join('; ')}.`,
+    );
+  }
 
   const people = s.perception.nearbyEntities.filter((e) => e.kind === 'player').slice(0, L.people);
   if (people.length > 0) {

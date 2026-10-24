@@ -320,6 +320,12 @@ const LOOKALIKES: readonly (readonly string[])[] = [
   ['lantern', 'torch'],
   ['soul_lantern', 'lantern', 'torch'],
   ['bookshelf', 'barrel', 'oak_planks'],
+  // Workstations: one that does the same work, or near enough, for one that takes a lot of iron.
+  ['anvil', 'smithing_table', 'crafting_table'],
+  ['blast_furnace', 'furnace'],
+  ['smoker', 'furnace'],
+  ['enchanting_table', 'bookshelf', 'crafting_table'],
+  ['brewing_stand', 'cauldron', 'barrel'],
   ['iron_door', 'oak_door'],
   ['iron_bars', 'oak_fence'],
   ['iron_trapdoor', 'oak_trapdoor'],

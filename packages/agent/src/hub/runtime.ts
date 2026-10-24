@@ -113,6 +113,8 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     speechTier: o.models.speech.tier,
     speechModels: o.models.speech.models,
     ...(o.models.speech.timeoutMs ? { speechTimeoutMs: o.models.speech.timeoutMs } : {}),
+    architectModels: o.models.architect.models,
+    architectTimeoutMs: o.models.architect.timeoutMs,
     fightSlot: { acquire: () => hub.fightSlot(), release: () => hub.fightDone() },
     // §19.4: born in-world, on its first start (a restart resumes from the snapshot instead).
     ...(a.birthFacts && !a.resume ? { birth: { facts: a.birthFacts, youthUntil: Date.now() + o.world.reproduction.youthSec * 1000 } } : {}),

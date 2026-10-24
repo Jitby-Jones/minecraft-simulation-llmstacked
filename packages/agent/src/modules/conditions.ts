@@ -6,7 +6,8 @@
 //   villageWork:wood (the work's finishing act since the current goal was set, §6.8: logs handed in, a hut built…)
 //   For plan steps (since the current goal was set): explored:2 (looked around twice), talkedWith:Bram (a talk with
 //   them, both of us saying something), spent:5 (five minutes on it). inventoryHas:food>=4 counts anything edible,
-//   and a kind of wood any wood (inventoryHas:oak_log>=4 is met by birch logs).
+//   and a kind of wood any wood (inventoryHas:oak_log>=4 is met by birch logs). built:plains-cottage (a building of
+//   that design finished, owner request 2026-10-24).
 
 import type { AgentState } from '@agora/shared';
 import { isVillageKind, villageWorkDone } from '../social/village';
@@ -59,6 +60,11 @@ export function evalCondition(cond: string, state: AgentState, speechRange = 15,
   if (m?.[1] && m[2]) return (m[1] === 'healthAbove' ? state.self.health : state.self.food) > Number(m[2]);
   m = /^villageWork:([a-z]+)$/.exec(c);
   if (m?.[1]) return isVillageKind(m[1]) ? villageWorkDone(state, m[1], state.goals.current?.createdAt ?? 0) : null;
+  m = /^built:([a-z0-9:_-]+)$/.exec(c);
+  if (m?.[1]) {
+    const id = m[1];
+    return (state.village.projects ?? []).some((p) => p.design === id && p.doneAt !== null);
+  }
   m = /^near:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(c);
   if (m?.[1] && m[2] && m[3]) {
     const p = state.self.pos;

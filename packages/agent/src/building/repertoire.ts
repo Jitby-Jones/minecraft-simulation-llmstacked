@@ -157,3 +157,17 @@ export function describeBuilding(b: Building, bp: Blueprint): string {
   const effort = planMaterials(bill.map(([item, count]) => ({ item, count }))).effort;
   return `${b.id}: ${b.description || b.name} (${bp.size.x}×${bp.size.z}, ${bp.size.y} high; ${bp.blocks.length} blocks, mostly ${top}; about ${effort} min of work)`;
 }
+
+let shared: Repertoire | null = null;
+
+/** The repertoire this process builds from (read once, when first wanted). */
+export function sharedRepertoire(): Repertoire {
+  shared ??= new Repertoire().load();
+  return shared;
+}
+
+/** Replaces it (tests; or after an architect saved a design elsewhere). */
+export function setSharedRepertoire(r: Repertoire | null): void {
+  shared?.close();
+  shared = r;
+}

@@ -12,6 +12,8 @@ import { explore, flee, follow, goTo, look, lookAround, wait, wander } from './m
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
 import { build, hunt, patrol, sign } from './village';
+import { design } from './design';
+import { scout, settle } from './settle';
 import type { AnySkill } from './types';
 
 export const SKILLS: readonly AnySkill[] = [
@@ -43,6 +45,9 @@ export const SKILLS: readonly AnySkill[] = [
   say,
   hunt,
   build,
+  design,
+  scout,
+  settle,
   sign,
   patrol,
 ];
@@ -91,6 +96,9 @@ const ALIASES: Readonly<Record<string, string>> = {
   write_sign: 'sign',
   notice: 'sign',
   construct: 'build',
+  architect: 'design',
+  draw: 'design',
+  plan_building: 'design',
   build_hut: 'build',
   guard: 'patrol',
   hunt_animals: 'hunt',

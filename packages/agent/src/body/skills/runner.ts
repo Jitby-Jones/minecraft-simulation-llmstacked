@@ -9,7 +9,7 @@ import { countIn, describeDiff, diffInventory, snapshotInventory } from '../inve
 import { blockMatcher, itemMatcher } from '../items';
 import { findEntity, isNight } from '../world';
 import { isFoodName } from './gathering';
-import { type AnySkill, type BodySnapshot, type Expectation, type SkillContext, type SlipKind, SkillAbortedError } from './types';
+import { type AnySkill, type BodySnapshot, type DesignAsk, type Expectation, type ProjectBook, type SkillContext, type SkillResult, type SlipKind, SkillAbortedError } from './types';
 
 export interface SkillRunRecord {
   id: string;
@@ -144,6 +144,12 @@ export interface RunSkillDeps {
   fightNearby?: () => string | null;
   /** Who should make a chest when there is none (types.ts). */
   chestMaker?: () => string | null;
+  /** The buildings we have begun (types.ts). */
+  projects?: ProjectBook;
+  /** The architect (types.ts). */
+  architect?: (ask: DesignAsk) => Promise<SkillResult>;
+  /** Makes a place home (types.ts). */
+  setHome?: (pos: Vec3) => void;
 }
 
 export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkillDeps): Promise<SkillRunRecord> {
@@ -189,6 +195,9 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
     ...(deps.talkingWith ? { talkingWith: deps.talkingWith } : {}),
     ...(deps.fightNearby ? { fightNearby: deps.fightNearby } : {}),
     ...(deps.chestMaker ? { chestMaker: deps.chestMaker } : {}),
+    ...(deps.projects ? { projects: deps.projects } : {}),
+    ...(deps.architect ? { architect: deps.architect } : {}),
+    ...(deps.setHome ? { setHome: deps.setHome } : {}),
   };
   let ok = false;
   let observed: string;

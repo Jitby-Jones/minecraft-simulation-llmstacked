@@ -55,6 +55,10 @@ import { applyBirthFacts } from './state/birth';
 import { createInitialState } from './state/initial';
 import { AgentStateStore } from './state/store';
 import { pushWorkmem } from './state/workmem';
+import { buildingPlan, describeDesign, designBuilding } from './building/architect';
+import { sharedRepertoire } from './building/repertoire';
+import type { DesignAsk, SkillResult } from './body/skills/types';
+import { isOff } from './state/switches';
 
 export interface AgentOptions {
   body: Body;
@@ -82,6 +86,9 @@ export interface AgentOptions {
   /** Models tried first for a line, and their per-try timeout (models.yaml speech.models, speech.timeoutMs). */
   speechModels?: readonly string[];
   speechTimeoutMs?: number;
+  /** The architect's models, tried first when a building is designed, and the time each may take (models.yaml architect). */
+  architectModels?: readonly string[];
+  architectTimeoutMs?: number;
   /** §19.3: the bed ritual done beside our partner: the Hub is told (conception), with what we believe of them. */
   onConception?: (c: { partner: AgentName; bedPos: Vec3; partnerModel: Record<string, number>; partnerSex: Sex | 'unknown' }) => void;
   now?: () => number;
@@ -177,6 +184,7 @@ export class Agent {
           }
         : {}),
       extraSkills: () => this.skills.skills(this.skillWriter.onTrial()),
+      architect: (ask) => this.design(ask, llm),
       now,
     });
     this.awareness = new ActionAwareness({ store: this.store, bus: this.bus, logger, now });
@@ -768,6 +776,62 @@ export class Agent {
   }
 
   /** Died (owner request, 2026-10-24). */
+  /**
+   * The architect at work (owner request, 2026-10-24): draws the building asked for (with what we saw of the land,
+   * who could help and what is built here), keeps it for the village, and makes building it our plan.
+   */
+  private async design(ask: DesignAsk, llm: LlmClient | null): Promise<SkillResult> {
+    const s = this.store.state;
+    const t = (this.o.now ?? Date.now)();
+    const dead = new Set(s.perception.systemEvents.filter((e) => e.kind === 'death').map((e) => e.subject));
+    const helpers = Object.values(s.social)
+      .filter((p) => p.perceivedRole && !dead.has(p.name) && t - p.lastSeen < 30 * 60_000)
+      .map((p) => ({ name: p.name, does: p.perceivedRole ?? '' }));
+    const p = s.self.persona;
+    const persona = `${p.name}: ${p.traits.join(', ')}${p.values.length > 0 ? `; values ${p.values.join(', ')}` : ''}${p.description ? `. ${p.description}` : ''}`;
+    const village = [...new Set(s.village.projects.map((x) => x.name))];
+    if (s.village.huts.length > village.length) village.push(`${s.village.huts.length - village.length} other houses`);
+    const chest = s.village.chest?.contents;
+    const inChest = chest
+      ? Object.entries(chest)
+          .filter(([, n]) => n >= 8)
+          .map(([item, n]) => `${n} ${item.replace(/_/g, ' ')}`)
+          .slice(0, 5)
+          .join(', ')
+      : '';
+    // Iron is known where we have found its ore.
+    const raw = { ...ask.raw, ...(s.village.finds.some((f) => /iron/.test(f.what)) ? { raw_iron: Math.min(ask.raw.raw_iron ?? 12, 4) } : {}) };
+    const have = new Map(s.self.inventory.map((x) => [x.item, x.qty] as const));
+    const r = await designBuilding(
+      {
+        purpose: ask.purpose,
+        ...(ask.kind ? { kind: ask.kind } : {}),
+        by: s.self.username,
+        persona,
+        biome: ask.biome,
+        raw,
+        materials: `${ask.materials}${inChest ? `; in the village chest: ${inChest}` : ''}`,
+        village,
+        // A careful one draws what can be finished.
+        maxEffort: Math.round(90 + 90 * p.big5.conscientiousness),
+        helpers,
+        have,
+      },
+      {
+        llm: s.flags.codeOnly || isOff(s, 'architect') ? null : llm,
+        repertoire: sharedRepertoire(),
+        logger: this.o.logger,
+        ...(this.o.architectModels && this.o.architectModels.length > 0 ? { models: this.o.architectModels } : {}),
+        ...(this.o.architectTimeoutMs ? { timeoutMs: this.o.architectTimeoutMs } : {}),
+        signal: this.halting.signal,
+      },
+    );
+    const text = describeDesign(r);
+    pushWorkmem(this.store, `my plan for ${ask.purpose}: ${text}`.slice(0, 300), 0.8, 'self_observed', { now: t });
+    this.goalGen?.adopt(buildingPlan(r, ask.purpose), r.how === 'repertoire' ? 'default' : 'llm', `designed the ${r.building.name}`);
+    return { ok: true, observed: text, data: { design: r.building.id, name: r.building.name, how: r.how, effort: r.materials.effort, asks: r.asks } };
+  }
+
   get isDead(): boolean {
     return this.dead;
   }

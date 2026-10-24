@@ -464,6 +464,32 @@ export interface VillageState {
   threats: number[];
   /** Ore this agent found away from home (newest last, ring): what a scout comes back to post. */
   finds: { what: string; pos: Vec3; at: number }[];
+  /** Buildings this agent has begun (owner request, 2026-10-24): where, how far along, what they still lack. */
+  projects: BuildProject[];
+}
+
+/** A building begun: one of the village's designs, put up at a site, a second go carrying on where the first stopped. */
+export interface BuildProject {
+  /** The design's id ("plains-cottage", "vanilla:plains_small_house_1"). */
+  design: string;
+  name: string;
+  /** The box's north-west corner at the ground's top layer. */
+  origin: Vec3;
+  /** Quarter turns clockwise. */
+  turn: number;
+  /** Its size on the ground as it stands (east-west, north-south). */
+  size: { x: number; z: number };
+  /** Where its door is, if it has one. */
+  door: Vec3 | null;
+  startedAt: number;
+  /** Blocks in, of all of them. */
+  placed: number;
+  total: number;
+  /** What it still lacks, by item. */
+  missing: Record<string, number>;
+  /** Blocks put in place of the design's own, decided when it was begun (oak_planks → spruce_planks). */
+  swaps: Record<string, string>;
+  doneAt: number | null;
 }
 
 export interface AgentFlags {
