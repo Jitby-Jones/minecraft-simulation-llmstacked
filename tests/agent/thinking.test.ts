@@ -235,6 +235,33 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     eyes.stop();
   });
 
+  it("a tool nearly worn out is noticed once, as its bar turns red; and its breaking, with none of its kind left", () => {
+    const w = fakeWorld();
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    const pick = { name: 'stone_pickaxe', count: 1, maxDurability: 131, durabilityUsed: 90 };
+    w.inv.push(pick);
+    t.now = 9000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'worn')).toEqual([]);
+    pick.durabilityUsed = 115;
+    t.now = 10_000;
+    eyes.tick([]);
+    pick.durabilityUsed = 125;
+    t.now = 11_000;
+    eyes.tick([]);
+    const worn = eyes.recent().filter((n) => n.key === 'worn');
+    expect(worn.map((n) => n.text)).toEqual(['Your stone pickaxe is nearly worn out (12% left): it will break soon']);
+    expect(worn[0]?.strength).toBeGreaterThanOrEqual(0.6);
+    w.inv.splice(w.inv.indexOf(pick), 1);
+    t.now = 12_000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'broke').map((n) => n.text)).toEqual(['Your stone pickaxe broke: you have no pickaxe now']);
+    eyes.stop();
+  });
+
   it('what our own hands made is no surprise, even landing after the skill is done; what turns up in our pockets with idle hands is', () => {
     const w = fakeWorld();
     const s = store();

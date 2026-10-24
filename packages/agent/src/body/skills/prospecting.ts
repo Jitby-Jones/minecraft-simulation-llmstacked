@@ -131,6 +131,9 @@ async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
       continue;
     }
     if (holdsDripstone(bot, p)) throw new Blocked('a stalactite hangs from the rock ahead');
+    // Rock with no pickaxe left that can take it (the last one worn out): by hand it is seconds a block and nothing
+    // comes of it (one dug on bare-handed until its time ran out). No way round that: the dig ends.
+    if (b.harvestTools && !bot.inventory.items().some((i) => b.canHarvest(i.type))) throw new Error(`nothing left to dig the ${b.name} with: no pickaxe that can`);
     const tool = bot.pathfinder.bestHarvestTool(b);
     if (tool) await bot.equip(tool, 'hand');
     await digBlock(ctx, b);

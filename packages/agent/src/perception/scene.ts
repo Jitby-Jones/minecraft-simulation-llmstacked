@@ -18,6 +18,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
+import { WORN, toolWear } from '../body/inventory';
 import { biomeAt, canSeeBlock, isEnclosed } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
@@ -608,6 +609,9 @@ export class SceneEyes {
   private notableIds: number[] | null = null;
   private liquidIds: number[] | null = null;
   private lastSelf: { pos: Vec3; t: number; time: number; items: Map<string, number>; dim: string } | null = null;
+  /** The wear on each kind of tool at the last look, and those already said to be nearly worn out. */
+  private lastWear = new Map<string, number>();
+  private readonly wornSaid = new Set<string>();
   private lastPickupAt = -Infinity;
   private lastHandsAt = -Infinity;
   private startedAt = 0;
@@ -871,7 +875,27 @@ export class SceneEyes {
     const time = bot.time.timeOfDay;
     const prev = this.lastSelf;
     this.lastSelf = { pos, t: now, time, items, dim };
+    const wear = toolWear(bot);
+    const wornBefore = this.lastWear;
+    this.lastWear = wear;
     if (!prev || prev.dim !== dim) return;
+    // A tool's wear, as its bar shows it: one nearly gone, or gone, is thought about then and there (one dug on with its
+    // last pickaxe till it broke, then on by hand, underground into the night, and died with nothing to fight with).
+    for (const [name, left] of wear) {
+      if (left >= WORN) {
+        this.wornSaid.delete(name);
+        continue;
+      }
+      if (this.wornSaid.has(name)) continue;
+      this.wornSaid.add(name);
+      this.add({ id: `n${now.toString(36)}w${name}`, ts: now, kind: 'cue', about: name, key: 'worn', text: `Your ${nice(name)} is nearly worn out (${Math.round(left * 100)}% left): it will break soon`, strength: 0.6, seenBefore: 0 });
+    }
+    for (const [name, left] of wornBefore) {
+      if (left >= 0.1 || (items.get(name) ?? 0) >= (prev.items.get(name) ?? 0)) continue;
+      const kind = name.split('_').at(-1) ?? name;
+      const other = [...items.keys()].some((n) => n === kind || n.endsWith(`_${kind}`));
+      this.add({ id: `n${now.toString(36)}b${name}`, ts: now, kind: 'cue', about: name, key: 'broke', text: `Your ${nice(name)} broke${other ? '' : `: you have no ${nice(kind)} now`}`, strength: 0.65, seenBefore: 0 });
+    }
     const dt = Math.max(0.05, (now - prev.t) / 1000);
     const moved = pos.distanceTo(prev.pos);
     if (moved >= 8 && moved / dt > 40 && !(bot.entity as unknown as { vehicle?: unknown }).vehicle) {

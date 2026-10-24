@@ -335,6 +335,44 @@ describe('Cognitive Controller against the mocked NanoGPT', () => {
   });
 });
 
+describe('a look up from long work', () => {
+  it('three minutes and more at one piece of work, it thinks a moment, and the same work goes on, not begun again', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const asked: string[] = [];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      asked.push(JSON.stringify(body?.messages ?? ''));
+      return { text: JSON.stringify({ option: 'work', task: { skill: 'prospect', args: { item: 'iron_ore' } }, terminate: { maxSeconds: 900 }, rationale: 'iron' }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    executor.start();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const clock = { t: Date.now() };
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false, now: () => clock.t });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    cc.start();
+    cc.trigger('testing');
+    for (let i = 0; i < 40 && decided.length === 0; i++) await wait(25);
+    const started = s.state.option?.startedAt;
+    // Two minutes in: nothing yet.
+    clock.t += 2 * 60_000;
+    await wait(2300);
+    expect(decided).toEqual(['llm:prospect']);
+    clock.t += 2 * 60_000;
+    for (let i = 0; i < 120 && decided.length < 2; i++) await wait(25);
+    cc.stop();
+    executor.stop();
+    expect(decided).toEqual(['llm:prospect', 'llm:prospect']);
+    expect(asked.at(-1)).toMatch(/you have been at prospect for 4 min; you look up from the work a moment/);
+    expect(s.state.option?.startedAt).toBe(started);
+  }, 15_000);
+});
+
 describe('Action Awareness (§4.6)', () => {
   it('the same attempt is known again whatever the amount (9, 9, then 10 diamonds, failing the same way)', () => {
     const s = store();

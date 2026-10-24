@@ -925,6 +925,11 @@ export function codeDecision(
 
 /** A change around us that is no emergency wakes the CC at most this often. */
 const NOTICE_EVERY_MS = 10_000;
+/**
+ * Long at one piece of work, a look up from it now and then, as a player looks at the tools, the sky, the hunger bar
+ * (one dug six minutes on end, its pickaxes wearing out under it, on into the night with nothing left to fight with).
+ */
+const LOOK_UP_MS = 3 * 60_000;
 
 /** §17.7: a follower keeps by the one it follows, when they are in sight (within COMPANY_RANGE). */
 function keepByLeader(s: AgentStateStore['state'], leader: AgentName, isStuck: ValidationEnv['isStuck'], why: string): DecisionOutput | null {
@@ -1171,7 +1176,15 @@ export class CognitiveController {
     );
     this.beat = setInterval(() => {
       const s = this.o.store.state;
-      if (s.flags.inDanger || s.flags.paused || this.o.executor.busy || this.flight.inFlight('cc')) return;
+      if (s.flags.inDanger || s.flags.paused || this.flight.inFlight('cc')) return;
+      if (this.o.executor.busy) {
+        const opt = s.option;
+        const t = this.now();
+        if (opt?.status === 'running' && t - opt.startedAt >= LOOK_UP_MS && t - this.lastDecisionAt >= LOOK_UP_MS) {
+          this.trigger(`you have been at ${opt.skill ?? opt.option} for ${Math.round((t - opt.startedAt) / 60_000)} min${opt.progress ? ` (${opt.progress})` : ''}; you look up from the work a moment`, { urgent: true });
+        }
+        return;
+      }
       if (this.now() - this.lastDecisionAt >= (this.o.heartbeatMs ?? 30_000)) this.trigger(this.lastDecisionAt === 0 ? 'you just arrived' : 'checking in');
     }, 2000);
     this.beat.unref();

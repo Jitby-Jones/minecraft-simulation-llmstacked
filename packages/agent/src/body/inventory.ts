@@ -59,7 +59,7 @@ export const WORN = 0.2;
  * to rely on. An agent's iron pickaxe broke halfway to its diamonds, with nothing to tell it that it was going; and one
  * told the most worn of eight stone pickaxes was nearly gone took all eight for spent and made more.
  */
-function toolWear(bot: Bot): Map<string, number> {
+export function toolWear(bot: Bot): Map<string, number> {
   const out = new Map<string, number>();
   for (const it of bot.inventory.items()) {
     const max = (it as unknown as { maxDurability?: number }).maxDurability;

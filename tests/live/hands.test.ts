@@ -331,6 +331,27 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     for (let dx = 5; dx <= 7; dx++) for (const dy of [17, 18]) expect(body.bot.blockAt(new Vec3(x + dx, dy, 1))?.name).not.toBe('water');
   }, 180_000);
 
+  it('prospecting with a pickaxe on its last uses: when it breaks the dig ends and says so (one dug on by hand till its time ran out)', async () => {
+    const x = 6400;
+    const y = 20;
+    await at(x, 0);
+    await server.cmd(`forceload add ${x - 8} -8 ${x + 40} 8`);
+    await server.cmd(`fill ${x} ${y} 0 ${x} ${y + 1} 0 air`);
+    await server.cmd(`tp Ada ${x}.5 ${y} 0.5`);
+    // A wooden pickaxe (59 uses) with five left, and torches; no other tool.
+    for (const g of ['wooden_pickaxe[damage=54] 1', 'torch 8']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(2000);
+    const t0 = Date.now();
+    const r = await run('prospect', { item: 'diamond_ore', direction: 'east', maxBlocks: 24 });
+    const ms = Date.now() - t0;
+    logger.info({ r, ms, at: body.bot.entity.position.toString() }, 'pickaxe worn out');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/nothing left to dig the \w+ with/);
+    expect(countItem(body.bot, 'wooden_pickaxe')).toBe(0);
+    // Ended at once, not after minutes of stone by hand.
+    expect(ms).toBeLessThan(40_000);
+  }, 120_000);
+
   it('prospecting under a bed of gravel: what comes down is let come down and dug, never stepped in under, and it is unhurt', async () => {
     const x = 6300;
     const y = 20;
