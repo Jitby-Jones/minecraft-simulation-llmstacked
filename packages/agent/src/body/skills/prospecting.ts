@@ -178,6 +178,8 @@ export const prospect = defineSkill({
     let turns = 0;
     let outOfRock = 0;
     let lastBlock = '';
+    // Each way that was tried and what stopped it: "water ahead" alone, three times over, says nothing of where to go.
+    const stopped: string[] = [];
     try {
       while (dug < args.maxBlocks) {
         throwIfAborted(ctx.signal);
@@ -192,6 +194,7 @@ export const prospect = defineSkill({
           dugHere = [await clear(ctx, next.offset(0, 1, 0)), await clear(ctx, next)];
           await bridge(ctx, next.offset(0, -1, 0));
         } catch (err) {
+          if (err instanceof Blocked) stopped.push(`${err.message} ${dirName}`);
           if (!(err instanceof Blocked) || turns >= 2) throw err;
           lastBlock = err.message;
           turns++;
@@ -219,7 +222,8 @@ export const prospect = defineSkill({
       }
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
-      return { ok: false, observed: `dug ${dug} blocks, no ${oreName} seen`, error: errMsg(err) };
+      const where = err instanceof Blocked && stopped.length > 1 ? `${stopped.join(', ')}, from ${bot.entity.position.floored().toString()}` : errMsg(err);
+      return { ok: false, observed: `dug ${dug} blocks, no ${oreName} seen`, error: where };
     }
     return {
       ok: false,

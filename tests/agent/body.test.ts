@@ -924,7 +924,7 @@ describe('under water with a roof over it (an agent drowned holding jump against
 });
 
 describe('the wear on a tool, as its durability bar shows it (an iron pickaxe broke halfway to the diamonds)', () => {
-  it('the most worn of a kind, and a tool nearly worn out says so in the digest', async () => {
+  it('the best of a kind (seven fresh pickaxes and one nearly gone are not eight spent), and a tool nearly worn out says so in the digest', async () => {
     const { inventoryStacks } = await import('@agora/agent/body/inventory');
     const items = [
       { name: 'iron_pickaxe', count: 1, maxDurability: 250, durabilityUsed: 230 },
@@ -935,7 +935,7 @@ describe('the wear on a tool, as its durability bar shows it (an iron pickaxe br
     const bot = { inventory: { items: () => items, slots: [] } } as never;
     const stacks = inventoryStacks(bot);
     expect(stacks.find((st) => st.item === 'iron_pickaxe')?.left).toBe(0.08);
-    expect(stacks.find((st) => st.item === 'stone_pickaxe')?.left).toBe(0.24);
+    expect(stacks.find((st) => st.item === 'stone_pickaxe')?.left).toBe(0.92);
     expect(stacks.find((st) => st.item === 'cobblestone')?.left).toBeUndefined();
     expect(inventoryDigest(stacks)).toBe('40 cobblestone, 2 stone_pickaxe, iron_pickaxe (worn)');
   });

@@ -202,6 +202,40 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.furnace?.id ?? -1], maxDistance: 3, count: 1 }).length).toBe(1);
   }, 120_000);
 
+  it('dyes white wool red, and a white bed: any wool or bed takes any dye (the game data has each from black alone)', async () => {
+    const x = 5900;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:white_wool 1');
+    await server.cmd('give Ada minecraft:white_bed 1');
+    await server.cmd('give Ada minecraft:red_dye 2');
+    await sleep(1500);
+    const wool = await run('craft', { item: 'red_wool', qty: 1 });
+    const bed = await run('craft', { item: 'red_bed', qty: 1 });
+    logger.info({ wool, bed }, 'dyeing');
+    expect(countItem(body.bot, 'red_wool')).toBe(1);
+    expect(countItem(body.bot, 'red_bed')).toBe(1);
+  }, 120_000);
+
+  it('a quick hut says where its room and its open doorway are; sent to its corner, it stands by the wall rather than dig into it', async () => {
+    const x = 6100;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:cobblestone 80');
+    await sleep(1500);
+    const r = await run('build', { structure: 'hut' });
+    logger.info({ r }, 'quick hut');
+    expect(r.ok).toBe(true);
+    const m = /its room inside at (-?\d+),(-?\d+),(-?\d+), its doorway at -?\d+,-?\d+,-?\d+ open/.exec(r.observed);
+    expect(m).not.toBeNull();
+    const room = new Vec3(Number(m?.[1]), Number(m?.[2]), Number(m?.[3]));
+    const corner = room.offset(-2, 0, -2);
+    const go = await run('goTo', { x: corner.x, y: corner.y, z: corner.z, range: 0 });
+    logger.info({ go, at: body.bot.entity.position.toString() }, 'to the corner');
+    // The wall is whole: the corner and the block over it are still stone.
+    expect(body.bot.blockAt(corner)?.name).toBe('cobblestone');
+    expect(body.bot.blockAt(corner.offset(0, 1, 0))?.name).toBe('cobblestone');
+    expect(body.bot.entity.position.distanceTo(corner.offset(0.5, 0, 0.5))).toBeLessThan(2.5);
+  }, 180_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

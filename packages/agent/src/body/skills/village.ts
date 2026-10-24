@@ -322,7 +322,12 @@ export const build = defineSkill({
     const missing = plan.filter((c) => !isSolid(bot.blockAt(corner.plus(c)))).length;
     const hasDoor = DOORS.test(bot.blockAt(doorway)?.name ?? '');
     if (missing > 4) return { ok: false, observed: `placed ${placed} blocks; ${missing} missing`, error: 'the hut is not finished', data: { corner: at, placed } };
-    return { ok: true, observed: `built a hut at ${at.x},${at.y},${at.z}${hasDoor ? ' with a door' : ''}`, data: { corner: at, placed, door: hasDoor } };
+    // Where it is as one would go to it: the room inside, and the doorway, shut or open. Told only its corner, an
+    // agent walked to that (through the wall) and took itself for inside; another took an open doorway for shut.
+    const room = corner.offset(2, 0, 2);
+    const way = `${doorway.x},${doorway.y},${doorway.z}`;
+    const shut = hasDoor ? `a door in its doorway at ${way}` : `its doorway at ${way} open (no door: a door, or a block from inside, shuts it)`;
+    return { ok: true, observed: `built a hut, its room inside at ${room.x},${room.y},${room.z}, ${shut}; you are outside it`, data: { corner: at, room: { x: room.x, y: room.y, z: room.z }, placed, door: hasDoor } };
   },
 });
 

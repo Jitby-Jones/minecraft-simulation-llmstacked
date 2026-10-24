@@ -806,3 +806,21 @@ describe('saying what one does for the village, at a lull (§6.8, §6.2 floor co
     expect(t.said).toEqual([]);
   });
 });
+
+describe('dyeing: any wool, carpet or bed takes any dye (the game data has each from black alone)', () => {
+  it('puts each other colour back, and only once', async () => {
+    const { completeDyeing } = await import('@agora/agent/body/recipes');
+    const names = ['white_wool', 'red_wool', 'black_wool', 'red_dye', 'white_dye', 'black_dye'];
+    const itemsByName = Object.fromEntries(names.map((n, i) => [n, { id: i + 1 }]));
+    const recipes: Record<number, { ingredients?: number[]; result: { id: number; count: number } }[]> = { 2: [{ ingredients: [4, 3], result: { id: 2, count: 1 } }] };
+    const registry = { recipes, itemsByName };
+    // Red from white (red from black is there); white from red and black; black from white and red.
+    expect(completeDyeing(registry)).toBe(5);
+    expect(recipes[2]?.some((r) => r.ingredients?.includes(4) && r.ingredients.includes(1))).toBe(true);
+    expect(recipes[1]?.map((r) => r.ingredients)).toEqual([
+      [5, 2],
+      [5, 3],
+    ]);
+    expect(completeDyeing(registry)).toBe(0);
+  });
+});

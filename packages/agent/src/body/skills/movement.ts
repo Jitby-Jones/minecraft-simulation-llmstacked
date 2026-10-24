@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import { Vec3 } from 'vec3';
-import { findEntity, lookAway, nearbyHostiles, wetAt } from '../world';
+import { findEntity, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
 
@@ -28,10 +28,14 @@ export const goTo = defineSkill({
       if (!e) return { ok: false, observed: `cannot see ${args.agent}`, error: `${args.agent} is not in sight` };
       target = e.position.clone();
     } else target = new Vec3(args.x, args.y, args.z);
+    // A block is gone to by standing at it, not in it: sent to its hut's corner, an agent dug into the wall to stand
+    // there.
+    const here = 'agent' in args ? null : ctx.bot.blockAt(target.floored());
+    const range = here && isSolid(here) ? Math.max(1, args.range) : args.range;
     // A long way takes its time (over hills, round water): a minute, and about 1.5 s a block past 30, up to 4 min.
     const far = ctx.bot.entity.position.distanceTo(target);
     try {
-      await gotoNear(ctx, target, args.range, Math.min(240_000, 60_000 + Math.max(0, far - 30) * 1500));
+      await gotoNear(ctx, target, range, Math.min(240_000, 60_000 + Math.max(0, far - 30) * 1500));
     } catch (err) {
       return { ok: false, observed: `stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err) };
     }

@@ -153,13 +153,29 @@ export function sameBlock(b: Block | null, s: BlockState): boolean {
 }
 
 /** Items that will do for a block, best first: its own; a bed or carpet of any colour; the same in another wood. */
+/** Of these, any colour will do in a building, or any wood: a bed is a bed, a door a door. */
+const COLOURED = /^(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_(bed|carpet|wool)$/;
+const WOODEN = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_(planks|stairs|slab|fence|fence_gate|door|trapdoor|pressure_plate|button|sign)$/;
+
+/**
+ * What a building still needs, in words: the kind where any colour or wood will do ("1 bed (any colour)", not
+ * "1 red bed": an agent short of its design's red bed spent its evening after red dye, with white wool on it).
+ */
+export function needLabel(item: string): string {
+  const colour = COLOURED.exec(item);
+  if (colour?.[2]) return `${colour[2].replace(/_/g, ' ')} (any colour)`;
+  const wood = WOODEN.exec(item);
+  if (wood?.[2]) return `${wood[2].replace(/_/g, ' ')} (any wood)`;
+  return item.replace(/_/g, ' ');
+}
+
 export function itemsFor(s: BlockState): string[] {
   if (s.name.startsWith('potted_')) return ['flower_pot'];
   const own = itemFor(s.name);
   const out = [own];
-  const colour = /^(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_(bed|carpet|wool)$/.exec(own);
+  const colour = COLOURED.exec(own);
   if (colour?.[2]) for (const c of ['white', 'red', 'yellow', 'blue', 'green', 'black', 'brown', 'orange', 'gray', 'light_gray', 'lime', 'cyan', 'purple', 'pink', 'magenta', 'light_blue']) out.push(`${c}_${colour[2]}`);
-  const wood = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_(planks|stairs|slab|fence|fence_gate|door|trapdoor|pressure_plate|button|sign)$/.exec(own);
+  const wood = WOODEN.exec(own);
   if (wood?.[2]) for (const w of ['oak', 'spruce', 'birch', 'dark_oak', 'jungle', 'acacia', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped']) out.push(`${w}_${wood[2]}`);
   // A stripped log is a log with an axe taken to it.
   if (own.startsWith('stripped_')) out.push(own.replace(/^stripped_/, ''));
@@ -880,7 +896,7 @@ export async function buildDesign(
       error: `need materials first for the ${b.name}: ${short
         .sort((x, y) => y.count - x.count)
         .slice(0, 6)
-        .map((n) => `${n.count} ${n.item.replace(/_/g, ' ')}`)
+        .map((n) => `${n.count} ${needLabel(n.item)}`)
         .join(', ')} (from about ${shopping(short)})`,
       data: { design: b.id, missing },
     };
@@ -908,10 +924,12 @@ export async function buildDesign(
   const done = inPlace >= total - Math.max(2, Math.round(total * 0.03)) && Object.keys(report.missing).length === 0 && report.doorsFailed === 0;
   ctx.projects?.set({ ...project, placed: inPlace, missing: report.missing, doneAt: done ? Date.now() : null });
   const where = `${site.origin.x},${site.origin.y},${site.origin.z}`;
+  // A door missing says where it goes: one put in somewhere else leaves the doorway open.
+  const doorway = project.door ? ` for its doorway at ${project.door.x},${project.door.y},${project.door.z}` : '';
   const lacking = Object.entries(report.missing)
     .sort((x, y) => y[1] - x[1])
     .slice(0, 6)
-    .map(([item, n]) => `${n} ${item.replace(/_/g, ' ')}`)
+    .map(([item, n]) => `${n} ${needLabel(item)}${item.endsWith('_door') ? doorway : ''}`)
     .join(', ');
   const data = { design: b.id, origin: project.origin, turn: site.turn, placed: inPlace, total, missing: report.missing, ...(project.door ? { door: project.door } : {}) };
   if (done) return { ok: true, observed: `built the ${b.name} at ${where}${placed.entrance ? `, its door facing ${placed.entrance.out}` : ''} (${total} blocks)`, data };

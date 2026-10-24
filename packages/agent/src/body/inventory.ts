@@ -55,8 +55,9 @@ export function inventoryStacks(bot: Bot): ItemStack[] {
 export const WORN = 0.2;
 
 /**
- * What a player sees of each tool's wear (its durability bar): how much is left, of the most worn of a kind. An
- * agent's iron pickaxe broke halfway to its diamonds, with nothing to tell it that it was going.
+ * What a player sees of each tool's wear (its durability bar): how much is left of the best of a kind, the one there is
+ * to rely on. An agent's iron pickaxe broke halfway to its diamonds, with nothing to tell it that it was going; and one
+ * told the most worn of eight stone pickaxes was nearly gone took all eight for spent and made more.
  */
 function toolWear(bot: Bot): Map<string, number> {
   const out = new Map<string, number>();
@@ -70,7 +71,7 @@ function toolWear(bot: Bot): Map<string, number> {
     }
     if (!max || typeof used !== 'number') continue;
     const left = Math.max(0, Math.round((1 - used / max) * 100) / 100);
-    out.set(it.name, Math.min(out.get(it.name) ?? 1, left));
+    out.set(it.name, Math.max(out.get(it.name) ?? 0, left));
   }
   return out;
 }

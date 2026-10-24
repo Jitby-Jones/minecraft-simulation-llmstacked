@@ -79,13 +79,22 @@ function blockLight(block: Block, timeOfDay: number): number {
   return Math.max(b.light ?? 0, sky);
 }
 
-/**
- * Pathfinder movements with safe defaults (no >3-block drops, scaffolding) and quirk path costs (§7). A walk unless
- * `sprint`: sprinting is what makes one hungry (a food point every 40 blocks or so), so it is for running away and
- * fights; an agent sprinting everywhere starves by its first night.
- */
 /** At this much health or less, a walk is a careful one. */
 const CAREFUL_AT = 10;
+
+/** What each body has put down itself ("x,y,z"): a walk goes round it rather than through it. */
+const OWN = new WeakMap<Bot, ReadonlySet<string>>();
+/** Digging through a block one put down oneself, on a walk, costs as much as this many blocks more of walking. */
+const OWN_BLOCK_COST = 40;
+
+/**
+ * The blocks this body put down, for its walks to go round: told to walk to its hut's corner, an agent dug through the
+ * hut's own wall to stand there, and spent the night outside it. Dear, not barred: one shut in by its own walls still
+ * digs its way out.
+ */
+export function ownBlocks(bot: Bot, placed: ReadonlySet<string>): void {
+  OWN.set(bot, placed);
+}
 
 /**
  * Hurt, one walks with care, as a player does: no jumps over gaps (a missed one is a fall; an agent at 8 health,
@@ -96,6 +105,11 @@ export function carefulWhenHurt(bot: Bot, m: MovementsType): MovementsType {
   return m;
 }
 
+/**
+ * Pathfinder movements with safe defaults (no >3-block drops, scaffolding) and quirk path costs (§7). A walk unless
+ * `sprint`: sprinting is what makes one hungry (a food point every 40 blocks or so), so it is for running away and
+ * fights; an agent sprinting everywhere starves by its first night.
+ */
 export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: { sprint?: boolean } = {}): MovementsType {
   const m = new Movements(bot);
   m.allowParkour = true;
@@ -137,6 +151,13 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
       return 0;
     });
   }
+  // A cell the walk would dig through, of what we put down ourselves.
+  m.exclusionAreasStep.push((block: StepBlock) => {
+    const own = OWN.get(bot);
+    if (!own || !loaded(block) || block.boundingBox !== 'block') return 0;
+    const p = block.position;
+    return own.has(`${p.x},${p.y},${p.z}`) ? OWN_BLOCK_COST : 0;
+  });
   const rules: PathCostRule[] = pathCostRules(quirks);
   if (rules.length > 0) {
     // A quirk steers away from places that differ from where the bot stands ("afraid of the dark" avoids dark
