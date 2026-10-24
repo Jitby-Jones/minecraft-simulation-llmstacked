@@ -65,8 +65,8 @@ const RING_SPEECH = 30;
 const TRANSCRIPT = 20;
 const IDLE_END_MS = 60_000;
 const OUT_OF_RANGE_MS = 10_000;
-const SILENT_NUDGE_MS = 20_000;
-const SILENT_END_MS = 40_000;
+/** Our line unanswered this long by someone right here: they're busy, or done talking. */
+const UNANSWERED_END_MS = 25_000;
 /** A reply this soon after the end still belongs to the conversation's transcript (Social Awareness reads it). */
 export const TAIL_MS = 15_000;
 /** Ended conversations kept in state (the newest; older ones live on in memory). */
@@ -147,7 +147,6 @@ export class Conversations {
       status: 'active',
       transcript: [],
       initiatedByMe,
-      nudged: false,
     };
     this.prune();
     this.write(conv, `conversation started with ${partner}`);
@@ -233,7 +232,6 @@ export class Conversations {
           transcript: [...fresh.transcript, utter].slice(-TRANSCRIPT),
           turns: fresh.turns + 1,
           lastActivity: now,
-          nudged: false,
           partnerOutOfRangeSince: undefined,
         },
         `heard ${u.from}`,
@@ -294,7 +292,7 @@ export class Conversations {
     return utter;
   }
 
-  /** 1 Hz: partner out of range (> 10 s), silent (nudge at 20 s, end at 40 s). */
+  /** 1 Hz: partner out of range (> 10 s), our line unanswered (> 25 s), nobody saying anything (> 60 s). */
   private sweep(): void {
     const now = this.now();
     const inRange = new Set(this.o.inRange());
@@ -311,12 +309,11 @@ export class Conversations {
         else if (now - since > OUT_OF_RANGE_MS) this.end(c.convId, 'partner left');
         continue;
       }
-      const lastTheirs = Math.max(c.startedAt, ...c.transcript.filter((u) => u.from !== this.o.me).map((u) => u.ts));
-      if (now - lastTheirs > SILENT_END_MS && c.nudged) this.end(c.convId, 'partner silent');
-      else if (now - lastTheirs > SILENT_NUDGE_MS && !c.nudged && c.myTurns > 0) {
-        this.write({ ...c, nudged: true }, 'nudge');
-        this.o.bus.emit({ type: 'needsDecision', reason: 'nudge', convId: c.convId });
-      }
+      // They are right here, in sight or earshot, and haven't answered our last line: busy, or done talking. Nobody
+      // asks someone they can see whether they're still there (owner request, 2026-10-24); the talk ends quietly.
+      const theirs = Math.max(-Infinity, ...c.transcript.filter((u) => u.from !== this.o.me).map((u) => u.ts));
+      const mine = Math.max(-Infinity, ...c.transcript.filter((u) => u.from === this.o.me).map((u) => u.ts));
+      if (mine > theirs && now - mine > UNANSWERED_END_MS) this.end(c.convId, 'partner silent');
     }
   }
 

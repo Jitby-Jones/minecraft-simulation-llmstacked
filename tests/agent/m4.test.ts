@@ -298,7 +298,7 @@ describe('planning (§4.2 module 10, Goal Gen)', () => {
       gg.start();
       gg.install({ id: 'p0', aim: 'build a house', steps: [{ text: 'gather 20 logs', doneWhen: 'inventoryHas:log>=20', status: 'todo' }], createdAt: 0, updatedAt: 0, discussedWith: [], source: 'default' }, 'test');
       const line = (from: string, text: string, ts: number): Utterance => ({ id: `u${ts}`, convId: 'c1', from, to: [], text, ts, pos: null, volume: 'normal', outOfSight: false, addressedToMe: from !== 'Pip' });
-      s.update('conversations', () => ({ c1: { convId: 'c1', participants: ['Pip', 'Bram'], startedAt: t, lastActivity: t, turns: 3, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [line('Pip', "I'm going to gather logs for a house.", t), line('Bram', "I'll cut the wood, you get the stone.", t + 1), line('Pip', 'deal, stone it is.', t + 2)], initiatedByMe: true, nudged: false } }), 'talk');
+      s.update('conversations', () => ({ c1: { convId: 'c1', participants: ['Pip', 'Bram'], startedAt: t, lastActivity: t, turns: 3, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [line('Pip', "I'm going to gather logs for a house.", t), line('Bram', "I'll cut the wood, you get the stone.", t + 1), line('Pip', 'deal, stone it is.', t + 2)], initiatedByMe: true } }), 'talk');
       bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
       await until(() => set.length === 2);
       expect(set).toEqual(['gather 20 logs', 'mine cobblestone while Bram cuts wood']);

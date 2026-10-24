@@ -90,6 +90,43 @@ describe('addressing and conversations (§6.2)', () => {
     }
   });
 
+  it('our line unanswered by someone right here: the talk ends quietly, with no "you still there?"', () => {
+    vi.useFakeTimers();
+    try {
+      let t = 0;
+      const s = store();
+      const bus = new AgentBus();
+      const ended: string[] = [];
+      const asked: string[] = [];
+      bus.on('conversationEnded', (e) => ended.push(e.reason));
+      bus.on('needsDecision', (e) => asked.push(e.reason));
+      const conv = new Conversations({ store: s, bus, logger: nullLogger(), me: 'Pip', inRange: () => ['Bram'], rng: () => 0, now: () => t });
+      conv.start();
+      const c = conv.open('Bram', true);
+      conv.noteOwnUtterance(c.convId, 'bram wanna go mining?');
+      // Bram stands right there and says nothing: no nudge, nothing asked of the mind.
+      t = 20_000;
+      vi.advanceTimersByTime(1000);
+      expect(conv.withPartner('Bram')?.status).toBe('active');
+      expect(asked).toEqual([]);
+      t = 26_000;
+      vi.advanceTimersByTime(1000);
+      expect(ended).toEqual(['partner silent']);
+      expect(asked).toEqual([]);
+      // Answered in time, the talk goes on.
+      const d = conv.open('Bram', true);
+      t = 100_000;
+      conv.noteOwnUtterance(d.convId, 'so, mining?');
+      bus.emit({ type: 'heard', utterance: { id: 'u2', convId: '', from: 'Bram', to: ['Pip'], text: 'sure lets go', ts: 104_000, pos: null, volume: 'normal', outOfSight: false, addressedToMe: true } });
+      t = 125_000;
+      vi.advanceTimersByTime(1000);
+      expect(conv.withPartner('Bram')?.status).toBe('active');
+      conv.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('in a conversation of two, a line plainly for someone else is not for us', () => {
     const s = store();
     const bus = new AgentBus();

@@ -210,7 +210,7 @@ describe('biases in the social model (§18.4)', () => {
     s.update('social', (all) => ({ ...all, Bram: { ...newSocialProfile('Bram', hothead, 0), sentiment: 8, anchorCount: 2 } }));
     s.update('conversations', (cs) => ({
       ...cs,
-      c1: { convId: 'c1', participants: ['Kai', 'Bram'], startedAt: 0, lastActivity: 1, turns: 1, myTurns: 0, lastEmbeds: [], status: 'ended', transcript: [line('Bram', 'thanks, great work')], initiatedByMe: false, nudged: false },
+      c1: { convId: 'c1', participants: ['Kai', 'Bram'], startedAt: 0, lastActivity: 1, turns: 1, myTurns: 0, lastEmbeds: [], status: 'ended', transcript: [line('Bram', 'thanks, great work')], initiatedByMe: false },
     }));
     bus.emit({ type: 'conversationEnded', convId: 'c1', reason: 'turn cap' });
     return new Promise<void>((resolve) =>

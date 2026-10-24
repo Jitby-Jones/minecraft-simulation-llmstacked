@@ -47,7 +47,7 @@ import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
 import { FakeNanoGpt, standardModels, schemaNameOf } from '../llm/fakeNanoGpt';
-import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
+import { type LiveServer, PRESENCE_CHECK, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 loadEnv();
 const key = process.env.NANOGPT_API_KEY?.trim();
@@ -333,6 +333,57 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
         for (const b of bodies) await b.disconnect();
       }
     }, 400_000);
+
+    it('asked something and met with silence by someone in sight: no "you still there?", the talk just ends', async () => {
+      // Owner request (2026-10-24): agents kept asking people they could see whether they were still there.
+      const x = 2200;
+      const Y = -60;
+      await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+      const cfg = loadModelsConfig();
+      const adaBody = await Body.connect({ host: server.host, port: server.port, username: 'Ada', version: versions.minecraft.version, logger });
+      const bo = await Body.connect({ host: server.host, port: server.port, username: 'Bo', version: versions.minecraft.version, logger });
+      await server.cmd(`tp Ada ${x} ${Y} 0`);
+      await server.cmd(`tp Bo ${x + 3} ${Y} 0`);
+      await sleep(2000);
+      const ada = new Agent({
+        body: adaBody,
+        persona: PersonaSchema.parse({ name: 'Ada', sex: 'female', traits: ['chatty', 'warm'], social: { initiateChance: 0 } }),
+        username: 'Ada',
+        llm: rt.client,
+        logger,
+        world: WorldConfigSchema.parse({}),
+        goalGen: false,
+        socialGoals: false,
+        speechTier: cfg.speech.tier,
+        speechModels: cfg.speech.models,
+        ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
+      });
+      const said: string[] = [];
+      const ends: string[] = [];
+      ada.bus.on('spoke', (e) => void said.push(e.text));
+      ada.bus.on('conversationEnded', (e) => void ends.push(e.reason));
+      ada.start();
+      try {
+        const why = ada.cc.force({
+          option: 'talk',
+          target: { agent: 'Bo' },
+          speechIntent: { stance: 'ask', gist: 'ask Bo whether he wants to go mining together', mayCommit: false },
+          terminate: { maxSeconds: 60 },
+          rationale: 'mining is better with two',
+        });
+        expect(why).toBeNull();
+        await waitFor(() => said.length > 0 || null, 30_000, 'Ada asked', 500);
+        // Bo, right there, says nothing; a minute of it.
+        await sleep(60_000);
+        console.log(`[real quiet] Ada said: ${said.join(' | ')}; ends: ${ends.join(', ')}`);
+        expect(said.some((l) => PRESENCE_CHECK.test(l))).toBe(false);
+        expect(ends).toContain('partner silent');
+      } finally {
+        await ada.stop();
+        await adaBody.disconnect();
+        await bo.disconnect();
+      }
+    }, 180_000);
 
     it('wants a skill it lacks, L3 writes it, it is tried in the world and kept, and used again', async () => {
       const x = 1500;

@@ -46,6 +46,7 @@ export const DECISION_RULES = `Rules:
 - Notice what changes around you ("Changes around you"). A hole in your shelter or in a hut is a way in for whatever made it, worst at night: patch it (place a block at that very spot, its x,y,z), deal with whoever did it, or get away. Someone breaking or building near you is worth a look, or a word.
 - Set mayCommit to true only when you really intend to do what you agree to, starting now. Otherwise talk without promising.
 - Once a talk has settled what to do ("we agreed: ..."), stop talking and go do it. Don't stand around chatting about a plan that is already made.
+- You see who is around you (People near you). Never talk to someone just to check they're still there or can hear you; someone who has gone quiet is busy: get on with things.
 - To get an item, use obtain {item, qty}: it works out the steps (wood first, the tools, a crafting table) and does them. A crafting table or a chest goes wherever there is room: place it without a position.
 - Defend yourself. With a good weapon (a stone sword or better) and your health not low, fight the zombie, skeleton or spider that comes at you: killing it beats running, which gets you shot in the back or chased. Run when unarmed, low on health, or facing a creeper or a crowd of them.
 - Make your own tools; it's easy. A pickaxe for stone and ore (they drop nothing without one), an axe for wood and a shovel for dirt and sand (quicker), a sword (or an axe) to hunt and to fight. gather, mine and hunt make the one they need when they can; obtain {item: "stone_pickaxe"} makes one on purpose. Don't wait for someone to hand you a tool.
@@ -67,6 +68,8 @@ export function talkRules(maxWords: number): string {
     // Owner request (2026-10-24): people here type the way Minecraft players do.
     'Type like a real Minecraft player in chat: mostly lowercase, casual, short, light on punctuation. Now and then use common chat slang (lol, ngl, tbh, idk, brb, omw, np, ty, gg, fr) where a player would, not in every line.',
     'Keep it easy to follow: answer what was asked, say what you mean plainly, and name things (oak logs, the cave east of here, 3 iron) instead of talking around them. When something gets decided, say so plainly ("ok lets do it", "nah im good").',
+    // Owner request (2026-10-24): agents kept asking people they could see whether they were still there.
+    'You can see who is near you. Never ask whether someone is still there, can hear you or is around ("you there?", "hello?"); if they have gone quiet, they are busy: leave it, or say what you came to say.',
     'Stay in character: your personality and way of talking still show through. Talk about this world and what is going on in it.',
     'Don\'t make up facts about places, people or things you haven\'t seen or been told about. When you pass on something you heard from someone, say who told you ("Bram says...") and don\'t present it as certain.',
     'Romance stays PG: kind words, compliments, holding hands or a hug as an emote at most. Nothing sexual or suggestive, ever.',

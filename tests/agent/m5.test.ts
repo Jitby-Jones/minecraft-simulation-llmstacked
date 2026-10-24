@@ -169,7 +169,7 @@ describe('code-only social defaults (§6.2, §22.4)', () => {
     s.set('option', { decisionId: 'd', option: 'talk', startedAt: started, maxSeconds: 60, targetAgent: 'Bram', status: 'running' });
     await wait(50);
     // An older talk with Bram, gone quiet before we decided to talk to him again, ending now: not this one.
-    const conv = (id: string, lastActivity: number) => ({ convId: id, participants: ['Cass', 'Bram'], startedAt: 0, lastActivity, turns: 4, myTurns: 2, lastEmbeds: [], status: 'ended' as const, transcript: [], initiatedByMe: true, nudged: true });
+    const conv = (id: string, lastActivity: number) => ({ convId: id, participants: ['Cass', 'Bram'], startedAt: 0, lastActivity, turns: 4, myTurns: 2, lastEmbeds: [], status: 'ended' as const, transcript: [], initiatedByMe: true });
     s.update('conversations', (cs) => ({ ...cs, c0: conv('c0', started - 30_000) }));
     bus.emit({ type: 'conversationEnded', convId: 'c0', reason: 'partner silent' });
     await wait(100);

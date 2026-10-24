@@ -153,3 +153,6 @@ export async function waitFor<T>(
   }
   throw new Error(`timed out after ${timeoutMs} ms waiting for ${label}`);
 }
+
+/** Lines that ask whether someone is there: what nobody says to someone they can see (owner request, 2026-10-24). */
+export const PRESENCE_CHECK = /\b(still (there|here|around)|are (you|u) (there|here|around)|(you|u|r u) there|anyone (there|here)|can (you|u) hear|hello\?|hellooo+|you around\?|u around\?)/i;

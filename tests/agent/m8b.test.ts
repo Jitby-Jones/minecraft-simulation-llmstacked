@@ -161,7 +161,7 @@ describe('demands and compliance (§17.7)', () => {
     const said = world(tyrant, ['Tib']);
     said.update('conversations', (cs) => ({
       ...cs,
-      d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: 0, lastActivity: 5, turns: 2, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: 5, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false, endedReason: 'quiet' },
+      d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: 0, lastActivity: 5, turns: 2, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: 5, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, endedReason: 'quiet' },
     }));
     expect(lastDemandSaid(said.state, 'Tib')).toBe(5);
     expect(lastDemandSaid(said.state, 'Pia')).toBe(-Infinity);
@@ -285,7 +285,7 @@ describe('a demand on its way (§17.7)', () => {
     const at = clock.now + 1;
     s.update('conversations', (cs) => ({
       ...cs,
-      d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: at, lastActivity: at, turns: 1, myTurns: 1, lastEmbeds: [], status: 'active', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: at, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false },
+      d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: at, lastActivity: at, turns: 1, myTurns: 1, lastEmbeds: [], status: 'active', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: at, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true },
     }));
     expect(owesThreat(s.state)).toBe(false);
     expect(lastSaidTo(s.state, 'Tib')).toBe(at);
@@ -307,7 +307,7 @@ describe('a demand on its way (§17.7)', () => {
       const said = clock.now - 120_000;
       s.update('conversations', (cs) => ({
         ...cs,
-        d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: said, lastActivity: said, turns: 1, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: said, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false, endedReason: 'quiet' },
+        d1: { convId: 'd1', participants: ['Rex', 'Tib'], startedAt: said, lastActivity: said, turns: 1, myTurns: 1, lastEmbeds: [], status: 'ended', transcript: [{ id: 'x', convId: 'd1', from: 'Rex', to: ['Tib'], text: 'Tib, give me 3 bread, or else', ts: said, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, endedReason: 'quiet' },
       }));
       s.update('social', (all) => ({ ...all, Tib: { ...(all.Tib ?? newSocialProfile('Tib', tyrant, 0)), lastFight: { ts: clock.now - foughtAgoSec * 1000, outcome: 'won' } } }));
       const bus = new AgentBus();
@@ -456,7 +456,7 @@ describe('giving in, as it is said (§17.7)', () => {
       lines.push(u);
       s.update('conversations', (cs) => ({
         ...cs,
-        p1: { convId: 'p1', participants: ['Rex', 'Pia'], startedAt: 0, lastActivity: u.ts, turns: lines.length, myTurns: 0, lastEmbeds: [], status: 'active', transcript: lines.map((l, i) => ({ ...u, ...l, ts: i + 1 })), initiatedByMe: true, nudged: false },
+        p1: { convId: 'p1', participants: ['Rex', 'Pia'], startedAt: 0, lastActivity: u.ts, turns: lines.length, myTurns: 0, lastEmbeds: [], status: 'active', transcript: lines.map((l, i) => ({ ...u, ...l, ts: i + 1 })), initiatedByMe: true },
       }));
       if (from !== 'Rex') bus.emit({ type: 'addressed', utterance: u });
     };
@@ -478,8 +478,8 @@ describe('giving in, as it is said (§17.7)', () => {
     // Demanded in that conversation, given in to in the next one: still giving in.
     s.update('conversations', (cs) => ({
       ...cs,
-      p2: { convId: 'p2', participants: ['Rex', 'Pia'], startedAt: 50, lastActivity: 50, turns: 0, myTurns: 0, lastEmbeds: [], status: 'ended', transcript: [{ id: 'd3', convId: 'p2', from: 'Rex', to: ['Pia'], text: 'Pia, give me 8 logs, or else', ts: 50, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, nudged: false, endedReason: 'quiet' },
-      p3: { convId: 'p3', participants: ['Rex', 'Pia'], startedAt: 60, lastActivity: 60, turns: 1, myTurns: 0, lastEmbeds: [], status: 'active', transcript: [], initiatedByMe: false, nudged: false },
+      p2: { convId: 'p2', participants: ['Rex', 'Pia'], startedAt: 50, lastActivity: 50, turns: 0, myTurns: 0, lastEmbeds: [], status: 'ended', transcript: [{ id: 'd3', convId: 'p2', from: 'Rex', to: ['Pia'], text: 'Pia, give me 8 logs, or else', ts: 50, pos: null, volume: 'normal', outOfSight: false, addressedToMe: false }], initiatedByMe: true, endedReason: 'quiet' },
+      p3: { convId: 'p3', participants: ['Rex', 'Pia'], startedAt: 60, lastActivity: 60, turns: 1, myTurns: 0, lastEmbeds: [], status: 'active', transcript: [], initiatedByMe: false },
     }));
     const late = { id: 'g3', convId: 'p3', from: 'Pia', to: ['Rex'], text: "Rex, fine. I'll give you 8 logs", ts: 60, pos: null, volume: 'normal' as const, outOfSight: false, addressedToMe: true, heardAs: 'me' as const };
     s.update('conversations', (cs) => ({ ...cs, p3: { ...(cs.p3 as NonNullable<typeof cs.p3>), transcript: [late] } }));
@@ -510,7 +510,6 @@ describe('promises in a group', () => {
           status: 'ended',
           transcript: [u('a', 'Rex', 'give me 3 bread, or else', false), u('b', 'Pia', "fine. I'll give you 3 bread", addressedToMe)],
           initiatedByMe: false,
-          nudged: false,
           endedReason: 'turn cap',
         },
       }));

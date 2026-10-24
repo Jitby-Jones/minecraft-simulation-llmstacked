@@ -129,10 +129,6 @@ export function feelingText(e: EmotionState): string | null {
   return `${t.intensity > 0.7 ? 'very ' : t.intensity < 0.4 ? 'a little ' : ''}${word[t.name]}`;
 }
 
-/** A conversation gone quiet (§6.2, the nudge at 20 s): are they still there? Not a stall for time. */
-const NUDGE: SpeechIntent = { stance: 'ask', gist: 'check whether they are still there', mayCommit: false };
-const NUDGE_LINES: readonly string[] = ['you still there?', 'hello?', 'still around?'];
-
 const CANNED: Readonly<Record<SpeechIntent['stance'], readonly string[]>> = {
   agree: ['sure', 'ok, can do', 'yeah, alright'],
   decline: ['nah, not right now', 'sorry, can\'t right now'],
@@ -223,11 +219,6 @@ export class Talking {
     // Turn-taking at the moment a line goes out (after typing): not over someone else's.
     const chat = (this.o.body as { chat?: { setFloor?: (f: () => number) => void } }).chat;
     chat?.setFloor?.(() => this.floorWait());
-    this.offs.push(
-      this.o.bus.on('needsDecision', (e) => {
-        if (e.reason === 'nudge' && e.convId) void this.say(e.convId, [], NUDGE);
-      }),
-    );
   }
 
   stop(): void {
@@ -619,7 +610,7 @@ export class Talking {
       return `${/[!?.]$/.test(hello) ? hello : `${hello}!`} I'm a ${persona.sex === 'male' ? 'guy' : 'gal'} who loves ${LOVES[persona.values[0] ?? ''] ?? 'mining'}.`;
     }
     const pool =
-      opening && intent.stance === 'chat' ? GREETINGS : intent.gist === NUDGE.gist ? NUDGE_LINES : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
+      opening && intent.stance === 'chat' ? GREETINGS : intent.stance === 'agree' && !intent.mayCommit ? CANNED.ask : CANNED[intent.stance];
     if (intent.stance === 'chat' && persona.speech.catchphrases.length > 0 && this.rng() < 0.3) {
       return persona.speech.catchphrases[Math.floor(this.rng() * persona.speech.catchphrases.length)] ?? '';
     }

@@ -40,7 +40,6 @@ function conversation(lines: [string, string][]): ConversationState {
     status: 'ended',
     transcript: lines.map(([from, text], i) => utter(from, text, i)),
     initiatedByMe: false,
-    nudged: false,
     endedReason: 'turn cap',
   };
 }

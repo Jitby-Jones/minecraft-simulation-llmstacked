@@ -103,7 +103,7 @@ Deviations and implementation findings are logged in **§24** at the end of this
 ### 1.3 Mindcraft (kolbytn/mindcraft), practical bot-to-bot handling
 - Bot-to-bot messages travel through a relay server (MindServer) as JSON `{message, start, end}`, optionally echoed to in-game chat.
 - One active conversation at a time. A third party gets "talking to someone else, try later".
-- An `ignore_until_start` flag after a conversation ends prevents loops. If the partner goes silent, the bot nudges after 30 s, doubling the wait each time.
+- An `ignore_until_start` flag after a conversation ends prevents loops. If the partner goes silent, the bot doesn't ask whether they're still there: it can see them, so silence means they're busy, and the talk ends quietly (v0.9, §24).
 - **Reply delay depends on who's busy** (fast is about 200 ms, long about 5 s). When busy, a cheap LLM call decides whether to reply at all.
 - Incoming messages are queued and batched before the bot replies.
 - Incoming conversation pauses the bot's self-prompting, which resumes 5 s after the conversation ends.
@@ -351,7 +351,7 @@ interface ConversationState { convId: string; participants: Set<string>; started
 **Ending a conversation** (code termination, Lyfe plus Mindcraft plus our caps):
 - **Turn cap:** `myTurns ≥ persona.social.maxTurns` (introvert 4, extrovert 10)
 - **Repetition:** cosine similarity of the new utterance to any of the last 4 > 0.92
-- Partner out of hearing range for > 10 s; partner silent > 20 s (one nudge, then end); danger; CC chose another option.
+- Partner out of hearing range for > 10 s; our line unanswered > 25 s while they're in sight (no nudge: the talk just ends, v0.9); danger; CC chose another option.
 - **After ending:** set a pair cooldown (`cooldown[pair] = 60–120 s`; conversations started by the other party are allowed, but each side may initiate only once per cooldown), and fire a **`conversationEnded` event** that triggers Social Awareness and commitment extraction (§6.3, §6.4).
 
 **Loop guards (hard):**
@@ -2791,3 +2791,14 @@ that sets right only what is odd. Whether two API keys would help with timeouts 
     - Earlier the same day: `death`, `expedition` three runs in a row plus 14 Nether round trips, `controller` twice,
       and `real-models` (the three-way talk).
     - The controller's prompt was benched on the real models.
+20. **Nobody asks someone in sight whether they're still there** (owner request, after the PR). Agents kept asking
+    people they could see "you still there?" or "hello?", which broke the flow of talk. It was the conversation
+    module's nudge: 20 s into a partner's silence it asked whether they were there, though it only did so while the
+    partner was in range and could be seen.
+    - The nudge is gone. Someone right here who hasn't answered our line in 25 s is busy, or done talking, and the
+      talk ends quietly (`partner silent`). Someone who walks off is still let go after 10 s out of range.
+    - The talk rules and the decision rules both say it too: you can see who is near you; never ask whether someone is
+      still there, can hear you or is around.
+    - Live (`quiet`, new, code alone; and with the speech models in `real-models`): Ada asks Bo, who stands in plain
+      sight, whether he wants to go mining; he says nothing. She asks nothing more of him, and the talk ends quietly
+      within 40 s. With the real models she asked once, added one line, and never asked if he was there.

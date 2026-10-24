@@ -338,7 +338,6 @@ export interface ConversationState {
   status: 'active' | 'ending' | 'ended';
   transcript: Utterance[];
   initiatedByMe: boolean;
-  nudged: boolean;
   partnerOutOfRangeSince?: number;
   endedReason?: string;
 }

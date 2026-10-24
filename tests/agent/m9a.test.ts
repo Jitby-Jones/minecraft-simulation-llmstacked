@@ -525,14 +525,6 @@ describe('saying it, PG (§19.1, §19.6)', () => {
     expect(t.said[1]).toBe('Ivy, will you be my partner?');
   });
 
-  it('a conversation gone quiet: asks whether they are still there, not for time to think', async () => {
-    const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }));
-    const conv = t.conversations.open('Ivy', true);
-    t.bus.emit({ type: 'needsDecision', reason: 'nudge', convId: conv.convId });
-    await wait(t.said, 1);
-    expect(['you still there?', 'hello?', 'still around?']).toContain(t.said[0]);
-  });
-
   it('answering an advance in code: the answer, and no "let me think" after it; an ignored one, nothing at all', async () => {
     const t = talker(PersonaSchema.parse({ name: 'Ned', sex: 'male', traits: ['kind'], values: ['exploration'] }));
     let answer: 'return' | 'ignore' = 'return';

@@ -94,7 +94,6 @@ describe('call guards (abort-on-stale)', () => {
       status,
       transcript: [],
       initiatedByMe: false,
-      nudged: false,
     });
     store.set('conversations', { c1: conv('c1', 'active'), c2: conv('c2', 'active') });
     const g = store.guard(talkPolicy('c1'));
