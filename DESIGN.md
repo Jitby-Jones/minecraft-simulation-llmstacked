@@ -2784,10 +2784,10 @@ that sets right only what is odd. Whether two API keys would help with timeouts 
       out of reach with nothing coming away, a build now stops and says so, instead of trying for most of an hour.
     - `build`, all four tests, before: 1 run in 3 passed; after: 3 runs in 3, one with a 104-block tree.
 19. **Verified** on Paper 26.1.2:
-    - `pnpm run check`: 641 unit tests.
-    - The live tests of these requests: `build` (4, and the architect's own design with the real model), `enchant`
-      (3), `expedition` (2, three runs in a row), `controller` (twice), `death`, `m1-skills` (tools, chests, armed
-      fights), and `real-models` (the three-way talk).
-    - The live regression of what these changes touch: `m1-skills`, `m3-agent`, `aware` and `death`, 23 of 24. The one
-      failure was the give test, the bug of item 18, which passed 3 runs of 3 after the fix.
+    - `pnpm run check`: 643 unit tests.
+    - The live tests of these requests and of what they touch, on the final code: `build` 4 of 4 in three runs in a row,
+      and the architect's own design drawn by the real model and built. One run of `m1-skills` (tools, chests, armed
+      fights, the give fix), `aware`, `m3-agent`, `controller`, `enchant` and `expedition`: 29 of 29.
+    - Earlier the same day: `death`, `expedition` three runs in a row plus 14 Nether round trips, `controller` twice,
+      and `real-models` (the three-way talk).
     - The controller's prompt was benched on the real models.
