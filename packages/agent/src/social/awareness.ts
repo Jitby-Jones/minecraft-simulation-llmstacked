@@ -398,7 +398,7 @@ export class SocialAwareness {
       .filter((o) => o.target !== partner && (o.target === this.o.me || people.has(o.target) || writtenAsName(o.target, said)));
     if (opinions.length > 0) this.heard(opinions);
     if (u.insultedMe) this.o.bus.emit({ type: 'insulted', by: partner });
-    this.o.logger.info({ module: 'social', partner, delta: u.sentimentDelta, sentiment: p.sentiment, friction: p.friction }, 'social update');
+    this.o.logger.info({ module: 'social', partner, delta: u.sentimentDelta, sentiment: p.sentiment, friction: p.friction, takenFor: p.perceivedSex }, 'social update');
   }
 
   /** §6.4: promises the partner made to us become accepted commitments (L1, or code). */

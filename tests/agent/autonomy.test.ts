@@ -181,7 +181,7 @@ describe('never standing frozen', () => {
     expect(dig({ direction: 'down' })).toEqual({ ok: true, args: { item: 'diamond', maxBlocks: 48 } });
     expect(dig({ direction: 'North-East' })).toMatchObject({ ok: true, args: { direction: 'north' } });
     expect(dig({ maxBlocks: 200 })).toMatchObject({ ok: true, args: { maxBlocks: 96 } });
-    expect(dig({ direction: 'up' }).ok).toBe(false);
+    expect(dig({ direction: 'up' })?.ok).toBe(false);
   });
 
   it('with nothing to do, a stroll keeps about a friend, a partner or kin in sight; with strangers, it goes where it likes', () => {
