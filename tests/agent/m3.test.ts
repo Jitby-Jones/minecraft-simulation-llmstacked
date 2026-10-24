@@ -375,6 +375,35 @@ describe('a look up from long work', () => {
   }, 15_000);
 });
 
+describe('the end of what a newer decision replaced', () => {
+  it('is no news: the steps meant after the new one wait for it; its own end brings them on', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: null, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    cc.start();
+    const now = Date.now();
+    // The look up's "wait 200 s more" is under way, a walk out meant after it; the wait it replaced comes to its end.
+    s.set('option', { decisionId: 'd-new', option: 'work', startedAt: now, maxSeconds: 200, skill: 'wait', args: { seconds: 200 }, status: 'running' });
+    s.update('mind', (m) => ({ ...m, intention: { aim: 'wait for the light, then hunt', steps: [{ skill: 'goTo', args: { x: -81, y: 75, z: -5, range: 10 } }], from: 'd-new', at: now } }), 'test');
+    // As if the controller had decided it itself (as the look up did).
+    (cc as unknown as { ownOption: boolean }).ownOption = true;
+    bus.emit({ type: 'optionTerminated', reason: 'replaced by a new decision', ok: true, option: 'work', decisionId: 'd-old' });
+    await wait(300);
+    expect(decided).toEqual([]);
+    // Its own end: on to the next step.
+    s.update('option', (o) => (o ? { ...o, status: 'succeeded' } : o), 'test');
+    bus.emit({ type: 'optionTerminated', reason: 'done', ok: true, option: 'work', decisionId: 'd-new' });
+    for (let i = 0; i < 40 && decided.length === 0; i++) await wait(25);
+    cc.stop();
+    expect(decided).toEqual(['intention:goTo']);
+  });
+});
+
 describe('Action Awareness (§4.6)', () => {
   it('the same attempt is known again whatever the amount (9, 9, then 10 diamonds, failing the same way)', () => {
     const s = store();

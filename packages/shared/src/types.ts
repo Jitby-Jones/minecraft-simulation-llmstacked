@@ -827,7 +827,7 @@ export type AgentEvent =
   /** Someone we're at odds with (rung ≥ 1) has just come near (§17.5 "X comes into sight"). */
   | { type: 'atOddsNearby'; name: AgentName; rung: number }
   | { type: 'needsDecision'; reason: string; convId?: ConvId; from?: AgentName }
-  | { type: 'optionTerminated'; reason: string; ok: boolean; option?: OptionName; targetAgent?: AgentName }
+  | { type: 'optionTerminated'; reason: string; ok: boolean; option?: OptionName; targetAgent?: AgentName; decisionId?: string }
   | { type: 'decision'; decision: Decision }
   | { type: 'conversationStarted'; convId: ConvId }
   | { type: 'conversationEnded'; convId: ConvId; reason: string }

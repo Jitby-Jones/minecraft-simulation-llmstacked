@@ -1116,7 +1116,15 @@ export class CognitiveController {
 
   start(): void {
     const b = this.o.bus;
-    this.offs.push(b.on('optionTerminated', (e) => this.onEnded(e.ok, e.reason)));
+    // The end of one a newer decision replaced is no news: that decision is under way, and its own steps are still to
+    // come (a look up's "wait 200 s more" in the hut before dawn was skipped so, its next step taking an agent out
+    // among the zombies).
+    this.offs.push(
+      b.on('optionTerminated', (e) => {
+        if (e.decisionId !== undefined && this.o.store.state.option?.decisionId !== e.decisionId) return;
+        this.onEnded(e.ok, e.reason);
+      }),
+    );
     // Owner request, 2026-10-24: what stands out (what doesn't fit what the agent knows is possible, the first of a
     // remarkable thing) is thought about at once when it is strong; the rest waits for the next thought.
     this.offs.push(

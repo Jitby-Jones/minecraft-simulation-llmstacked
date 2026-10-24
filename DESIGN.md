@@ -320,6 +320,7 @@ A failure is to be understood before anything is tried again; then try another w
 - **Deferral:** `later` keeps a deferred intention with a cue: seeing something, having n of something, day, night, or in n minutes. `LaterWatch` checks the cues every 3 s and wakes the CC when one comes ("you remember: you meant to …"). An unmet intention is forgotten after 90 min. Day put off by day is the next morning, after the night (and night by night the next night): at dusk, an agent's "shear the sheep when it's day" came at once, it being day still, and took it off the small hut it had begun for the night; the hut was never built.
 
 - **A look up from the work:** three minutes and more into one piece of work, the mind thinks a moment every three minutes ("you have been at prospect for 4 min (tunneling south, 37 blocks); you look up from the work a moment"), as a player looks at the tools, the sky and the hunger bar now and then; deciding the same work again lets it go on, not begun again. A seed-2 agent had dug six minutes on end, both its pickaxes wearing out under it, on into the night with nothing left to fight with. Live, the look up had it mine the redstone in sight and dig on.
+- **A decision that replaces what was under way** keeps its own steps: the end of the replaced one (ended early, but "ok") is no news. It had been taken for the new decision's first step done, and the steps after it ran at once: a look up's "wait 200 s more" in a sealed hut before dawn was skipped so, its next step taking an agent out among the zombies, and it died.
 - **Wear in sight:** a tool nearly worn out (under a fifth left, once, as its bar turns red) and a tool breaking ("Your stone pickaxe broke: you have no pickaxe now") are notices thought about at once, mid-task.
 **Tasks** (`goals.tasks`). A task given in words (the console's `task` command, or code in tests) stays open until the agent itself says it is done or drops it with a reason. Being told a task wakes the CC and Goal Generation. Both see the open tasks.
 
@@ -2995,7 +2996,7 @@ they could not walk into. Solo, the best had 8 diamonds by 19 minutes (`solo, se
 twelve ingots by 20 (`solo, seed 1 (9)`); none has yet lived past its second night with the full list in reach. What
 kills them is still the night, now mostly through what the hands could not do (walk through a door, build a pillar
 on a slope, hear "lie low until healed" by day) or did not tell (where a room is, what a building lacks as a kind),
-each answered as above; and every death's post-mortem says how the last fight went. Verified: 704 unit tests; live,
+each answered as above; and every death's post-mortem says how the last fight went. Verified: 705 unit tests; live,
 `hands` (30: dyeing, the hut's corner, a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop,
 climbing out of a hollow, a night's hut for one, a tunnel under gravel, a meadow of tulips, a bed in a nook, a
 pickaxe on its last uses, digs for diamonds over the bedrock, off a pillar ringed with stalagmites, full pockets, a worn pickaxe spared, a hut on a slope, a hut where asked),

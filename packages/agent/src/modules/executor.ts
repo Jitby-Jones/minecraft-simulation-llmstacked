@@ -332,7 +332,7 @@ export class SkillExecutor {
       `option ${reason}`,
     );
     store.update('flags', (f) => ({ ...f, busyLevel: f.inDanger ? 'critical' : this.current ? 'working' : 'idle' }), 'option ended');
-    bus.emit({ type: 'optionTerminated', reason, ok: success, option: opt.option, ...(opt.targetAgent ? { targetAgent: opt.targetAgent } : {}) });
+    bus.emit({ type: 'optionTerminated', reason, ok: success, option: opt.option, decisionId: opt.decisionId, ...(opt.targetAgent ? { targetAgent: opt.targetAgent } : {}) });
   }
 }
 
