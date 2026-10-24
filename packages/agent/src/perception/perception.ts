@@ -110,7 +110,7 @@ export class Perception {
     this.now = o.now ?? Date.now;
     this.swings = new SwingTracker(o.bot, this.now);
     this.village = o.home ? new VillageEyes({ bot: o.bot, store: o.store, bus: o.bus, home: o.home, now: this.now }) : null;
-    this.scene = new SceneEyes({ bot: o.bot, store: o.store, bus: o.bus, now: this.now, ...(o.handsBusy ? { handsBusy: o.handsBusy } : {}) });
+    this.scene = new SceneEyes({ bot: o.bot, store: o.store, bus: o.bus, now: this.now, logger: o.logger, ...(o.handsBusy ? { handsBusy: o.handsBusy } : {}) });
   }
 
   get me(): string {

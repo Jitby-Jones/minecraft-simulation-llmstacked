@@ -13,7 +13,7 @@
 //   of a remarkable kind of thing it ever saw.
 // It describes and never tells the agent what to do.
 
-import type { EntityKind, Notice, Place, Scene, SceneCreature, SceneFeature, SceneFeatureKind } from '@agora/shared';
+import type { EntityKind, Logger, Notice, Place, Scene, SceneCreature, SceneFeature, SceneFeatureKind } from '@agora/shared';
 import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
@@ -554,6 +554,22 @@ export function creatureOf(bot: Bot, s: Seen, m: Motion | undefined, all: readon
 
 // ---- The scene, kept up to date --------------------------------------------------------------------------------
 
+/** The blocks under a creature's feet, at its middle and corners and two below: what our world has there. */
+function underFoot(bot: Bot, e: Entity): string[] {
+  const w = ((e as unknown as { width?: number }).width ?? 0.6) / 2 - 0.05;
+  const p = e.position;
+  const cells = [
+    [0, -0.08, 0],
+    [-w, -0.08, -w],
+    [w, -0.08, -w],
+    [-w, -0.08, w],
+    [w, -0.08, w],
+    [0, -1.08, 0],
+    [0, -2.08, 0],
+  ].map(([dx, dy, dz]) => new Vec3(Math.floor(p.x + (dx ?? 0)), Math.floor(p.y + (dy ?? 0)), Math.floor(p.z + (dz ?? 0))));
+  return [...new Map(cells.map((c) => [c.toString(), c])).values()].map((c) => `${bot.blockAt(c)?.name ?? 'unloaded'}@${c.x},${c.y},${c.z}`);
+}
+
 export interface SceneOptions {
   bot: Bot;
   store: AgentStateStore;
@@ -561,6 +577,8 @@ export interface SceneOptions {
   now: () => number;
   /** Something that would put things in our pockets is going on (a craft, a pickup, a chest open): not a surprise. */
   handsBusy?: () => boolean;
+  /** For what is worth a look afterwards (what was under someone seen up in the air). */
+  logger?: Logger;
 }
 
 /** Blocks a look around also picks out one by one (small things the rays may pass between). */
@@ -738,7 +756,11 @@ export class SceneEyes {
       for (const s of seen) {
         const m = this.motion.of(s.e.id);
         if (!m) continue;
-        this.add(this.expectations.observe({ id: s.e.id, name: s.name, kind: s.kind, type: s.kind === 'player' ? 'player' : (s.e.name ?? s.name), motion: m, distance: s.distance, visible: s.visible }));
+        const n = this.expectations.observe({ id: s.e.id, name: s.name, kind: s.kind, type: s.kind === 'player' ? 'player' : (s.e.name ?? s.name), motion: m, distance: s.distance, visible: s.visible });
+        // Seen up in the air with nothing under it: what was under it, in our world, for a look afterwards (an agent took
+        // another, at work in a tree, for floating).
+        if (n?.key === 'hover') this.o.logger?.info({ module: 'perception', who: s.name, at: s.e.position.toString(), under: underFoot(bot, s.e) }, 'seen up in the air');
+        this.add(n);
       }
       this.checkSelf(now);
     }
