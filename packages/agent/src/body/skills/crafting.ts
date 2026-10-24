@@ -22,7 +22,10 @@ interface Recipe {
  * wood on hand (planks or logs we carry, else oak), "a bed" or "wool" or "a carpet" in a colour on hand (else white).
  */
 export function resolveCraftTarget(bot: Bot, raw: string): string | null {
-  const n = normalizeItemName(raw);
+  const said = normalizeItemName(raw);
+  if (bot.registry.itemsByName[said]) return said;
+  // "wooden_door", "wood_slab": any wood, as the names of old had it (the game now names each by its wood).
+  const n = said.replace(/^(wooden|wood)_/, '');
   if (bot.registry.itemsByName[n]) return n;
   const items = bot.inventory.items();
   const fromPlanks = items.filter((i) => i.name.endsWith('_planks')).map((i) => i.name.replace(/_planks$/, ''));
@@ -33,6 +36,16 @@ export function resolveCraftTarget(bot: Bot, raw: string): string | null {
   const colours = [...items.filter((i) => i.name.endsWith('_wool')).map((i) => i.name.replace(/_wool$/, '')), 'white'];
   for (const colour of colours) if (bot.registry.itemsByName[`${colour}_${n}`]) return `${colour}_${n}`;
   return null;
+}
+
+/** "there is no item called wooden_door (there is oak_door, iron_door...)": names the game has with the same last word. */
+export function noSuchItem(bot: Bot, name: string): string {
+  const last = name.split('_').at(-1) ?? name;
+  const near = Object.keys(bot.registry.itemsByName)
+    .filter((k) => k === last || k.endsWith(`_${last}`))
+    .sort((a, b) => a.length - b.length || a.localeCompare(b))
+    .slice(0, 4);
+  return `there is no item called ${name}${near.length > 0 ? ` (there is ${near.join(', ')})` : ''}`;
 }
 
 interface Missing {
@@ -199,7 +212,7 @@ export const craft = defineSkill({
   async run(ctx, args) {
     const { bot } = ctx;
     const name = resolveCraftTarget(bot, args.item);
-    if (!name) return { ok: false, observed: 'unknown item', error: `there is no item called ${args.item}` };
+    if (!name) return { ok: false, observed: 'unknown item', error: noSuchItem(bot, normalizeItemName(args.item)) };
     if (!ctx.knowsRecipe(name)) return { ok: false, observed: 'did not try', error: `I don't know how to make ${name}` };
     const item = bot.registry.itemsByName[name];
     if (!item) return { ok: false, observed: 'unknown item', error: `unknown item ${name}` };

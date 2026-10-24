@@ -24,7 +24,7 @@ import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
 import { type Motion, MotionTracker } from '@agora/agent/perception/motion';
 import { type Seen, SceneEyes, featureKindOf, featuresOf } from '@agora/agent/perception/scene';
-import { pocketPlan, resolveCraftTarget } from '@agora/agent/body/skills/crafting';
+import { noSuchItem, pocketPlan, resolveCraftTarget } from '@agora/agent/body/skills/crafting';
 import { bearingOf, countOf, describeScene } from '@agora/agent/perception/sceneWords';
 import { createInitialState } from '@agora/agent/state/initial';
 import { AgentStateStore } from '@agora/agent/state/store';
@@ -295,6 +295,15 @@ describe('the hands make what is one craft away, as a player does without a thou
     expect(r({ red_wool: 3 }, 'bed')).toBe('red_bed');
     expect(r({}, 'wool')).toBe('white_wool');
     expect(r({}, 'stick')).toBe('stick');
+    // The names of old: a "wooden door" is a door of the wood on hand; a wooden pickaxe is itself.
+    expect(r({ birch_planks: 6 }, 'wooden_door')).toBe('birch_door');
+    expect(r({}, 'wooden fence')).toBe('oak_fence');
+    expect(r({}, 'wooden_pickaxe')).toBe('wooden_pickaxe');
+    // No such thing: the names the game has with the same last word, to go by.
+    const none = noSuchItem(pockets({}) as never, 'gold_door');
+    expect(none).toMatch(/^there is no item called gold_door \(there is /);
+    expect(none).toContain('oak_door');
+    expect(none).toContain('iron_door');
   });
 
   it("never takes what the recipe itself needs, and nothing that would have to be got first", () => {

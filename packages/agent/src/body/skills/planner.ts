@@ -10,7 +10,7 @@ import { countItem } from '../inventory';
 import { CATEGORIES, itemMatcher, normalizeItemName } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, canSee, isHostile } from '../world';
-import { craft, resolveCraftTarget, smelt } from './crafting';
+import { craft, noSuchItem, resolveCraftTarget, smelt } from './crafting';
 import { gather, isFoodName, pickup } from './gathering';
 import { attack } from './combat';
 import { shearSheep, woollySheep } from './hands';
@@ -381,6 +381,7 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
       return;
     case 'none': {
       if (r.why === 'unknown' && bot.registry.itemsByName[item] && !ctx.knowsRecipe(item)) throw new ObtainError(`I don't know how to make ${item}`);
+      if (!bot.registry.itemsByName[item] && !CATEGORIES[item]) throw new ObtainError(noSuchItem(bot, item));
       throw new ObtainError(`I don't know how to get ${item}`);
     }
     case 'gather': {
