@@ -38,8 +38,29 @@ function digTime(bot: Bot, block: Block, item: Item | null): number {
  * diamonds and dig the deepslate with stone, and the hands took the iron to it anyway, and it broke.
  */
 export function toolFor(bot: Bot, block: Block): Item | null {
-  const items = bot.inventory.items();
-  if (items.length === 0) return null;
+  // A walk asks this of every block it might dig on its way, thousands of times a walk: the answer is kept a moment
+  // per kind of block (each answer had weighed every stack in the pockets, stone and earth included; long walks with
+  // full pockets were spending a minute and more planning).
+  let kept = CHOSEN.get(bot);
+  if (!kept) CHOSEN.set(bot, (kept = new Map()));
+  const now = Date.now();
+  const hit = kept.get(block.type);
+  if (hit && now - hit.at < KEEP_MS && (hit.item === null || bot.inventory.slots[hit.item.slot]?.type === hit.item.type)) return hit.item;
+  const item = choose(bot, block);
+  kept.set(block.type, { at: now, item });
+  return item;
+}
+
+/** What was chosen lately for each kind of block, per body. */
+const CHOSEN = new WeakMap<Bot, Map<number, { at: number; item: Item | null }>>();
+const KEEP_MS = 1000;
+
+function choose(bot: Bot, block: Block): Item | null {
+  const all = bot.inventory.items();
+  if (all.length === 0) return null;
+  // What wears is what digs; of the rest, one stands for the bare hand (every block and bite digs as a hand does).
+  const plain = all.find((i) => wearLeft(i) === undefined);
+  const items = [...all.filter((i) => wearLeft(i) !== undefined), ...(plain ? [plain] : [])];
   const needs = Boolean((block as unknown as { harvestTools?: object }).harvestTools);
   const can = needs ? items.filter((i) => block.canHarvest(i.type)) : items;
   if (can.length === 0) return null;
