@@ -13,6 +13,7 @@ export * from './hub/births';
 export * from './hub/supervisor';
 export * from './hub/personaWriter';
 export * from './hub/tuning';
+export * from './hub/controller';
 export * from './skins/namemc';
 export * from './skins/mineskin';
 export * from './skins/service';

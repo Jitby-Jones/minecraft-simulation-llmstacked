@@ -2,7 +2,7 @@
 // code; the Cognitive Controller decides; the executor and Talking carry the decision out, so what the agent says
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
-import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
+import { type AgentName, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Urge, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
 import type { Embedder, LlmCallOptions, LlmClient, LlmResult, QuotaGovernor } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
@@ -59,6 +59,7 @@ import { buildingPlan, describeDesign, designBuilding } from './building/archite
 import { sharedRepertoire } from './building/repertoire';
 import type { DesignAsk, SkillResult } from './body/skills/types';
 import { isOff } from './state/switches';
+import { applyUrge } from './modules/urges';
 
 export interface AgentOptions {
   body: Body;
@@ -939,6 +940,11 @@ export class Agent {
    * §17.6: running from a person, say we give up so they stop. A duel that is giving up says so itself, so wait a
    * moment to hear it first; and say it only once.
    */
+  /** An urge of our own (the Hub's `urge`): a talk going round in circles left, standing stuck walked out of, … */
+  urge(u: Urge): Promise<string> {
+    return applyUrge({ store: this.store, talking: this.talking, awareness: this.awareness, cc: this.cc, executor: this.executor, logger: this.o.logger, ...(this.o.now ? { now: this.o.now } : {}) }, u);
+  }
+
   /** §17.10 extinction brake: our own caution baseline is raised for a while (a mood), never what we perceive. */
   brake(shift: number, until: number): void {
     this.store.update('drives', (d) => ({ ...d, brakeShift: shift, brakeUntil: until, caution: Math.max(d.caution, Math.min(1, d.cautionBaseline + shift)) }), 'extinction brake');

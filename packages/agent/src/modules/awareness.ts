@@ -58,13 +58,33 @@ export class ActionAwareness {
 
   isStuckOn(skill: string, args: Record<string, unknown>): boolean {
     const s = this.stuckUntil.get(taskKey(skill, args));
-    return Boolean(s && s.until > this.now());
+    if (s && s.until > this.now()) return true;
+    // Given up on: that skill for that thing, whatever the other arguments.
+    const item = typeof args.item === 'string' ? args.item : null;
+    const g = this.givenUp.get(`${skill}:${item ?? ''}`) ?? this.givenUp.get(`${skill}:`);
+    return Boolean(g && g.until > this.now());
   }
 
   /** "gather (item oak_log, qty 4): no oak_log within 48 blocks" for each live stuck mark. */
   stuckList(): string[] {
     const t = this.now();
-    return [...this.stuckUntil.entries()].filter(([, s]) => s.until > t).map(([k, s]) => `${k}: ${s.why}`);
+    return [
+      ...[...this.stuckUntil.entries()].filter(([, s]) => s.until > t).map(([k, s]) => `${k}: ${s.why}`),
+      ...[...this.givenUp.entries()].filter(([, s]) => s.until > t).map(([k, s]) => `${k.replace(/:$/, '').replace(':', ' ')} (any way): ${s.why}`),
+    ];
+  }
+
+  /** Tasks given up on, by skill and the thing they were for (`skill:item`, or `skill:` for the skill itself). */
+  private readonly givenUp = new Map<string, { until: number; why: string }>();
+
+  /**
+   * Gives up on a task for `ms` (it failed over and over, in one way after another): that skill for that item (or,
+   * with no item, the skill itself) counts as stuck whatever its other arguments. A success with it lifts the mark.
+   */
+  giveUp(skill: string, item: string | null, why: string, ms: number): void {
+    this.givenUp.set(`${skill}:${item ?? ''}`, { until: this.now() + ms, why });
+    this.o.store.update('flags', (f) => (f.stuck ? f : { ...f, stuck: true }), 'gave up');
+    this.o.logger.info({ module: 'awareness', skill, item, why }, 'gave up');
   }
 
   private readonly instant = new Map<string, number[]>();
@@ -95,7 +115,8 @@ export class ActionAwareness {
         }
       }
       this.fails.delete(key);
-      if (this.stuckUntil.delete(key) && this.stuckList().length === 0) {
+      const lifted = this.givenUp.delete(`${r.skill}:${item ?? ''}`) || this.givenUp.delete(`${r.skill}:`);
+      if ((this.stuckUntil.delete(key) || lifted) && this.stuckList().length === 0) {
         this.o.store.update('flags', (f) => (f.stuck ? { ...f, stuck: false } : f), 'unstuck');
       }
       return;

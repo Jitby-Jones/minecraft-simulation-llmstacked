@@ -42,6 +42,7 @@ import {
   ConsoleLog,
   DashboardModel,
   DashboardServer,
+  Controller,
   Hub,
   type ManagedServer,
   PersonaWriter,
@@ -196,6 +197,30 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
   const sendTuning = (scope: string) => {
     for (const s of hub.list()) if (s.username && (scope === 'all' || s.username === scope)) s.send({ t: 'tuning', tuning: tuning.for(s.username) });
   };
+  // The controller (owner request, 2026-10-24): the master model over all the agents, stepping in only when
+  // something has plainly gone wrong (controller.ts); never for an agent it is switched off for, or a paused one.
+  const controller = new Controller({
+    llm: master?.client ?? null,
+    logger,
+    config: models.controller,
+    send: (name, urge) => {
+      const s = hub.byName(name);
+      if (!s) return false;
+      s.send({ t: 'urge', urge });
+      return true;
+    },
+    leaveBe: (name) => {
+      const t = tuning.for(name);
+      return t.paused || t.off.includes('controller');
+    },
+    onStep: (step) => model.controllerStep(step),
+  });
+  hub.on('telemetry', (s, m) => {
+    if (m.t === 'telemetry' && s.username) controller.observe(s.username, m.kind, m.data);
+  });
+  hub.on('died', (_s, m) => controller.gone(m.username));
+  hub.on('bye', (_s, m) => controller.gone(m.username));
+  controller.start();
   let modelList: { at: number; list: { id: string; capabilities: string[]; thinking: boolean }[] } | null = null;
   const subscriptionModels = async () => {
     if (!key) return null;
@@ -212,6 +237,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     stopping = true;
     ending = how;
     logger.info({ module: 'agora', why }, how === 'restart' ? 'restarting' : 'shutting down');
+    controller.stop();
     await supervisor.shutdown(why);
     await dashboard?.close();
     detachDashboard();

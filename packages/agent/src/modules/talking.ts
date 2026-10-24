@@ -375,6 +375,28 @@ export class Talking {
     this.refusing.set(name, this.now() + ms);
   }
 
+  /**
+   * Done with talking for now (an urge of our own to move on): a goodbye in the talk if there is one, every talk
+   * ended, the people in them (and `avoid`) left be for `holdMs`, and small talk waits as long. The thought goes on
+   * our mind. Returns whom we were talking with.
+   */
+  async moveOn(o: { thought: string; say?: string; avoid?: readonly AgentName[]; holdMs: number }): Promise<AgentName[]> {
+    const talks = this.o.conversations.active();
+    const people = [...new Set([...talks.flatMap((c) => c.participants), ...(o.avoid ?? [])])].filter((p) => p !== this.o.me);
+    const last = talks.sort((a, b) => b.lastActivity - a.lastActivity)[0];
+    if (o.say && last) await this.send(last.convId, o.say, 'normal').catch(() => false);
+    for (const c of this.o.conversations.active()) this.o.conversations.end(c.convId, 'moved on');
+    for (const p of people) this.o.conversations.holdOff(p, o.holdMs);
+    this.focusUntil = Math.max(this.focusUntil, this.now() + o.holdMs);
+    const p = this.pending;
+    if (p && !p.lines.some((l) => needsDecision(l.text))) {
+      clearTimeout(p.timer);
+      this.pending = null;
+    }
+    pushWorkmem(this.o.store, o.thought, 0.7, 'self_observed', { now: this.now() });
+    return people;
+  }
+
   private onAddressed(u: Utterance): void {
     if (!u.convId) return;
     if ((this.refusing.get(u.from) ?? 0) > this.now()) return;

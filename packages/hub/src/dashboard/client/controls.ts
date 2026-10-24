@@ -31,7 +31,7 @@ interface MemoryRow {
 
 const TOKEN_KEY = 'agora-ctl-token';
 const TIERS = ['L1', 'L2', 'L3'] as const;
-const MODULES = ['llm', 'cc.llm', 'talking.llm', 'goalGen', 'socialGoals', 'reflection', 'selfMonitor', 'impulses', 'conflict', 'romance', 'family', 'skillWriter'];
+const MODULES = ['llm', 'cc.llm', 'talking.llm', 'goalGen', 'socialGoals', 'reflection', 'selfMonitor', 'impulses', 'conflict', 'romance', 'family', 'skillWriter', 'architect', 'controller'];
 const MODULE_NOTES: Readonly<Record<string, string>> = {
   llm: 'every model call',
   'cc.llm': 'decides with the model',
@@ -45,6 +45,8 @@ const MODULE_NOTES: Readonly<Record<string, string>> = {
   romance: 'courting',
   family: 'families',
   skillWriter: 'writes new skills',
+  architect: 'designs its own buildings',
+  controller: 'the controller may step in when something goes wrong',
 };
 const FEELINGS = ['caution', 'fear', 'anger', 'joy', 'sadness', 'disgust', 'shame', 'envy', 'affection'];
 

@@ -161,6 +161,14 @@ export class DashboardModel {
     if (killer) this.power.push({ ts: this.now(), what: 'killed', agent: killer, victim: name });
   }
 
+  /**
+   * The controller stepped in (controller.ts): shown to the operator only, on each one it pushed, with what looked
+   * wrong and the thought it took as its own. Cases it let be are only logged.
+   */
+  controllerStep(step: { kind: string; summary: string; why: string; by: string; urges: readonly { who: string; urge: { act: string; thought: string; say?: string } }[] }): void {
+    for (const u of step.urges) this.event(u.who, 'controller', { kind: step.kind, act: u.urge.act, thought: u.urge.thought, ...(u.urge.say ? { say: u.urge.say } : {}), summary: step.summary, why: step.why, by: step.by });
+  }
+
   /** A bot's `log` line at warn or worse (shown as a problem). */
   log(name: string, m: Extract<BotToHub, { t: 'log' }>): void {
     if (m.level === 'warn' || m.level === 'error' || m.level === 'fatal') this.problems.push({ ts: this.now(), agent: name, level: m.level, module: m.module, msg: m.msg });

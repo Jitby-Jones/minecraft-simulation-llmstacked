@@ -121,6 +121,11 @@ export class Conversations {
     return (this.cooldownUntil.get(partner) ?? 0) > this.now();
   }
 
+  /** No new conversation with them for `ms` (one that went round in circles is let be a while). */
+  holdOff(partner: AgentName, ms: number): void {
+    this.cooldownUntil.set(partner, Math.max(this.cooldownUntil.get(partner) ?? 0, this.now() + ms));
+  }
+
   /** Each side may initiate once per pair cooldown (§6.2). */
   mayInitiate(partner: AgentName): boolean {
     return (this.cooldownUntil.get(partner) ?? 0) <= this.now() && !this.withPartner(partner);

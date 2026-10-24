@@ -546,6 +546,7 @@ function eventText(r: Row): string {
   if (w === 'defected') return `walked away from ${str(r.from)} as ${Array.isArray(r.attackers) ? (r.attackers as string[]).join(' and ') : 'others'} set upon them`;
   if (w === 'escalation') return `rung ${str(r.from)} → ${str(r.to)} with ${str(r.with)}`;
   if (w === 'impulse') return `acted on impulse: ${str(r.rationale)}`;
+  if (w === 'controller') return `the controller stepped in (${str(r.kind).replace(/_/g, ' ')}): ${str(r.act).replace(/_/g, ' ')}, "${str(r.thought)}"`;
   if (w === 'conversation') {
     // The others only (older bots sent every participant, the agent itself among them).
     const others = (Array.isArray(r.with) ? (r.with as string[]) : Array.isArray(r.participants) ? (r.participants as string[]) : []).filter((n) => n !== r.agent);

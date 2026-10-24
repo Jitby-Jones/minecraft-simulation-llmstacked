@@ -167,6 +167,7 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
   if (early.reason) void finish(`shutdown: ${early.reason}`, { snapshot: true });
   hub.on('retire', (m) => void finish(`retired: ${m.reason}`, { snapshot: true, goodbye: true }));
   hub.on('cautionShift', (m) => agent.brake(m.shift, m.untilTs));
+  hub.on('urge', (m) => void agent.urge(m.urge).catch((err: unknown) => logger.warn({ module: 'urge', err: String(err) }, 'urge failed')));
   hub.on('snapshot', (m) => {
     saveSnapshot(db, agent.store.state);
     // Checkpointed too, so a hot export (§23.4) copies a consistent database.

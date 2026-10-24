@@ -171,10 +171,14 @@ describe('hub protocol', () => {
     // Grants are bare yes/no answers (a speech token, an LLM slot, a fight slot under maxConcurrentFights). The
     // operator's debug controls are the operator's own hands: settings (tuning: switches, models, pause) and requests
     // made by a person at the dashboard or `pnpm ctl` (debug), each one logged; the Hub never sends either by itself.
+    // The controller's urge (owner request, 2026-10-24) is the agent's own inclination, like cautionShift: what to do
+    // about its own trouble, in its own words, and whom it was just talking with; a place or anything else is dropped.
     const kinds = HubToBotSchema.options.map((o) => o.shape.t.value);
     expect(kinds.sort()).toEqual(
-      ['assign', 'budget', 'cautionShift', 'debug', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant', 'tuning'].sort(),
+      ['assign', 'budget', 'cautionShift', 'debug', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant', 'tuning', 'urge'].sort(),
     );
+    expect(parseHubToBot(JSON.stringify({ t: 'urge', urge: { act: 'wander', thought: 'I should move', pos: { x: 1, y: 2, z: 3 }, ore: 'diamond' } }))).toEqual({ t: 'urge', urge: { act: 'wander', thought: 'I should move', avoid: [] } });
+    expect(parseHubToBot(JSON.stringify({ t: 'urge', urge: { act: 'teleport', thought: 'go' } }))).toBeNull();
     expect(parseHubToBot(JSON.stringify({ t: 'tuning', tuning: { off: ['romance'], models: { L2: 'm' }, paused: true } }))).toEqual({ t: 'tuning', tuning: { off: ['romance'], models: { L2: 'm' }, tiers: {}, paused: true } });
     expect(parseHubToBot(JSON.stringify({ t: 'tuning', tuning: { off: ['teleport'] } }))).toBeNull();
     expect(parseHubToBot(JSON.stringify({ t: 'fightGrant', reqId: 'r1', ok: false, who: 'Rex' }))).toEqual({ t: 'fightGrant', reqId: 'r1', ok: false });

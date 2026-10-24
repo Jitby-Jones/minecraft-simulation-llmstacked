@@ -57,7 +57,7 @@ const WrittenSchema = z.object({
 export type Written = z.infer<typeof WrittenSchema>;
 
 /** Words a person of this world wouldn't use about themselves: games, machines, the world as a program. */
-const OUT_OF_WORLD = /\b(ai|a\.i\.|bots?|robots?|npcs?|language model|assistant|simulation|simulated|minecraft|video ?games?|gamer|players?|servers?|program(med)?|algorithm|chatgpt|gpt)\b/i;
+export const OUT_OF_WORLD = /\b(ai|a\.i\.|bots?|robots?|npcs?|language model|assistant|simulation|simulated|minecraft|video ?games?|gamer|players?|servers?|program(med)?|algorithm|chatgpt|gpt)\b/i;
 
 /** Where they come from and what they did: a spark to start from, drawn by code. */
 const ORIGINS = [

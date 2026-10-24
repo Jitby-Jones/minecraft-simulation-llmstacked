@@ -38,3 +38,18 @@ llm:
 architect:
   models: [z-ai/glm-5.3, z-ai/glm-5.1, deepseek/deepseek-v4-pro]
   timeoutMs: 90000
+
+# The controller (owner request, 2026-10-24): one master model over all the agents. Code finds what looks wrong (a
+# talk going round in circles, someone standing stuck, the same failure over and over, a mind that won't settle); the
+# model judges each case (most are let be) and words the urge that ends it, which the agent takes as its own. Rare
+# calls, so a strong model; at most maxPerHour urges an hour. Measured with the real prompt on five cases (a talk
+# going round in circles, a long talk that keeps moving on, a craft failing five times, a walk stuck in place, a busy
+# talk full of "ok"s): glm-5.3 judged all of them right every time (6 of 6 let the long talk be; 4-22 s); kimi-k2.6 was
+# quicker (2-6 s) but broke up the long talk once in 4; deepseek-v4-pro broke it up every time; glm-5.1 once answered
+# "...". A model not on the subscription list is skipped; after these, the L3 chain.
+controller:
+  enabled: true
+  models: [z-ai/glm-5.3, moonshotai/kimi-k2.6]
+  timeoutMs: 45000
+  everySec: 20
+  maxPerHour: 20
