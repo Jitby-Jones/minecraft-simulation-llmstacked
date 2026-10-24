@@ -401,7 +401,12 @@ describe('lessons and tasks', () => {
     ];
     expect(matchTask(tasks, 'the enchanting table is made and placed')?.id).toBe('b');
     expect(matchTask(tasks, 'task 1')?.id).toBe('a');
+    expect(matchTask(tasks, '2: it stands by the house')?.id).toBe('b');
+    expect(matchTask(tasks, '#1')?.id).toBe('a');
+    expect(matchTask(tasks, '12 diamonds in my pockets now')?.id).toBe('a');
     expect(matchTask(tasks, 'something else entirely')).toBeNull();
+    // A step of a plan that shares a word or two with a task is not that task.
+    expect(matchTask(tasks, 'Craft planks and sticks, make a crafting table if needed, craft torches: I hold 16 torches')).toBeNull();
   });
 });
 
@@ -469,7 +474,7 @@ describe('the packet: a train of thought, what it meant to do, what it tried, le
     };
     const p = buildPacket({ state: s, levers: leversFor(0.5), reason: 'what you were doing failed', knowledge: ['white wool: shear an adult sheep (shears): 1-3 wool'], now });
     expect(p).toContain('Your recent thoughts (oldest first):\n  - The sheep are all gone from here; I should look for more out east. (30s ago)');
-    expect(p).toContain('Tasks you have taken on:\n  - make a bed (from the operator, 1m ago)');
+    expect(p).toContain('Tasks you have taken on:\n  1. make a bed (from the operator, 1m ago)');
     expect(p).toContain('You meant to do next: obtain {"item":"shears","qty":1}');
     expect(p).toContain('You put off: get wool (until see:sheep).');
     expect(p).toContain('Where you are: In plains, standing on grass block, under the open sky.');

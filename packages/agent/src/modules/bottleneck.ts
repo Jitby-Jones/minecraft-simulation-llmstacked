@@ -45,7 +45,7 @@ export function buildPacket(i: PacketInput): string {
   const thoughts = (s.mind?.thoughts ?? []).slice(-3);
   if (thoughts.length > 0) out.push(`Your recent thoughts (oldest first):\n${thoughts.map((t) => `  - ${t.text} (${ago(now - t.ts)})`).join('\n')}`);
   const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open');
-  if (tasks.length > 0) out.push(`Tasks you have taken on:\n${tasks.map((t) => `  - ${t.text} (from ${t.from === me ? 'yourself' : t.from}, ${ago(now - t.at)})${t.note ? ` [${t.note}]` : ''}`).join('\n')}`);
+  if (tasks.length > 0) out.push(`Tasks you have taken on:\n${tasks.map((t, i) => `  ${i + 1}. ${t.text} (from ${t.from === me ? 'yourself' : t.from}, ${ago(now - t.at)})${t.note ? ` [${t.note}]` : ''}`).join('\n')}`);
   const finished = (s.goals.tasks ?? []).filter((t) => t.status !== 'open').slice(-3);
   if (finished.length > 0) out.push(`Tasks behind you: ${finished.map((t) => `${t.text} (${t.status}${t.note ? `: ${t.note}` : ''})`).join('; ')}.`);
 

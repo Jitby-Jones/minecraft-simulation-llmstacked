@@ -65,18 +65,34 @@ export function addLesson(store: AgentStateStore, text: string, from: Lesson['fr
 }
 
 /** The open task a note is about: by its number ("1", "task 2") or by the words it shares with it. */
+/** Words that say what is done to a thing, not what: no task is told from another by them. */
+const DOING = new Set(['make', 'made', 'obtain', 'build', 'built', 'craft', 'find', 'set', 'sets', 'full', 'secure', 'some', 'all', 'into', 'out', 'one', 'two']);
+
+function stem(w: string): string {
+  return w.length > 4 ? w.replace(/(ing|ed|s)$/, '') : w;
+}
+
+/** "3: why", "3. why", "task 3", "#3" or a bare "3": the task by its number; "12 diamonds" is no number of one. */
+const BY_NUMBER = /^\s*(?:task\s*#?\s*(\d{1,2})\b|#(\d{1,2})\b|(\d{1,2})\s*(?:[:.)]|[-–—]\s|$))/i;
+
+/**
+ * Which open task a "taskDone"/"taskDropped" means: by its number as listed, else the one whose own words (what it is
+ * about, not "make" or "build") are all there. A plan's step "make a crafting table, craft torches" closed "Make an
+ * enchanting table" when two shared words were enough.
+ */
 export function matchTask(tasks: readonly AssignedTask[], text: string): AssignedTask | null {
   const open = tasks.filter((t) => t.status === 'open');
-  const n = /^\s*(?:task\s*)?#?(\d{1,2})\b/i.exec(text)?.[1];
+  const m = BY_NUMBER.exec(text);
+  const n = m?.[1] ?? m?.[2] ?? m?.[3];
   if (n) return open[Number(n) - 1] ?? null;
+  const said = new Set([...words(text)].map(stem));
   let best: AssignedTask | null = null;
-  let score = 0.34;
+  let most = 0;
   for (const t of open) {
-    const v = overlap(t.text, text);
-    if (v > score) {
-      score = v;
-      best = t;
-    }
+    const key = [...words(t.text)].filter((w) => !DOING.has(w) && !/^\d+$/.test(w)).map(stem);
+    if (key.length === 0 || !key.every((w) => said.has(w)) || key.length <= most) continue;
+    most = key.length;
+    best = t;
   }
   return best;
 }
