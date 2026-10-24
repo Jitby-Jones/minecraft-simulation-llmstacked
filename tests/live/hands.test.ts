@@ -579,6 +579,19 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 120_000);
 
+  it('a hut of what the digging brought: granite and andesite', async () => {
+    // Prospectors carried dozens of granite and andesite and were told they needed more building blocks.
+    const x = 7200;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:granite 14');
+    await server.cmd('give Ada minecraft:andesite 14');
+    await sleep(1500);
+    const r = await run('build', { structure: 'hut', room: 1 });
+    logger.info({ r }, 'a hut of granite');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'granite') + countItem(body.bot, 'andesite')).toBeLessThan(28);
+  }, 180_000);
+
   it('"mine cobblestone" in a pit in the stone: it mines the stone cobblestone comes from', async () => {
     // Told to mine cobblestone, an agent standing on stone was told it had seen none around.
     const x = 7100;

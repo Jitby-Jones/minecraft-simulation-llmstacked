@@ -373,6 +373,10 @@ describe('village work as goals (§6.8)', () => {
     expect(isHutMaterial('acacia_planks')).toBe(true);
     expect(isHutMaterial('cherry_planks')).toBe(true);
     expect(isHutMaterial('acacia_log')).toBe(false);
+    // Stone of any kind: what the digging brought (prospectors carried dozens of granite, and were told they had none).
+    for (const b of ['granite', 'andesite', 'diorite', 'tuff', 'cobbled_deepslate']) expect(isHutMaterial(b)).toBe(true);
+    expect(isHutMaterial('gravel')).toBe(false);
+    expect(isHutMaterial('sand')).toBe(false);
     expect(villageMove(withInv(atHome(base()), { acacia_planks: HUT_BLOCKS }), 'build', v)?.task).toEqual({ skill: 'obtain', args: { item: 'acacia_door', qty: 1 } });
     expect(villageMove(withInv(atHome(base()), { acacia_planks: HUT_BLOCKS, acacia_door: 1 }), 'build', v)?.task).toEqual({ skill: 'build', args: { structure: 'hut' } });
   });

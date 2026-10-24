@@ -124,9 +124,33 @@ export const hunt = defineSkill({
 
 // --- build a hut ----------------------------------------------------------------------------------------------------
 
-/** Blocks a hut can be made of, best first. */
-/** What a hut is built of, in the order used: stone, then planks of any wood (acacia in a savanna), then dirt. */
-export const HUT_MATERIALS = ['cobblestone', 'cobbled_deepslate', 'stone_bricks', 'planks', 'dirt'] as const;
+/**
+ * What a hut is built of, in the order used: stone of any kind, the kinds good for nothing else first (granite and
+ * the like, as a player walls up with what the digging brought), then planks of any wood (acacia in a savanna), then
+ * dirt. Prospectors carried dozens of granite and andesite and were told they needed more building blocks.
+ */
+export const HUT_MATERIALS = [
+  'andesite',
+  'diorite',
+  'granite',
+  'tuff',
+  'calcite',
+  'netherrack',
+  'blackstone',
+  'mossy_cobblestone',
+  'sandstone',
+  'red_sandstone',
+  'cobbled_deepslate',
+  'cobblestone',
+  'stone',
+  'stone_bricks',
+  'bricks',
+  'mud_bricks',
+  'planks',
+  'dirt',
+  'coarse_dirt',
+  'rooted_dirt',
+] as const;
 const hutRank = (name: string): number => HUT_MATERIALS.indexOf((name.endsWith('_planks') ? 'planks' : name) as (typeof HUT_MATERIALS)[number]);
 /** A block a hut can be built of. */
 export const isHutMaterial = (name: string): boolean => hutRank(name) >= 0;
@@ -276,7 +300,7 @@ function buildingBlocks(bot: Bot): number {
 
 export const build = defineSkill({
   name: 'build',
-  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut, room?: 1|2|3, x?,y?,z?} is the quick hut of cobblestone, planks or dirt round a room 1, 2 or 3 blocks across (by home, or the nearest spot to x,y,z) (${hutBlocks(1)}, ${hutBlocks(2)} or ${hutBlocks(3)} blocks; 3 if not said)`,
+  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut, room?: 1|2|3, x?,y?,z?} is the quick hut of stone of any kind (cobblestone, granite, ...), planks or dirt round a room 1, 2 or 3 blocks across (by home, or the nearest spot to x,y,z) (${hutBlocks(1)}, ${hutBlocks(2)} or ${hutBlocks(3)} blocks; 3 if not said)`,
   argsSchema: z.object({
     structure: z.string().min(1).optional(),
     room: z.coerce.number().int().min(1).max(3).optional(),
@@ -296,7 +320,7 @@ export const build = defineSkill({
     const room = args.room ?? 3;
     const need = hutBlocks(room);
     const have = buildingBlocks(bot);
-    if (have < need) return { ok: false, observed: `have ${have} building blocks`, error: `need ${need - have} more building blocks (cobblestone, planks or dirt)` };
+    if (have < need) return { ok: false, observed: `have ${have} building blocks`, error: `need ${need - have} more building blocks (stone of any kind, planks or dirt)` };
     // Near home, about home; far from it, where one is (one 200 blocks off at dusk was told there was no spot "near
     // home", and walked home through the night).
     // Where it was asked for, the nearest spot to it (asked for at its own feet, one went up by home, 40 blocks off).
