@@ -27,6 +27,8 @@
 > **v0.8 (owner requests, 2026-10-23):** debug controls for the operator: add, remove and restart agents; read and edit their memories; choose the model per tier and per agent; switch modules off; inspect and drive the Cognitive Controller (the dashboard was read-only, §8). Agents make their own plans and talk them over, with no fixed schedule (§4.2 module 10). They look around and wander rather than stand still. At night they hide only when badly scared, alone and far from anyone, and only by their own choice. Speech moves to L2. Test mode is off by default, with a switch (§16.3). What testing with the owner's NanoGPT key found, and the deviations, are in §24 under *Owner requests*.
 >
 > **v0.9 (owner requests, 2026-10-24):** a server console and Stop and Restart on the dashboard. A death ends every activity at once. Agents talk like Minecraft players, with a stronger model and time for it, taking turns and ending a talk once they agree. Agents make their own tools and real chests, and fight the mobs they can beat. Buildings: a building language; a repertoire drawn from photographs and read from the game's own files; a builder that puts designs up, clearing rough land; an architect, a fourth model called only to design, for buildings of their own; and moving to flatter land. Anvils and enchanting. Expeditions to the Nether and the End, by the agents' own choice. A hidden controller over all the agents steps in only on what has plainly gone wrong. All in §24 under *Owner requests: a console, deaths, talk, building and more*.
+>
+> **v0.10 (owner requests, 2026-10-24):** a mind that thinks rather than follows directives (§4.8), built on research into how players learn the game (`docs/research-human-learning.md`): complete senses, expectations and surprise, game knowledge, intentions and deferred intentions, tasks, lessons learned, and a player's habits in the hands. Fixes are made to the general mind and hands, never towards a goal. The console ops anyone. Long runs, alone and as a pair, in §24 under *Owner requests: a thinking mind, complete senses and long runs*.
 
 ---
 
@@ -53,6 +55,7 @@
 | **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again With the key (`real-models`): glm-5.1 wrote `stock_up_logs` at the first try (a `gather` of `qty` oak logs, checked by `inventoryHas:oak_log>={qty}`). Tried at once in the world, it held (3 logs) and was kept. It ran again for 6 without being written again. Its trait annotation found a bug. The model named the experience in its own words ("robbed by Zed"), not by its key, and the note was dropped; such words now count. It had also copied the prompt's example, which was code's own words, so the prompt now gives the form only. Its notes now: "has grown more cautious since losing that fight to Vex". |
 | **Owner requests** (2026-10-23): debug controls (agents, memories, models, modules, the CC); agents that plan for themselves and talk their plans over; wandering and looking around instead of standing still, in company; hiding only when badly scared, alone and far from anyone; whole lines at L2; test mode off, with a switch; seeing what changes around them (a broken shelter) and reacting; each new person written by a master model, a child while it is carried | **done** | `pnpm run check` (576 tests) + the live regression on Paper 26.1.2 (§24 "Owner requests", item 14) + five observation runs with the key (`obs1`–`obs5`, the last two hardcore nights) + `real-models` with the key: the bias audit, a trait annotation, a skill written by L3, a broken shelter seen to and the master model's newcomers and a child, all by glm-5.1 |
 | **Owner requests** (2026-10-24): a server console with Stop and Restart; a death ends everything at once; talk like players, with a stronger model, turns, and an end once agreed; own tools, real chests, armed fights; buildings (a building language, a repertoire from photographs and the game's own files, a builder, an architect for their own designs, moving to flatter land); anvils and enchanting; expeditions to the Nether and the End; a hidden controller for what has gone wrong | **done** | `pnpm run check` + the live tests of each (§24 "Owner requests: a console, deaths, talk, building and more", item 19), the architect's own design drawn by glm-5.3 and built in the world, and the controller's prompt benched on the real models |
+| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (683 unit tests); live `hands`, `melee`, `m1-water`, `cornered`, `m4`, `build`; the long runs (`longrun`, §24): the pair has met a house and renewable food, nothing else yet |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -1534,7 +1537,7 @@ All of §22 belongs in **M2** (the LLM client), before any agent makes real call
 - **Code transfer:** git (a private remote) or `rsync`. `DATA_DIR` and `.env` are gitignored.
 
 ### 23.5 Resources (planning numbers; measure in M5)
-- **Paper:** 2–4 GB heap for up to about 12 players. Bots use a small view distance (`viewDistance: 'tiny'` in mineflayer), and `simulation-distance` is set modestly.
+- **Paper:** 2–4 GB heap for up to about 12 players. Bots see 6 chunks round (about 96 blocks: what an agent's sight needs, §4.8), and `simulation-distance` is set modestly.
 - **Per bot process:** about 150–300 MB RAM (mineflayer world cache plus Node). **Embeddings run once, in the Hub,** as a shared local service, not loaded in every bot. This is infrastructure, so it carries no information between bots (§16.1).
 - **Rough total:** 3 bots ≈ 4–5 GB RAM; 10 bots ≈ 7–9 GB; 4+ CPU cores recommended. LLM work is remote, so no GPU is needed.
 - `pnpm doctor` checks:
@@ -2878,3 +2881,68 @@ that sets right only what is odd. Whether two API keys would help with timeouts 
     - Live (`quiet`, new, code alone; and with the speech models in `real-models`): Ada asks Bo, who stands in plain
       sight, whether he wants to go mining; he says nothing. She asks nothing more of him, and the talk ends quietly
       within 40 s. With the real models she asked once, added one line, and never asked if he was there.
+
+### Owner requests: a thinking mind, complete senses and long runs (2026-10-24)
+
+The owner found agents that acted on directives rather than thinking. One, sent for wool, killed the only sheep and
+then looped, not knowing where else wool comes from. None took any notice of a player flying in creative mode. And all
+of them played slowly and rigidly, though they are meant to know the game. The owner asked for research into how
+players learn Minecraft; a mind built on it that thinks rather than follows directives; complete senses (the blocks and
+creatures in view, and how they relate to the agent and to each other); and two long-run tests: one agent alone (12
+diamonds, the Nether, a full set of iron armor, a cow farm, a house, an enchanting table, a renewable source of food),
+and a woman and a man together (a house, a romance, a renewable food source, two sets of iron armor and iron tools).
+**Fixes may never code an agent towards a goal: the general mind and its general hands get better, as one would tune a
+person's mind.** The console was also to op anyone without editing `config/world.yaml`.
+
+1. **Research** (`docs/research-human-learning.md`, about 8,000 words): situation awareness, prediction error and
+   surprise, expectation violation in infants, compiled skills (ACT-R), deliberate practice, and what studies and
+   players say about how Minecraft is learned. What it means for the design is §4.8.
+2. **The mind** (§4.8): senses, expectations and surprise, a six-step way of thinking in place of the old situation
+   rules, game knowledge, intentions and deferred intentions, tasks, lessons, and the hands' habits.
+3. **The console:** any command as typed, and op for anyone (commit afefdc8).
+4. **Tasks from the console and the dashboard:** `pnpm ctl agent <name> task text=<words>` and the Debug card's Task box
+   give an agent a task in words; the README's "How agents think" says how the mind takes it.
+5. **The long runs** (`tests/live/longrun.test.ts`; `AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo`, with
+   `AGORA_LONGRUN_SEED`, `AGORA_LONGRUN_MIN` (default 240), `AGORA_LONGRUN_DIFFICULTY` (easy) and `AGORA_LONGRUN_PORT`).
+   A normal world from a fixed seed, monsters on, the agents given the owner's tasks in words and nothing else. Code
+   checks each condition from the world as it stands (inventories, blocks, the dimension, `family.partner`) every half
+   minute; a run ends when all are met, all agents are dead, or time is up. A report (`data/live-test/longrun-*.json`)
+   is written as it goes: what each agent carries and wears, does, plans, thinks and has learned.
+
+**What the runs showed, and what changed for it.** Each death or stall was traced (a post-mortem now logs the last
+20 s of where the agent was and its health, the monsters near, where it stood, and, since the last fix, the fight it
+was in) and answered with a change to the general mind or hands, never a rule for the case.
+
+| Run | Length | How it ended | What changed |
+|---|---|---|---|
+| solo, seed 1 (1) | 19 min | slain by a spider underground, while running | running is a run, not a dig; the trail back first; cornered, stand and fight |
+| solo, seed 1 (2) | 13 min | slain by a zombie at night | the dusk cue; the night as game knowledge; the hiding gate counts home only once it is a shelter |
+| solo, seed 1 (3) | 18 min | shot by a skeleton deep down | the post-mortem log |
+| duo (1) | 28 min | Ada shot by a skeleton | (as above) |
+| duo (3) | 16 min | Bram in lava | never a block with lava against it |
+| duo (4) | 29 min | **house met**; Ada slain by a zombie at dawn at the mouth of her shelter | cornered in a hole, close it over; unarmed, hit with the best tool; how many punches a zombie takes |
+| solo, seed 2 (1) | 12 min | skewered by a stalactite, mining the roof stone | never the block a stalactite hangs from; a note on dripstone |
+| solo, seed 1 (4) | 56 min | alive, at 1 health and food 10, waiting to heal | the healing rule in the packet; the body in each action's outcome; a hunt as far as one sees; steps meant before a new plan give way |
+| duo (5) | 38 min | Ada knocked away by one creeper ran into a second; their hut stood five blocks up, unreachable; no romance | the way out keeps clear of all monsters in sight; a building goes down onto the ground; a name says something of what one is (§19.1) |
+| solo, seed 2 (2) | 34 min | iron pickaxe by 19 min; slain by a zombie at night, fighting with the pickaxe | the damage race counts monsters in sight; fuel enough for the batch |
+| duo (6) | 13 min | Bram, by a zombie, standing still while it hit him | a fight kept on record for the post-mortem |
+| solo, seed 1 (5) | 45 min | hunting worked from what it saw ("the nearest in view is a cow 36 m west"); slain by a zombie on its staircase down | where each ore lies by height; a live test of fighting while digging (`melee`: the fight itself is sound) |
+| solo, seed 2 (3) | 14 min | its model call failed in a tunnel at dusk and the fallback sent it home across the open; a panic took it out of the hole it was digging; a spider | the night fallback moves no one under cover; after a panic, a reflex or a fallback, the steps meant follow on no more: think |
+| duo (7) | 49 min | **house and renewable food met at 27 min**; Ada, worn down by three skeletons and a spider to one heart, ate to heal and was caught by a zombie | (before the last two fixes) |
+
+Smaller things from the same runs: torches only on a sturdy face (leaves refused three in a row); "haven't seen any
+iron_ore … raw_iron comes from mining it" in place of "any raw_iron" (asked for five times over); where each ore lies by
+height as game knowledge (an agent taught itself that iron is at y -58); the vein mined when prospecting finds it;
+charcoal from planks, not the logs being cooked; a table or furnace set down here rather than walked to; a notch dug in
+a tunnel wall for one; a dig cut off by a stale stop tried again; raw meat kept for the furnace; walks given the time
+they take; an `until` already true not watched. And false surprises gone: one's own crafts and pickups, bees going in
+and out of their nest, bursts of speed, one's own digs (a pathfinder patch: `removeAllListeners` ignores its second
+argument and took everyone's dig listeners with it).
+
+**Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
+renewable food source, at 27 minutes (`duo (7)`); the house alone once before. Solo, the best has an iron pickaxe at
+19 minutes and goes deep for diamonds; none has yet lived past its second night with the full list in reach. Deaths are
+now mostly fights at night and low health in the open, each answered as above; and every death's post-mortem says how
+the last fight went. Verified: 683 unit tests; live, `hands` (11), `melee` (2), `m1-water` (4, with the flooded tunnel),
+`cornered`, `m4` (no x-ray), `build`. The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live
+longrun`), and what they show is answered the same way: in the general mind and hands, never for the case.
