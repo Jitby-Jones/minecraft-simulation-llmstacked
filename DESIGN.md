@@ -304,7 +304,7 @@ All of it is put into words for the packet in that order: notices first, then fe
 5. What are the ways there? For each: what it needs first, how long it takes, how likely it is to work, what could go wrong, and what it leaves me with.
 6. Choose, knowing how I will tell it worked.
 
-A failure is to be understood before anything is tried again; then try another way, wait for a better moment, or let it go. The old situation rules (`DECISION_RULES`) are gone. The reply's new fields:
+A failure is to be understood before anything is tried again; then try another way, wait for a better moment, or let it go. What it reached for and could not do (a choice the checks would not have, a next step not possible) is kept in mind for 10 minutes, one per reason, and the packet says so ("Lately you reached for what you can't do now: shelter {\"untilMorning\":true}: you are not scared enough to hide in a hole (3 times, 1m ago)"): a solo agent at dusk reached for digging in five times in two minutes, each decision starting afresh. The old situation rules (`DECISION_RULES`) are gone. The reply's new fields:
 - `thought`: the reasoning, in the agent's own words, shown on the dashboard;
 - `then`: up to 6 more steps;
 - `later`: something to do when a cue comes;

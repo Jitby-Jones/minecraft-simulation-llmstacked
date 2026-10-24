@@ -88,12 +88,14 @@ export function cowFarm(bot: Bot): { cows: number; at: Vec3 } | null {
 
 /**
  * A house: a door with a roofed room behind it that a creature can't walk out of (closed in all round, a roof over
- * every cell of it). Doors that were there at the start (a village's) don't count.
+ * every cell of it). Doors that were there at the start (a village's) don't count, nor (with `ours`) any but those
+ * the agents set down: a solo's tunnel at y -5 by a door it never placed (a structure's, found later) was counted.
  */
-export function house(bot: Bot, before: ReadonlySet<string>): { door: Vec3; room: number } | null {
+export function house(bot: Bot, before: ReadonlySet<string>, ours: (p: Vec3) => boolean = () => true): { door: Vec3; room: number } | null {
   const doorIds = bot.registry.blocksArray.filter((b) => b.name.endsWith('_door')).map((b) => b.id);
   for (const p of bot.findBlocks({ matching: doorIds, maxDistance: 96, count: 40 })) {
     if (before.has(p.toString())) continue;
+    if (!ours(p) && !ours(p.offset(0, -1, 0))) continue;
     const door = bot.blockAt(p);
     if (!door || String(door.getProperties?.().half ?? 'lower') !== 'lower') continue;
     for (const side of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {

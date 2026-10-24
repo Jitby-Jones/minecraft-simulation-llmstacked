@@ -691,6 +691,18 @@ export interface MindState {
   thoughts: Thought[];
   intention: Intention | null;
   later: Deferred[];
+  /** What it reached for lately and could not do now, and why: kept in mind so the same isn't reached for again at once. */
+  ruledOut?: RuledOut[];
+}
+
+/** Something chosen that the checks would not have, as the agent keeps it in mind (one per reason). */
+export interface RuledOut {
+  /** What was chosen ("shelter {\"untilMorning\":true}"). */
+  what: string;
+  why: string;
+  ts: number;
+  /** How many times lately. */
+  n: number;
 }
 
 /** Something learned from experience, kept for life (owner request, 2026-10-24: agents learn as they play). */

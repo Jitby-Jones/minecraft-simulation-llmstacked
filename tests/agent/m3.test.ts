@@ -328,6 +328,10 @@ describe('Cognitive Controller against the mocked NanoGPT', () => {
     expect(s.state.option).toMatchObject({ option: 'work', skill: 'obtain', status: 'running' });
     const retry = fake.chatRequests()[1]?.body?.messages as { role: string; content: string }[];
     expect(retry.at(-1)?.content).toMatch(/no skill "teleport"/);
+    // Kept in mind: the next decision sees it was reached for and could not be done, and why.
+    expect(s.state.mind.ruledOut).toEqual([expect.objectContaining({ what: 'teleport {}', n: 1 })]);
+    const packet = buildPacket({ state: s.state, levers: leversFor(0.5), reason: 'again', now: Date.now() });
+    expect(packet).toMatch(/Lately you reached for what you can't do now:\n {2}- teleport \{\}: there is no skill "teleport"[^\n]*\(once, /);
   });
 });
 

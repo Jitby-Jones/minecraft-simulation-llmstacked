@@ -45,6 +45,9 @@ export function buildPacket(i: PacketInput): string {
   // The train of thought (owner request, 2026-10-24): what went through the agent's head the last few times.
   const thoughts = (s.mind?.thoughts ?? []).slice(-3);
   if (thoughts.length > 0) out.push(`Your recent thoughts (oldest first):\n${thoughts.map((t) => `  - ${t.text} (${ago(now - t.ts)})`).join('\n')}`);
+  // What it reached for lately and could not do now (the checks would not have it), and why.
+  const ruled = (s.mind?.ruledOut ?? []).filter((x) => now - x.ts < 10 * 60_000);
+  if (ruled.length > 0) out.push(`Lately you reached for what you can't do now:\n${ruled.map((x) => `  - ${x.what}: ${x.why} (${x.n === 1 ? 'once' : `${x.n} times`}, ${ago(now - x.ts)})`).join('\n')}`);
   const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open');
   if (tasks.length > 0) out.push(`Tasks you have taken on:\n${tasks.map((t, i) => `  ${i + 1}. ${t.text} (from ${t.from === me ? 'yourself' : t.from}, ${ago(now - t.at)})${t.note ? ` [${t.note}]` : ''}`).join('\n')}`);
   const finished = (s.goals.tasks ?? []).filter((t) => t.status !== 'open').slice(-3);

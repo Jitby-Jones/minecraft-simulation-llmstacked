@@ -1442,6 +1442,7 @@ export class CognitiveController {
             break;
           }
           logger.info({ module: 'cc', why }, 'decision rejected by code checks');
+          this.ruleOut(r.value.task ? `${r.value.task.skill} ${JSON.stringify(r.value.task.args ?? {})}` : r.value.option, why);
           const last = exchange.replies.at(-1);
           if (last) last.rejected = why;
           // M10: a skill reached for that there is none of: the skill writer may write it (if it may write at all).
@@ -1608,11 +1609,30 @@ export class CognitiveController {
           return;
         }
         this.o.logger.info({ module: 'cc', step, why }, 'next step not possible; thinking again');
+        this.ruleOut(`${step.skill} ${JSON.stringify(step.args ?? {})}`, why);
         this.trigger(`you meant to ${step.skill} ${JSON.stringify(step.args ?? {})} next, but you can't: ${why}`);
         return;
       }
     }
     this.trigger(ok ? `what you were doing is done (${reason})` : `what you were doing failed: ${reason}`);
+  }
+
+  /**
+   * What was reached for and can't be done now, kept in mind a while: a solo agent at dusk reached for digging in to
+   * hide five times in two minutes, told each time it was not scared enough, each decision starting afresh.
+   */
+  private ruleOut(what: string, why: string): void {
+    const now = this.now();
+    this.o.store.update(
+      'mind',
+      (m) => {
+        const kept = (m.ruledOut ?? []).filter((x) => now - x.ts < RULED_OUT_MS);
+        const same = kept.find((x) => x.why === why);
+        const next = same ? kept.map((x) => (x === same ? { what, why, ts: now, n: x.n + 1 } : x)) : [...kept, { what, why, ts: now, n: 1 }];
+        return { ...m, ruledOut: next.slice(-6) };
+      },
+      'ruled out',
+    );
   }
 
   /** The thinking around a choice the model made: the thought kept, the steps meant next, a lesson, a thing put off, a task settled. */
@@ -1660,3 +1680,5 @@ export class CognitiveController {
 
 /** Steps meant this long ago are no longer carried on without a thought. */
 const INTENTION_MS = 12 * 60_000;
+/** What could not be done is kept in mind this long. */
+export const RULED_OUT_MS = 10 * 60_000;

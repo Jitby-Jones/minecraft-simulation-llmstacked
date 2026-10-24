@@ -131,7 +131,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           if (hasAll(bot, IRON_ARMOR)) mark('ironArmor', `${who} has a full set of iron armor`);
           const farm = cowFarm(bot);
           if (farm) mark('cowFarm', `${farm.cows} cows penned at ${farm.at.toString()}`);
-          const h = house(bot, before.doors);
+          const h = house(bot, before.doors, (p) => bodies.some((x) => x.placed.has(`${p.x},${p.y},${p.z}`)));
           if (h) mark('house', `a roofed room of ${h.room} cells behind the door at ${h.door.toString()}`);
           const table = (owned(bot).get('enchanting_table') ?? 0) > 0 ? 'in hand' : placedNear(bot, 'enchanting_table', before.tables)?.toString();
           if (table) mark('enchantingTable', `${who}'s enchanting table, ${table}`);
