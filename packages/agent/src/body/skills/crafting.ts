@@ -7,8 +7,7 @@ import type { Block } from 'prismarine-block';
 import { countItem } from '../inventory';
 import { CATEGORIES, normalizeItemName } from '../items';
 import { findKnownBlocks } from '../sightings';
-import { findPlaceableSpot } from '../world';
-import { placeItemAt } from './building';
+import { placeItemAt, spotOrNotch } from './building';
 import { abortable, errMsg, gotoNear, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -166,7 +165,7 @@ async function findOrPlace(ctx: SkillContext, blockName: string, itemName: strin
   }
   if (countItem(bot, itemName) === 0 && makeable && makeable.length > 0) await craftFromPockets(ctx, makeable, null);
   if (countItem(bot, itemName) === 0) return null;
-  const spot = findPlaceableSpot(bot, 3);
+  const spot = await spotOrNotch(ctx);
   if (!spot) return null;
   await placeItemAt(ctx, itemName, spot);
   await waitMs(ctx, 300);

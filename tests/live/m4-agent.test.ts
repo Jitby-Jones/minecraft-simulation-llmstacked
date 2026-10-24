@@ -1,6 +1,6 @@
 // M4 exit test (§10): memory, Goal Generation and quirks on a real server.
 //   1. No x-ray (§13 rule 4): with iron hidden in the stone, `gather` won't target it; `prospect` digs until the ore
-//      is in sight, and then it can be mined.
+//      is in sight, and mines it there and then.
 //   2. A told fact is recalled later: Bram tells Tobin where the diamonds are; the line drops out of working memory
 //      into SQLite; asked much later, Tobin's Talking gets it back through the local embedder and repeats it with
 //      attribution. Goal Gen makes Tobin's plan through L3. The model is a scripted stand-in (no key here).
@@ -119,8 +119,7 @@ describe.skipIf(!liveJavaPath())('M4 live: memory, goals and quirks', () => {
       console.log(`[m4 prospect] ${p.ok ? 'ok' : 'FAIL'}: ${p.observed} ${p.error ?? ''}`);
       expect(p.ok).toBe(true);
       expect(p.observed).toMatch(/found iron_ore at \(1210, -52, 1\)/);
-      const g = await body.run('gather', { item: 'raw_iron', qty: 1 });
-      expect(g.ok).toBe(true);
+      // What it went looking for, found, is mined there and then.
       expect(countItem(body.bot, 'raw_iron')).toBe(1);
       // The ore right under the start was never seen, so it is still there.
       expect(body.bot.blockAt(new Vec3(x, Y + 7, z))?.name).toBe('iron_ore');

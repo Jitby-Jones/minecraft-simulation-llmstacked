@@ -475,7 +475,7 @@ function resolveTarget(bot: Bot, raw: string): string {
 export const obtain = defineSkill({
   name: 'obtain',
   description: 'obtain {item, qty} — get an item any way you know: gather, mine, craft or smelt, including the tools and ingredients it needs',
-  argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(64).default(1) }),
+  argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(256).default(1) }),
   talkOverable: true,
   slipKinds: ['path'],
   expect: (args, _before, bot) => ({ kind: 'inventoryHas', item: resolveTarget(bot, args.item), atLeast: args.qty }),

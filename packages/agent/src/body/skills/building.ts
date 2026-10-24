@@ -56,6 +56,31 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
   }
 }
 
+const SIDE_CELLS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+
+/**
+ * A spot to set something down; in a tunnel with none, a notch dug in the wall beside one's feet, as a player does
+ * (a block that can be dug, with a floor under it and no water or lava against it).
+ */
+export async function spotOrNotch(ctx: SkillContext): Promise<Vec3 | null> {
+  const { bot } = ctx;
+  const spot = findPlaceableSpot(bot, 3);
+  if (spot) return spot;
+  const feet = bot.entity.position.floored();
+  for (const side of SIDE_CELLS) {
+    const cell = feet.plus(side);
+    const b = bot.blockAt(cell);
+    if (!b || !isSolid(b) || b.hardness === null || b.hardness < 0 || ['bedrock', 'obsidian', 'reinforced_deepslate'].includes(b.name) || !bot.canDigBlock(b)) continue;
+    if (!isSolid(bot.blockAt(cell.offset(0, -1, 0))) || liquidNear(bot, cell)) continue;
+    const tool = bot.pathfinder.bestHarvestTool(b);
+    if (tool) await bot.equip(tool, 'hand');
+    await digBlock(ctx, b);
+    await waitMs(ctx, 150);
+    if (isAirLike(bot.blockAt(cell))) return cell;
+  }
+  return null;
+}
+
 export const place = defineSkill({
   name: 'place',
   description: 'place {block, x?,y?,z?} — place a block from your inventory (next to you if no position)',
@@ -75,7 +100,7 @@ export const place = defineSkill({
     const target =
       args.x !== undefined && args.y !== undefined && args.z !== undefined
         ? new Vec3(Math.floor(args.x), Math.floor(args.y), Math.floor(args.z))
-        : findPlaceableSpot(ctx.bot, 3);
+        : await spotOrNotch(ctx);
     if (!target) return { ok: false, observed: 'no free spot', error: 'no free spot to place a block nearby' };
     try {
       await placeItemAt(ctx, args.block, target);
@@ -174,6 +199,9 @@ function readyToSeal(bot: Bot): boolean {
 }
 
 const COVER_BLOCKS = ['dirt', 'cobblestone', 'cobbled_deepslate', 'netherrack', 'andesite', 'diorite', 'granite'];
+/** Any whole block that stays put makes a lid: planks and logs as well as earth and stone (not sand or gravel, which fall). */
+const COVER = /_planks$|_log$|_stem$|^(stone|deepslate|tuff|calcite|sandstone|red_sandstone|bricks|stone_bricks|mud_bricks|mossy_cobblestone|blackstone|basalt|end_stone|coarse_dirt|rooted_dirt|packed_mud|terracotta)$/;
+const isCover = (name: string) => COVER_BLOCKS.includes(name) || COVER.test(name);
 
 function isDaytime(bot: Bot): boolean {
   return !isNight(bot) && bot.time.timeOfDay <= 12500;
@@ -263,7 +291,7 @@ export const shelter = defineSkill({
       const feet = bot.entity.position.floored();
       const cover = feet.offset(0, 2, 0);
       if (!isSolid(bot.blockAt(cover))) {
-        const coverItem = bot.inventory.items().find((i) => COVER_BLOCKS.includes(i.name));
+        const coverItem = bot.inventory.items().find((i) => COVER_BLOCKS.includes(i.name)) ?? bot.inventory.items().find((i) => isCover(i.name));
         if (!coverItem) return { ok: false, observed: 'dug in but nothing to seal the top with', error: 'no block to seal the shelter' };
         const r = referenceFor(bot, cover);
         if (!r) return { ok: false, observed: 'no wall to seal against', error: 'cannot seal shelter' };

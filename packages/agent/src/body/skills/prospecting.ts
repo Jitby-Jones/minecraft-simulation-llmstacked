@@ -9,6 +9,7 @@ import { Vec3 } from 'vec3';
 import { itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { blockIdsDropping, isAirLike, isSolid } from '../world';
+import { mine } from './gathering';
 import { lightTheWay } from './light';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -92,6 +93,22 @@ async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
     await waitMs(ctx, 150);
   }
   throw new Blocked('gravel keeps falling');
+}
+
+/**
+ * The ore one went looking for, found: mined there and then, the whole vein in sight (up to 8), as a player does;
+ * what came of it, in words to add (empty if nothing).
+ */
+async function mineTheVein(ctx: SkillContext, name: string, ids: number[]): Promise<string> {
+  const vein = findKnownBlocks(ctx.bot, ids, 8, 8).length;
+  if (vein === 0) return '';
+  try {
+    const r = await mine.run(ctx, { block: name, qty: vein, maxDistance: 12 });
+    return `; ${r.observed}`;
+  } catch (err) {
+    if (err instanceof SkillAbortedError) throw err;
+    return `; could not mine it: ${errMsg(err)}`;
+  }
 }
 
 /** Walks onto the cleared step (the cheapest path there is the one we just dug). */
@@ -181,7 +198,7 @@ export const prospect = defineSkill({
           continue;
         }
         const found = seen();
-        if (found) return { ok: true, observed: `found ${found.name} at ${found.position.toString()} after digging ${dug} blocks` };
+        if (found) return { ok: true, observed: `found ${found.name} at ${found.position.toString()} after digging ${dug} blocks${await mineTheVein(ctx, found.name, ids)}` };
         await stepTo(ctx, next);
         dug++;
         await lightTheWay(ctx);
@@ -197,7 +214,7 @@ export const prospect = defineSkill({
         }
         ctx.progress(`tunneling ${dirName}, ${dug} blocks`);
         const after = seen();
-        if (after) return { ok: true, observed: `found ${after.name} at ${after.position.toString()} after digging ${dug} blocks` };
+        if (after) return { ok: true, observed: `found ${after.name} at ${after.position.toString()} after digging ${dug} blocks${await mineTheVein(ctx, after.name, ids)}` };
       }
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;

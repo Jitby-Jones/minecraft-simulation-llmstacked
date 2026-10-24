@@ -331,6 +331,9 @@ What each is for is the mind's to know. `obtain` knows shearing and mob drops as
 - A kind of thing means it in the wood or colour on hand: a sign, a door or a boat in the wood carried (else oak), a bed, wool or a carpet in the colour carried (else white). Logs, flowers, leaves and saplings stay any kind, as they are found.
 - In the dark underground, with torches on hand, a torch goes down beside the digger once the last light is about 9 blocks behind. The client's light levels are those the ground came with and don't follow changes, so the last light behind counts, as for a player.
 - A crafting table or furnace more than 8 blocks off isn't walked to when one can be set down here: one carried, or a table made on the spot from a log (a walk of 16 blocks through tunnels timed out twice live).
+- With no free spot to set something down (a tunnel), a notch is dug in the wall beside one's feet for it.
+- Prospecting for an ore mines what it finds there and then, the vein in sight (it had found iron and the next step, to smelt, had none).
+- Shelter seals its top with any whole block that stays put (planks and logs too; it had refused 64 planks), and `obtain` takes up to 256 (a hut's 75 blocks were out of reach at 64).
 - Never a block with lava against it, when gathering or mining as when prospecting: broken, it lets the lava in (an agent died so, chopping a tree by a surface pool).
 - A furnace never burns what it is cooking, and planks go in before logs (a log makes four planks, each burning as long as the log); the planner makes planks for fuel when only the logs to be cooked are on hand.
 - An option's `until` is until it comes true: one already true at the start isn't watched (asked to gather 5 more logs while holding 10), and an option stopped because it came true is recorded as done, not failed.
