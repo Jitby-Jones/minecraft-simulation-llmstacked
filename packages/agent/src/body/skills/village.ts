@@ -276,7 +276,7 @@ function buildingBlocks(bot: Bot): number {
 
 export const build = defineSkill({
   name: 'build',
-  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut, room?: 1|2|3} is the quick hut of cobblestone, planks or dirt round a room 1, 2 or 3 blocks across (${hutBlocks(1)}, ${hutBlocks(2)} or ${hutBlocks(3)} blocks; 3 if not said)`,
+  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut, room?: 1|2|3, x?,y?,z?} is the quick hut of cobblestone, planks or dirt round a room 1, 2 or 3 blocks across (by home, or the nearest spot to x,y,z) (${hutBlocks(1)}, ${hutBlocks(2)} or ${hutBlocks(3)} blocks; 3 if not said)`,
   argsSchema: z.object({
     structure: z.string().min(1).optional(),
     room: z.coerce.number().int().min(1).max(3).optional(),
@@ -299,13 +299,16 @@ export const build = defineSkill({
     if (have < need) return { ok: false, observed: `have ${have} building blocks`, error: `need ${need - have} more building blocks (cobblestone, planks or dirt)` };
     // Near home, about home; far from it, where one is (one 200 blocks off at dusk was told there was no spot "near
     // home", and walked home through the night).
+    // Where it was asked for, the nearest spot to it (asked for at its own feet, one went up by home, 40 blocks off).
     const me = bot.entity.position;
-    const nearHome = ctx.home !== undefined && ctx.home !== null && ctx.home.distanceTo(me) <= HUT_HOME_RANGE;
-    const center = nearHome && ctx.home ? ctx.home : me;
+    const spot = args.x !== undefined && args.y !== undefined && args.z !== undefined ? new Vec3(args.x, args.y, args.z) : null;
+    const nearHome = !spot && ctx.home !== undefined && ctx.home !== null && ctx.home.distanceTo(me) <= HUT_HOME_RANGE;
+    const center = spot ?? (nearHome && ctx.home ? ctx.home : me);
     const from = new Vec3(center.x, center.y, center.z);
+    const minDist = spot ? 0 : nearHome ? 4 : 2;
     // Level ground first; on a slope, a site with a bump or two to dig out of the way.
-    const corner = findHutSite(bot, from, 20, nearHome ? 4 : 2, room) ?? findHutSite(bot, from, 20, nearHome ? 4 : 2, room, HUT_BUMPS);
-    if (!corner) return { ok: false, observed: 'no room', error: `no spot for a hut within 20 blocks of ${nearHome ? 'home' : 'here'}, even digging a little out of a slope (a design, e.g. build {design: "starter-hut"}, clears and levels its own)` };
+    const corner = findHutSite(bot, from, 20, minDist, room) ?? findHutSite(bot, from, 20, minDist, room, HUT_BUMPS);
+    if (!corner) return { ok: false, observed: 'no room', error: `no spot for a hut within 20 blocks of ${spot ? 'there' : nearHome ? 'home' : 'here'}, even digging a little out of a slope (a design, e.g. build {design: "starter-hut"}, clears and levels its own)` };
     const at = { x: corner.x, y: corner.y, z: corner.z };
     const work = hutSiteWork(bot, corner, room, HUT_BUMPS) ?? { holes: [], bumps: [] };
     // What is in the way first, from the top down (a bump dug from under what is on it brings that down).

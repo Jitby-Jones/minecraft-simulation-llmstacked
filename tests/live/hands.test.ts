@@ -295,6 +295,20 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(used('iron_pickaxe')).toBe(231);
   }, 120_000);
 
+  it('a hut asked for at a spot goes up there, not by home (one asked for at its feet went up 40 blocks off)', async () => {
+    const x = 5200;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 4} ${Y} -8 ${x + 20} ${Y + 6} 8 air`);
+    await server.cmd('give Ada minecraft:dirt 64');
+    await sleep(1500);
+    const r = await run('build', { structure: 'hut', room: 1, x: x + 12, y: Y, z: 0 });
+    logger.info({ r }, 'hut where asked');
+    expect(r.ok).toBe(true);
+    const corner = (r.data as { corner?: { x: number; z: number } } | undefined)?.corner;
+    expect(Math.abs((corner?.x ?? 1e9) - (x + 12))).toBeLessThanOrEqual(3);
+    expect(Math.abs(corner?.z ?? 1e9)).toBeLessThanOrEqual(3);
+  }, 120_000);
+
   it("a night's hut on a slope with no level spot anywhere: a bump or two dug out of the way, and up it goes", async () => {
     const x = 5300;
     const R = 28;

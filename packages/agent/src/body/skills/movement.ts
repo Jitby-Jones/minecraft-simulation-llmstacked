@@ -271,7 +271,7 @@ const SHUN_RANGE = 24;
 export const wander = defineSkill({
   name: 'wander',
   description:
-    'wander {radius?, seconds?, near?, avoid?} — stroll around nearby at a walk, stopping to look at people, animals and things; near: a person to keep close to, avoid: people to keep clear of',
+    'wander {radius?, seconds?, near?, avoid?} — walk about, up to radius blocks from where you are (out of any shelter you are in), stopping to look at people, animals and things; near: a person to keep close to, avoid: people to keep clear of. To stay put and keep watch: lookAround',
   argsSchema: z.object({
     radius: z.coerce.number().min(4).max(48).default(16),
     seconds: z.coerce.number().min(5).max(600).default(60),
