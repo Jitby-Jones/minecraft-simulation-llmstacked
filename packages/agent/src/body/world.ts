@@ -34,6 +34,9 @@ export function eyePos(e: Entity): Vec3 {
   return e.position.offset(0, e.height ?? 1.62, 0);
 }
 
+/** How far off creatures are made out (perception's reach); a hunt looks as far, so what is seen is what it can go after. */
+export const CREATURE_SIGHT = 32;
+
 /** Blocks one sees through or past to what is beyond them: glass, bars, fences and the like. */
 const SEE_THROUGH = /glass|_pane$|^iron_bars$|_fence$|_fence_gate$|^chain$|^scaffolding$|^(barrier|light|structure_void)$/;
 

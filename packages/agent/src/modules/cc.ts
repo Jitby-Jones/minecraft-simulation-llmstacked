@@ -1576,11 +1576,17 @@ export class CognitiveController {
   /**
    * What the option under way ended in (owner request, 2026-10-24: "a real player ... would not be so slow and rigid").
    * Done, with a next step meant: on to it at once, without stopping to think, as a person does what they set out to
-   * do. Failed, or nothing meant: think.
+   * do. Failed, nothing meant, or a new plan made since the steps were meant (they were for the old one): think.
    */
   private onEnded(ok: boolean, reason: string): void {
     const s = this.o.store.state;
     const meant = s.mind.intention;
+    const replanned = meant !== null && (s.goals.plan?.createdAt ?? -Infinity) > meant.at;
+    if (ok && meant && replanned) {
+      this.o.store.update('mind', (m) => ({ ...m, intention: null }), 'a new plan since');
+      this.trigger(`what you were doing is done (${reason}), and you have made a new plan since you decided what to do after it`);
+      return;
+    }
     if (ok && meant && meant.steps.length > 0 && !s.flags.inDanger && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
       const [step, ...rest] = meant.steps;
       this.o.store.update('mind', (m) => ({ ...m, intention: rest.length > 0 ? { ...meant, steps: rest } : null }), 'next step');

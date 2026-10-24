@@ -10,7 +10,7 @@ import type { AgentBus } from '../bus';
 import { SwingTracker } from '../body/attribution';
 import { inventoryDigest, inventoryStacks } from '../body/inventory';
 import { Sightings } from '../body/sightings';
-import { canSee, canSeeBlock, isHostile, isNight } from '../body/world';
+import { CREATURE_SIGHT, canSee, canSeeBlock, isHostile, isNight } from '../body/world';
 import { detectAddressee } from '../modules/conversations';
 import { newSocialProfile } from '../state/social';
 import type { AgentStateStore } from '../state/store';
@@ -33,7 +33,7 @@ export interface PerceptionOptions {
   handsBusy?: () => boolean;
 }
 
-const ENTITY_RADIUS = 32;
+const ENTITY_RADIUS = CREATURE_SIGHT;
 /** Close enough to hear footsteps: perceived even without line of sight. */
 const HEAR_RADIUS = 4;
 const MAX_ENTITIES = 24;

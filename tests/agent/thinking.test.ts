@@ -526,6 +526,13 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     // (Thinking again waits out the 2 s between decisions that aren't urgent.)
     for (let i = 0; i < 160 && calls < 2; i++) await wait(25);
     expect(calls).toBe(2);
+    // The steps it meant were for the plan it had: with a new plan made since, done is thought about too.
+    expect(s.state.mind.intention?.steps).toEqual([{ skill: 'explore', args: { direction: 'east', distance: 120 } }]);
+    s.update('goals', (g) => ({ ...g, plan: { id: 'p2', aim: 'eat first', steps: [{ text: 'get food', status: 'doing' }], createdAt: Date.now() + 1, updatedAt: Date.now() + 1, discussedWith: [], source: 'llm' } }), 'test');
+    bus.emit({ type: 'optionTerminated', reason: 'done', ok: true, option: 'work' });
+    for (let i = 0; i < 160 && calls < 3; i++) await wait(25);
+    expect(calls).toBe(3);
+    expect(decided.filter((d) => d.startsWith('intention:'))).toEqual(['intention:explore']);
     cc.stop();
   });
 });

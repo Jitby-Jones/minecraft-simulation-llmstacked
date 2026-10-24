@@ -7,7 +7,8 @@ import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { isSignBlock, readSign, wrapForSign } from '../signs';
-import { canSee, isAirLike, isHostile, isSolid } from '../world';
+import { CREATURE_SIGHT, canSee, isAirLike, isHostile, isSolid } from '../world';
+import { bearingOf } from '../../perception/sceneWords';
 import { BOARD_RADIUS } from '../../perception/village';
 import { sharedRepertoire } from '../../building/repertoire';
 import { placeItemAt } from './building';
@@ -25,6 +26,17 @@ const MEAT = /^(beef|porkchop|mutton|chicken|rabbit)$/;
 
 function nearestAnimal(bot: Bot, kinds: readonly string[], radius: number): Entity | null {
   return bot.nearestEntity((e) => e !== bot.entity && kinds.includes(e.name ?? '') && e.position.distanceTo(bot.entity.position) <= radius && canSee(bot, e, radius + 1));
+}
+
+/** As far as the world shows animals (the server's tracking range): one past our sight, to say where the next ones are. */
+const FAR_OFF = 96;
+
+/** Where the nearest of these animals in view beyond our sight is, in words ('' if none shows). */
+function fartherAnimal(bot: Bot, kinds: readonly string[]): string {
+  const far = nearestAnimal(bot, kinds, FAR_OFF);
+  if (!far) return '';
+  const p = far.position;
+  return `; the nearest in view is a ${far.name ?? 'animal'} ${Math.round(p.distanceTo(bot.entity.position))} m ${bearingOf(bot.entity.position, p)}, at ${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`;
 }
 
 /** Walks over the drops near where an animal fell. */
@@ -60,7 +72,7 @@ export const hunt = defineSkill({
     const deadline = Date.now() + 120_000;
     let kills = 0;
     // Hunting with bare hands takes many blows: a sword first, made if we can (tools.ts); without one, hands.
-    if (!bestWeapon(bot) && nearestAnimal(bot, kinds, 24)) {
+    if (!bestWeapon(bot) && nearestAnimal(bot, kinds, CREATURE_SIGHT)) {
       await ensureTool(ctx, 'sword').catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
       });
@@ -69,7 +81,7 @@ export const hunt = defineSkill({
     try {
       while (meat() - start < args.qty && Date.now() < deadline && kills < args.qty + 2) {
         throwIfAborted(ctx.signal);
-        const prey = nearestAnimal(bot, kinds, 24);
+        const prey = nearestAnimal(bot, kinds, CREATURE_SIGHT);
         if (!prey) break;
         if (ctx.slip !== 'tool') await equipBestWeapon(bot);
         const p = pvp(bot);
@@ -101,7 +113,11 @@ export const hunt = defineSkill({
       return { ok: false, observed: `hunt failed after ${kills} kill(s)`, error: errMsg(err) };
     }
     const got = meat() - start;
-    if (got <= 0) return { ok: false, observed: kills > 0 ? 'killed but picked nothing up' : 'no animals in sight', error: kills > 0 ? 'lost the meat' : 'no animals to hunt nearby', data: { kills } };
+    if (got <= 0) {
+      if (kills > 0) return { ok: false, observed: 'killed but picked nothing up', error: 'lost the meat', data: { kills } };
+      const which = args.animal ?? 'animal';
+      return { ok: false, observed: `no ${which} within ${CREATURE_SIGHT} m${fartherAnimal(bot, kinds)}`, error: `no ${which} to hunt nearby`, data: { kills } };
+    }
     return { ok: got >= Math.min(args.qty, 1), observed: `hunted ${kills} animal(s), +${got} raw meat`, data: { kills, meat: got } };
   },
 });
