@@ -69,7 +69,7 @@ strings, no "none", no placeholders. Every reply has "thought", "option", "termi
 - "then": [{"skill": "...", "args": {...}}, ...]   (optional: up to 4 skills you mean to do next, in order, once this is done, if all goes well; [] drops what you meant to do next)
 - "lesson": "..."   (optional: something you have just learned from what happened, to remember)
 - "later": {"what": "...", "when": "see:<creature or block>|have:<item>|have:<item>>=<n>|day|night|minutes:<n>"}   (optional: something you put off until then)
-- "taskDone": "<number>: why" / "taskDropped": "<number>: why"   (optional: one of the tasks you have taken on, by its number, that you are sure is done, or that you give up on; never a step of your plan)
+- "taskDone": "#<number>: why" / "taskDropped": "#<number>: why"   (optional: one of the tasks you have taken on, by its # in that list, that you are sure is done, or that you give up on; never a step of your plan)
 Examples:
 {"thought": "No wood yet and the day is young. Those oaks to the north-east are close; enough logs for planks, a table, tools and a bit over in one go.", "option": "work", "task": {"skill": "obtain", "args": {"item": "oak_log", "qty": 12}}, "terminate": {"maxSeconds": 300, "until": "inventoryHas:oak_log>=12"}, "rationale": "Wood comes first.", "then": [{"skill": "obtain", "args": {"item": "stone_pickaxe", "qty": 1}}]}
 {"thought": "<name> is right here and we both need iron. If we split it, one mines while the other smelts.", "option": "talk", "target": {"agent": "<name>"}, "speechIntent": {"stance": "ask", "gist": "ask what they are planning and whether we could split the iron work", "mayCommit": false}, "terminate": {"maxSeconds": 90}, "rationale": "Two of us get more done with a shared plan."}

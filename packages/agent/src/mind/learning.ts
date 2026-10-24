@@ -74,6 +74,10 @@ function stem(w: string): string {
 
 /** "3: why", "3. why", "task 3", "#3" or a bare "3": the task by its number; "12 diamonds" is no number of one. */
 const BY_NUMBER = /^\s*(?:task\s*#?\s*(\d{1,2})\b|#(\d{1,2})\b|(\d{1,2})\s*(?:[:.)]|[-–—]\s|$))/i;
+/** The words of a task that say what it is about (not "make", "obtain", a number). */
+function aboutWords(text: string): string[] {
+  return [...words(text)].filter((w) => !DOING.has(w) && !/^\d+$/.test(w)).map(stem);
+}
 
 /**
  * Which open task a "taskDone"/"taskDropped" means: by its number as listed, else the one whose own words (what it is
@@ -82,14 +86,22 @@ const BY_NUMBER = /^\s*(?:task\s*#?\s*(\d{1,2})\b|#(\d{1,2})\b|(\d{1,2})\s*(?:[:
  */
 export function matchTask(tasks: readonly AssignedTask[], text: string): AssignedTask | null {
   const open = tasks.filter((t) => t.status === 'open');
-  const m = BY_NUMBER.exec(text);
-  const n = m?.[1] ?? m?.[2] ?? m?.[3];
-  if (n) return open[Number(n) - 1] ?? null;
   const said = new Set([...words(text)].map(stem));
+  const m = BY_NUMBER.exec(text);
+  // "#2" or "task 2" is the task so numbered. A bare "2:" may be a step of the plan, numbered the same way: the task
+  // only if what is said bears on it ("2: stone pickaxe and axe crafted, tool role fulfilled" closed "Form a romantic
+  // relationship").
+  const n = m?.[1] ?? m?.[2];
+  if (n) return open[Number(n) - 1] ?? null;
+  const bare = m?.[3];
+  if (bare) {
+    const t = open[Number(bare) - 1];
+    if (t && aboutWords(t.text).some((w) => said.has(w))) return t;
+  }
   let best: AssignedTask | null = null;
   let most = 0;
   for (const t of open) {
-    const key = [...words(t.text)].filter((w) => !DOING.has(w) && !/^\d+$/.test(w)).map(stem);
+    const key = aboutWords(t.text);
     if (key.length === 0 || !key.every((w) => said.has(w)) || key.length <= most) continue;
     most = key.length;
     best = t;

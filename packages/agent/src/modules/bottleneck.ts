@@ -49,7 +49,7 @@ export function buildPacket(i: PacketInput): string {
   const ruled = (s.mind?.ruledOut ?? []).filter((x) => now - x.ts < 10 * 60_000);
   if (ruled.length > 0) out.push(`Lately you reached for what you can't do now:\n${ruled.map((x) => `  - ${x.what}: ${x.why} (${x.n === 1 ? 'once' : `${x.n} times`}, ${ago(now - x.ts)})`).join('\n')}`);
   const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open');
-  if (tasks.length > 0) out.push(`Tasks you have taken on:\n${tasks.map((t, i) => `  ${i + 1}. ${t.text} (from ${t.from === me ? 'yourself' : t.from}, ${ago(now - t.at)})${t.note ? ` [${t.note}]` : ''}`).join('\n')}`);
+  if (tasks.length > 0) out.push(`Tasks you have taken on:\n${tasks.map((t, i) => `  #${i + 1} ${t.text} (from ${t.from === me ? 'yourself' : t.from}, ${ago(now - t.at)})${t.note ? ` [${t.note}]` : ''}`).join('\n')}`);
   const finished = (s.goals.tasks ?? []).filter((t) => t.status !== 'open').slice(-3);
   if (finished.length > 0) out.push(`Tasks behind you: ${finished.map((t) => `${t.text} (${t.status}${t.note ? `: ${t.note}` : ''})`).join('; ')}.`);
 
