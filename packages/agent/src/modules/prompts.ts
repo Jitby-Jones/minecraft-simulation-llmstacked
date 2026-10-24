@@ -72,7 +72,8 @@ strings, no "none", no placeholders. Every reply has "thought", "option", "termi
 - "taskDone": "..." / "taskDropped": "..."   (optional: a task you were given that you are sure is done, or that you give up on, and why)
 Examples:
 {"thought": "No wood yet and the day is young. Those oaks to the north-east are close; enough logs for planks, a table, tools and a bit over in one go.", "option": "work", "task": {"skill": "obtain", "args": {"item": "oak_log", "qty": 12}}, "terminate": {"maxSeconds": 300, "until": "inventoryHas:oak_log>=12"}, "rationale": "Wood comes first.", "then": [{"skill": "obtain", "args": {"item": "stone_pickaxe", "qty": 1}}]}
-{"thought": "Mira is right here and we both need iron. If we split it, one mines while the other smelts.", "option": "talk", "target": {"agent": "Mira"}, "speechIntent": {"stance": "ask", "gist": "ask what she is planning and whether we could split the iron work", "mayCommit": false}, "terminate": {"maxSeconds": 90}, "rationale": "Two of us get more done with a shared plan."}`;
+{"thought": "<name> is right here and we both need iron. If we split it, one mines while the other smelts.", "option": "talk", "target": {"agent": "<name>"}, "speechIntent": {"stance": "ask", "gist": "ask what they are planning and whether we could split the iron work", "mayCommit": false}, "terminate": {"maxSeconds": 90}, "rationale": "Two of us get more done with a shared plan."}
+(<name> stands for someone really there; the examples are only the form, not the world.)`;
 
 export function talkRules(maxWords: number): string {
   return [

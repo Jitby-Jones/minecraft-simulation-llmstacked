@@ -1046,6 +1046,9 @@ export interface CCOptions {
   heartbeatMs?: number;
   /** What it knows of the game that bears on now (owner request, 2026-10-24), as lines for the packet. */
   knowledge?: () => string[];
+  /** The models it thinks with first, and the time a thought may take (config/models.yaml `mind`). */
+  mindModels?: readonly string[];
+  mindTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -1403,6 +1406,8 @@ export class CognitiveController {
             tier,
             module: 'cc',
             agent: this.o.me,
+            ...(this.o.mindModels && this.o.mindModels.length > 0 ? { prefer: this.o.mindModels } : {}),
+            ...(this.o.mindTimeoutMs ? { timeoutMs: this.o.mindTimeoutMs } : {}),
             messages,
             schema: DecisionOutputSchema,
             schemaName: 'decision',

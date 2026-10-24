@@ -19,6 +19,9 @@ export interface PvpTuning {
   movements: MovementsType;
 }
 
+/** What is built, not found: a walk never breaks it to get through. */
+const BUILT = /_planks$|_fence$|_fence_gate$|_door$|_trapdoor$|_bed$|_wall$|_slab$|_stairs$|glass|_pane$|_wool$|_carpet$|_concrete$|_bricks$|^bricks$|_sign$|_banner$|^(crafting_table|furnace|blast_furnace|smoker|chest|trapped_chest|barrel|anvil|enchanting_table|brewing_stand|bookshelf|torch|wall_torch|lantern|ladder|hay_block|farmland|wheat|carrots|potatoes|beetroots|composter|bell|smithing_table|cartography_table|fletching_table|loom|stonecutter|grindstone|lectern|jukebox|note_block|iron_bars|chain|scaffolding|rail|powered_rail|detector_rail|activator_rail|nether_portal|obsidian|crying_obsidian|end_portal_frame|beacon|cauldron)$|^stripped_|^polished_|^chiseled_|^cut_|^smooth_stone$|^potted_|_button$|_pressure_plate$/;
+
 export function loadBodyPlugins(bot: Bot): void {
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvpPlugin);
@@ -92,6 +95,22 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
   m.dontCreateFlow = true;
   m.dontMineUnderFallingBlock = true;
   m.allow1by1towers = true;
+  // A walk digs through earth and stone, never through what someone built (a fence, a door, a wall of planks, a
+  // bed, a chest, a field): a player goes round it, opens the gate or reaches over (owner request, 2026-10-24).
+  for (const b of bot.registry.blocksArray) if (BUILT.test(b.name)) m.blocksCantBreak.add(b.id);
+  // Through a gate, not over or through the fence (wooden gates only; Paper handles the click). The pathfinder takes
+  // a block's collision from its type, not its state, so an open gate still reads as solid and, once it has opened one,
+  // it stands before it: a block with nothing to collide with is passable, whatever its type.
+  m.canOpenDoors = true;
+  const getBlock = m.getBlock.bind(m);
+  m.getBlock = (pos: Parameters<typeof getBlock>[0], dx: number, dy: number, dz: number) => {
+    const b = getBlock(pos, dx, dy, dz) as ReturnType<typeof getBlock> & { openable?: boolean; shapes?: unknown[]; safe?: boolean; physical?: boolean };
+    if (b.openable && Array.isArray(b.shapes) && b.shapes.length === 0) {
+      b.safe = true;
+      b.physical = false;
+    }
+    return b;
+  };
   m.scafoldingBlocks = SCAFFOLD.map((n) => bot.registry.itemsByName[n]?.id).filter((v): v is number => v !== undefined);
   // Keep a step away from lava: a slip or a failed jump next to it is deadly (the pathfinder only refuses
   // stepping into it).

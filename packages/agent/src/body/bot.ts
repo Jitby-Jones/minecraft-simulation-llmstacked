@@ -11,7 +11,7 @@ export interface BodyOptions {
   username: string;
   /** e.g. "26.1.2" (protocol 775; mineflayer maps it to its 26.1 data). */
   version: string;
-  /** mineflayer view distance; 'tiny' keeps per-bot RAM low (§23.5). */
+  /** mineflayer view distance in chunks (default 6: about 96 blocks all round, §23.5). */
   viewDistance?: 'far' | 'normal' | 'short' | 'tiny' | number;
   connectTimeoutMs?: number;
 }
@@ -24,7 +24,9 @@ export function connectBody(opts: BodyOptions): Promise<Bot> {
     username: opts.username,
     version: opts.version,
     auth: 'offline',
-    viewDistance: opts.viewDistance ?? 'tiny',
+    // Far enough to take in the land around as a player does (owner request, 2026-10-24: complete senses); 'tiny'
+    // was two chunks, too short to see across a field.
+    viewDistance: opts.viewDistance ?? 6,
     hideErrors: true,
     // A life ends at death (§16.3): the body stays where it fell, not respawned at the spawn or as a spectator to act on
     // for the moment the process takes to end (owner request, 2026-10-24).

@@ -112,6 +112,8 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     memory: { db, embedder },
     speechTier: o.models.speech.tier,
     speechModels: o.models.speech.models,
+    mindModels: o.models.mind.models,
+    ...(o.models.mind.timeoutMs ? { mindTimeoutMs: o.models.mind.timeoutMs } : {}),
     ...(o.models.speech.timeoutMs ? { speechTimeoutMs: o.models.speech.timeoutMs } : {}),
     architectModels: o.models.architect.models,
     architectTimeoutMs: o.models.architect.timeoutMs,

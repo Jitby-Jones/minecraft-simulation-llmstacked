@@ -38,6 +38,14 @@ export const ModelsConfigSchema = z
         timeoutMs: z.number().int().min(1000).max(60_000).optional(),
       })
       .prefault({}),
+    // The mind (owner request, 2026-10-24): each decision is thought through (what is going on, what surprised, the ways
+    // there, the choice), a longer reply than a bare choice, so models tried first for it and a timeout of its own.
+    mind: z
+      .object({
+        models: z.array(z.string().min(1)).default([]),
+        timeoutMs: z.number().int().min(1000).max(60_000).optional(),
+      })
+      .prefault({}),
     // The architect (owner request, 2026-10-24): called only when a building is designed, with the strongest models
     // tried first and time to think.
     architect: z

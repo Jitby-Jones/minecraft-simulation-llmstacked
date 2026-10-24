@@ -90,6 +90,9 @@ export interface AgentOptions {
   /** Models tried first for a line, and their per-try timeout (models.yaml speech.models, speech.timeoutMs). */
   speechModels?: readonly string[];
   speechTimeoutMs?: number;
+  /** The models the mind thinks with first, and its timeout (owner request, 2026-10-24). */
+  mindModels?: readonly string[];
+  mindTimeoutMs?: number;
   /** The architect's models, tried first when a building is designed, and the time each may take (models.yaml architect). */
   architectModels?: readonly string[];
   architectTimeoutMs?: number;
@@ -235,6 +238,8 @@ export class Agent {
       me: username,
       levers,
       knowledge: () => this.knowledge(),
+      ...(o.mindModels && o.mindModels.length > 0 ? { mindModels: o.mindModels } : {}),
+      ...(o.mindTimeoutMs ? { mindTimeoutMs: o.mindTimeoutMs } : {}),
       awareness: this.awareness,
       executor: this.executor,
       canPerceive: (name) =>

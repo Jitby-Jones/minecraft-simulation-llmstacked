@@ -34,21 +34,29 @@ export function eyePos(e: Entity): Vec3 {
   return e.position.offset(0, e.height ?? 1.62, 0);
 }
 
-/** Line-of-sight raycast from our eyes to the target's eyes (§6.1 "plus a line-of-sight raycast"). */
+/** Blocks one sees through or past to what is beyond them: glass, bars, fences and the like. */
+const SEE_THROUGH = /glass|_pane$|^iron_bars$|_fence$|_fence_gate$|^chain$|^scaffolding$|^(barrier|light|structure_void)$/;
+
+type Ray = (from: Vec3, dir: Vec3, range: number, matcher?: (b: Block & { shapes: number[][] }, iter: { intersect(shapes: number[][], at: Vec3): unknown }) => boolean) => { position: Vec3 } | null;
+
+/**
+ * Line of sight from our eyes to the target (§6.1 "plus a line-of-sight raycast"): to its eyes, or failing that the
+ * top of its head or its middle (a sheep behind a fence shows its back). Glass, bars and fences don't hide it.
+ */
 export function canSee(bot: Bot, target: Entity | Vec3, maxDistance = 64): boolean {
   const from = bot.entity.position.offset(0, (bot.entity as unknown as { eyeHeight?: number }).eyeHeight ?? 1.62, 0);
-  const to = target instanceof Vec3 ? target : eyePos(target);
-  const delta = to.minus(from);
-  const dist = delta.norm();
-  if (dist === 0) return true;
-  if (dist > maxDistance) return false;
-  const hit = (bot.world as unknown as { raycast(from: Vec3, dir: Vec3, range: number): { position: Vec3 } | null }).raycast(
-    from,
-    delta.normalize(),
-    dist,
-  );
-  if (!hit) return true;
-  return hit.position.offset(0.5, 0.5, 0.5).distanceTo(from) >= dist - 0.6;
+  const points = target instanceof Vec3 ? [target] : [eyePos(target), target.position.offset(0, (target.height ?? 1.8) + 0.05, 0), target.position.offset(0, (target.height ?? 1.8) / 2, 0)];
+  const raycast = (bot.world as unknown as { raycast: Ray }).raycast.bind(bot.world);
+  const blocks = (b: Block & { shapes: number[][] }, iter: { intersect(shapes: number[][], at: Vec3): unknown }) => !SEE_THROUGH.test(b.name) && b.shapes.length > 0 && Boolean(iter.intersect(b.shapes, b.position));
+  for (const to of points) {
+    const delta = to.minus(from);
+    const dist = delta.norm();
+    if (dist === 0) return true;
+    if (dist > maxDistance) return false;
+    const hit = raycast(from, delta.normalize(), dist, blocks);
+    if (!hit || hit.position.offset(0.5, 0.5, 0.5).distanceTo(from) >= dist - 0.6) return true;
+  }
+  return false;
 }
 
 type Raycast = (from: Vec3, dir: Vec3, range: number) => { position: Vec3 } | null;
@@ -280,6 +288,17 @@ export function shelterHole(bot: Bot, feet: Vec3 = bot.entity.position.floored()
     if (!isSolid(bot.blockAt(p))) return whereFrom(feet, p);
   }
   return null;
+}
+
+/**
+ * The biome at a place, by name ("plains"). The block's own biome comes back nameless on this version; the world's
+ * biome id, looked up in the registry the server sent, has it. Null where nothing is loaded.
+ */
+export function biomeAt(bot: Bot, pos: Vec3): string | null {
+  const id = (bot.world as unknown as { getBiome?: (p: Vec3) => number | null | undefined }).getBiome?.(pos.floored());
+  const fromWorld = id === null || id === undefined ? undefined : (bot.registry.biomes as unknown as Record<number, { name?: string } | undefined> | undefined)?.[id]?.name;
+  const fromBlock = (bot.blockAt(pos) as unknown as { biome?: { name?: string } } | null)?.biome?.name;
+  return fromWorld || fromBlock || null;
 }
 
 export function isNight(bot: Bot): boolean {

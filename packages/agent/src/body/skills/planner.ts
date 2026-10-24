@@ -16,7 +16,7 @@ import { attack } from './combat';
 import { shearSheep, woollySheep } from './hands';
 import { ANIMALS, hunt } from './village';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
-import { throwIfAborted } from './util';
+import { throwIfAborted, waitMs } from './util';
 
 /** Furnace outputs the planner knows (mineflayer's recipe data covers crafting tables only). */
 export const SMELTS: Readonly<Record<string, string>> = {
@@ -405,8 +405,12 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
     case 'shear': {
       if (count(bot, 'shears') === 0) await acquire(ctx, scan, 'shears', 1, depth + 1, next);
       ctx.progress(`obtain: shearing sheep for ${item}`);
-      // A sheep gives 1-3: about one sheep for every two wanted.
-      const sheared = await shearSheep(ctx, item === 'wool' ? null : r.colour, Math.min(16, Math.ceil((qty - count(bot, item)) / 2)));
+      const sheared = await shearSheep(ctx, item === 'wool' ? null : r.colour, () => count(bot, item) >= qty);
+      // Wool lands a moment after it pops off: one more look for it.
+      if (sheared > 0 && count(bot, item) < qty) {
+        await waitMs(ctx, 800);
+        await pickup.run(ctx, { item, radius: 12 });
+      }
       scan.forget();
       if (count(bot, item) < qty) throw new ObtainError(sheared === 0 ? `no sheep with ${nice(item)} to shear in reach` : `sheared ${sheared} sheep; still short of ${qty} ${item}`);
       return;

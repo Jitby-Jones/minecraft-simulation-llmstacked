@@ -14,7 +14,7 @@ import { describeDiff, diffInventory, snapshotInventory } from '../inventory';
 import { normalizeBlockName, normalizeItemName } from '../items';
 import { canSee, canSeeBlock } from '../world';
 import { stopCollecting } from './gathering';
-import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 /** What each animal follows, and breeds on (game knowledge for the hand that holds it out). */
@@ -85,19 +85,59 @@ function stateOf(bot: Bot, e: Entity): string {
   return JSON.stringify([at('wool'), at('baby'), at('owneruuid')]);
 }
 
+/**
+ * The way a player walks about a yard: round things and through gates, never digging down or building up (a dig
+ * under a fence ends in a hole by the gate). A copy of the body's movements with that much changed.
+ */
+function onFoot(ctx: SkillContext): ReturnType<SkillContext['movements']> {
+  const base = ctx.movements();
+  const m = Object.assign(Object.create(Object.getPrototypeOf(base) as object) as typeof base, base);
+  m.canDig = false;
+  m.allow1by1towers = false;
+  m.canOpenDoors = true;
+  return m;
+}
+
+/** Walks on foot to within `range` of a place; a walk that gets nowhere is no error (the caller sees where it is). */
+async function walkNear(ctx: SkillContext, pos: Vec3, range: number, ms: number): Promise<void> {
+  const { bot } = ctx;
+  bot.pathfinder.setMovements(onFoot(ctx));
+  await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), ms), () => stopMotion(bot)).catch((err: unknown) => {
+    if (err instanceof SkillAbortedError) throw err;
+    stopMotion(bot);
+  });
+}
+
+/** Walks to within reach of a creature (over a fence will do: a hand reaches across one). */
 async function approachEntity(ctx: SkillContext, e: Entity): Promise<boolean> {
   const { bot } = ctx;
   for (let i = 0; i < 3 && bot.entities[e.id]; i++) {
     if (bot.entity.position.distanceTo(e.position) <= ENTITY_REACH) return true;
-    bot.pathfinder.setMovements(ctx.movements());
+    bot.pathfinder.setMovements(onFoot(ctx));
     try {
-      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(e.position.x, e.position.y, e.position.z, 1.5)), 12_000), () => stopMotion(bot));
+      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(e.position.x, e.position.y, e.position.z, ENTITY_REACH - 0.4)), 12_000), () => stopMotion(bot));
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       stopMotion(bot);
     }
   }
   return Boolean(bot.entities[e.id]) && bot.entity.position.distanceTo(e.position) <= ENTITY_REACH + 0.6;
+}
+
+/** Picks up what dropped around a spot (wool off a sheep, a crop); only items whose name passes `which`, if given. */
+async function collectAround(ctx: SkillContext, where: Vec3, radius = 4, which?: (item: string) => boolean, tries = 5): Promise<void> {
+  const { bot } = ctx;
+  const named = (e: Entity) => !which || which((e as unknown as { getDroppedItem?: () => { name: string } | null }).getDroppedItem?.()?.name ?? '');
+  for (let k = 0; k < tries; k++) {
+    const drop = bot.nearestEntity((x) => x.name === 'item' && x.position.distanceTo(where) <= radius && named(x));
+    if (!drop) return;
+    bot.pathfinder.setMovements(onFoot(ctx));
+    await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 5000), () => stopMotion(bot)).catch((err: unknown) => {
+      if (err instanceof SkillAbortedError) throw err;
+      stopMotion(bot);
+    });
+    await waitMs(ctx, 250);
+  }
 }
 
 // --- use -----------------------------------------------------------------------------------------------------------
@@ -137,11 +177,15 @@ export const use = defineSkill({
           if (!(await approachEntity(ctx, e))) continue;
           if (args.item) await hold(bot, args.item);
           const was = stateOf(bot, e);
+          const where = e.position.clone();
           await bot.lookAt(e.position.offset(0, (e.height ?? 1) * 0.6, 0), true);
           await bot.activateEntity(e);
           await waitMs(ctx, 450);
           done++;
           if (bot.entities[e.id] && stateOf(bot, e) !== was) changes.push(`the ${kind.replace(/_/g, ' ')} changed`);
+          // What came off it (wool off a sheep) is picked up.
+          await waitMs(ctx, 300);
+          await collectAround(ctx, where);
         }
         if (done === 0) return { ok: false, observed: `no ${kind.replace(/_/g, ' ')} in reach`, error: `no ${kind.replace(/_/g, ' ')} in sight to use it on` };
       } else {
@@ -154,9 +198,7 @@ export const use = defineSkill({
           const target = at ? bot.blockAt(at) : pickBlock(bot, ids, used);
           if (!target) break;
           used.add(target.position.toString());
-          await gotoNear(ctx, target.position, REACH - 0.8, 30_000).catch((err: unknown) => {
-            if (err instanceof SkillAbortedError) throw err;
-          });
+          await walkNear(ctx, target.position, REACH - 0.8, 30_000);
           if (bot.entity.position.distanceTo(target.position.offset(0.5, 0.5, 0.5)) > REACH + 1.5) continue;
           if (args.item) await hold(bot, args.item);
           const was = bot.blockAt(target.position)?.stateId;
@@ -179,7 +221,9 @@ export const use = defineSkill({
     const diff = diffInventory(before, snapshotInventory(bot));
     const what = [...new Set(changes)].slice(0, 3);
     const happened = diff.size > 0 || what.length > 0;
-    const observed = `used ${args.item ? normalizeItemName(args.item) : 'my hand'} on ${done} ${args.on}: ${describeDiff(diff)}${what.length > 0 ? `; ${what.join('; ')}` : ''}`;
+    const used = args.item ? (heldOne(bot, args.item)?.name ?? args.item) : 'my hand';
+    // (The runner adds what changed in the inventory.)
+    const observed = `used ${used} on ${done} ${args.on}${what.length > 0 ? `: ${what.join('; ')}` : ''}`;
     return happened ? { ok: true, observed } : { ok: false, observed, error: 'nothing came of it' };
   },
 });
@@ -242,9 +286,7 @@ export const lead = defineSkill({
     if (followers().length === 0) {
       const near = bot.nearestEntity((e) => e.name === kind && e.position.distanceTo(bot.entity.position) <= 40 && canSee(bot, e, 41));
       if (!near) return { ok: false, observed: `no ${kind} in sight`, error: `no ${kind} in sight to lead` };
-      await gotoNear(ctx, near.position, 4, 40_000).catch((err: unknown) => {
-        if (err instanceof SkillAbortedError) throw err;
-      });
+      await walkNear(ctx, near.position, 4, 40_000);
       await hold(bot, bait);
       await waitMs(ctx, 1500);
     }
@@ -257,9 +299,7 @@ export const lead = defineSkill({
           // They lost interest: back to the nearest.
           const near = bot.nearestEntity((e) => e.name === kind && e.position.distanceTo(bot.entity.position) <= 24);
           if (!near) break;
-          await gotoNear(ctx, near.position, 3, 20_000).catch((err: unknown) => {
-            if (err instanceof SkillAbortedError) throw err;
-          });
+          await walkNear(ctx, near.position, 3, 20_000);
           await waitMs(ctx, 1200);
           continue;
         }
@@ -268,7 +308,7 @@ export const lead = defineSkill({
         const step = dest.minus(me);
         const len = Math.hypot(step.x, step.z);
         const leg = len <= 4 ? dest : me.plus(new Vec3((step.x / len) * 4, 0, (step.z / len) * 4));
-        bot.pathfinder.setMovements(ctx.movements());
+        bot.pathfinder.setMovements(onFoot(ctx));
         await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(leg.x, leg.z, 1)), 15_000), () => stopMotion(bot)).catch((err: unknown) => {
           if (err instanceof SkillAbortedError) throw err;
           stopMotion(bot);
@@ -317,14 +357,18 @@ export const harvest = defineSkill({
         const b = bot.blockAt(p);
         if (!b) break;
         const crop = b.name;
-        await gotoNear(ctx, p, 2.5, 20_000).catch((err: unknown) => {
+        bot.pathfinder.setMovements(onFoot(ctx));
+        await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(p.x, p.y, p.z, 2.5)), 20_000), () => stopMotion(bot)).catch((err: unknown) => {
           if (err instanceof SkillAbortedError) throw err;
+          stopMotion(bot);
         });
         const fresh = bot.blockAt(p);
         if (!ripe(fresh) || !fresh) continue;
         await digBlock(ctx, fresh);
         picked++;
-        await waitMs(ctx, 250);
+        // What it dropped (the seeds to plant again among it) is picked up first.
+        await waitMs(ctx, 600);
+        await collectAround(ctx, p.offset(0.5, 0, 0.5), 2.5, undefined, 3);
         const seed = SEED_OF[crop];
         const soil = bot.blockAt(p.offset(0, -1, 0));
         if (args.replant && seed && soil && (soil.name === 'farmland' || soil.name === 'soul_sand') && (await hold(bot, seed))) {
@@ -334,23 +378,14 @@ export const harvest = defineSkill({
           if (bot.blockAt(p)?.name === crop) planted++;
         }
       }
-      // What dropped around the field.
-      for (let i = 0; i < 12; i++) {
-        const drop = bot.nearestEntity((e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) <= args.radius);
-        if (!drop) break;
-        await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 6000), () => stopMotion(bot)).catch((err: unknown) => {
-          if (err instanceof SkillAbortedError) throw err;
-          stopMotion(bot);
-        });
-        await waitMs(ctx, 250);
-      }
+      // What else dropped around the field.
+      await collectAround(ctx, bot.entity.position.clone(), args.radius, undefined, 12);
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: `picked ${picked}, planted ${planted}`, error: errMsg(err) };
     }
-    const diff = describeDiff(diffInventory(before, snapshotInventory(bot)));
     if (picked === 0) return { ok: false, observed: 'nothing ripe to pick', error: `no ripe ${args.crop ?? 'crops'} within ${args.radius} blocks` };
-    return { ok: true, observed: `picked ${picked} ripe crop(s), planted ${planted} again: ${diff}`, data: { picked, planted } };
+    return { ok: true, observed: `picked ${picked} ripe crop(s), planted ${planted} again`, data: { picked, planted, gained: describeDiff(diffInventory(before, snapshotInventory(bot))) } };
   },
 });
 
@@ -379,32 +414,30 @@ export function woollySheep(bot: Bot, colour: string | null, radius = 32): Entit
     .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position));
 }
 
-/** Shears up to `n` woolly sheep of the colour and picks up the wool; returns how many were sheared. */
-export async function shearSheep(ctx: SkillContext, colour: string | null, n: number): Promise<number> {
+/** Shears woolly sheep of the colour, picking up the wool, until `enough` (or none are left to shear); how many were sheared. */
+export async function shearSheep(ctx: SkillContext, colour: string | null, enough: () => boolean): Promise<number> {
   const { bot } = ctx;
   let sheared = 0;
   const tried = new Set<number>();
-  for (let i = 0; i < n * 2 && sheared < n; i++) {
+  for (let i = 0; i < 24 && !enough(); i++) {
     throwIfAborted(ctx.signal);
     const e = woollySheep(bot, colour).find((x) => !tried.has(x.id));
     if (!e) break;
     tried.add(e.id);
-    if (!(await approachEntity(ctx, e))) continue;
+    const near = await approachEntity(ctx, e);
+    ctx.logger.debug({ module: 'hands', sheep: e.id, near, d: Math.round(bot.entity.position.distanceTo(e.position) * 10) / 10 }, 'to a sheep');
+    if (!near) continue;
     if (!(await hold(bot, 'shears'))) break;
     await bot.lookAt(e.position.offset(0, 0.8, 0), true);
     await bot.activateEntity(e);
     await waitMs(ctx, 500);
     if (woolOf(bot, e)?.sheared) sheared++;
+    ctx.logger.debug({ module: 'hands', sheep: e.id, sheared: woolOf(bot, e)?.sheared, drops: Object.values(bot.entities).filter((x) => x.name === 'item' && x.position.distanceTo(e.position) <= 6).length }, 'sheared');
     // The wool pops off around it.
-    for (let k = 0; k < 4; k++) {
-      const drop = bot.nearestEntity((x) => x.name === 'item' && x.position.distanceTo(e.position) <= 4);
-      if (!drop) break;
-      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 5000), () => stopMotion(bot)).catch((err: unknown) => {
-        if (err instanceof SkillAbortedError) throw err;
-        stopMotion(bot);
-      });
-      await waitMs(ctx, 250);
-    }
+    await waitMs(ctx, 300);
+    await collectAround(ctx, e.position.clone(), 5);
   }
+  // Wool that flew further, around where the sheep are.
+  if (sheared > 0) await collectAround(ctx, bot.entity.position.clone(), 10, (n) => n.endsWith('_wool'), 10);
   return sheared;
 }

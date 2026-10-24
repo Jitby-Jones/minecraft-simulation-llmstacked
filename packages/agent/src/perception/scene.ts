@@ -18,7 +18,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
-import { canSeeBlock, isEnclosed } from '../body/world';
+import { biomeAt, canSeeBlock, isEnclosed } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -95,10 +95,11 @@ function sightOf(bot: Bot, cache: Map<number, Sight>, id: number): Sight {
 // ---- The look around: rays from the eyes ---------------------------------------------------------------------------
 
 /** Pitches of the rays, denser near the horizon, where most of what matters is. */
-const PITCHES = [-72, -58, -46, -36, -28, -21, -15, -10, -6, -3, 0, 3, 7, 12, 19, 29, 44, 62];
+// Ground 10-50 m off lies within a few degrees below the horizon: the rows are densest there.
+const PITCHES = [-72, -60, -48, -38, -30, -24, -19, -15.5, -12.5, -10, -8.3, -6.8, -5.5, -4.3, -3.2, -2.2, -1.2, -0.4, 1.5, 4, 8, 13, 20, 29, 41, 56];
 const YAWS = 64;
 const RANGE = 56;
-const RAYS_PER_TICK = 120;
+const RAYS_PER_TICK = 170;
 /** Seen-past things one ray records before giving up on it (a field of flowers). */
 const MAX_PAST = 4;
 
@@ -382,7 +383,7 @@ export function featuresOf(bot: Bot, hits: readonly Hit[], feet: Vec3, roofed: b
 export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   const feet = bot.entity.position.floored();
   const dim = String(bot.game?.dimension ?? 'overworld').replace(/^minecraft:/, '');
-  const biome = (bot.blockAt(feet) as unknown as { biome?: { name?: string } } | null)?.biome?.name;
+  const biome = biomeAt(bot, feet);
   const place = dim === 'the_nether' ? `the Nether${biome ? ` (${nice(biome)})` : ''}` : dim === 'the_end' ? 'the End' : biome ? nice(biome) : 'the overworld';
   const under = bot.blockAt(feet.offset(0, -1, 0));
   const at = bot.blockAt(feet);
@@ -430,8 +431,10 @@ export function detailsOf(bot: Bot, e: Entity, kind: EntityKind): string[] {
   const f = typeof flags === 'number' ? flags : 0;
   if (metaOf(bot, e, 'baby') === true) out.push('a baby');
   if (e.name === 'sheep') {
+    // The server leaves out what is as it always is: no wool byte is white wool, not sheared.
     const wool = metaOf(bot, e, 'wool');
-    if (typeof wool === 'number') out.push((wool & 0x10) !== 0 ? 'sheared' : `${DYES[wool & 0x0f] ?? 'white'} wool`);
+    const w = typeof wool === 'number' ? wool : 0;
+    out.push((w & 0x10) !== 0 ? 'sheared' : `${DYES[w & 0x0f] ?? 'white'} wool`);
   }
   const owner = metaOf(bot, e, 'owneruuid');
   if (owner !== undefined && owner !== null && owner !== '') out.push('tame');
@@ -562,6 +565,8 @@ export interface SceneOptions {
 
 /** Blocks a look around also picks out one by one (small things the rays may pass between). */
 const SMALL_BUT_NOTABLE = /_ore$|^ancient_debris$|_bed$|^(crafting_table|furnace|blast_furnace|smoker|chest|trapped_chest|barrel|anvil|enchanting_table|brewing_stand|spawner|nether_portal|sugar_cane|pumpkin|melon|sweet_berry_bush|cobweb|bell)$/;
+/** Water and lava close by, looked for apart (a lake would crowd out the rest). */
+const LIQUID = /^(water|lava)$/;
 const CREATURES_MAX = 24;
 /** What is worth remembering where it was. */
 const PLACE_KINDS: ReadonlySet<SceneFeatureKind> = new Set(['ore', 'lava', 'portal', 'spawner', 'station', 'container', 'bed', 'built', 'crops', 'plants', 'trees', 'water', 'clay']);
@@ -581,6 +586,7 @@ export class SceneEyes {
   private readonly known = new Set<number>();
   private readonly offs: (() => void)[] = [];
   private notableIds: number[] | null = null;
+  private liquidIds: number[] | null = null;
   private lastSelf: { pos: Vec3; t: number; time: number; items: Map<string, number>; dim: string } | null = null;
   private lastPickupAt = -Infinity;
   private startedAt = 0;
@@ -684,7 +690,7 @@ export class SceneEyes {
       const w = whereNow(bot);
       this.where = w.text;
       this.roofed = w.roofed;
-      const hits = [...this.look.seen, ...this.notableInSight()];
+      const hits = [...new Map([...this.look.seen, ...this.notableInSight()].map((h) => [`${h.x},${h.y},${h.z}`, h] as const)).values()];
       this.features = featuresOf(bot, hits, bot.entity.position, this.roofed);
       this.markFirsts(seen);
       this.remember(seen);
@@ -698,11 +704,17 @@ export class SceneEyes {
   private notableInSight(): { x: number; y: number; z: number; id: number }[] {
     const bot = this.o.bot;
     this.notableIds ??= bot.registry.blocksArray.filter((b) => SMALL_BUT_NOTABLE.test(b.name)).map((b) => b.id);
+    this.liquidIds ??= bot.registry.blocksArray.filter((b) => LIQUID.test(b.name)).map((b) => b.id);
     const out: { x: number; y: number; z: number; id: number }[] = [];
-    for (const p of bot.findBlocks({ matching: this.notableIds, maxDistance: 24, count: 48 })) {
-      if (!canSeeBlock(bot, p, 25)) continue;
-      const id = (bot.world as unknown as WorldIds).getBlockStateId(p);
-      if (id !== null && id !== undefined) out.push({ x: p.x, y: p.y, z: p.z, id });
+    for (const [ids, count, range] of [
+      [this.notableIds, 48, 24],
+      [this.liquidIds, 24, 16],
+    ] as const) {
+      for (const p of bot.findBlocks({ matching: ids, maxDistance: range, count })) {
+        if (!canSeeBlock(bot, p, range + 1)) continue;
+        const id = (bot.world as unknown as WorldIds).getBlockStateId(p);
+        if (id !== null && id !== undefined) out.push({ x: p.x, y: p.y, z: p.z, id });
+      }
     }
     return out;
   }

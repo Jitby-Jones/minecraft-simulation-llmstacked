@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import type { Vec3 } from 'vec3';
+import { biomeAt } from '../world';
 import { defineSkill, type DesignAsk } from './types';
 
 const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak'];
@@ -30,7 +31,7 @@ function count(bot: Bot, name: RegExp): number {
 /** What the land around home offers to build with, as anyone standing there could see. */
 export function surveyLand(bot: Bot, home: Vec3 | null): Omit<DesignAsk, 'purpose' | 'kind'> {
   const at = (home ?? bot.entity.position).floored();
-  const biome = (bot.blockAt(at) as unknown as { biome?: { name?: string } } | null)?.biome?.name ?? 'plains';
+  const biome = biomeAt(bot, at) ?? 'plains';
   const near = (names: readonly string[], max = 48) => {
     const ids = names.map((n) => bot.registry.blocksByName[n]?.id).filter((v): v is number => v !== undefined);
     return ids.length === 0 ? 0 : bot.findBlocks({ point: at, matching: ids, maxDistance: 40, count: max }).length;
@@ -79,7 +80,7 @@ export function surveyLand(bot: Bot, home: Vec3 | null): Omit<DesignAsk, 'purpos
 export const design = defineSkill({
   name: 'design',
   description:
-    'design {purpose, kind?} — draw a building of your own for what you want (a home for you and Wren, a smithy, a lookout tower, a hall for the village): you get its design, what it takes, how to make its parts and who could help, and building it becomes your plan; then build {design: its name}',
+    'design {purpose, kind?} — draw a building of your own for what you want (a home for you and your partner, a smithy, a lookout tower, a hall for the village): you get its design, what it takes, how to make its parts and who could help, and building it becomes your plan; then build {design: its name}',
   argsSchema: z.object({
     purpose: z.string().min(3).max(200),
     kind: z.string().min(2).max(20).optional(),

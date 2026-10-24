@@ -98,13 +98,22 @@ const SYNONYMS: Readonly<Record<string, string>> = {
   flowers: 'flower',
 };
 
+/**
+ * Item names whose last word is plural in the game itself (iron_leggings, shears, wheat_seeds, oak_leaves): a plural
+ * there is the name, not many of something, and stays as it is.
+ */
+const PLURAL_NAME = /(leggings|boots|shears|leaves|seeds|planks|bricks|stairs|bars|glass|moss|grass|beans|berries|roots|petals|sprouts|vines|_on_a_stick|sherds|tiles|_slabs?_?$)$/;
+
 /** Normalizes "Oak Logs", "minecraft:oak_log", "oak log" → "oak_log"; "wood"/"logs" → "log" (a category). */
 export function normalizeItemName(raw: string): string {
   let n = raw.trim().toLowerCase().replace(/^minecraft:/, '').replace(/[\s-]+/g, '_');
   const direct = SYNONYMS[n];
   if (direct) return direct;
+  if (PLURAL_NAME.test(n)) return n;
   if (n.endsWith('es') && SYNONYMS[n.slice(0, -2)]) return SYNONYMS[n.slice(0, -2)] ?? n;
-  if (n.endsWith('s') && !n.endsWith('ss') && n !== 'glass' && !n.endsWith('_planks') && n !== 'planks') {
+  // "potatoes", "tomatoes": one potato.
+  if (/oes$/.test(n)) return n.slice(0, -2);
+  if (n.endsWith('s') && !n.endsWith('ss')) {
     const singular = n.slice(0, -1);
     n = SYNONYMS[singular] ?? singular;
   }
