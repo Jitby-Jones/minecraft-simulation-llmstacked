@@ -14,11 +14,12 @@ import { armorPoints, asDifficulty, expectedFightDamage } from './combatOdds';
 import { equippedArmor } from './inventory';
 import { weaponTier } from './items';
 import { reflexDelta } from './quirks';
-import { bestWeapon, equipBestWeapon, pvp } from './skills/combat';
+import { bestToHitWith, bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { createMovements } from './plugins';
-import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isPlayer, isSolid } from './world';
+import { isCover, referenceFor } from './skills/building';
+import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isPlayer, isSolid, wallsAround } from './world';
 
 const { goals } = pathfinderPkg;
 
@@ -477,7 +478,7 @@ export class ReflexController {
         // A person's hearts can't be seen (§17.4): reckon them at full health.
         hp: isPlayer(e) ? undefined : entityHealth(this.bot, e),
       })),
-      weapon: bestWeapon(this.bot)?.name ?? null,
+      weapon: bestToHitWith(this.bot)?.name ?? null,
       armor: armorPoints(equippedArmor(this.bot)),
       combat: this.hooks.combat(),
       difficulty: asDifficulty(this.bot.game.difficulty),
@@ -620,6 +621,44 @@ export class ReflexController {
     const hits = this.fleeHits.filter((x) => now - x < 6000 && x - this.fleeSince > 1500).length;
     const stuck = this.fleeStillSince !== null && now - this.fleeStillSince > 2000;
     return hits >= 2 || stuck;
+  }
+
+  /**
+   * Walled in on every side with what threatens us above (at a hole's mouth): a block over our head shuts it out, if
+   * we carry one. True if the hole was closed.
+   */
+  private async sealAbove(threats: readonly Entity[]): Promise<boolean> {
+    const bot = this.bot;
+    const feet = bot.entity.position.floored();
+    if (!wallsAround(bot, feet)) return false;
+    if (!threats.every((t) => t.position.y >= feet.y + 1)) return false;
+    const top = feet.offset(0, 2, 0);
+    if (!isAirLike(bot.blockAt(top))) return false;
+    const block = bot.inventory.items().find((i) => isCover(i.name));
+    const r = referenceFor(bot, top);
+    if (!block || !r) return false;
+    this.busy = true;
+    try {
+      try {
+        pvp(bot).forceStop();
+      } catch {
+        // not fighting
+      }
+      try {
+        bot.pathfinder.setGoal(null);
+      } catch {
+        // not moving
+      }
+      bot.clearControlStates();
+      await bot.equip(block, 'hand');
+      await bot.placeBlock(r.ref, r.face);
+      return isSolid(bot.blockAt(top));
+    } catch (err) {
+      this.logger.debug({ module: 'reflex', err: String(err) }, 'could not close the hole');
+      return false;
+    } finally {
+      this.busy = false;
+    }
   }
 
   /** A spot on the way we came, well away from what chases us and not past it: the farthest from them we can reach. */
@@ -822,6 +861,13 @@ export class ReflexController {
       // Running that isn't working (it keeps catching us, or there is nowhere to go) turns into a fight, as with
       // anyone cornered: a spider outruns a player, and a tunnel ends.
       if (this.mode === 'flee' && this.cornered(now, threats)) {
+        // In a hole with them at its mouth, the way out is the way in: close it, and nothing can reach.
+        if (await this.sealAbove(threats)) {
+          this.fleeHits = [];
+          this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'cornered in a hole: closed it over');
+          this.clear('closed the hole over');
+          return;
+        }
         this.standUntil = now + STAND_MS;
         this.fleeHits = [];
         this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'running is not working: standing to fight');

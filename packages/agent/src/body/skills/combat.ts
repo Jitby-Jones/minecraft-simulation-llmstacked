@@ -32,8 +32,20 @@ export function bestWeapon(bot: Bot): Item | null {
   );
 }
 
+/** What to hit with: the best weapon, else the best tool (a pickaxe hits two or three times as hard as a fist). */
+export function bestToHitWith(bot: Bot): Item | null {
+  return (
+    bestWeapon(bot) ??
+    bot.inventory
+      .items()
+      .filter((i) => /_(pickaxe|shovel|hoe)$/.test(i.name))
+      .sort((a, b) => weaponTier(b.name) - weaponTier(a.name))[0] ??
+    null
+  );
+}
+
 export async function equipBestWeapon(bot: Bot): Promise<string | null> {
-  const best = bestWeapon(bot);
+  const best = bestToHitWith(bot);
   if (best && bot.heldItem?.name !== best.name) await bot.equip(best, 'hand');
   return best?.name ?? null;
 }

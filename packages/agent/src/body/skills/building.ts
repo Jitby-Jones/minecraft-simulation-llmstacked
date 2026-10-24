@@ -201,7 +201,7 @@ function readyToSeal(bot: Bot): boolean {
 const COVER_BLOCKS = ['dirt', 'cobblestone', 'cobbled_deepslate', 'netherrack', 'andesite', 'diorite', 'granite'];
 /** Any whole block that stays put makes a lid: planks and logs as well as earth and stone (not sand or gravel, which fall). */
 const COVER = /_planks$|_log$|_stem$|^(stone|deepslate|tuff|calcite|sandstone|red_sandstone|bricks|stone_bricks|mud_bricks|mossy_cobblestone|blackstone|basalt|end_stone|coarse_dirt|rooted_dirt|packed_mud|terracotta)$/;
-const isCover = (name: string) => COVER_BLOCKS.includes(name) || COVER.test(name);
+export const isCover = (name: string) => COVER_BLOCKS.includes(name) || COVER.test(name);
 
 function isDaytime(bot: Bot): boolean {
   return !isNight(bot) && bot.time.timeOfDay <= 12500;

@@ -108,7 +108,7 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
   },
   {
     about: /\b(night|evening|dusk|nightfall)\b/i,
-    text: 'Night: about 8 minutes of dark; monsters (zombies, skeletons, spiders, creepers) spawn in the dark all over the surface and come for anyone near, more of them the longer it lasts; a bed (3 wool and 3 planks) lets you sleep through it and sets where you wake after dying; walls and a roof, or a hole sealed over, keep them off; zombies and skeletons burn when the sun comes up; a torch only keeps them from spawning right beside it.',
+    text: 'Night: about 8 minutes of dark; monsters (zombies, skeletons, spiders, creepers) spawn in the dark all over the surface and come for anyone near, more of them the longer it lasts; a bed (3 wool and 3 planks) lets you sleep through it and sets where you wake after dying; walls and a roof, or a hole sealed over, keep them off; zombies and skeletons burn when the sun comes up, unless they stand in shade or water; a torch only keeps them from spawning right beside it; bare-handed a zombie takes some 20 punches, with a stone sword 4 blows.',
   },
   {
     about: /\b(romance|romantic|partner|relationship|love|date|marry|married|girlfriend|boyfriend)\b/i,
