@@ -86,6 +86,36 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(r.zombie).toBe(false);
   }, 120_000);
 
+  it('a skeleton across a trench it cannot cross: it gives up closing in and gets out of its sight, and lives', async () => {
+    const x = 6600;
+    await server.cmd(`forceload add ${x - 24} -24 ${x + 32} 24`);
+    // An island in a trench five wide and six deep, roofed against the sun, a skeleton on it; the agent nine blocks off.
+    await server.cmd(`fill ${x + 5} ${Y - 6} -6 ${x + 17} ${Y - 1} 6 air`);
+    await server.cmd(`fill ${x + 10} ${Y - 6} -1 ${x + 12} ${Y - 1} 1 stone`);
+    await server.cmd(`fill ${x + 10} ${Y + 7} -1 ${x + 12} ${Y + 7} 1 stone`);
+    await server.cmd(`tp Ada ${x + 2}.5 ${Y} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('effect clear Ada');
+    await server.cmd('effect give Ada minecraft:instant_health 1 3');
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await sleep(1500);
+    dangers.length = 0;
+    body.reflexes.start();
+    await server.cmd(`summon skeleton ${x + 11}.5 ${Y} 0.5 {PersistenceRequired:1b}`);
+    const start = Date.now();
+    let gaveUp = false;
+    while (Date.now() - start < 45_000 && body.bot.health > 0) {
+      await sleep(500);
+      if (body.reflexes.mode === 'flee') gaveUp = true;
+    }
+    const health = body.bot.health;
+    logger.info({ health, gaveUp, dangers: dangers.map((d) => `${d.kind}:${d.source}`), fight: body.reflexes.fightRecord(), at: body.bot.entity.position.toString() }, 'unreachable archer');
+    body.reflexes.stop();
+    await server.cmd('kill @e[type=minecraft:skeleton]');
+    expect(health).toBeGreaterThan(0);
+    expect(gaveUp).toBe(true);
+  }, 120_000);
+
   it('digging a staircase down with a stone sword, a zombie coming down behind: it kills it, and lives', async () => {
     const x = 6400;
     const y = Y - 8;

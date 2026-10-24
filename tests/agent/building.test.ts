@@ -550,3 +550,16 @@ describe("what a model's design names, made real", () => {
     expect(onTheGround(world, new Vec3(0, 78, 0), size).y).toBe(78);
   });
 });
+
+describe("a building's needs said as kinds where any will do (one told \"1 red bed\" and \"1 oak door\" chased red dye and oak)", () => {
+  it('a bed or wool of any colour, planks, a door or a log of any wood; the rest as they are', async () => {
+    const { needLabel } = await import('@agora/agent/body/skills/construct');
+    expect(needLabel('red_bed')).toBe('bed (any colour)');
+    expect(needLabel('red_wool')).toBe('wool (any colour)');
+    expect(needLabel('oak_door')).toBe('door (any wood)');
+    expect(needLabel('oak_planks')).toBe('planks (any wood)');
+    expect(needLabel('oak_log')).toBe('log (any wood)');
+    expect(needLabel('cobblestone')).toBe('cobblestone');
+    expect(needLabel('crafting_table')).toBe('crafting table');
+  });
+});

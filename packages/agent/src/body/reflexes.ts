@@ -39,6 +39,10 @@ interface Bout {
 
 /** Mobs that shoot (fleeing across open ground from them only gives them a target). */
 const ARCHERS = new Set(['skeleton', 'stray', 'bogged', 'pillager']);
+/** Closing in on an archer that this long has not brought it within reach: it can't be got at. */
+const ARCHER_CHASE_MS = 10_000;
+/** One that couldn't be got at is run from, out of its sight, for this long. */
+const ARCHER_AVOID_MS = 30_000;
 /** A mob that shoots is a threat this far off, once it can see us: its range, not arm's length. */
 const SHOT_RANGE = 16;
 
@@ -195,6 +199,9 @@ export class ReflexController {
   private airAt: Vec3 | null = null;
   /** The last climb up a pillar out of reach: when (the next waits PERCH_MS). */
   private perchSince = 0;
+  /** Archers closed in on in vain, each until when it is run from instead (an agent "fought" one for 81 s, never
+   * nearer than 9 blocks, shot from 20 health to 8). */
+  private unreachable = new Map<number, number>();
   private wetSince: number | null = null;
   /** Holding jump to keep the head above water. */
   private treading = false;
@@ -592,6 +599,9 @@ export class ReflexController {
     if (threats.some((e) => e.name === 'warden')) return true;
     // Archers shoot whoever runs across open ground: armed and well enough, close in on them instead. Not on a
     // drowned: closing in on one is going into the water after it.
+    // One that couldn't be got at lately is run from: out of its sight is what stops the arrows.
+    const now = Date.now();
+    if (threats.some((e) => (this.unreachable.get(e.id) ?? 0) > now)) return true;
     if (threats.every((e) => shoots(e) && e.name !== 'drowned') && bestWeapon(this.bot)) return false;
     if (threats.some((e) => e.name === 'drowned' && shoots(e))) return true;
     const players = threats.filter(isPlayer);
@@ -1142,6 +1152,16 @@ export class ReflexController {
         this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'running is not working: standing to fight');
       }
       const target = this.pickTarget(threats);
+      // Closing in on an archer that hasn't come within reach: it can't be got at from here (standing at the edge of what
+      // parts us is no fight, and gives it a target).
+      const b = this.bout;
+      if (target && b && b.id === target.id && shoots(target) && Date.now() - b.since > ARCHER_CHASE_MS && b.closest > 4) {
+        this.unreachable.set(target.id, Date.now() + ARCHER_AVOID_MS);
+        this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: target.name, closest: Math.round(b.closest) }, 'an archer out of reach: out of its sight instead');
+        this.standUntil = 0;
+        this.flee(threats);
+        return;
+      }
       if (target) this.fight(target, 'fight');
       const foeNow = pvp(bot).target;
       if (this.bout && foeNow?.id === this.bout.id) this.bout.closest = Math.min(this.bout.closest, foeNow.position.distanceTo(bot.entity.position));

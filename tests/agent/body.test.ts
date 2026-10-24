@@ -728,6 +728,17 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(r.fightRecord()).toMatchObject({ foe: 'zombie', swings: 2, landed: 1, ended: 'fight over', health: '20 to 20' });
   });
 
+  it('an archer is closed in on; one that could not be got at lately is run from, out of its sight (one "fought" a skeleton 81 s, never nearer than 9 blocks)', () => {
+    const r = rig('stone_sword') as unknown as { bot: { entities: Record<number, unknown> }; unreachable: Map<number, number>; shouldFlee(t: unknown[]): boolean };
+    const skeleton = { id: 31, type: 'hostile', name: 'skeleton', position: new Vec3(9, 64, 0), height: 1.99, heldItem: { name: 'bow' } };
+    r.bot.entities[31] = skeleton;
+    expect(r.shouldFlee([skeleton])).toBe(false);
+    r.unreachable.set(31, Date.now() + 30_000);
+    expect(r.shouldFlee([skeleton])).toBe(true);
+    r.unreachable.set(31, Date.now() - 1);
+    expect(r.shouldFlee([skeleton])).toBe(false);
+  });
+
   it('up on something, a zombie three blocks below is no threat; a spider, which climbs, still is', () => {
     const r = rig('stone_sword') as unknown as { bot: { entities: Record<number, unknown> }; threats(radius?: number): { id: number }[] };
     r.bot.entities[21] = { id: 21, type: 'hostile', name: 'zombie', position: new Vec3(1, 61, 0), height: 1.95 };

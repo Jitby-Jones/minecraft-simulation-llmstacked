@@ -155,7 +155,7 @@ export function sameBlock(b: Block | null, s: BlockState): boolean {
 /** Items that will do for a block, best first: its own; a bed or carpet of any colour; the same in another wood. */
 /** Of these, any colour will do in a building, or any wood: a bed is a bed, a door a door. */
 const COLOURED = /^(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_(bed|carpet|wool)$/;
-const WOODEN = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_(planks|stairs|slab|fence|fence_gate|door|trapdoor|pressure_plate|button|sign)$/;
+const WOODEN = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_(planks|stairs|slab|fence|fence_gate|door|trapdoor|pressure_plate|button|sign|log)$/;
 
 /**
  * What a building still needs, in words: the kind where any colour or wood will do ("1 bed (any colour)", not
@@ -885,7 +885,7 @@ export async function buildDesign(
     return p.raw
       .sort((x, y) => y.count - x.count)
       .slice(0, 6)
-      .map((r) => `${r.count} ${r.item.replace(/_/g, ' ')}`)
+      .map((r) => `${r.count} ${needLabel(r.item)}`)
       .join(', ');
   };
   if (!prior && held < blocks * 0.25) {

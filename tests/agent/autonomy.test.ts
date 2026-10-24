@@ -265,7 +265,8 @@ describe('what one carries, as one sees it: a tool nearly worn out', () => {
     const st = { ...s, self: { ...s.self, inventory: [{ item: 'iron_pickaxe', qty: 1, left: 0.08 }, { item: 'stone_pickaxe', qty: 1, left: 0.9 }] } };
     const packet = buildPacket({ state: st, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
     expect(packet).toContain('1 iron_pickaxe (nearly worn out: 8% left)');
-    expect(packet).toContain('1 stone_pickaxe.');
+    // No armor on is something one sees too (one with twelve iron ingots and none went deep, and died to a skeleton).
+    expect(packet).toContain('1 stone_pickaxe; wearing no armor.');
   });
 });
 
