@@ -59,7 +59,7 @@ async function collectDropsAt(ctx: SkillContext, where: Vec3): Promise<void> {
 
 export const hunt = defineSkill({
   name: 'hunt',
-  description: 'hunt {animal?, qty?} — kill farm animals in sight (cow, pig, sheep, chicken) for raw meat and pick it up',
+  description: 'hunt {animal?, qty?} — kill farm animals in sight (cow, pig, sheep, chicken), walking to them, for raw meat and pick it up',
   argsSchema: z.object({ animal: z.enum(ANIMALS).optional(), qty: z.coerce.number().int().min(1).max(16).default(3) }),
   talkOverable: false,
   slipKinds: ['tool'],
@@ -72,17 +72,29 @@ export const hunt = defineSkill({
     const deadline = Date.now() + 120_000;
     let kills = 0;
     // Hunting with bare hands takes many blows: a sword first, made if we can (tools.ts); without one, hands.
-    if (!bestWeapon(bot) && nearestAnimal(bot, kinds, CREATURE_SIGHT)) {
+    if (!bestWeapon(bot) && nearestAnimal(bot, kinds, FAR_OFF)) {
       await ensureTool(ctx, 'sword').catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
       });
     }
     await stopCollecting(bot);
+    let walkedTo = 0;
     try {
       while (meat() - start < args.qty && Date.now() < deadline && kills < args.qty + 2) {
         throwIfAborted(ctx.signal);
         const prey = nearestAnimal(bot, kinds, CREATURE_SIGHT);
-        if (!prey) break;
+        if (!prey) {
+          // One in view farther off is walked to, as a hunter goes after the cow it sees across the field: told
+          // "no cow within 32 m; the nearest in view is a cow 41 m west", agents asked again from where they stood.
+          const far = nearestAnimal(bot, kinds, FAR_OFF);
+          if (!far || walkedTo >= 2) break;
+          walkedTo++;
+          ctx.progress(`hunt: walking to a ${far.name ?? 'animal'} ${Math.round(far.position.distanceTo(bot.entity.position))} m off`);
+          await gotoNear(ctx, far.position, 6, 40_000).catch((err: unknown) => {
+            if (err instanceof SkillAbortedError) throw err;
+          });
+          continue;
+        }
         if (ctx.slip !== 'tool') await equipBestWeapon(bot);
         const p = pvp(bot);
         p.attack(prey);

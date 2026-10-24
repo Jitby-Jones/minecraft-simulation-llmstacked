@@ -579,6 +579,19 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 120_000);
 
+  it('a hunt for a cow in view 45 m off: it walks to it and brings back the beef', async () => {
+    const x = 7400;
+    await at(x, 0);
+    await server.cmd('difficulty peaceful');
+    await server.cmd(`summon cow ${x + 45} ${Y} 0 {NoAI:1b}`);
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await sleep(2000);
+    const r = await run('hunt', { animal: 'cow', qty: 1 });
+    logger.info({ r }, 'a cow far off');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'beef')).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+
   it('smelting with no furnace near: one made of the cobblestone on hand at the table carried; without stone, it says what is short', async () => {
     const x = 7300;
     await at(x, 0);
