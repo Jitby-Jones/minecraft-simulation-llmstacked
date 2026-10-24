@@ -452,3 +452,25 @@ describe("the game's own buildings", () => {
     jar.close();
   });
 });
+
+describe('names and enchantments on items', () => {
+  it('reads a name however the game sends it', async () => {
+    const { customNameOf } = await import('@agora/agent/body/skills/enchanting');
+    const item = (customName: unknown) => ({ customName }) as never;
+    expect(customNameOf(item('Hope'))).toBe('Hope');
+    expect(customNameOf(item('{"text":"Digger"}'))).toBe('Digger');
+    expect(customNameOf(item({ text: 'Ember' }))).toBe('Ember');
+    expect(customNameOf(item({ type: 'compound', value: { text: { type: 'string', value: 'Frost' } } }))).toBe('Frost');
+    expect(customNameOf(item(null))).toBeNull();
+    expect(customNameOf(null)).toBeNull();
+  });
+
+  it('reads enchantments by name and level, from either shape', async () => {
+    const { enchantsOf } = await import('@agora/agent/body/skills/enchanting');
+    const bot = { registry: { enchantments: { 5: { name: 'sharpness' } } } } as never;
+    expect(enchantsOf(bot, { enchants: [{ name: 'sharpness', lvl: 2 }] } as never)).toEqual([{ name: 'sharpness', lvl: 2 }]);
+    expect(enchantsOf(bot, { enchants: { enchantments: [{ id: 5, level: 3 }] } } as never)).toEqual([{ name: 'sharpness', lvl: 3 }]);
+    expect(enchantsOf(bot, { enchants: [{ id: 'minecraft:unbreaking', level: 1 }] } as never)).toEqual([{ name: 'unbreaking', lvl: 1 }]);
+    expect(enchantsOf(bot, null)).toEqual([]);
+  });
+});

@@ -14,6 +14,7 @@ import { eat, equip, sleep } from './survival';
 import { build, hunt, patrol, sign } from './village';
 import { design } from './design';
 import { scout, settle } from './settle';
+import { enchant, nameItem } from './enchanting';
 import type { AnySkill } from './types';
 
 export const SKILLS: readonly AnySkill[] = [
@@ -48,6 +49,8 @@ export const SKILLS: readonly AnySkill[] = [
   design,
   scout,
   settle,
+  nameItem,
+  enchant,
   sign,
   patrol,
 ];
@@ -97,6 +100,9 @@ const ALIASES: Readonly<Record<string, string>> = {
   notice: 'sign',
   construct: 'build',
   architect: 'design',
+  rename: 'name',
+  name_item: 'name',
+  enchanting: 'enchant',
   draw: 'design',
   plan_building: 'design',
   build_hut: 'build',
