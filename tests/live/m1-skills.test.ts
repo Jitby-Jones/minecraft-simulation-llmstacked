@@ -104,19 +104,50 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     expect(r2.error).toMatch(/3 cobblestone/);
   });
 
-  it('mine digs stone with the pickaxe and explains missing tools', async () => {
+  it('mine digs stone with the pickaxe, makes the better pickaxe iron needs, and says which when it cannot', async () => {
     const o = await zone();
     await server.cmd(`fill ${o.x + 3} ${Y - 1} ${o.z + 3} ${o.x + 6} ${Y - 1} ${o.z + 3} minecraft:stone`);
     await sleep(500);
     const r = await run(pip, 'mine', { block: 'stone', qty: 2 });
     expect(r.ok).toBe(true);
     expect(countItem(pip.bot, 'cobblestone')).toBeGreaterThanOrEqual(2);
+    // Iron wants a stone pickaxe: made of the stone still lying about (owner request, 2026-10-24: agents make their own
+    // tools), then the ore mined.
     await server.cmd(`setblock ${o.x - 5} ${Y - 1} ${o.z - 5} minecraft:iron_ore`);
     await waitFor(() => pip.bot.blockAt(new Vec3(o.x - 5, Y - 1, o.z - 5))?.name === 'iron_ore', 5000, 'iron ore visible');
-    const r2 = await run(pip, 'mine', { block: 'iron_ore', qty: 1 });
-    expect(r2.ok).toBe(false);
-    expect(r2.error).toMatch(/need a stone_pickaxe or better to harvest iron_ore/);
-  });
+    const r2 = await run(pip, 'mine', { block: 'iron_ore', qty: 1 }, 150_000);
+    expect(r2.ok).toBe(true);
+    expect(countItem(pip.bot, 'stone_pickaxe')).toBe(1);
+    expect(countItem(pip.bot, 'raw_iron')).toBeGreaterThanOrEqual(1);
+    // With nothing to make one of (no stone left, no cobblestone, only a wooden pickaxe), it says which it needs.
+    const o2 = await zone();
+    await server.cmd('clear Pip');
+    await server.cmd('give Pip minecraft:wooden_pickaxe 1');
+    await server.cmd(`setblock ${o2.x - 5} ${Y - 1} ${o2.z - 5} minecraft:iron_ore`);
+    await waitFor(() => pip.bot.blockAt(new Vec3(o2.x - 5, Y - 1, o2.z - 5))?.name === 'iron_ore', 5000, 'iron ore visible');
+    const r3 = await run(pip, 'mine', { block: 'iron_ore', qty: 1 }, 120_000);
+    expect(r3.ok).toBe(false);
+    expect(r3.error).toMatch(/need a stone_pickaxe or better to harvest iron_ore/);
+  }, 300_000);
+
+  it('hunt makes a sword first when it has none; gather makes an axe for a lot of wood and still brings the full count', async () => {
+    const o = await zone();
+    await server.cmd('clear Pip');
+    await server.cmd('give Pip minecraft:oak_log 3');
+    await server.cmd(`summon minecraft:cow ${o.x + 4} ${Y} ${o.z} {NoAI:1b}`);
+    await sleep(800);
+    const h = await run(pip, 'hunt', { animal: 'cow', qty: 1 }, 150_000);
+    expect(h.ok).toBe(true);
+    expect(countItem(pip.bot, 'wooden_sword')).toBe(1);
+    const o2 = await zone();
+    for (const [dx, dz] of [[8, -10], [8, -2], [8, 6], [14, -6], [14, 2]] as const) await server.cmd(`place feature minecraft:oak ${o2.x + dx} ${Y} ${o2.z + dz}`);
+    await server.cmd('clear Pip');
+    await sleep(1000);
+    const g = await run(pip, 'gather', { item: 'oak_log', qty: 6 }, 240_000);
+    expect(g.ok).toBe(true);
+    expect(countItem(pip.bot, 'wooden_axe')).toBe(1);
+    expect(countItem(pip.bot, 'oak_log')).toBeGreaterThanOrEqual(6);
+  }, 400_000);
 
   it('smelts raw iron in a furnace it places', async () => {
     await zone();

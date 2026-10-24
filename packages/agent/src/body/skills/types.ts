@@ -70,6 +70,8 @@ export interface SkillContext {
   talkingWith?: () => string | null;
   /** Someone just seen attacking another, if anyone (a stroll stops to watch). */
   fightNearby?: () => string | null;
+  /** How deep in making tools for the job we are (tools.ts): a tool being made makes none of its own. */
+  toolDepth?: number;
 }
 
 export interface SkillDef<A> {

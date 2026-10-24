@@ -10,8 +10,9 @@ import { isSignBlock, readSign, wrapForSign } from '../signs';
 import { canSee, isAirLike, isHostile, isSolid } from '../world';
 import { BOARD_RADIUS } from '../../perception/village';
 import { placeItemAt } from './building';
-import { equipBestWeapon, pvp } from './combat';
+import { bestWeapon, equipBestWeapon, pvp } from './combat';
 import { stopCollecting } from './gathering';
+import { ensureTool } from './tools';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -56,6 +57,12 @@ export const hunt = defineSkill({
     const kinds = args.animal ? [args.animal] : [...ANIMALS];
     const deadline = Date.now() + 120_000;
     let kills = 0;
+    // Hunting with bare hands takes many blows: a sword first, made if we can (tools.ts); without one, hands.
+    if (!bestWeapon(bot) && nearestAnimal(bot, kinds, 24)) {
+      await ensureTool(ctx, 'sword').catch((err: unknown) => {
+        if (err instanceof SkillAbortedError) throw err;
+      });
+    }
     await stopCollecting(bot);
     try {
       while (meat() - start < args.qty && Date.now() < deadline && kills < args.qty + 2) {

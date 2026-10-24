@@ -644,3 +644,25 @@ describe('a stroll (wander): clear of those to keep away from, close to the one 
     }
   });
 });
+
+describe('a tool for the job (owner request, 2026-10-24)', () => {
+  const bot = (names: [string, number][]) => ({ inventory: { items: () => names.map(([name, count]) => ({ name, count })), slots: [] } }) as unknown as Bot;
+
+  it('finds the best tool of a kind carried, and makes stone when the cobblestone is there, wood otherwise', async () => {
+    const { toolOf, toolToMake } = await import('@agora/agent/body/skills/tools');
+    expect(toolOf(bot([['wooden_pickaxe', 1], ['iron_pickaxe', 1], ['stone_axe', 1]]), 'pickaxe')).toBe('iron_pickaxe');
+    expect(toolOf(bot([['stone_axe', 1]]), 'sword')).toBeNull();
+    expect(toolToMake(bot([['cobblestone', 3]]), 'pickaxe')).toBe('stone_pickaxe');
+    expect(toolToMake(bot([['cobblestone', 2]]), 'pickaxe')).toBe('wooden_pickaxe');
+    expect(toolToMake(bot([['cobblestone', 2]]), 'sword')).toBe('stone_sword');
+    expect(toolToMake(bot([]), 'shovel')).toBe('wooden_shovel');
+  });
+
+  it('a tool being made makes no tool of its own (never in circles)', async () => {
+    const { makeTool } = await import('@agora/agent/body/skills/tools');
+    const notes: string[] = [];
+    const ctx = { bot: bot([]), progress: (n: string) => void notes.push(n), logger: nullLogger(), toolDepth: 1 } as unknown as Parameters<typeof makeTool>[0];
+    expect(await makeTool(ctx, 'wooden_pickaxe')).toBe(false);
+    expect(notes).toEqual([]);
+  });
+});
