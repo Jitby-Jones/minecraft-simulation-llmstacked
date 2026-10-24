@@ -8,7 +8,7 @@ import { countItem } from '../inventory';
 import { CATEGORIES, normalizeItemName } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { placeItemAt, spotOrNotch } from './building';
-import { abortable, errMsg, gotoNear, throwIfAborted, waitMs } from './util';
+import { abortable, errMsg, gotoNear, throwIfAborted, upTo, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 interface Recipe {
@@ -205,7 +205,7 @@ async function findOrPlace(ctx: SkillContext, blockName: string, itemName: strin
 export const craft = defineSkill({
   name: 'craft',
   description: 'craft {item, qty} — craft items (uses a nearby crafting table, or places one you carry)',
-  argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(64).default(1) }),
+  argsSchema: z.object({ item: z.string().min(1), qty: upTo(1, 64, true).default(1) }),
   talkOverable: false,
   slipKinds: ['count'],
   expect: (args, _before, bot) => ({ kind: 'inventoryGain', item: resolveCraftTarget(bot, args.item) ?? normalizeItemName(args.item), atLeast: args.qty }),
@@ -411,7 +411,7 @@ async function planksForFuel(ctx: SkillContext, input: string, qty: number): Pro
 export const smelt = defineSkill({
   name: 'smelt',
   description: 'smelt {item, qty} — cook/smelt items in a furnace (raw_iron → iron_ingot, beef → cooked_beef)',
-  argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(64).default(1) }),
+  argsSchema: z.object({ item: z.string().min(1), qty: upTo(1, 64, true).default(1) }),
   talkOverable: false,
   slipKinds: [],
   expect: () => ({ kind: 'none' }),

@@ -182,6 +182,11 @@ describe('never standing frozen', () => {
     expect(dig({ direction: 'North-East' })).toMatchObject({ ok: true, args: { direction: 'north' } });
     expect(dig({ maxBlocks: 200 })).toMatchObject({ ok: true, args: { maxBlocks: 96 } });
     expect(dig({ direction: 'up' })?.ok).toBe(false);
+    // Asked a little past what a skill does, it does what fits rather than refusing.
+    expect(getSkill('craft')?.parseArgs({ item: 'torch', qty: 70 })).toEqual({ ok: true, args: { item: 'torch', qty: 64 } });
+    expect(getSkill('wander')?.parseArgs({ radius: 60 })).toMatchObject({ ok: true, args: { radius: 48 } });
+    expect(getSkill('lookAround')?.parseArgs({ seconds: 900, at: { agent: 'Ada' } })).toEqual({ ok: true, args: { seconds: 600, at: 'Ada' } });
+    expect(getSkill('lookAround')?.parseArgs({ seconds: 8, at: { x: 1, y: 2, z: 3 } })).toMatchObject({ ok: true, args: { seconds: 8 } });
   });
 
   it('with nothing to do, a stroll keeps about a friend, a partner or kin in sight; with strangers, it goes where it likes', () => {

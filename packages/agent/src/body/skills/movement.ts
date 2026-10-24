@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { Vec3 } from 'vec3';
 import { findEntity, isAirLike, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
 import { isCover, referenceFor } from './building';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, upTo, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
 
 const SIDES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
@@ -273,7 +273,7 @@ export const wander = defineSkill({
   description:
     'wander {radius?, seconds?, near?, avoid?} — walk about, up to radius blocks from where you are (out of any shelter you are in), stopping to look at people, animals and things; near: a person to keep close to, avoid: people to keep clear of. To stay put and keep watch: lookAround',
   argsSchema: z.object({
-    radius: z.coerce.number().min(4).max(48).default(16),
+    radius: upTo(4, 48).default(16),
     seconds: z.coerce.number().min(5).max(600).default(60),
     near: z.string().min(1).optional(),
     avoid: z.array(z.string().min(1)).max(16).optional(),
@@ -375,7 +375,8 @@ export const wander = defineSkill({
 export const lookAround = defineSkill({
   name: 'lookAround',
   description: 'lookAround {seconds, at?} — stay put but keep an eye on things (on someone, with at)',
-  argsSchema: z.object({ seconds: z.coerce.number().min(1).max(600).default(20), at: z.string().min(1).optional() }),
+  // Whom to keep an eye on: a name, or {agent} as other skills take it (a place given is no one).
+  argsSchema: z.object({ seconds: upTo(1, 600).default(20), at: z.preprocess((v) => (typeof v === 'object' && v !== null && 'agent' in v ? v.agent : typeof v === 'string' ? v : undefined), z.string().min(1).optional()) }),
   talkOverable: true,
   slipKinds: [],
   expect: () => ({ kind: 'none' }),

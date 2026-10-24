@@ -12,7 +12,7 @@ import { findKnownBlocks } from '../sightings';
 import { blockIdsDropping, isAirLike, isSolid } from '../world';
 import { holdsDripstone, mine } from './gathering';
 import { lightTheWay } from './light';
-import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, upTo, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 /** Feet height where each ore is common in today's overworld generation. */
@@ -196,7 +196,7 @@ export const prospect = defineSkill({
     maxBlocks: z.coerce.number().min(4).transform((n) => Math.min(96, n)).default(48),
     direction: z.preprocess((v) => wayOf(v), z.enum(['north', 'south', 'east', 'west']).optional()),
     /** Start the mine at least this far from home (a tunnel under a village lets mobs in among the people there). */
-    outside: z.coerce.number().min(0).max(64).optional(),
+    outside: upTo(0, 64).optional(),
   }),
   talkOverable: true,
   slipKinds: [],

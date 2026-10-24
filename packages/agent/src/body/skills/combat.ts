@@ -8,7 +8,7 @@ import type { Item } from 'prismarine-item';
 import { weaponTier } from '../items';
 import { entityHealth, findEntity } from '../world';
 import { stopCollecting } from './gathering';
-import { abortable, waitMs } from './util';
+import { abortable, upTo, waitMs } from './util';
 import { defineSkill, SkillAbortedError } from './types';
 
 interface PvpApi {
@@ -60,7 +60,7 @@ function alive(bot: Bot, e: Entity): boolean {
 export const attack = defineSkill({
   name: 'attack',
   description: 'attack {target, seconds?} — melee a mob type or a person until it is gone (fights with people are code-gated)',
-  argsSchema: z.object({ target: z.string().min(1), seconds: z.coerce.number().min(2).max(120).default(30) }),
+  argsSchema: z.object({ target: z.string().min(1), seconds: upTo(2, 120).default(30) }),
   talkOverable: false,
   slipKinds: ['tool'],
   expect: (args, _before, bot) => ({ kind: 'entityGone', target: args.target, entityId: findEntity(bot, args.target, 32)?.id }),

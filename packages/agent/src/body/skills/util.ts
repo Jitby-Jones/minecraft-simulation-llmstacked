@@ -1,3 +1,4 @@
+import { z } from 'zod';
 // Shared skill helpers: abortable waits and pathfinding with cancellation.
 
 import { sleep } from '@agora/shared';
@@ -226,4 +227,12 @@ export function withTimeout<T>(p: Promise<T>, ms: number, label = 'timed out'): 
 
 export function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * A number a skill takes, held to what it can do rather than refused: asked to craft 70 or wait 700 s, a player does
+ * what fits (the models asked so often, and each refusal was a thought wasted).
+ */
+export function upTo(lo: number, hi: number, int = false) {
+  return z.coerce.number().transform((n) => Math.max(lo, Math.min(hi, int ? Math.round(n) : n)));
 }

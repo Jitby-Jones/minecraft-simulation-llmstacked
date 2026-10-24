@@ -437,7 +437,7 @@ const normalize = (t: string) => t.replace(/…/g, '').replace(/\s+/g, ' ').trim
 export const sign = defineSkill({
   name: 'sign',
   description: 'sign {text} — post a notice on a sign at the village board by home (up to ~60 characters; carry a sign: 6 planks + 1 stick make 3)',
-  argsSchema: z.object({ text: z.string().min(2).max(60) }),
+  argsSchema: z.object({ text: z.string().min(2).transform((t) => t.slice(0, 60)) }),
   talkOverable: false,
   slipKinds: [],
   expect: () => ({ kind: 'inventoryLoss', item: 'sign', atLeast: 1 }),
