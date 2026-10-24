@@ -25,6 +25,7 @@ debug controls:
   agent <name> memory.add text=<words> [importance=0..1] [mind=true]
   agent <name> memory.edit id=<id> [text=<words>] [importance=0..1] [isFalse=true|false]
   agent <name> memory.delete id=<id> [mind=true]
+  agent <name> task text=<words>               a task in words; it works out how, and says when it is done or why not
   agent <name> goal text=<words> [doneWhen=<condition>]
   agent <name> plan aim=<words> steps="<step>; <step>; …" | replan | plan.clear
   agent <name> decide | abort | say text=<words>

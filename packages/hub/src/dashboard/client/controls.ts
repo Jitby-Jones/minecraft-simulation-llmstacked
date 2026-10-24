@@ -302,6 +302,7 @@ export function renderAgentDebug(root: HTMLElement, name: string | null, refresh
   const decision = h('textarea', { value: '{"option": "explore", "terminate": {"maxSeconds": 60}, "rationale": "the operator asked"}' });
   decision.rows = 3;
   const line = h('input', { placeholder: 'a line for it to say' });
+  const task = h('input', { placeholder: 'a task in words (it works out how, and says when it is done)' });
   const feel = select(FEELINGS);
   const value = h('input', { type: 'number', value: '0.5' });
   value.step = '0.1';
@@ -339,6 +340,8 @@ export function renderAgentDebug(root: HTMLElement, name: string | null, refresh
     h('h3', { text: 'Modules (checked = on)' }),
     modules,
     h('div', { cls: 'ctl-row' }, [field('Tier', tierSel), field('Model', modelSel), button('Set model', async () => report(out, await ctl('model', [name, tierSel.value, modelSel.value])))]),
+    h('h3', { text: 'Task' }),
+    h('div', { cls: 'ctl-row' }, [task, button('Give task', async () => report(out, await agent('task', { text: task.value })))]),
     h('h3', { text: 'Goal and plan' }),
     h('div', { cls: 'ctl-row' }, [goal, doneWhen, button('Set goal', async () => report(out, await agent('goal', { text: goal.value, ...(doneWhen.value.trim() ? { doneWhen: doneWhen.value.trim() } : {}) })))]),
     h('div', { cls: 'ctl-row' }, [

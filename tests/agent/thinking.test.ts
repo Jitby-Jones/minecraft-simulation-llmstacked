@@ -202,14 +202,14 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     const t = { now: 0 };
     const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
     eyes.start();
-    w.bot.time.timeOfDay = 11_000;
+    w.bot.time.timeOfDay = 10_700;
     t.now = 9000;
     eyes.tick([]);
-    w.bot.time.timeOfDay = 11_700;
+    w.bot.time.timeOfDay = 10_850;
     t.now = 10_000;
     eyes.tick([]);
     const dusk = eyes.recent().filter((n) => n.key === 'dusk');
-    expect(dusk.map((n) => n.text)).toEqual(['The sun is low in the west: dark in about 1 min, and in the dark the monsters come out']);
+    expect(dusk.map((n) => n.text)).toEqual(['The sun is getting low in the west: dark in about 2 min, and in the dark the monsters come out']);
     expect(dusk[0]?.strength).toBeGreaterThanOrEqual(0.6);
     eyes.stop();
   });

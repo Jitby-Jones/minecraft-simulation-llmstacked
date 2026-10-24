@@ -159,6 +159,8 @@ export class Agent {
   /** Aborted at death: every model call of this agent, under way or to come, ends there. */
   private readonly halting = new AbortController();
   private dead = false;
+  /** The last 20 s of where we were and how we were, for the report of a death (what killed us, and how). */
+  private lastMoments: { t: number; x: number; y: number; z: number; hp: number }[] = [];
   private modulesHalted = false;
 
   constructor(private readonly o: AgentOptions) {
@@ -867,6 +869,15 @@ export class Agent {
     const onDeath = (): void => this.die();
     this.o.body.bot.on('death', onDeath);
     this.offs.push(() => this.o.body.bot.off('death', onDeath));
+    const moments = setInterval(() => {
+      const s = this.store.state.self;
+      const t = Date.now();
+      const last = this.lastMoments.at(-1);
+      if (last && last.hp === s.health && Math.hypot(last.x - s.pos.x, last.y - s.pos.y, last.z - s.pos.z) < 0.5) return;
+      this.lastMoments = [...this.lastMoments.filter((m) => t - m.t < 20_000), { t, x: Math.round(s.pos.x * 10) / 10, y: Math.round(s.pos.y * 10) / 10, z: Math.round(s.pos.z * 10) / 10, hp: Math.round(s.health * 10) / 10 }];
+    }, 500);
+    moments.unref();
+    this.offs.push(() => clearInterval(moments));
     this.o.body.reflexes.start();
     this.perception.start();
     // Before the deed watch: it forgets a block we set down once someone breaks it.
@@ -916,7 +927,10 @@ export class Agent {
     this.halting.abort(new Error('died'));
     this.o.body.halt();
     this.haltModules();
-    this.o.logger.info({ module: 'agent' }, 'died: every activity stopped');
+    const t = Date.now();
+    const near = this.store.state.perception.nearbyEntities.filter((e) => e.kind === 'hostile' && e.distance <= 24).map((e) => `${e.name} ${Math.round(e.distance)} m`);
+    const moments = this.lastMoments.map((m) => `${Math.round((m.t - t) / 100) / 10}s ${m.x},${m.y},${m.z} hp${m.hp}`);
+    this.o.logger.info({ module: 'agent', near, moments, where: this.store.state.scene.where }, 'died: every activity stopped');
   }
 
   /** Stops every module; what is still on the agent's mind is written to memory first (§23.4). */

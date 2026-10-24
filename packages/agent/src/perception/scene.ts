@@ -572,8 +572,8 @@ const CREATURES_MAX = 24;
 const PLACE_KINDS: ReadonlySet<SceneFeatureKind> = new Set(['ore', 'lava', 'portal', 'spawner', 'station', 'container', 'bed', 'built', 'crops', 'plants', 'trees', 'water', 'clay']);
 const MAX_PLACES = 80;
 const CREATURES_EVERY_MS = 1000;
-/** When the sun is low enough to be noticed (dark at 13000 of the day's 24000 ticks; a minute is 1200). */
-const DUSK_AT = 11_600;
+/** When the sun is low enough to be noticed, with time left to get ready (dark at 13000 of the day's 24000 ticks; a minute is 1200). */
+const DUSK_AT = 10_800;
 
 export class SceneEyes {
   readonly motion: MotionTracker;
@@ -647,6 +647,8 @@ export class SceneEyes {
 
   /** Something we had in plain sight close by is gone: walked off, died, left, went through a portal, or vanished. */
   private gone(e: Entity): void {
+    // A drop gone right at our feet is one we picked up (the pickup itself isn't always heard of).
+    if ((e.name === 'item' || e.name === 'experience_orb') && this.o.bot.entity && e.position.distanceTo(this.o.bot.entity.position) < 2.5) this.lastPickupAt = this.o.now();
     const s = this.lastSeen.get(e.id);
     this.lastSeen.delete(e.id);
     this.spawned.delete(e.id);
@@ -857,7 +859,7 @@ export class SceneEyes {
     // it comes every evening, and matters every evening).
     if (dim === 'overworld' && prev.time < DUSK_AT && time >= DUSK_AT && time < 13_000 && !this.roofed) {
       const min = Math.max(1, Math.round((13_000 - time) / 1200));
-      this.add({ id: `n${now.toString(36)}dusk`, ts: now, kind: 'cue', about: 'the world', key: 'dusk', text: `The sun is low in the west: dark in about ${min} min, and in the dark the monsters come out`, strength: 0.65, seenBefore: 0 });
+      this.add({ id: `n${now.toString(36)}dusk`, ts: now, kind: 'cue', about: 'the world', key: 'dusk', text: `The sun is getting low in the west: dark in about ${min} min, and in the dark the monsters come out`, strength: 0.65, seenBefore: 0 });
     }
     const skipped = (time - prev.time + 24000) % 24000;
     const sleeping = bot.isSleeping || Object.values(bot.entities).some((e) => e.type === 'player' && metaOf(bot, e, 'pose') === 2);
@@ -877,7 +879,7 @@ export class SceneEyes {
       const gained = [...items]
         .filter(([n, c]) => c > (prev.items.get(n) ?? 0) && !ours.includes(n))
         .map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
-      if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.65));
+      if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.5));
     }
   }
 

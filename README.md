@@ -39,6 +39,26 @@ around them: a name, their character, a short story, how they talk, what they wa
 `personas: auto` uses the hand-written pool in `personas/` first, and `ctl add <persona>` adds one from the pool either
 way.
 
+## How agents think
+
+Each agent plays as an experienced player who knows the game and decides for itself: nothing in the code tells it
+what to do in a given case (DESIGN.md §4.8; the research behind it is in `docs/research-human-learning.md`).
+
+- It sees what is in its line of sight, as a player does: the blocks around it grouped into trees, ore, water,
+  buildings and the like, every creature with how it moves and how it stands to it and to the others, and where it is.
+- What doesn't fit what it knows is possible stands out (someone hanging in the air, moving too fast, there out of
+  nowhere), less so each time, until it is known. What the game does by itself (bees going home, a spawner's mobs)
+  doesn't, and nor does what its own hands did.
+- It thinks before it acts: what is going on, what surprises it, what happens next, what it is after and the ways
+  there, with what each needs, costs and risks. It says what it means to do next and does it without stopping to think
+  while it works; it puts things off until a cue ("once I see sheep"); it keeps lessons from what happens.
+- It knows where things come from (the game's own recipes and loot, and what a player knows by heart: a sheared sheep
+  lives, the night, the dark underground), and its hands have a player's habits (planks made on the way to a table, a
+  torch down in the dark, a new table rather than a long walk to the old one).
+
+Give one a task in words, from the dashboard's **Debug** card (Task) or `pnpm ctl agent Pip task text="make a house"`.
+It works out how, and says when it is done or why it gave the task up.
+
 ## Buildings, gear and expeditions
 
 Agents put up buildings the way players do (`build {design}`): they clear the site, fill holes, and place every block
@@ -97,6 +117,7 @@ links in a `.txt` file there. New agents pick from what you saved. `skins.exclud
 | `pnpm build:guard-plugin` / `pnpm build:skins-plugin` | Rebuilds `server-plugin/agora-guard` / `agora-skins` (needs a JDK 25) and prints its sha256 |
 | `pnpm run check` | Typecheck + lint + forbidden-strings (§22.2) + unit tests. Must be green after every change |
 | `pnpm test:live` | Live tests against a real, isolated Paper server (needs `AGORA_JAVA`) |
+| `AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo\|duo pnpm test:live longrun` | The long runs on the real models: one agent, or a woman and a man, in an ordinary world from a seed, given their tasks in words (diamonds, the Nether, iron armor, a cow farm, a house, an enchanting table, food that renews; or a house, a romance, food and two iron sets). `AGORA_LONGRUN_SEED`, `AGORA_LONGRUN_MIN` (default 240), `AGORA_LONGRUN_DIFFICULTY`. Progress goes to `data/live-test/longrun-<variant>-<seed>.json` |
 | `AGORA_LIVE_LLM=1 pnpm test:live m2-nanogpt real-models` | The live tests that spend real subscription quota (needs `NANOGPT_API_KEY`): the subscription lock, and what only a model does (the bias audit, a trait annotation, a skill written by L3 and tried in the world, the shelter broken open at night, new people written by the master model) |
 
 ## Debug controls
