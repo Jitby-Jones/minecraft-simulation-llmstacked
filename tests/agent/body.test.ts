@@ -855,3 +855,24 @@ describe('what a torch can go on (torches set on leaves were refused, three time
     expect(referenceFor(roof, spot, 'lantern')?.face.y).toBe(-1);
   });
 });
+
+describe('where a thing comes from is never what people made (one went to dig up the table its companion set down)', () => {
+  it('a crafting table, planks or wool set down are no source; stone for cobblestone is', async () => {
+    const { blockIdsDropping } = await import('@agora/agent/body/world');
+    const items = { 1: { name: 'crafting_table' }, 2: { name: 'oak_planks' }, 3: { name: 'cobblestone' }, 4: { name: 'white_wool' }, 5: { name: 'oak_log' } };
+    const blocksArray = [
+      { id: 10, name: 'crafting_table', drops: [1] },
+      { id: 11, name: 'oak_planks', drops: [2] },
+      { id: 12, name: 'stone', drops: [3] },
+      { id: 13, name: 'cobblestone', drops: [3] },
+      { id: 14, name: 'white_wool', drops: [4] },
+      { id: 15, name: 'oak_log', drops: [5] },
+    ];
+    const bot = { registry: { items, blocksArray } } as never;
+    expect(blockIdsDropping(bot, itemMatcher('crafting_table'))).toEqual([]);
+    expect(blockIdsDropping(bot, itemMatcher('oak_planks'))).toEqual([]);
+    expect(blockIdsDropping(bot, itemMatcher('white_wool'))).toEqual([]);
+    expect(blockIdsDropping(bot, itemMatcher('cobblestone'))).toEqual([12, 13]);
+    expect(blockIdsDropping(bot, itemMatcher('oak_log'))).toEqual([15]);
+  });
+});

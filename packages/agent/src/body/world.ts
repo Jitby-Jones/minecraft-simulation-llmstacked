@@ -136,11 +136,18 @@ export function audibleHostiles(bot: Bot, radius: number): Entity[] {
   return nearbyHostiles(bot, radius).filter((e) => NOISY.has(e.name ?? ''));
 }
 
-/** Block ids whose drops include an item matching `matcher` (e.g. cobblestone ← stone, cobblestone). */
+/**
+ * What people make and set down (stations and chests, beds and doors, planks, wool, glass, bricks...): not where any of
+ * it comes from. Getting a crafting table, an agent went to dig up the one its companion had set down.
+ */
+const MADE = /(_planks|_wool|_carpet|glass|_pane|bricks|_concrete|_bed|_door|_trapdoor|_fence|_fence_gate|_sign|_banner|torch|lantern|_slab|_stairs|_button|_pressure_plate|^scaffolding$)$/;
+
+/** Block ids whose drops include an item matching `matcher` (e.g. cobblestone ← stone, cobblestone); never what people make. */
 export function blockIdsDropping(bot: Bot, matcher: ItemMatcher): number[] {
   const reg = bot.registry;
   const ids: number[] = [];
   for (const b of reg.blocksArray) {
+    if (MADE.test(b.name) || USABLE_BLOCK.test(b.name)) continue;
     if (matcher.matches(b.name)) {
       ids.push(b.id);
       continue;
