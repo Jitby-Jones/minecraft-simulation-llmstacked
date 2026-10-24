@@ -5,7 +5,7 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
+import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, nearbyHostiles, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -376,6 +376,9 @@ async function climbOut(ctx: SkillContext, done = 'survived the night'): Promise
   return { ok: true, observed: `${done} in a shelter and climbed out` };
 }
 
+/** Monsters this near by day keep one in a shelter dug in. */
+const BESIEGED_RANGE = 16;
+
 export const shelter = defineSkill({
   name: 'shelter',
   description:
@@ -389,8 +392,12 @@ export const shelter = defineSkill({
   async run(ctx, args) {
     const { bot } = ctx;
     stopMotion(bot);
+    // By day with monsters about (down in the dark they don't burn), a hole sealed over is still the way to be safe:
+    // at 1.5 health among five zombies and a skeleton in a cave, an agent was told "it is already day", twice, and
+    // died. It lies low until they have gone.
+    const besieged = isDaytime(bot) && nearbyHostiles(bot, BESIEGED_RANGE).length > 0;
     // Re-run in the morning (e.g. after a reflex interrupted the climb): just get out.
-    if (args.untilMorning && !args.untilHealed && isDaytime(bot)) {
+    if (args.untilMorning && !args.untilHealed && isDaytime(bot) && !besieged) {
       return wallsAround(bot) ? climbOut(ctx) : { ok: true, observed: 'it is already day' };
     }
     try {
@@ -448,6 +455,15 @@ export const shelter = defineSkill({
       return climbOut(ctx, bot.health >= HEALED ? 'healed up' : 'rested');
     }
     if (!args.untilMorning) return { ok: true, observed: 'dug in and sealed the top' };
+    if (besieged) {
+      const until = Date.now() + HEAL_MAX_MS;
+      while (nearbyHostiles(bot, BESIEGED_RANGE).length > 0 && Date.now() < until) {
+        await waitMs(ctx, 1000);
+        const hole = shelterHole(bot);
+        if (hole) return breached(hole);
+      }
+      return climbOut(ctx, nearbyHostiles(bot, BESIEGED_RANGE).length === 0 ? 'the monsters about gone' : 'waited long');
+    }
     // Waiting for day, and watching the walls: a shelter broken open is no shelter, and the mind must know.
     while (!isDaytime(bot)) {
       await waitMs(ctx, 1000);

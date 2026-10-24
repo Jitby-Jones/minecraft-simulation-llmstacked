@@ -72,6 +72,12 @@ export async function climbOutOfWater(ctx: SkillContext): Promise<boolean> {
 
 const PosArgs = z.object({ x: z.coerce.number(), y: z.coerce.number(), z: z.coerce.number() });
 
+/** A walk the pathfinder could not plan in one go. */
+const TOO_FAR = /took to long to decide/i;
+/** A stretch of a long way, and how many of them. */
+const STAGE = 10;
+const STAGES = 14;
+
 export const goTo = defineSkill({
   name: 'goTo',
   description: 'goTo {x,y,z, range?} or {agent, range?} — walk to a place or a person you can see',
@@ -101,8 +107,28 @@ export const goTo = defineSkill({
     const walk = () => gotoNear(ctx, target, range, Math.min(240_000, 60_000 + Math.max(0, far - 30) * 1500));
     try {
       await walk();
-    } catch (err) {
-      if (err instanceof SkillAbortedError) throw err;
+    } catch (err0) {
+      if (err0 instanceof SkillAbortedError) throw err0;
+      // Too far to plan in one go (up out of the deep, a hundred blocks of rock): a stretch of the way at a time, as one
+      // heads off in its direction ("took too long to decide", and an agent waited at the bottom until a zombie came).
+      let err: unknown = err0;
+      for (let stage = 0; stage < STAGES && err !== null && TOO_FAR.test(errMsg(err)); stage++) {
+        const me = ctx.bot.entity.position;
+        try {
+          if (me.distanceTo(target) <= STAGE * 1.5) {
+            await gotoNear(ctx, target, range, 90_000);
+            err = null;
+            break;
+          }
+          const way = me.plus(target.minus(me).normalize().scaled(STAGE)).floored();
+          ctx.progress(`a stretch of the way: to ${way.x},${way.y},${way.z}`);
+          await gotoNear(ctx, way, 4, 90_000);
+        } catch (e) {
+          if (e instanceof SkillAbortedError) throw e;
+          err = e;
+        }
+      }
+      if (err === null) return { ok: true, observed: `arrived within ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks, a stretch at a time` };
       // In the water with no way out found: out of it onto a block of one's own, and on from there.
       if (!inWater(ctx) || !(await climbOutOfWater(ctx))) return { ok: false, observed: `stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err) };
       ctx.logger.info({ module: 'skill', at: ctx.bot.entity.position.floored().toString() }, 'climbed out of the water onto a block');

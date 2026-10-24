@@ -204,4 +204,27 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(r.alive).toBe(true);
     expect(r.zombie).toBe(false);
   }, 120_000);
+
+  it('by day down in the dark with monsters about, the shelter is dug and kept until they have gone', async () => {
+    // At 1.5 health among zombies in a cave by day, an agent was told "it is already day", twice, and died.
+    const x = 3400;
+    const y = Y - 30;
+    await tunnel(x, y);
+    // Zombies in a closed pocket of the stone 6 blocks off: about, not at hand.
+    await server.cmd(`fill ${x + 6} ${y} 6 ${x + 7} ${y + 1} 7 air`);
+    for (let i = 0; i < 2; i++) await server.cmd(`summon zombie ${x + 6}.5 ${y} 6.5 {PersistenceRequired:1b}`);
+    for (const g of ['cobblestone 16']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(1500);
+    const run = body.run('shelter', { untilMorning: true }, { signal: AbortSignal.timeout(90_000) });
+    await sleep(8000);
+    const feet = body.bot.entity.position.floored();
+    const sealed = body.bot.blockAt(feet.offset(0, 2, 0));
+    logger.info({ at: feet.toString(), over: sealed?.name }, 'dug in by day');
+    expect(sealed?.name).not.toBe('air');
+    await server.cmd('kill @e[type=minecraft:zombie]');
+    const r = await run;
+    logger.info({ r }, 'shelter by day with monsters about');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/the monsters about gone/);
+  }, 150_000);
 });
