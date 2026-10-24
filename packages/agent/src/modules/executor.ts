@@ -56,6 +56,8 @@ export function skillForOption(opt: ActiveOption, nearAgent: (name: string, with
       if (opt.targetAgent && !nearAgent(opt.targetAgent, 8)) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 4 } };
       return opt.skill ? { skill: opt.skill, args: opt.args ?? {} } : { skill: 'wait', args: { seconds: 5 } };
     case 'move':
+      // The walk the mind gave, as it gave it (its "within 10 blocks" had become 1).
+      if (opt.skill === 'goTo' && opt.args) return { skill: 'goTo', args: opt.args };
       if (opt.targetPos) return { skill: 'goTo', args: { ...opt.targetPos, range: 1 } };
       if (opt.targetAgent) return { skill: 'goTo', args: { agent: opt.targetAgent, range: 3 } };
       return { skill: 'wait', args: { seconds: 5 } };

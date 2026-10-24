@@ -160,6 +160,10 @@ describe('never standing frozen', () => {
     expect(skillForOption(opt('rest'), () => true)).toEqual({ skill: 'lookAround', args: { seconds: 30 } });
     expect(skillForOption(opt('talk', 'Bram'), () => true)).toEqual({ skill: 'lookAround', args: { seconds: 30, at: 'Bram' } });
     expect(skillForOption(opt('talk', 'Bram'), () => false)).toEqual({ skill: 'goTo', args: { agent: 'Bram', range: 4 } });
+    // A move goes as the mind gave it: its own range, not "within 1".
+    const move = { decisionId: 'd', option: 'move' as const, startedAt: 0, maxSeconds: 30, status: 'running' as const, targetPos: { x: 6, y: 69, z: 37 }, skill: 'goTo', args: { x: 6, y: 69, z: 37, range: 10 } };
+    expect(skillForOption(move, () => true)).toEqual({ skill: 'goTo', args: { x: 6, y: 69, z: 37, range: 10 } });
+    expect(skillForOption({ ...move, skill: undefined, args: undefined }, () => true)).toEqual({ skill: 'goTo', args: { x: 6, y: 69, z: 37, range: 1 } });
     expect(getSkill('wander')?.name).toBe('wander');
     expect(getSkill('stroll')?.name).toBe('wander');
     expect(getSkill('rest')?.name).toBe('lookAround');

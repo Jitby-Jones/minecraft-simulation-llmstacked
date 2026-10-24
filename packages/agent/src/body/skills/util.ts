@@ -103,6 +103,7 @@ export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, time
   bot.on('path_update', onUpdate);
   bot.on('path_reset', onReset);
   const from = bot.entity.position.clone();
+  const began = Date.now();
   try {
     await abortable(
       ctx.signal,
@@ -110,6 +111,11 @@ export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, time
       () => stopMotion(bot),
     );
   } catch (err) {
+    // A long walk cut short far from where it was going: what the pathfinder went through, as for one that failed (a
+    // climb out of a cave to the surface ran three minutes and was still 34 blocks off).
+    if (err instanceof SkillAbortedError && Date.now() - began > 60_000 && bot.entity.position.distanceTo(pos) > range + 8) {
+      ctx.logger.info({ module: 'skill', from: from.floored().toString(), at: bot.entity.position.floored().toString(), to: pos.floored().toString(), range, events, ms: Date.now() - began }, 'long walk cut short');
+    }
     if (!(err instanceof SkillAbortedError)) {
       const at = bot.entity.position;
       const f = at.floored();
