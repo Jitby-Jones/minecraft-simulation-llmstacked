@@ -34,6 +34,14 @@ export function eyePos(e: Entity): Vec3 {
   return e.position.offset(0, e.height ?? 1.62, 0);
 }
 
+/**
+ * What a player never looks in the eye: an enderman met in the eye turns on whoever looked (live, a glance round
+ * picked one out to look at, and it killed the one who looked).
+ */
+export function lookAway(e: { name?: string }): boolean {
+  return e.name === 'enderman';
+}
+
 /** How far off creatures are made out (perception's reach); a hunt looks as far, so what is seen is what it can go after. */
 export const CREATURE_SIGHT = 32;
 

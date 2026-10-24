@@ -8,7 +8,7 @@ import type { Logger, Quirk } from '@agora/shared';
 import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
 import { findKnownBlocks } from '../body/sightings';
-import { blockIdsNamed } from '../body/world';
+import { blockIdsNamed, lookAway } from '../body/world';
 import { itemMatcher } from '../body/items';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -88,7 +88,7 @@ export class QuirkRunner {
         }
         case 'distraction': {
           if (now - this.lastDistraction < 60_000 || !this.interruptible()) return;
-          const seen = s.perception.nearbyEntities.find((e) => e.visible && e.distance <= 12 && q.onSee.includes(e.name) && !this.rolled.has(e.id));
+          const seen = s.perception.nearbyEntities.find((e) => e.visible && e.distance <= 12 && q.onSee.includes(e.name) && !lookAway(e) && !this.rolled.has(e.id));
           if (!seen) return;
           this.rolled.add(seen.id);
           if (this.rng() >= q.chance) return;

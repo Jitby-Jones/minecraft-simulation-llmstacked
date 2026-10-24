@@ -935,9 +935,21 @@ describe('the wear on a tool, as its durability bar shows it (an iron pickaxe br
 describe('hurt, a careful walk (one at 8 health fell to its death crossing a dripstone cave)', () => {
   it('no jumps over gaps at half health or less', async () => {
     const { carefulWhenHurt } = await import('@agora/agent/body/plugins');
-    const m = { allowParkour: true } as never as { allowParkour: boolean };
+    const m = { allowParkour: true };
     expect(carefulWhenHurt({ health: 20 } as never, m as never)).toMatchObject({ allowParkour: true });
     expect(carefulWhenHurt({ health: 8 } as never, m as never)).toMatchObject({ allowParkour: false });
     expect(carefulWhenHurt({ health: 15 } as never, m as never)).toMatchObject({ allowParkour: true });
+  });
+});
+
+describe('an enderman (one, looked in the eye, killed the one who looked: one swing landed in 23 s)', () => {
+  it('is never looked at, and is no fight for a stone sword', async () => {
+    const { lookAway } = await import('@agora/agent/body/world');
+    expect(lookAway({ name: 'enderman' })).toBe(true);
+    expect(lookAway({ name: 'cow' })).toBe(false);
+    const fight = (name: string) => expectedFightDamage({ threats: [{ name }], weapon: 'stone_sword', armor: 0, combat: 0.5, difficulty: 'easy' });
+    // A zombie costs a few hearts; an enderman, who teleports out from under the blows, far more than a full bar.
+    expect(fight('zombie')).toBeLessThan(5);
+    expect(fight('enderman')).toBeGreaterThan(20);
   });
 });

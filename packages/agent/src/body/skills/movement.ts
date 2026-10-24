@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import { Vec3 } from 'vec3';
-import { findEntity, nearbyHostiles, wetAt } from '../world';
+import { findEntity, lookAway, nearbyHostiles, wetAt } from '../world';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
 
@@ -160,7 +160,7 @@ function somethingToSee(ctx: SkillContext, within: number): { what: string; pos:
   const { bot } = ctx;
   const me = bot.entity.position;
   // minecraft-data categories are wider than prismarine-entity's type union.
-  const seen = Object.values(bot.entities).filter((e) => e !== bot.entity && e.position.distanceTo(me) <= within && ['player', 'animal', 'passive', 'mob', 'water_creature'].includes(e.type as string));
+  const seen = Object.values(bot.entities).filter((e) => e !== bot.entity && !lookAway(e) && e.position.distanceTo(me) <= within && ['player', 'animal', 'passive', 'mob', 'water_creature'].includes(e.type as string));
   const person = seen.filter((e) => e.type === 'player').sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me))[0];
   if (person && ctx.rng.next() < 0.6) return { what: person.username ?? 'someone', pos: person.position.offset(0, person.height ?? 1.6, 0) };
   const other = seen.filter((e) => e.type !== 'player');

@@ -11,6 +11,11 @@ interface MobStats {
   rate: number;
   /** Ranged attackers keep shooting while we close in; melee ones are mostly knocked back while we hit them. */
   ranged?: boolean;
+  /**
+   * Out from under our blows (an enderman teleports when hit, and comes back hitting): this share of our swings finds
+   * nothing, and it isn't kept back by them. A stone-sword agent swung once in 23 s at one and died.
+   */
+  elusive?: number;
 }
 
 const MOBS: Readonly<Record<string, MobStats>> = {
@@ -25,7 +30,7 @@ const MOBS: Readonly<Record<string, MobStats>> = {
   cave_spider: { hp: 12, dmg: 3, rate: 1 },
   slime: { hp: 16, dmg: 4, rate: 1 },
   magma_cube: { hp: 16, dmg: 6, rate: 1 },
-  enderman: { hp: 40, dmg: 7, rate: 1 },
+  enderman: { hp: 40, dmg: 7, rate: 1, elusive: 0.6 },
   witch: { hp: 26, dmg: 6, rate: 0.3, ranged: true },
   pillager: { hp: 24, dmg: 4, rate: 0.4, ranged: true },
   vindicator: { hp: 24, dmg: 13, rate: 1 },
@@ -140,8 +145,9 @@ export function expectedFightDamage(input: FightInput): number {
   for (const t of input.threats) {
     const s = MOBS[t.name] ?? DEFAULT_MOB;
     const dmg = t.name === 'player' ? weaponStats(t.heldItem).dmg : mobDamage(s.dmg, input.difficulty);
-    const own = Math.max(0, t.hp ?? s.hp) / ourDps;
-    const hits = s.ranged ? s.rate * (elapsed + own) : s.rate * (waiting * elapsed + engaged * own);
+    const own = Math.max(0, t.hp ?? s.hp) / (ourDps * (1 - (s.elusive ?? 0)));
+    const pressed = s.elusive ? Math.max(engaged, s.elusive) : engaged;
+    const hits = s.ranged ? s.rate * (elapsed + own) : s.rate * (waiting * elapsed + pressed * own);
     taken += dmg * keep * hits;
     elapsed += own;
   }
