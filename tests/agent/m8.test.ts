@@ -601,6 +601,12 @@ describe('cooking what was hunted (the obtain planner)', () => {
     expect(await readyFurnace(bot([['chicken', 3]]), furnace({ fuel: ['coal', 1] }), 'chicken', 3)).toBeNull();
     expect(done.splice(0)).toEqual([]);
     expect(await readyFurnace(bot([['chicken', 3]]), furnace({}), 'chicken', 3)).toMatch(/need fuel/);
+    // Charcoal from logs: the logs being cooked are never the fuel; planks are, before other logs.
+    const { pickFuel } = await import('@agora/agent/body/skills/crafting');
+    expect(pickFuel(bot([['oak_log', 6]]), undefined, 'oak_log')).toBeNull();
+    expect(await readyFurnace(bot([['oak_log', 6]]), furnace({}), 'oak_log', 6)).toMatch(/other than the oak log being cooked/);
+    expect(pickFuel(bot([['oak_log', 6], ['birch_log', 2], ['oak_planks', 4]]), undefined, 'oak_log')?.name).toBe('oak_planks');
+    expect(pickFuel(bot([['oak_log', 6], ['birch_log', 2]]), undefined, 'oak_log')?.name).toBe('birch_log');
   });
 
   it('iron is mined and smelted, not made out of an iron block nobody has seen', async () => {

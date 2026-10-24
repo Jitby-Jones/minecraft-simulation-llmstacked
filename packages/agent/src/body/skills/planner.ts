@@ -103,8 +103,12 @@ function nameOf(bot: Bot, id: number): string {
   return bot.registry.items[id]?.name ?? `item#${id}`;
 }
 
-function hasFuel(bot: Bot): boolean {
-  return bot.inventory.items().some((i) => FUEL.includes(i.name) || CATEGORIES.log?.(i.name) === true || CATEGORIES.planks?.(i.name) === true);
+/** Something to burn other than what is being cooked (charcoal is made of logs, so its logs are no fuel). */
+function hasFuel(bot: Bot, cooking?: string): boolean {
+  const cooked = cooking ? itemMatcher(cooking) : null;
+  return bot.inventory
+    .items()
+    .some((i) => !cooked?.matches(i.name) && (FUEL.includes(i.name) || CATEGORIES.log?.(i.name) === true || CATEGORIES.planks?.(i.name) === true));
 }
 
 /**
@@ -259,7 +263,10 @@ async function route(p: PlanCtx, item: string, stack: readonly string[]): Promis
     // What we carry needs no route: raw meat comes from no block, and is cooked all the same.
     const kids = count(bot, input) > 0 ? [] : [{ name: input, r: await route(p, input, next) }];
     if (!hasStation(bot, scan, 'furnace')) kids.push({ name: 'furnace', r: await route(p, 'furnace', next) });
-    if (!hasFuel(bot)) kids.push({ name: 'log', r: await route(p, 'log', next) });
+    if (!hasFuel(bot, input)) {
+      const planks = resolveTarget(bot, 'planks');
+      kids.push({ name: planks, r: await route(p, planks, next) });
+    }
     const d = deepen(kids);
     options.push({ kind: 'smelt', cost: 1 + kids.reduce((a, k) => a + k.r.cost, 0), height: d.height, deepest: d.deepest, input });
   }
@@ -394,7 +401,19 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
         need = count(bot, r.input);
       }
       if (!hasStation(bot, scan, 'furnace')) await acquire(ctx, scan, 'furnace', 1, depth + 1, next);
-      if (!hasFuel(bot)) await acquire(ctx, scan, 'log', 1, depth + 1, next);
+      if (!hasFuel(bot, r.input)) {
+        // Planks to burn (a log makes four, each lasting as long as the log); made of what was to be cooked if
+        // need be, which is then topped up.
+        await acquire(ctx, scan, resolveTarget(bot, 'planks'), Math.ceil(need / 1.5), depth + 1, next);
+        if (count(bot, r.input) < need) {
+          try {
+            await acquire(ctx, scan, r.input, need, depth + 1, next);
+          } catch (err) {
+            if (err instanceof SkillAbortedError || count(bot, r.input) === 0) throw err;
+            need = count(bot, r.input);
+          }
+        }
+      }
       const raw = bot.inventory.items().find((i) => itemMatcher(r.input, isFoodName(bot)).matches(i.name))?.name ?? r.input;
       ctx.progress(`obtain: smelting ${raw}`);
       const res = await smelt.run(ctx, { item: raw, qty: need });

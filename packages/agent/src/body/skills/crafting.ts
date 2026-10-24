@@ -274,16 +274,20 @@ export function fuelValue(name: string): number {
   return CATEGORIES.log?.(name) || name.endsWith('_planks') ? 1.5 : 1;
 }
 
-function pickFuel(bot: Bot, prefer?: string): { name: string; perItem: number } | null {
-  const items = bot.inventory.items();
+/**
+ * The fuel to burn, never what is being cooked: coal and the like first, then planks before logs (a log makes four
+ * planks, each burning as long as the log), then sticks.
+ */
+export function pickFuel(bot: Bot, prefer?: string, cooking?: string): { name: string; perItem: number } | null {
+  const items = bot.inventory.items().filter((i) => i.name !== cooking);
   if (prefer && items.some((i) => i.name === prefer)) return { name: prefer, perItem: fuelValue(prefer) };
   for (const f of FUELS) {
     if (items.some((i) => i.name === f)) return { name: f, perItem: f === 'coal_block' ? 80 : f === 'blaze_rod' ? 12 : 8 };
   }
-  const log = items.find((i) => CATEGORIES.log?.(i.name));
-  if (log) return { name: log.name, perItem: 1.5 };
   const planks = items.find((i) => i.name.endsWith('_planks'));
   if (planks) return { name: planks.name, perItem: 1.5 };
+  const log = items.find((i) => CATEGORIES.log?.(i.name));
+  if (log) return { name: log.name, perItem: 1.5 };
   const stick = items.find((i) => i.name === 'stick');
   if (stick) return { name: 'stick', perItem: 0.5 };
   return null;
@@ -302,8 +306,8 @@ export async function readyFurnace(bot: Bot, furnace: FurnaceApi, input: string,
   const inFuel = furnace.fuelItem();
   const burns = inFuel ? fuelValue(inFuel.name) * inFuel.count : 0;
   if (burns >= qty) return null;
-  const fuel = pickFuel(bot, inFuel?.name);
-  if (!fuel) return inFuel ? null : 'need fuel (coal, logs or planks)';
+  const fuel = pickFuel(bot, inFuel?.name, input);
+  if (!fuel) return inFuel ? null : `need fuel (coal, planks, or logs other than the ${input.replace(/_/g, ' ')} being cooked)`;
   const fuelType = bot.registry.itemsByName[fuel.name]?.id;
   if (fuelType === undefined) return inFuel ? null : 'unknown fuel';
   const same = inFuel?.name === fuel.name;
