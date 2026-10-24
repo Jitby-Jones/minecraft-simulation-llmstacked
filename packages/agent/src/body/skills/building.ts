@@ -6,7 +6,7 @@ import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
 import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, overlapsCell, shelterHole, sturdy, wallsAround } from '../world';
-import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 const FACES = [
@@ -46,9 +46,11 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
   if (bot.entity.position.distanceTo(target) > 4) await gotoNear(ctx, target, 3);
   const r = referenceFor(bot, target, item.name);
   if (!r) throw new Error(ATTACHED.test(item.name) ? `nothing there for a ${item.name} to go on (it needs the face of a whole block: not leaves, not a slab)` : 'nothing solid to place against');
-  // Never place into our own body.
-  const feet = bot.entity.position.floored();
-  if (target.equals(feet) || target.equals(feet.offset(0, 1, 0))) throw new Error('would place inside myself');
+  // Never place into our own body: a door is two high, and the server refuses one that touches us at all (at a hut's
+  // doorway, a hair over its edge, it was refused). A step clear first.
+  const cells = TWO_HIGH.test(item.name) ? [target, target.offset(0, 1, 0)] : [target];
+  if (cells.some((c) => overlapsCell(bot.entity, c))) await stepClear(ctx, cells);
+  if (cells.some((c) => overlapsCell(bot.entity, c))) throw new Error('would place inside myself');
   await bot.equip(item, 'hand');
   throwIfAborted(ctx.signal);
   // Against a crafting table, a chest or a door, a click would use it: sneak to place, as players do.
@@ -62,6 +64,23 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
 }
 
 const SIDE_CELLS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+/** What stands two blocks high once placed. */
+const TWO_HIGH = /_door$|^(tall_grass|large_fern|sunflower|lilac|rose_bush|peony|pitcher_plant|small_dripleaf)$/;
+
+/** A step to a cell beside one's feet with room to stand and ground under it, clear of `cells`, away from them. */
+async function stepClear(ctx: SkillContext, cells: readonly Vec3[]): Promise<void> {
+  const { bot } = ctx;
+  const feet = bot.entity.position.floored();
+  const from = cells[0] ?? feet;
+  const spots = SIDE_CELLS.map((d) => feet.plus(d))
+    .filter((p) => !cells.some((c) => c.x === p.x && c.z === p.z) && isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0))))
+    .sort((a, b) => b.distanceTo(from) - a.distanceTo(from));
+  const to = spots[0];
+  if (!to) return;
+  await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 4000), () => stopMotion(bot)).catch((err: unknown) => {
+    if (err instanceof SkillAbortedError) throw err;
+  });
+}
 /** They fall unless something is under them. */
 const FALLS = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|dragon_egg|pointed_dripstone|scaffolding|\w+_concrete_powder)$/;
 /** How far a hand reaches to set a block, from the eyes. */

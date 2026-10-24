@@ -146,14 +146,21 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           if (sets >= 2) mark('ironSets', 'both have full iron armor and iron tools');
         }
       };
+      // The worker's heap, minute by minute: a duo's ran out of memory at 20 minutes (2 GB) where solos sat at 260 MB.
+      const heap: string[] = [];
       const report = (final = false) => {
+        const mb = Math.round(process.memoryUsage().heapUsed / 1e6);
+        const at = Math.round((Date.now() - t0) / 60_000);
+        if (heap.at(-1)?.split('m ')[0] !== String(at)) heap.push(`${at}m ${mb}MB`);
         const out = {
           name,
           seed,
           difficulty,
           final,
-          elapsedMin: Math.round((Date.now() - t0) / 60_000),
+          elapsedMin: at,
           llmCalls: calls,
+          heapMB: mb,
+          heap: heap.slice(-240),
           met,
           missing: goalsFor.filter((g) => !met[g]),
           diamonds: Object.fromEntries(diamonds),

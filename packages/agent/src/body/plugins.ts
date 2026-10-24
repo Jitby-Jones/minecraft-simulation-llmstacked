@@ -105,7 +105,14 @@ export function doorsAsPlayers(bot: Bot): void {
     opened.set(`${p.x},${p.y},${p.z}`, p);
   });
   let opening = false;
+  // Looks in a row with the walk over: a walk between two paths is no stop.
+  let still = 0;
+  const inCell = (p: Vec3) => {
+    const e = bot.entity.position;
+    return e.x + 0.3 > p.x && e.x - 0.3 < p.x + 1 && e.z + 0.3 > p.z && e.z - 0.3 < p.z + 1 && e.y + 1.8 > p.y && e.y < p.y + 2;
+  };
   const watch = setInterval(() => {
+    still = bot.pathfinder?.isMoving() ? 0 : still + 1;
     // A shut door at hand while walking: opened, as one does going through.
     if (bot.pathfinder?.isMoving() && !opening && bot.entity) {
       const feet = bot.entity.position.floored();
@@ -125,8 +132,10 @@ export function doorsAsPlayers(bot: Bot): void {
         continue;
       }
       const d = bot.entity.position.distanceTo(p.offset(0.5, 0, 0.5));
-      // Still in the doorway, or gone on out of reach of it.
-      if (d < 1.8) continue;
+      // Still at the doorway, or gone on out of reach of it. A walk that ended just inside (a hut one block across)
+      // turns round and shuts it, as a player does: left open, the hut was no shelter.
+      const stopped = still >= 2 && !inCell(p);
+      if (d < 1.8 && !stopped) continue;
       opened.delete(k);
       if (d <= 4) void bot.activateBlock(b).catch(() => undefined);
     }
@@ -212,10 +221,12 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
       return 0;
     });
   }
-  // A cell the walk would dig through, of what we put down ourselves.
+  // A cell the walk would dig through, of what we put down ourselves. Never our own door or gate: it is gone through,
+  // not dug (the pathfinder charges this on every cell it passes, and an agent's own hut door, dear twice over, left
+  // its search no way in).
   m.exclusionAreasStep.push((block: StepBlock) => {
     const own = OWN.get(bot);
-    if (!own || !loaded(block) || block.boundingBox !== 'block') return 0;
+    if (!own || !loaded(block) || block.boundingBox !== 'block' || OPENS.test(block.name)) return 0;
     const p = block.position;
     return own.has(`${p.x},${p.y},${p.z}`) ? OWN_BLOCK_COST : 0;
   });

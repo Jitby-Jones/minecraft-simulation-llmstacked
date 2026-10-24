@@ -10,7 +10,7 @@ import { AgentBus } from '@agora/agent/bus';
 import type { Body } from '@agora/agent/body/body';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
 import { Vec3 } from '@agora/agent/body/bot';
-import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutPlan, hutSiteHoles, isHutMaterial } from '@agora/agent/body/skills/village';
+import { HUT_BLOCKS, HUT_HOLES, findHutSite, hutBlocks, hutDoor, hutPlan, hutSiteHoles, isHutMaterial } from '@agora/agent/body/skills/village';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
@@ -463,6 +463,26 @@ describe('the notice board: signs as a player reads and writes them (§6.8, §16
     const roof = plan.filter((c) => c.y === 3);
     expect(Math.max(Math.abs((roof[0]?.x ?? 2) - 2), Math.abs((roof[0]?.z ?? 2) - 2))).toBe(2);
     expect(roof.at(-1)).toMatchObject({ x: 2, z: 2 });
+  });
+
+  it("a night's hut round a smaller room: 1 across for one, 2 for two, walls two high", () => {
+    const one = hutPlan(1);
+    expect(one).toHaveLength(8 * 2 - 2 + 9);
+    expect(hutBlocks(1)).toBe(one.length + HUT_HOLES);
+    expect(hutDoor(1)).toMatchObject({ x: 1, y: 0, z: 0 });
+    expect(one.some((c) => c.x === 1 && c.z === 0 && c.y < 2)).toBe(false);
+    expect(one.filter((c) => c.y === 2)).toHaveLength(9);
+    const two = hutPlan(2);
+    expect(two).toHaveLength(12 * 2 - 2 + 16);
+    expect(two.some((c) => c.x === 2 && c.z === 0 && c.y < 2)).toBe(false);
+    // The roof's rim first, the middle last.
+    expect(Math.min(...two.filter((c) => c.y === 2).slice(-4).map((c) => Math.min(c.x, c.z)))).toBe(1);
+    expect(hutPlan(3)).toEqual(hutPlan());
+    // A small one fits where the big one doesn't: a level patch 4 across over a drop.
+    const blockAt = (p: { x: number; y: number; z: number }) =>
+      p.y <= 40 && p.x >= -2 && p.x <= 1 && p.z >= -2 && p.z <= 1 ? { name: 'dirt', boundingBox: 'block' } : p.y <= 30 ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' };
+    expect(findHutSite({ blockAt } as never, new Vec3(0, 41, 0), 6, 0)).toBeNull();
+    expect(findHutSite({ blockAt } as never, new Vec3(0, 41, 0), 6, 0, 1)).not.toBeNull();
   });
 });
 

@@ -272,6 +272,32 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.entity.position.distanceTo(corner.offset(0.5, 0, 0.5))).toBeLessThan(2.5);
   }, 180_000);
 
+  it("a night's hut for one, of the dirt a player has by dusk: up in a few seconds, and in it with the door shut it is walled in", async () => {
+    const x = 6150;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:dirt 27');
+    await server.cmd('give Ada minecraft:oak_door 1');
+    await sleep(1500);
+    const started = Date.now();
+    const r = await run('build', { structure: 'hut', room: 1 });
+    logger.info({ r, ms: Date.now() - started }, "a night's hut");
+    expect(r.ok).toBe(true);
+    const m = /its room inside at (-?\d+),(-?\d+),(-?\d+), a door in its doorway at/.exec(r.observed);
+    expect(m).not.toBeNull();
+    const room = new Vec3(Number(m?.[1]), Number(m?.[2]), Number(m?.[3]));
+    const go = await run('goTo', { x: room.x, y: room.y, z: room.z, range: 0 });
+    logger.info({ go, at: body.bot.entity.position.toString() }, 'into the hut');
+    await sleep(1500);
+    const feet = body.bot.entity.position.floored();
+    expect(feet.equals(room)).toBe(true);
+    // Walled in and roofed: dirt or the shut door on every side, the roof over the head.
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const side = body.bot.blockAt(feet.offset(dx, 0, dz));
+      expect(side?.name === 'dirt' || (side?.name === 'oak_door' && side.getProperties().open === false)).toBe(true);
+    }
+    expect(body.bot.blockAt(feet.offset(0, 2, 0))?.name).toBe('dirt');
+  }, 180_000);
+
   it('prospecting with water beside the way: walls it off and digs on (a prospect in a wet cave gave up nine times on "water ahead")', async () => {
     const x = 6200;
     const y = 20;

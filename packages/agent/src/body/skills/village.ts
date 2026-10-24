@@ -140,41 +140,58 @@ function hutBlock(bot: Bot): string | undefined {
 }
 const DOORS = /_door$/;
 
-/** A 5×5 hut: walls three high with a doorway in the middle of one side, then a flat roof, rim first. */
-export function hutPlan(): Vec3[] {
+/**
+ * A hut's room is 1, 2 or 3 blocks across: 3 if not said; 1, a night's shelter for one, as a player's first dirt hut;
+ * 2, for two. On their first evening two agents set out for the 75 blocks of the big one and were short at dark.
+ */
+const sideOf = (room: number): number => room + 2;
+/** Walls this high: a small room's two, the big one's three. */
+const wallsOf = (room: number): number => (room < 3 ? 2 : 3);
+
+/** A hut around a room `room` across: walls with a doorway in the middle of one side, then a flat roof, rim first. */
+export function hutPlan(room = 3): Vec3[] {
+  const f = sideOf(room);
+  const h = wallsOf(room);
+  const mid = Math.floor(f / 2);
   const walls: Vec3[] = [];
-  for (let y = 0; y < 3; y++) {
-    for (let x = 0; x < 5; x++) {
-      for (let z = 0; z < 5; z++) {
-        const edge = x === 0 || x === 4 || z === 0 || z === 4;
-        const door = x === 2 && z === 0 && y < 2;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < f; x++) {
+      for (let z = 0; z < f; z++) {
+        const edge = x === 0 || x === f - 1 || z === 0 || z === f - 1;
+        const door = x === mid && z === 0 && y < 2;
         if (edge && !door) walls.push(new Vec3(x, y, z));
       }
     }
   }
   const roof: Vec3[] = [];
-  for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) roof.push(new Vec3(x, 3, z));
+  for (let x = 0; x < f; x++) for (let z = 0; z < f; z++) roof.push(new Vec3(x, h, z));
   // The rim rests on the walls; then inward, so every block has a neighbor to go against.
-  roof.sort((a, b) => Math.max(Math.abs(b.x - 2), Math.abs(b.z - 2)) - Math.max(Math.abs(a.x - 2), Math.abs(a.z - 2)));
+  const c = (f - 1) / 2;
+  roof.sort((a, b) => Math.max(Math.abs(b.x - c), Math.abs(b.z - c)) - Math.max(Math.abs(a.x - c), Math.abs(a.z - c)));
   return [...walls, ...roof];
 }
 
 /** Shallow holes a hut site may have under it, filled before the walls go up (dug-up ground by home, §6.8). */
 export const HUT_HOLES = 4;
 /** The blocks a hut takes, with enough over to fill the holes in its site. */
-export const HUT_BLOCKS = hutPlan().length + HUT_HOLES;
+export const hutBlocks = (room = 3): number => hutPlan(room).length + HUT_HOLES;
+export const HUT_BLOCKS = hutBlocks();
 /** Where the door goes in the plan (its lower half). */
-export const HUT_DOOR = new Vec3(2, 0, 0);
+export const hutDoor = (room = 3): Vec3 => new Vec3(Math.floor(sideOf(room) / 2), 0, 0);
+export const HUT_DOOR = hutDoor();
+/** The middle of the room inside. */
+const hutRoom = (room: number): Vec3 => new Vec3(Math.floor(sideOf(room) / 2), 0, Math.floor(sideOf(room) / 2));
 
 const free = (bot: Bot, p: Vec3) => isAirLike(bot.blockAt(p));
 
 /** Ground cells under a hut at corner `c` that are a hole one deep (to fill), or null when the site won't do. */
-export function hutSiteHoles(bot: Bot, c: Vec3): Vec3[] | null {
+export function hutSiteHoles(bot: Bot, c: Vec3, room = 3): Vec3[] | null {
+  const f = sideOf(room);
   const holes: Vec3[] = [];
-  for (let x = -1; x <= 5; x++) {
-    for (let z = -1; z <= 5; z++) {
-      const inside = x >= 0 && x <= 4 && z >= 0 && z <= 4;
-      for (let y = 0; y < 4; y++) if (!free(bot, c.offset(x, y, z))) return null;
+  for (let x = -1; x <= f; x++) {
+    for (let z = -1; z <= f; z++) {
+      const inside = x >= 0 && x < f && z >= 0 && z < f;
+      for (let y = 0; y <= wallsOf(room); y++) if (!free(bot, c.offset(x, y, z))) return null;
       if (!inside || isSolid(bot.blockAt(c.offset(x, -1, z)))) continue;
       // A hole one deep in solid ground is filled; anything deeper, or water, rules the site out.
       if (!free(bot, c.offset(x, -1, z)) || !isSolid(bot.blockAt(c.offset(x, -2, z))) || holes.length >= HUT_HOLES) return null;
@@ -197,23 +214,24 @@ function groundAt(bot: Bot, x: number, z: number, y: number): number | null {
 }
 
 /**
- * The nearest corner near `center` with level, solid ground under 5×5 (a few shallow holes are filled), room for
- * 5×5×4 and a free cell all round; of those at the same distance, the one with the fewest holes. The height follows
+ * The nearest corner near `center` with level, solid ground under the hut (a few shallow holes are filled), room for
+ * it and a free cell all round; of those at the same distance, the one with the fewest holes. The height follows
  * the ground (on a hillside the level patch is rarely at home's own height).
  */
-export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4): Vec3 | null {
+export function findHutSite(bot: Bot, center: Vec3, radius = 20, minDist = 4, room = 3): Vec3 | null {
   const base = center.floored();
+  const mid = Math.floor(sideOf(room) / 2);
   for (let r = minDist; r <= radius; r++) {
     let best: { c: Vec3; holes: number } | null = null;
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         // The ground under the middle of the hut sets its height (home's own as well, as before).
-        const g = groundAt(bot, base.x + dx + 2, base.z + dz + 2, base.y - 1);
+        const g = groundAt(bot, base.x + dx + mid, base.z + dz + mid, base.y - 1);
         const heights = [...new Set([...(g === null ? [] : [g + 1, g + 2, g]), base.y, base.y + 1, base.y - 1])];
         for (const y of heights) {
           const c = new Vec3(base.x + dx, y, base.z + dz);
-          const holes = hutSiteHoles(bot, c);
+          const holes = hutSiteHoles(bot, c, room);
           if (holes && (!best || holes.length < best.holes)) best = { c, holes: holes.length };
           if (best?.holes === 0) return best.c;
         }
@@ -233,9 +251,10 @@ function buildingBlocks(bot: Bot): number {
 
 export const build = defineSkill({
   name: 'build',
-  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut} is the quick ${HUT_BLOCKS}-block hut of cobblestone, planks or dirt`,
+  description: `build {design: name, x?,y?,z?, facing?} — put up one of the village's buildings near home (a plains cottage, a taiga cabin, a farmhouse, a storehouse, a smithy, a wheat farm, ... or one designed for us), or at x,y,z (its north-west corner on the ground): clears and levels the ground, builds it block by block, says what it still lacks; again to carry on. {structure: hut, room?: 1|2|3} is the quick hut of cobblestone, planks or dirt round a room 1, 2 or 3 blocks across (${hutBlocks(1)}, ${hutBlocks(2)} or ${hutBlocks(3)} blocks; 3 if not said)`,
   argsSchema: z.object({
     structure: z.string().min(1).optional(),
+    room: z.coerce.number().int().min(1).max(3).optional(),
     design: z.string().min(1).optional(),
     x: z.coerce.number().optional(),
     y: z.coerce.number().optional(),
@@ -249,14 +268,16 @@ export const build = defineSkill({
     const asked = args.design ?? (args.structure && args.structure !== 'hut' ? args.structure : null);
     if (asked) return buildDesign(ctx, asked, { x: args.x, y: args.y, z: args.z, facing: args.facing }, async () => sharedRepertoire());
     const { bot } = ctx;
+    const room = args.room ?? 3;
+    const need = hutBlocks(room);
     const have = buildingBlocks(bot);
-    if (have < HUT_BLOCKS) return { ok: false, observed: `have ${have} building blocks`, error: `need ${HUT_BLOCKS - have} more building blocks (cobblestone, planks or dirt)` };
+    if (have < need) return { ok: false, observed: `have ${have} building blocks`, error: `need ${need - have} more building blocks (cobblestone, planks or dirt)` };
     const center = ctx.home ?? bot.entity.position;
-    const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z));
+    const corner = findHutSite(bot, new Vec3(center.x, center.y, center.z), 20, 4, room);
     if (!corner) return { ok: false, observed: 'no room', error: 'no level spot for a hut near home (the quick hut needs level ground; a design, e.g. build {design: "starter-hut"}, clears and levels its own)' };
     const at = { x: corner.x, y: corner.y, z: corner.z };
     // The holes in the ground first, so the floor is whole.
-    for (const hole of hutSiteHoles(bot, corner) ?? []) {
+    for (const hole of hutSiteHoles(bot, corner, room) ?? []) {
       throwIfAborted(ctx.signal);
       const block = hutBlock(bot);
       if (!block) break;
@@ -265,15 +286,16 @@ export const build = defineSkill({
         ctx.logger.debug({ module: 'skill', cell: hole.toString(), err: errMsg(err) }, 'hole not filled');
       });
     }
-    const plan = hutPlan();
-    const firstRoof = plan.findIndex((c) => c.y === 3);
+    const plan = hutPlan(room);
+    const firstRoof = plan.findIndex((c) => c.y === wallsOf(room));
+    const middle = corner.plus(hutRoom(room));
     let placed = 0;
     for (const [i, cell] of plan.entries()) {
       throwIfAborted(ctx.signal);
       const target = corner.plus(cell);
       if (isSolid(bot.blockAt(target))) continue;
       // The roof goes on from inside, standing in the middle.
-      if (i === firstRoof) await gotoNear(ctx, corner.offset(2, 0, 2), 0.8, 20_000).catch((err: unknown) => {
+      if (i === firstRoof) await gotoNear(ctx, middle, 0.8, 20_000).catch((err: unknown) => {
         if (err instanceof SkillAbortedError) throw err;
       });
       const block = hutBlock(bot);
@@ -306,8 +328,10 @@ export const build = defineSkill({
       }
     }
     // Out through the doorway, and the door in it if we have one.
-    const doorway = corner.plus(HUT_DOOR);
-    await gotoNear(ctx, doorway.offset(0, 0, -2), 0.8, 20_000).catch((err: unknown) => {
+    const doorway = corner.plus(hutDoor(room));
+    // Out to stand off the doorway: near it, on whatever ground is there (a spot exactly two out, on a slope, was
+    // nowhere to stand, and the walk left the builder in the doorway).
+    await gotoNear(ctx, doorway.offset(0, 0, -2), 1.5, 20_000).catch((err: unknown) => {
       if (err instanceof SkillAbortedError) throw err;
     });
     const door = bot.inventory.items().find((i) => DOORS.test(i.name));
@@ -324,10 +348,9 @@ export const build = defineSkill({
     if (missing > 4) return { ok: false, observed: `placed ${placed} blocks; ${missing} missing`, error: 'the hut is not finished', data: { corner: at, placed } };
     // Where it is as one would go to it: the room inside, and the doorway, shut or open. Told only its corner, an
     // agent walked to that (through the wall) and took itself for inside; another took an open doorway for shut.
-    const room = corner.offset(2, 0, 2);
     const way = `${doorway.x},${doorway.y},${doorway.z}`;
     const shut = hasDoor ? `a door in its doorway at ${way}` : `its doorway at ${way} open (no door: a door, or a block from inside, shuts it)`;
-    return { ok: true, observed: `built a hut, its room inside at ${room.x},${room.y},${room.z}, ${shut}; you are outside it`, data: { corner: at, room: { x: room.x, y: room.y, z: room.z }, placed, door: hasDoor } };
+    return { ok: true, observed: `built a hut, its room inside at ${middle.x},${middle.y},${middle.z}, ${shut}; you are outside it`, data: { corner: at, room: { x: middle.x, y: middle.y, z: middle.z }, placed, door: hasDoor } };
   },
 });
 
