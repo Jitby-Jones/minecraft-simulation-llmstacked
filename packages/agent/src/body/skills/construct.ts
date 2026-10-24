@@ -16,7 +16,7 @@ import { type Blueprint, type Entrance, otherHalf, support } from '../../buildin
 import { type Need, billOf, costOf, planMaterials, substitute } from '../../building/materials';
 import type { Building } from '../../building/repertoire';
 import { type BlockState, type Facing, FACINGS, facingVec, itemFor, opposite, parseState, rotatePos, rotateState, secondHalf, turnRight } from '../../building/state';
-import { USABLE_BLOCK, isAirLike, isSolid } from '../world';
+import { USABLE_BLOCK, isAirLike, isSolid, placeableInto } from '../world';
 import { makeTool } from './tools';
 import { type Footprint, type SkillContext, SkillAbortedError } from './types';
 import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
@@ -76,8 +76,6 @@ const SIDES = FACINGS.map((f) => new Vec3(facingVec(f).x, 0, facingVec(f).z));
 const FACES_PLACER = /^(chest|trapped_chest|ender_chest|furnace|smoker|blast_furnace|lectern|loom|stonecutter|beehive|bee_nest|carved_pumpkin|jack_o_lantern|.*_glazed_terracotta)$/;
 /** Blocks the builder may stand on while building and take down after: what the pathfinder towers with. */
 const SCAFFOLD = /^(dirt|cobblestone|cobbled_deepslate|netherrack|andesite|diorite|granite|stone|tuff)$/;
-/** In the way of a block but gone with a touch (or placed over). */
-const SOFT = /^(short_grass|tall_grass|grass|fern|large_fern|dead_bush|snow|seagrass|tall_seagrass|vine|glow_lichen|.*_sapling|dandelion|poppy|blue_orchid|allium|azure_bluet|.*_tulip|oxeye_daisy|cornflower|lily_of_the_valley|sweet_berry_bush|brown_mushroom|red_mushroom|torchflower|pink_petals|leaf_litter|bush|firefly_bush|short_dry_grass|tall_dry_grass|wildflowers)$/;
 /** Found where the ground is, never the building's own. */
 const NOT_GROUND = /_(leaves|log|wood)$|^(snow|water|lava)$/;
 
@@ -301,7 +299,7 @@ async function dig(ctx: SkillContext, b: Block, reachMs?: number): Promise<boole
   const { bot } = ctx;
   if (!(await reach(ctx, b.position, null, reachMs))) return false;
   const now = bot.blockAt(b.position);
-  if (!now || isAirLike(now) || now.name === 'water' || now.name === 'lava') return true;
+  if (!now || placeableInto(now) || now.name === 'water' || now.name === 'lava') return true;
   const tool = bot.pathfinder.bestHarvestTool(now);
   if (tool) await bot.equip(tool, 'hand');
   try {
@@ -311,7 +309,7 @@ async function dig(ctx: SkillContext, b: Block, reachMs?: number): Promise<boole
     ctx.logger.debug({ module: 'build', at: key(b.position), block: now.name, err: errMsg(err) }, 'could not dig');
     return false;
   }
-  return isAirLike(bot.blockAt(b.position));
+  return placeableInto(bot.blockAt(b.position));
 }
 
 async function equipOne(bot: Bot, names: readonly string[]): Promise<string | null> {
@@ -462,7 +460,7 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
       // Every cell of it, the second halves too: a door's top or a bed's head can't go into earth.
       for (const p of [...plan.air, ...plan.blocks.map((b) => b.pos)]) {
         const here = bot.blockAt(p);
-        if (!here || isAirLike(here)) continue;
+        if (!here || placeableInto(here)) continue;
         const w = wanted.get(key(p));
         if (w && sameBlock(here, w.state)) continue;
         // The ground layer itself is dug only where the building puts something of its own.
@@ -502,8 +500,8 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
             return report;
           }
           const b = bot.blockAt(p);
-          if (!b || isAirLike(b)) continue;
-          if (SOFT.test(b.name) || (await dig(ctx, b, 12_000))) {
+          if (!b || placeableInto(b)) continue;
+          if (await dig(ctx, b, 12_000)) {
             report.dug++;
             gone++;
             stuck = 0;
@@ -516,7 +514,7 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
         // What wasn't got at, and what this pass didn't come to; not what has gone since, nor grass (placing over it does).
         const rest = [...missed, ...left.slice(i + 1)].filter((p) => {
           const b = bot.blockAt(p);
-          return b !== null && !isAirLike(b) && !SOFT.test(b.name);
+          return b !== null && !placeableInto(b);
         });
         if (rest.length === 0) break;
         if (gone === 0) {
@@ -525,7 +523,7 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
             report.stoppedFor = 'could not get at what is in the way';
             return report;
           }
-          for (let t = 0; t < 30 && rest.some((p) => !isAirLike(bot.blockAt(p))); t++) await waitMs(ctx, 1000);
+          for (let t = 0; t < 30 && rest.some((p) => !placeableInto(bot.blockAt(p))); t++) await waitMs(ctx, 1000);
         }
         left = rest;
       }
@@ -590,8 +588,8 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
         const other = otherHalf(pick.pos, pick.state);
         for (const cell of [pick.pos, ...(other ? [new Vec3(other.x, other.y, other.z)] : [])]) {
           const here = bot.blockAt(cell);
-          if (here && !isAirLike(here) && !(cell === pick.pos && sameBlock(here, pick.state)) && here.name !== 'water') {
-            if (!(SOFT.test(here.name) && pick.state.name !== 'water') && !(await dig(ctx, here))) throw new Error(`could not clear the ${here.name} there`);
+          if (here && !placeableInto(here) && !(cell === pick.pos && sameBlock(here, pick.state)) && here.name !== 'water') {
+            if (!(await dig(ctx, here))) throw new Error(`could not clear the ${here.name} there`);
             report.dug++;
           }
         }

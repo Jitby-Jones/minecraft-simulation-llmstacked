@@ -5,7 +5,7 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, overlapsCell, shelterHole, sturdy, wallsAround } from '../world';
+import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -44,6 +44,12 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
   if (!item) throw new Error(`no ${m.label} in inventory`);
   if (!isAirLike(bot.blockAt(target))) throw new Error(`${target.toString()} is not free`);
   if (bot.entity.position.distanceTo(target) > 4) await gotoNear(ctx, target, 3);
+  // A flower, a sapling, a torch: walked through, but nothing goes in over it. Out first, by hand, as a player does.
+  const there = bot.blockAt(target);
+  if (there && !placeableInto(there)) {
+    if (outByHand(there)) await digBlock(ctx, there);
+    if (!placeableInto(bot.blockAt(target))) throw new Error(`${target.toString()} is not free: the ${there.name} there is in the way`);
+  }
   const r = referenceFor(bot, target, item.name);
   if (!r) throw new Error(ATTACHED.test(item.name) ? `nothing there for a ${item.name} to go on (it needs the face of a whole block: not leaves, not a slab)` : 'nothing solid to place against');
   // Never place into our own body: a door is two high, and the server refuses one that touches us at all (at a hut's
@@ -101,7 +107,7 @@ export function besideAFace(bot: Bot, item?: string): Vec3 | null {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         for (const dy of [0, -1, 1]) {
           const p = me.offset(dx, dy, dz);
-          if (!isAirLike(bot.blockAt(p)) || p.offset(0.5, 0.5, 0.5).distanceTo(eyes) > REACH) continue;
+          if (!placeableInto(bot.blockAt(p)) || p.offset(0.5, 0.5, 0.5).distanceTo(eyes) > REACH) continue;
           if (bodies.some((e) => overlapsCell(e, p))) continue;
           if (referenceFor(bot, p, item)) return p;
         }

@@ -207,6 +207,25 @@ export function isAirLike(b: Block | null): boolean {
   return Boolean(b && b.boundingBox === 'empty' && !['water', 'lava'].includes(b.name));
 }
 
+/** What the game lets a block go in over (its own list, water and lava aside): grass, ferns, vines, a layer of snow. */
+const REPLACEABLE = new Set(['air', 'cave_air', 'void_air', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush', 'short_dry_grass', 'tall_dry_grass', 'seagrass', 'tall_seagrass', 'fire', 'soul_fire', 'snow', 'vine', 'glow_lichen', 'resin_clump', 'light', 'structure_void', 'bubble_column', 'warped_roots', 'nether_sprouts', 'crimson_roots', 'leaf_litter', 'hanging_roots']);
+
+/**
+ * Whether a block set down at this cell goes in: air, or what it replaces. Not a flower, a sapling, a mushroom, a torch
+ * or a crop, though one walks through them: those come out first (an agent's crafting table, put down on a tulip, was
+ * refused).
+ */
+export function placeableInto(b: Block | null): boolean {
+  if (!b || !REPLACEABLE.has(b.name)) return false;
+  if (b.name !== 'snow') return true;
+  return Number((b.getProperties() as { layers?: number | string }).layers ?? 1) <= 1;
+}
+
+/** Walked through and out with a touch (a flower, a sapling, a torch) before a block goes there. */
+export function outByHand(b: Block | null): boolean {
+  return Boolean(b && isAirLike(b) && !placeableInto(b) && b.hardness !== null && b.hardness >= 0 && b.hardness < 1);
+}
+
 /** Whether a walk to (x, z) would end in water or lava: the first block down from above `y` that isn't air. */
 export function wetAt(bot: Bot, x: number, z: number, y: number): boolean {
   for (let dy = 12; dy >= -16; dy--) {
@@ -240,12 +259,16 @@ export function sturdy(b: Block | null): boolean {
   return shapes.length === 1 && box !== undefined && box[0] === 0 && box[1] === 0 && box[2] === 0 && box[3] === 1 && box[4] === 1 && box[5] === 1;
 }
 
-/** A spot within `radius` to set something down (air with ground below; a sturdy floor for what goes on a face). */
+/**
+ * A spot within `radius` to set something down (air with ground below; a sturdy floor for what goes on a face). In a
+ * meadow with flowers in every cell, one with a flower (placeItemAt picks it first).
+ */
 export function findPlaceableSpot(bot: Bot, radius = 3, opts: { sturdy?: boolean } = {}): Vec3 | null {
   const me = bot.entity.position.floored();
   // The server refuses a block inside anyone's hitbox, ours included (standing near a cell's edge overlaps it).
   const bodies = Object.values(bot.entities).filter((e) => e === bot.entity || e.type === 'player' || e.type === 'mob' || e.type === 'hostile');
   const occupied = (p: Vec3) => bodies.some((e) => overlapsCell(e, p));
+  let picked: Vec3 | null = null;
   for (let r = 1; r <= radius; r++) {
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
@@ -254,14 +277,16 @@ export function findPlaceableSpot(bot: Bot, radius = 3, opts: { sturdy?: boolean
           const p = me.offset(dx, dy, dz);
           const below = bot.blockAt(p.offset(0, -1, 0));
           const floor = opts.sturdy ? sturdy(below) : isSolid(below);
-          if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && floor && !USABLE_BLOCK.test(below?.name ?? '') && !occupied(p)) {
-            return p;
+          const cell = bot.blockAt(p);
+          if (isAirLike(cell) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && floor && !USABLE_BLOCK.test(below?.name ?? '') && !occupied(p)) {
+            if (placeableInto(cell)) return p;
+            if (outByHand(cell)) picked ??= p;
           }
         }
       }
     }
   }
-  return null;
+  return picked;
 }
 
 /** Whether an entity's hitbox reaches into the block cell at `cell` (with a hair of margin). */

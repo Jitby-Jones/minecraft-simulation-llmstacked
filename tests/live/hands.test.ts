@@ -187,6 +187,22 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.crafting_table?.id ?? -1], maxDistance: 5, count: 2 }).length).toBeGreaterThanOrEqual(1);
   }, 120_000);
 
+  it('in a meadow with a flower in every cell: a flower is picked and the crafting table goes in its place (one on a tulip was refused)', async () => {
+    const x = 5750;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 4} ${Y} -4 ${x + 4} ${Y + 3} 4 air`);
+    await server.cmd(`fill ${x - 4} ${Y - 1} -4 ${x + 4} ${Y - 1} 4 grass_block`);
+    await server.cmd(`fill ${x - 4} ${Y} -4 ${x + 4} ${Y} 4 red_tulip`);
+    await server.cmd(`tp Ada ${x}.5 ${Y} 0.5`);
+    for (const g of ['crafting_table 1', 'oak_planks 3', 'stick 2']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(1500);
+    const r = await run('craft', { item: 'wooden_pickaxe', qty: 1 });
+    logger.info({ r }, 'table in a meadow');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'wooden_pickaxe')).toBe(1);
+    expect(body.bot.findBlocks({ matching: [body.bot.registry.blocksByName.crafting_table?.id ?? -1], maxDistance: 5, count: 1 }).length).toBe(1);
+  }, 120_000);
+
   it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
     const x = 5800;
     await at(x, 0);
