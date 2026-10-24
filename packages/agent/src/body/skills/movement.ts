@@ -24,34 +24,47 @@ export async function climbOutOfWater(ctx: SkillContext): Promise<boolean> {
   const block = bot.inventory.items().find((i) => isCover(i.name));
   if (!block) return false;
   stopMotion(bot);
+  const dry = () => bot.entity.onGround && bot.blockAt(bot.entity.position)?.name !== 'water';
+  let why = 'no water beside me at the top with a bank to set a block against';
   try {
-    // Up to the top.
-    bot.setControlState('jump', true);
-    for (let t = 0; t < 30 && bot.blockAt(bot.entity.position.offset(0, 1.62, 0))?.name === 'water'; t++) await waitMs(ctx, 100);
-    // The water at the top beside us, with something to set a block against (the bank, or the bottom).
-    // The topmost water: floating, one's feet are a block or so under it.
-    let top = bot.entity.position.floored();
-    if (bot.blockAt(top)?.name !== 'water') top = top.offset(0, -1, 0);
-    for (let n = 0; n < 8 && bot.blockAt(top.offset(0, 1, 0))?.name === 'water'; n++) top = top.offset(0, 1, 0);
-    const spot = SIDES.map((d) => top.plus(d)).find((c) => bot.blockAt(c)?.name === 'water' && isAirLike(bot.blockAt(c.offset(0, 1, 0))) && isAirLike(bot.blockAt(c.offset(0, 2, 0))) && referenceFor(bot, c));
-    if (!spot) return false;
-    const r = referenceFor(bot, spot);
-    if (!r) return false;
-    await bot.equip(block, 'hand');
-    await bot.placeBlock(r.ref, r.face).catch(() => undefined);
-    await waitMs(ctx, 200);
-    if (!isSolid(bot.blockAt(spot))) return false;
-    // Up onto it, and onto the middle of it.
-    const on = spot.offset(0, 1, 0);
-    const dry = () => bot.entity.onGround && bot.blockAt(bot.entity.position)?.name !== 'water';
-    await bot.lookAt(on.offset(0.5, 0.2, 0.5), true);
-    bot.setControlState('forward', true);
-    for (let t = 0; t < 30 && !dry(); t++) await waitMs(ctx, 100);
-    bot.setControlState('jump', false);
-    for (let t = 0; t < 6 && !bot.entity.position.floored().equals(on); t++) await waitMs(ctx, 50);
-    bot.setControlState('forward', false);
-    await waitMs(ctx, 200);
-    return dry();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      throwIfAborted(ctx.signal);
+      // Up to the top.
+      bot.setControlState('jump', true);
+      for (let t = 0; t < 30 && bot.blockAt(bot.entity.position.offset(0, 1.62, 0))?.name === 'water'; t++) await waitMs(ctx, 100);
+      // The topmost water: floating, one's feet are a block or so under it.
+      let top = bot.entity.position.floored();
+      if (bot.blockAt(top)?.name !== 'water') top = top.offset(0, -1, 0);
+      for (let n = 0; n < 8 && bot.blockAt(top.offset(0, 1, 0))?.name === 'water'; n++) top = top.offset(0, 1, 0);
+      // The water at the top beside us, with something to set a block against (the bank, or the bottom).
+      const spots = SIDES.map((d) => top.plus(d)).filter((c) => bot.blockAt(c)?.name === 'water' && isAirLike(bot.blockAt(c.offset(0, 1, 0))) && isAirLike(bot.blockAt(c.offset(0, 2, 0))) && referenceFor(bot, c));
+      for (const spot of spots) {
+        const r = referenceFor(bot, spot);
+        if (!r) continue;
+        await bot.equip(block, 'hand');
+        await bot.placeBlock(r.ref, r.face).catch(() => undefined);
+        await waitMs(ctx, 200);
+        if (!isSolid(bot.blockAt(spot))) {
+          why = `the server would not have a block at ${spot.toString()}`;
+          continue;
+        }
+        // Up onto it, and onto the middle of it.
+        const on = spot.offset(0, 1, 0);
+        await bot.lookAt(on.offset(0.5, 0.2, 0.5), true);
+        bot.setControlState('jump', true);
+        bot.setControlState('forward', true);
+        for (let t = 0; t < 30 && !dry(); t++) await waitMs(ctx, 100);
+        bot.setControlState('jump', false);
+        for (let t = 0; t < 6 && !bot.entity.position.floored().equals(on); t++) await waitMs(ctx, 50);
+        bot.setControlState('forward', false);
+        await waitMs(ctx, 200);
+        if (dry()) return true;
+        why = `could not get up onto the block at ${spot.toString()}`;
+        break;
+      }
+    }
+    ctx.logger.info({ module: 'skill', at: bot.entity.position.floored().toString(), why }, 'could not climb out of the water');
+    return false;
   } finally {
     bot.clearControlStates();
   }

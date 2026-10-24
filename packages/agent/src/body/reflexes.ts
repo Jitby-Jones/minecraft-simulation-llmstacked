@@ -42,6 +42,8 @@ interface Bout {
 const ARCHERS = new Set(['skeleton', 'stray', 'bogged', 'pillager']);
 /** Closing in on an archer that this long has not brought it within reach: it can't be got at. */
 const ARCHER_CHASE_MS = 10_000;
+/** A sword reaches about this far (feet to feet): an archer never this near, or never swung at, can't be got at. */
+const MELEE_REACH = 3.2;
 /** One that couldn't be got at is run from, out of its sight, for this long. */
 const ARCHER_AVOID_MS = 30_000;
 /** A mob that shoots is a threat this far off, once it can see us: its range, not arm's length. */
@@ -1248,6 +1250,17 @@ export class ReflexController {
           this.flee(threats);
           return;
         }
+        // Caught by arrows from one that can't be got at (off on a ledge, or beyond a sword's reach) is no reason to stand:
+        // out of its sight instead (one stood to "fight" a skeleton three blocks off in a dripstone cave, never swung,
+        // and was shot dead).
+        const me = bot.entity.position;
+        const archer = threats.find((t) => shoots(t) && (t.position.distanceTo(me) > MELEE_REACH || Math.abs(t.position.y - me.y) > 1.5));
+        if (archer && threats.every((t) => t === archer || shoots(t) || t.position.distanceTo(me) > 6)) {
+          this.unreachable.set(archer.id, Date.now() + ARCHER_AVOID_MS);
+          this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: archer.name }, 'shot at from out of reach: out of its sight instead');
+          this.flee(threats);
+          return;
+        }
         this.standUntil = Date.now() + STAND_MS;
         this.fleeHits = [];
         this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'running is not working: standing to fight');
@@ -1256,7 +1269,7 @@ export class ReflexController {
       // Closing in on an archer that hasn't come within reach: it can't be got at from here (standing at the edge of what
       // parts us is no fight, and gives it a target).
       const b = this.bout;
-      if (target && b && b.id === target.id && shoots(target) && Date.now() - b.since > ARCHER_CHASE_MS && b.closest > 4) {
+      if (target && b && b.id === target.id && shoots(target) && Date.now() - b.since > ARCHER_CHASE_MS && (b.closest > MELEE_REACH || b.swings === 0)) {
         this.unreachable.set(target.id, Date.now() + ARCHER_AVOID_MS);
         this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: target.name, closest: Math.round(b.closest) }, 'an archer out of reach: out of its sight instead');
         this.standUntil = 0;
