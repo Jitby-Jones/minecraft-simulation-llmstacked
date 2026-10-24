@@ -438,7 +438,7 @@ export class GoalGen {
     const fresh = !plan || planFinished(plan);
     const out = await this.ask(
       'L3',
-      `Make your own plan for the next half hour or so: what you want to get done, as 2–6 concrete steps, your way. Think about what you have taken on, what you have and see around you, the time of day, how you feel, what the others are doing and what you have talked over with them. Plan as the experienced player you are: steps that build on each other, enough of each thing got in one go for what comes after, and nothing that undoes what you will need later.${fresh ? '' : ' If your current plan is still right, answer {"keep": true}.'}`,
+      `Make your own plan for the next half hour or so: what you want to get done, as 2–6 concrete steps, your way. Think about what you have taken on, what you have and see around you, the time of day, how you feel, what the others are doing and what you have talked over with them. Plan as the experienced player you are: steps that build on each other, enough of each thing got in one go for what comes after, nothing that undoes what you will need later, and what you would want on you where the plan takes you, should things go wrong there.${fresh ? '' : ' If your current plan is still right, answer {"keep": true}.'}`,
       await this.context(reason),
     );
     if (this.stopped) return;

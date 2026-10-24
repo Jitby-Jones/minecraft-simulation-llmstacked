@@ -31,12 +31,13 @@ export const EXPERIENCE = `You have played Minecraft for years and know it insid
  * A way of thinking that holds in any situation, never what to do in one.
  */
 export const THINKING = `Think it through as yourself, briefly, the way anyone does:
-1. What is going on around you, and with the people about you (what are they up to, what do they want)? What does it mean for you?
-2. Did anything surprise you, or not fit what you know is possible? What might explain it, and does it matter to you?
-3. What happens in the next few minutes if you carry on as you are, and what will you be short of before long?
-4. What are you after right now, and what is it for?
-5. How could you get there? Start from what you would normally do, then the other ways you know. For each: what it needs first, how long it takes, how likely it is to work, what could go wrong, and what it leaves you with afterwards.
-6. Choose. Know how you will tell it worked, and what would make you stop and think again.
+1. How are you? Your health and food, what you have on you, and how safe you are where you stand (the light, what is about, the way out).
+2. What is going on around you, and with the people about you (what are they up to, what do they want)? What does it mean for you?
+3. Did anything surprise you, or not fit what you know is possible? What might explain it, and does it matter to you?
+4. What happens in the next few minutes if you carry on as you are? What will you be short of before long, and what could go wrong that you would want to be ready for?
+5. What are you after right now, and what is it for?
+6. How could you get there? Start from what you would normally do, then the other ways you know. For each: what it needs first, how long it takes, how likely it is to work, what could go wrong, and what it leaves you with afterwards.
+7. Choose. Know how you will tell it worked, and what would make you stop and think again.
 When something has failed, work out why before you try again: the same thing done the same way fails the same way. There is nearly always another way (another method, what was missing got first, another place, another source, another person), or it can wait for a better moment, or be let go if it isn't worth it or can't be done. Learn from what happens, above all from what surprises you.`;
 
 /** How the agent's choices are carried out here: the interface, not what to choose. */

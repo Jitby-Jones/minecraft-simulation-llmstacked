@@ -3,13 +3,14 @@
 // looking around instead of standing frozen, and hiding only for one badly scared, alone and far from anyone.
 
 import { describe, expect, it } from 'vitest';
+import type { AgentState } from '@agora/shared';
 import { DecisionOutputSchema, ModelsConfigSchema, PersonaSchema, dropUnfinished, fitWords, nullLogger, sentences } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
 import type { Body } from '@agora/agent/body/body';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { AgentBus } from '@agora/agent/bus';
 import { Feelings } from '@agora/agent/mind/feelings';
-import { buildPacket, dayPart, healing, hunger } from '@agora/agent/modules/bottleneck';
+import { buildPacket, dayPart, frailty, healing, hunger } from '@agora/agent/modules/bottleneck';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { routeItemTask } from '@agora/agent/modules/itemTasks';
 import { codeDecision, validateDecision, whyNotGo } from '@agora/agent/modules/cc';
@@ -306,9 +307,29 @@ describe('how the body heals, said as a fact (a model at 1 health and food 10 wa
     expect(healing(at(4, 18))).toBeNull();
   });
   it('hurt and short of food: health will not come back by itself', () => {
-    expect(healing(at(1, 10))).toBe('Health comes back by itself only with food at 18 of 20 or more; at food 10 it stays where it is.');
-    expect(healing(at(6, 0))).toBe('Health comes back by itself only with food at 18 of 20 or more; with no food at all, hunger itself does harm.');
+    expect(healing(at(1, 10))).toBe('Health comes back by itself only with food at 18 of 20 or more, fastest with the bar full; at food 10 it stays where it is; you carry nothing to eat.');
+    expect(healing(at(6, 0))).toBe('Health comes back by itself only with food at 18 of 20 or more, fastest with the bar full; with no food at all, hunger itself does harm; you carry nothing to eat.');
+    // What heals is what one carries to eat.
+    const fed = at(4, 12);
+    expect(healing({ ...fed, self: { ...fed.self, inventory: [{ item: 'cooked_beef', qty: 4 }] } })).toMatch(/; you carry 4 cooked_beef\.$/);
     expect(buildPacket({ state: at(1, 10), levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 })).toContain('only with food at 18 of 20');
+  });
+
+  it('how near death one is, as the hearts and what is about say it (a number alone said little)', () => {
+    const hurt = (h: number, about: { name: string; distance: number }[], extra: Partial<AgentState['self']> = {}) => {
+      const s = at(h, 12);
+      return { ...s, self: { ...s.self, difficulty: 'easy', ...extra }, perception: { ...s.perception, nearbyEntities: about.map((e, i) => ({ id: i, kind: 'hostile' as const, ...e })) } } as AgentState;
+    };
+    // Easy: a zombie hits for 2.5.
+    expect(frailty(hurt(5, [{ name: 'zombie', distance: 3 }, { name: 'zombie', distance: 6 }, { name: 'skeleton', distance: 9 }]))).toBe('At 5 health, 2 more hits from a zombie would kill you, and there are 3 monsters about.');
+    expect(frailty(hurt(1.5, [{ name: 'zombie', distance: 2 }]))).toBe('At 1.5 health, one more hit from a zombie would kill you.');
+    expect(frailty(hurt(8, [{ name: 'creeper', distance: 5 }]))).toBe("At 8 health, a creeper's blast up close would kill you.");
+    // Iron armor takes some of each blow: more hits to go.
+    expect(frailty(hurt(5, [{ name: 'zombie', distance: 3 }], { armor: ['iron_chestplate', 'iron_leggings'] }))).toBe('At 5 health, 4 more hits from a zombie would kill you.');
+    // Nothing about: only when it is low.
+    expect(frailty(hurt(5, []))).toBe('At 5 health, a fall or a single monster could finish you.');
+    expect(frailty(hurt(10, []))).toBeNull();
+    expect(frailty(hurt(16, [{ name: 'zombie', distance: 3 }]))).toBeNull();
   });
 });
 

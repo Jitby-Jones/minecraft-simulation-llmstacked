@@ -115,6 +115,14 @@ function mobDamage(base: number, difficulty: Difficulty): number {
   }
 }
 
+/** One blow from a mob of this kind, at this difficulty, through this much armor (a creeper's blast up close). */
+export function mobBlow(name: string, difficulty: Difficulty, armor = 0): number {
+  if (name === 'creeper') return mobDamage(CREEPER_BLAST, difficulty) * (1 - Math.min(20, armor) * 0.04);
+  return mobDamage((MOBS[name] ?? DEFAULT_MOB).dmg, difficulty) * (1 - Math.min(20, armor) * 0.04);
+}
+/** A creeper going off beside one (normal difficulty): most of a full health bar. */
+const CREEPER_BLAST = 22;
+
 export interface FightInput {
   /** hp: what is left of the threat's health, when known. */
   threats: readonly { name: string; heldItem?: string | null; hp?: number }[];

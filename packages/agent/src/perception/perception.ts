@@ -321,6 +321,7 @@ export class Perception {
         lightLevel,
         isSleeping: bot.isSleeping,
         spawnPos: spawn ? v(spawn) : s.spawnPos,
+        difficulty: String(bot.game.difficulty ?? 'normal'),
       }),
       'perception:self',
     );

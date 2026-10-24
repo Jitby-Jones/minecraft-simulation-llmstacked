@@ -552,6 +552,8 @@ export interface SelfState {
   lightLevel: number;
   isSleeping: boolean;
   spawnPos: Vec3 | null;
+  /** The world's difficulty (how hard monsters hit, whether hunger can kill). */
+  difficulty?: string;
 }
 
 /** How something moves, as a player sees it (owner request, 2026-10-24: complete senses). */

@@ -10,6 +10,7 @@ import { bearingOf, describeScene } from '../perception/sceneWords';
 import { EDIBLE } from './villageMove';
 import { ISOLATED_RANGE } from './hiding';
 import { WORN } from '../body/inventory';
+import { armorPoints, asDifficulty, mobBlow } from '../body/combatOdds';
 
 export interface PacketInput {
   state: AgentState;
@@ -101,6 +102,8 @@ export function buildPacket(i: PacketInput): string {
   if (hungerLine) out.push(hungerLine);
   const healingLine = healing(s);
   if (healingLine) out.push(healingLine);
+  const frail = frailty(s);
+  if (frail) out.push(frail);
   // Where home is: without it a model's "head home" went to a made-up 0,64,0, hundreds of blocks off.
   const home = s.village.home;
   if (home && world === 'overworld') {
@@ -276,7 +279,35 @@ export function healing(s: AgentState): string | null {
   const { health, food } = s.self;
   if (!(health > 0) || health > HURT_AT || food >= HEALS_FROM) return null;
   const now = food > 0 ? `at food ${food} it stays where it is` : 'with no food at all, hunger itself does harm';
-  return `Health comes back by itself only with food at ${HEALS_FROM} of 20 or more; ${now}.`;
+  // What heals, as a player knows it: the food bar topped up (fastest full), so what one carries to eat is what one
+  // heals with (an agent at 1.5 health and food 11 went for logs, its bag empty of anything to eat).
+  const meals = s.self.inventory.filter((i) => EDIBLE.test(i.item));
+  const carry = meals.length > 0 ? `you carry ${meals.map((m) => `${m.qty} ${m.item}`).join(', ')}` : 'you carry nothing to eat';
+  return `Health comes back by itself only with food at ${HEALS_FROM} of 20 or more, fastest with the bar full; ${now}; ${carry}.`;
+}
+
+/** The hits on hand from these kinds, by which one hits hardest (null: nothing to fear). */
+const HURTS = /^(zombie|husk|drowned|zombie_villager|skeleton|stray|bogged|spider|cave_spider|creeper|slime|magma_cube|enderman|witch|pillager|vindicator|evoker|vex|ravager|piglin|piglin_brute|zombified_piglin|hoglin|zoglin|blaze|ghast|wither_skeleton|phantom|warden|silverfish|endermite|guardian|elder_guardian|shulker)$/;
+
+/**
+ * How near death one is, as a player feels it from the hearts and what is about (owner request, 2026-10-24: think,
+ * don't follow directives): "at 5 health, two more hits from a zombie would kill you, and there are 3 of them about".
+ * An agent at 1.5 health went on gathering logs in a cave among five zombies; the number alone said little.
+ */
+export function frailty(s: AgentState): string | null {
+  const h = s.self.health;
+  if (!(h > 0) || h > 12) return null;
+  const about = s.perception.nearbyEntities.filter((e) => e.kind === 'hostile' && e.distance <= 16 && HURTS.test(e.name));
+  const hp = Math.round(h * 2) / 2;
+  if (about.length === 0) return hp <= 6 ? `At ${hp} health, a fall or a single monster could finish you.` : null;
+  const difficulty = asDifficulty(s.self.difficulty);
+  const armor = armorPoints(s.self.armor);
+  const worst = about.map((e) => ({ name: e.name, blow: mobBlow(e.name, difficulty, armor) })).sort((a, b) => b.blow - a.blow)[0];
+  if (!worst || worst.blow <= 0) return null;
+  const hits = Math.max(1, Math.ceil(h / worst.blow));
+  const what = worst.name === 'creeper' ? "a creeper's blast up close" : `${hits === 1 ? 'one more hit' : `${hits} more hits`} from a ${worst.name.replace(/_/g, ' ')}`;
+  const many = about.length > 1 ? `, and there are ${about.length} monsters about` : '';
+  return `At ${hp} health, ${what} would kill you${many}.`;
 }
 
 /** A line about hunger once it matters: hungry with nothing to eat, or starving (null: fed, or food at hand). */
