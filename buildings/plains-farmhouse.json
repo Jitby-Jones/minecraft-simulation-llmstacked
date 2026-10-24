@@ -1,0 +1,62 @@
+{
+  "id": "plains-farmhouse",
+  "name": "plains farmhouse",
+  "kind": "house",
+  "description": "a two-storey farmhouse: cobblestone below, oak planks above, oak log corners and a log band between the floors, a gable roof of oak stairs; a ladder up; beds upstairs",
+  "style": [
+    "plains",
+    "family",
+    "two storeys"
+  ],
+  "source": "drawn from the plains big house of Minecraft villages (photographs and the game's structure file)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [
+        7,
+        9
+      ],
+      "floors": 2,
+      "foundation": "cobblestone",
+      "walls": [
+        "cobblestone",
+        "oak_planks"
+      ],
+      "posts": "oak_log",
+      "beams": "stripped_oak_log",
+      "floor": "oak_planks",
+      "roof": {
+        "style": "gable",
+        "material": "oak",
+        "axis": "z",
+        "overhang": 1
+      },
+      "windows": {
+        "block": "glass_pane",
+        "every": 2
+      }
+    }
+  ],
+  "door": {
+    "side": "south"
+  },
+  "interior": [
+    "crafting_table",
+    "furnace",
+    "chest",
+    "chest",
+    "table",
+    "chair",
+    "barrel",
+    "bed@1",
+    "bed@1",
+    "bookshelf@1",
+    "chest@1"
+  ],
+  "lights": "torches",
+  "features": [
+    {
+      "type": "path"
+    }
+  ]
+}

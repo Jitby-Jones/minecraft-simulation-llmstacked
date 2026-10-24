@@ -1,0 +1,38 @@
+{
+  "id": "starter-hut",
+  "name": "starter hut",
+  "kind": "hut",
+  "description": "the first night's hut: oak planks on a cobblestone footing, a flat plank roof, a door and a torch; small and cheap",
+  "style": [
+    "starter",
+    "cheap",
+    "quick"
+  ],
+  "source": "the hut every new player builds on the first night",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [
+        5,
+        5
+      ],
+      "foundation": "cobblestone",
+      "walls": "oak_planks",
+      "roof": {
+        "style": "flat",
+        "material": "oak",
+        "overhang": 0,
+        "rim": false
+      }
+    }
+  ],
+  "door": {
+    "side": "south"
+  },
+  "interior": [
+    "bed",
+    "crafting_table",
+    "chest"
+  ],
+  "lights": "torches"
+}

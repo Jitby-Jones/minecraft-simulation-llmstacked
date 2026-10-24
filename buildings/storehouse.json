@@ -1,0 +1,23 @@
+{
+  "id": "storehouse",
+  "name": "storehouse",
+  "kind": "storage",
+  "description": "a long storehouse of oak planks between spruce log corners, a gable roof of spruce stairs, a double door; chests and barrels along the walls",
+  "style": ["storage", "village", "wood"],
+  "source": "drawn from village barns and players' storage sheds (photographs)",
+  "wallHeight": 4,
+  "parts": [
+    {
+      "size": [7, 9],
+      "foundation": "cobblestone",
+      "walls": "oak_planks",
+      "posts": "spruce_log",
+      "floor": "spruce_planks",
+      "roof": { "style": "gable", "material": "spruce", "axis": "z", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 4, "sides": ["east", "west"] }
+    }
+  ],
+  "door": { "side": "south", "double": true },
+  "interior": ["chest", "chest", "chest", "chest", "barrel", "barrel", "barrel", "crafting_table"],
+  "lights": "torches"
+}

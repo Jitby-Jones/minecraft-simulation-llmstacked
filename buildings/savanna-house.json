@@ -1,0 +1,24 @@
+{
+  "id": "savanna-house",
+  "name": "savanna house",
+  "kind": "house",
+  "description": "an acacia house on a cobblestone footing, acacia log corners, a hip roof of acacia stairs reaching out wide, a fenced yard",
+  "style": ["savanna", "acacia", "warm"],
+  "source": "drawn from the savanna houses of Minecraft villages (photographs and the game's structure files)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [7, 7],
+      "foundation": "cobblestone",
+      "walls": "acacia_planks",
+      "posts": "acacia_log",
+      "floor": "acacia_planks",
+      "roof": { "style": "hip", "material": "acacia", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 3 }
+    }
+  ],
+  "door": { "side": "south" },
+  "interior": ["bed", "chest", "crafting_table", "furnace", "table", "chair"],
+  "lights": "torches",
+  "features": [{ "type": "fence" }]
+}

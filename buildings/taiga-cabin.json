@@ -1,0 +1,24 @@
+{
+  "id": "taiga-cabin",
+  "name": "taiga cabin",
+  "kind": "cabin",
+  "description": "a log cabin of spruce logs on a cobblestone footing, a steep gable roof of spruce stairs with a cobblestone chimney, lanterns inside",
+  "style": ["taiga", "rustic", "forest"],
+  "source": "drawn from the taiga houses of Minecraft villages (photographs and the game's structure files)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [7, 6],
+      "foundation": "cobblestone",
+      "walls": "spruce_log",
+      "posts": "stripped_spruce_log",
+      "floor": "spruce_planks",
+      "roof": { "style": "gable", "material": "spruce", "axis": "x", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 3, "sides": ["south", "east", "west"] }
+    }
+  ],
+  "door": { "side": "south" },
+  "interior": ["bed", "chest", "furnace", "crafting_table", "barrel", "chair"],
+  "lights": "lanterns",
+  "features": [{ "type": "chimney", "side": "west" }, { "type": "path" }]
+}

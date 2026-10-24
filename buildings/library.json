@@ -1,0 +1,68 @@
+{
+  "id": "library",
+  "name": "library",
+  "kind": "library",
+  "description": "a library of cobblestone and oak planks under a hip roof of dark oak stairs, two storeys of bookshelves and a lectern, lanterns to read by",
+  "style": [
+    "learning",
+    "plains",
+    "two storeys"
+  ],
+  "source": "drawn from the plains library of Minecraft villages (photographs and the game's structure file)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [
+        9,
+        7
+      ],
+      "floors": 2,
+      "foundation": "cobblestone",
+      "walls": [
+        "cobblestone",
+        "oak_planks"
+      ],
+      "posts": "dark_oak_log",
+      "beams": "stripped_dark_oak_log",
+      "floor": "dark_oak_planks",
+      "roof": {
+        "style": "hip",
+        "material": "dark_oak",
+        "overhang": 1
+      },
+      "windows": {
+        "block": "glass_pane",
+        "every": 2
+      }
+    }
+  ],
+  "door": {
+    "side": "south"
+  },
+  "interior": [
+    "lectern",
+    "bookshelf",
+    "bookshelf",
+    "bookshelf",
+    "bookshelf",
+    "table",
+    "chair",
+    "chair",
+    "crafting_table",
+    "bookshelf@1",
+    "bookshelf@1",
+    "bookshelf@1",
+    "bookshelf@1",
+    "bookshelf@1",
+    "bookshelf@1",
+    "table@1",
+    "chair@1",
+    "chest@1"
+  ],
+  "lights": "lanterns",
+  "features": [
+    {
+      "type": "path"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "animal-pen",
+  "name": "animal pen",
+  "kind": "pen",
+  "description": "a fenced pen for sheep, cows or pigs, seven by nine, with a gate",
+  "style": ["food", "animals"],
+  "source": "the animal pens of Minecraft villages (photographs)",
+  "plot": { "type": "pen", "size": [7, 9], "material": "oak", "side": "south" }
+}

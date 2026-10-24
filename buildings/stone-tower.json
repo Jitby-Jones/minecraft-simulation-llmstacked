@@ -1,0 +1,25 @@
+{
+  "id": "stone-tower",
+  "name": "stone watchtower",
+  "kind": "tower",
+  "description": "a three-storey watchtower of cobblestone and stone bricks, a ladder up through it, windows every way, a flat roof with a rim to look out from",
+  "style": ["defence", "lookout", "stone"],
+  "source": "drawn from pillager watchtowers and players' castle towers (photographs)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [5, 5],
+      "floors": 3,
+      "foundation": "cobblestone",
+      "walls": ["cobblestone", "stone_bricks", "stone_bricks"],
+      "posts": "stone_bricks",
+      "beams": "cobblestone",
+      "floor": "spruce_planks",
+      "roof": { "style": "flat", "material": "stone_brick", "overhang": 0 },
+      "windows": { "block": "glass_pane", "every": 2 }
+    }
+  ],
+  "door": { "side": "south" },
+  "interior": ["chest", "crafting_table", "bed"],
+  "lights": "torches"
+}

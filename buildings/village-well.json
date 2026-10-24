@@ -1,0 +1,9 @@
+{
+  "id": "village-well",
+  "name": "village well",
+  "kind": "well",
+  "description": "a cobblestone well with water in it, four posts and a roof of slabs; the middle of a village",
+  "style": ["village", "water", "meeting place"],
+  "source": "the plains village well (photographs and the game's structure file)",
+  "plot": { "type": "well", "size": [4, 4], "material": "cobblestone" }
+}

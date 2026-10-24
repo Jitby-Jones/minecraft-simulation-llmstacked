@@ -1,0 +1,23 @@
+{
+  "id": "snowy-cottage",
+  "name": "snowy cottage",
+  "kind": "cottage",
+  "description": "a snug spruce cottage with stripped spruce corners on a stone brick footing, a hip roof of spruce stairs, lanterns and a furnace to keep warm",
+  "style": ["snowy", "spruce", "cosy"],
+  "source": "drawn from the snowy houses of Minecraft villages (photographs and the game's structure files)",
+  "wallHeight": 3,
+  "parts": [
+    {
+      "size": [6, 6],
+      "foundation": "stone_bricks",
+      "walls": "spruce_planks",
+      "posts": "stripped_spruce_log",
+      "floor": "spruce_planks",
+      "roof": { "style": "hip", "material": "spruce", "overhang": 1 },
+      "windows": { "block": "glass_pane", "every": 3 }
+    }
+  ],
+  "door": { "side": "south" },
+  "interior": ["bed", "furnace", "chest", "crafting_table", "chair"],
+  "lights": "lanterns"
+}
