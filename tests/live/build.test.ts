@@ -7,17 +7,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type BuildProject, createLogger, loadVersionsConfig, sleep } from '@agora/shared';
+import { type BuildProject, createLogger, loadEnv, loadModelsConfig, loadVersionsConfig, sleep } from '@agora/shared';
+import { startLlm } from '@agora/llm';
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { findBuildSite, inWorld, sameBlock, type Site } from '@agora/agent/body/skills/construct';
 import type { ProjectBook } from '@agora/agent/body/skills/types';
 import type { Blueprint } from '@agora/agent/building/compile';
 import { billOf } from '@agora/agent/building/materials';
+import { describeDesign, designBuilding } from '@agora/agent/building/architect';
 import { Repertoire, setSharedRepertoire } from '@agora/agent/building/repertoire';
 import { DEEP_GROUND_Y, type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
+loadEnv();
+const key = process.env.NANOGPT_API_KEY?.trim();
+/** The architect's own design needs the real models (and spends subscription quota): AGORA_LIVE_LLM=1. */
+const realModels = Boolean(key) && process.env.AGORA_LIVE_LLM === '1';
 /** The ground's top layer: grass at DEEP_GROUND_Y - 1. */
 const G = DEEP_GROUND_Y - 1;
 
@@ -71,6 +77,10 @@ describe.skipIf(!liveJavaPath())('Buildings live', () => {
   const note = (line: string) => fs.appendFileSync(path.join(server.dir, '..', 'logs', 'progress.txt'), `${new Date().toISOString().slice(11, 19)} ${line}\n`);
   const build = async (args: Record<string, unknown>, timeoutMs = 12 * 60_000) => {
     note(`build ${JSON.stringify(args)}`);
+    // Where the bot stands as it and the server see it, and what it is doing with its hands (a dig the server
+    // refuses all the same shows here).
+    const me = pip.bot.entity.position;
+    note(`  at ${me.x.toFixed(1)},${me.y.toFixed(1)},${me.z.toFixed(1)}; server: ${await server.cmd('data get entity Pip Pos')}; holding ${pip.bot.heldItem?.name ?? 'nothing'}; using ${String(pip.bot.usingHeldItem)}; sneaking ${String(pip.bot.getControlState('sneak'))}; digging ${pip.bot.targetDigBlock?.name ?? 'nothing'}`);
     const r = await pip.run('build', args, { signal: AbortSignal.timeout(timeoutMs), projects: book, progress: (p) => note(`  ${p}`) });
     note(`  -> ${JSON.stringify({ ok: r.ok, observed: r.observed, error: r.error })}`);
     console.log(`[build] ${JSON.stringify({ ok: r.ok, observed: r.observed, error: r.error })}`);
@@ -171,6 +181,45 @@ describe.skipIf(!liveJavaPath())('Buildings live', () => {
     console.log(`[vanilla] ${s.ok}/${s.total} as designed; wrong: ${s.wrong.slice(0, 12).join(' ')}`);
     expect(s.ok / s.total).toBeGreaterThan(0.95);
   }, 15 * 60_000);
+
+  it.skipIf(!realModels)("builds the architect's own design, drawn by the real model with the repertoire as its framework", async () => {
+    const o = await zone();
+    const cfg = loadModelsConfig();
+    const logger = createLogger({ name: 'build-live-architect', console: false, level: 'debug', logDir: path.join(server.dir, '..', 'logs') });
+    const rt = await startLlm({ apiKey: key ?? '', config: cfg, logger, background: false, pollUsage: false });
+    try {
+      const r = await designBuilding(
+        {
+          purpose: 'a cosy house for me and Wren, with room for a child later',
+          by: 'Mira',
+          persona: 'Mira: curious, warm, a little stubborn; values family, beauty',
+          biome: 'plains',
+          raw: { sand: 0.4, raw_iron: 12, white_wool: 1.5, leather: 2 },
+          materials: 'trees about: oak, birch; stone underfoot (cobblestone with a pickaxe); sand near; carrying 20 logs, 30 cobblestone',
+          village: ['plains cottage', 'storehouse'],
+          maxEffort: 120,
+          helpers: [{ name: 'Bram', does: 'miner' }],
+        },
+        { llm: rt.client, repertoire: rep, logger, models: cfg.architect.models, timeoutMs: cfg.architect.timeoutMs },
+      );
+      note(`[architect] ${r.how} ${r.building.id}: ${describeDesign(r)}`);
+      console.log(`[architect] ${r.how} ${r.building.id}: ${describeDesign(r)}`);
+      expect(r.how).not.toBe('repertoire');
+      // Built as drawn: what it takes is given, the builder puts it up.
+      const bp = await rep.blueprint(r.building);
+      await give(bp);
+      const origin = { x: o.x + 4, y: G, z: o.z + 4 };
+      const b = await build({ design: r.building.id, ...origin, facing: 'south' }, 20 * 60_000);
+      expect(b.ok).toBe(true);
+      const turn = (4 + 2 - ['north', 'east', 'south', 'west'].indexOf(bp.entrance?.out ?? 'south')) % 4;
+      const st = standing(bp, { origin: new Vec3(origin.x, origin.y, origin.z), turn });
+      note(`[architect] ${st.ok}/${st.total} as designed; wrong: ${st.wrong.slice(0, 12).join(' ')}`);
+      console.log(`[architect] ${st.ok}/${st.total} as designed; wrong: ${st.wrong.slice(0, 12).join(' ')}`);
+      expect(st.ok / st.total).toBeGreaterThan(0.95);
+    } finally {
+      rt.stop();
+    }
+  }, 30 * 60_000);
 
   it('half the materials: half a building and what it lacks; the rest: finished where it was begun', async () => {
     const o = await zone();

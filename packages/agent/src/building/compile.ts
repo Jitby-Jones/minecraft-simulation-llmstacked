@@ -670,8 +670,25 @@ function roofs(b: Built, S: Shape, wood: string, wallOf: (q: PartBox, floor: num
   }
 }
 
+/** Whether a material names a wood ("birch") or a wood's block ("birch_planks", "stripped_birch_log"). */
+const ofWood = (m: string) => WOODS_LONGEST_FIRST.some((w) => m.replace(/^stripped_/, '') === w || m.replace(/^stripped_/, '').startsWith(`${w}_`));
+
+/**
+ * A feature's material as a block: a block as given; a wood by name ("birch") its fence for posts and fences, else
+ * its planks; a roof material's name (a stone, "stone_brick") its block.
+ */
+function featureBlock(material: string | undefined, fallback: string, post: boolean): string {
+  if (!material) return fallback;
+  const m = material.replace(/^minecraft:/, '');
+  if (ofWood(m) && (WOODS as readonly string[]).includes(m)) return post ? `${m}_fence` : `${m}_planks`;
+  if (/_(fence|wall|log|planks|bricks|stone|wood|stem)$/.test(m) || !family(m)) return m;
+  return family(m)?.block ?? m;
+}
+
 function feature(b: Built, S: Shape, f: Design['features'][number], q: PartBox | undefined, wood: string, door: Entrance | null, doorCells: { x: number; z: number }[]): void {
   if (!q) return;
+  // A feature of a wood of its own (a birch porch on an oak house) is of that wood throughout.
+  const fwood = f.material && ofWood(f.material) ? woodOf(f.material) : wood;
   const minX = Math.min(...S.parts.map((p) => p.x0));
   const maxX = Math.max(...S.parts.map((p) => p.x1));
   const minZ = Math.min(...S.parts.map((p) => p.z0));
@@ -692,7 +709,7 @@ function feature(b: Built, S: Shape, f: Design['features'][number], q: PartBox |
       const c = run[Math.floor(run.length / 2)];
       if (!c || !S.onEdge(1, c.x, c.z)) return;
       const top = columnTop(c.x, c.z) + 2;
-      for (let y = 1; y <= top; y++) put(b, c.x, y, c.z, f.material ?? 'cobblestone');
+      for (let y = 1; y <= top; y++) put(b, c.x, y, c.z, featureBlock(f.material, 'cobblestone', false));
       return;
     }
     case 'porch': {
@@ -707,12 +724,12 @@ function feature(b: Built, S: Shape, f: Design['features'][number], q: PartBox |
       const roofY = q.top + 1;
       for (const a of [lo, hi]) {
         const p = at(a, 2);
-        for (let y = 1; y < roofY; y++) put(b, p.x, y, p.z, f.material ?? `${wood}_fence`);
+        for (let y = 1; y < roofY; y++) put(b, p.x, y, p.z, featureBlock(f.material, `${fwood}_fence`, true));
       }
       for (let a = lo; a <= hi; a++) {
         for (let o = 1; o <= 2; o++) {
           const p = at(a, o);
-          if (!b.states.has(k(p.x, roofY, p.z))) put(b, p.x, roofY, p.z, formatState({ name: `${wood}_slab`, props: { type: 'bottom' } }));
+          if (!b.states.has(k(p.x, roofY, p.z))) put(b, p.x, roofY, p.z, formatState({ name: `${fwood}_slab`, props: { type: 'bottom' } }));
         }
       }
       return;
@@ -720,18 +737,18 @@ function feature(b: Built, S: Shape, f: Design['features'][number], q: PartBox |
     case 'fence': {
       // Round the whole building two out, a gate in line with the door.
       const [x0, x1, z0, z1] = [minX - 2, maxX + 2, minZ - 2, maxZ + 2];
-      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) if (x === x0 || x === x1 || z === z0 || z === z1) put(b, x, 1, z, f.material ?? `${wood}_fence`);
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) if (x === x0 || x === x1 || z === z0 || z === z1) put(b, x, 1, z, featureBlock(f.material, `${fwood}_fence`, true));
       if (door) {
         const gx = door.out === 'east' ? x1 : door.out === 'west' ? x0 : door.x;
         const gz = door.out === 'south' ? z1 : door.out === 'north' ? z0 : door.z;
-        put(b, gx, 1, gz, formatState({ name: `${wood}_fence_gate`, props: { facing: door.out } }));
+        put(b, gx, 1, gz, formatState({ name: `${fwood}_fence_gate`, props: { facing: door.out } }));
       }
       return;
     }
     case 'path': {
       if (!door) return;
       const v = facingVec(door.out);
-      for (let o = 1; o <= 3; o++) put(b, door.x + v.x * o, 0, door.z + v.z * o, f.material ?? 'gravel');
+      for (let o = 1; o <= 3; o++) put(b, door.x + v.x * o, 0, door.z + v.z * o, featureBlock(f.material, 'gravel', false));
       return;
     }
     case 'lamp': {
@@ -740,8 +757,8 @@ function feature(b: Built, S: Shape, f: Design['features'][number], q: PartBox |
       const v = facingVec(door.out);
       const along = facingVec(turnRight(door.out));
       const p = { x: door.x + along.x * 3 + v.x * 3, z: door.z + along.z * 3 + v.z * 3 };
-      put(b, p.x, 1, p.z, `${wood}_fence`);
-      put(b, p.x, 2, p.z, `${wood}_fence`);
+      put(b, p.x, 1, p.z, `${fwood}_fence`);
+      put(b, p.x, 2, p.z, `${fwood}_fence`);
       put(b, p.x, 3, p.z, formatState({ name: 'lantern', props: { hanging: 'false' } }));
       return;
     }

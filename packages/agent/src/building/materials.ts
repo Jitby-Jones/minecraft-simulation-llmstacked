@@ -15,6 +15,12 @@ export function gameData(version = '26.1.2'): Data {
   return cached;
 }
 
+/** Block names in the blueprint the game doesn't have ("birch" for birch planks): each once. */
+export function unknownBlocks(bp: Pick<Blueprint, 'blocks'>, version?: string): string[] {
+  const known = gameData(version).blocksByName;
+  return [...new Set(bp.blocks.map((b) => parseState(b.state).name))].filter((n) => !known[n]);
+}
+
 /** Items to place, one per block (a door's top and a bed's head come with the first half). */
 export function billOf(bp: Pick<Blueprint, 'blocks'>): Map<string, number> {
   const bill = new Map<string, number>();

@@ -9,7 +9,7 @@ import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, blockIdsNamed, canSee } from '../world';
 import { type ToolKind, ensureTool, makeTool } from './tools';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 interface CollectBlockApi {
@@ -65,7 +65,7 @@ async function breakAndCollect(ctx: SkillContext, b: Block, matcher: ItemMatcher
   await gotoNear(ctx, b.position, 1.5, 20_000);
   const fresh = bot.blockAt(b.position);
   if (fresh?.name !== b.name) return;
-  await abortable(ctx.signal, bot.dig(fresh, true), () => bot.stopDigging());
+  await digBlock(ctx, fresh);
   for (let i = 0; i < 10; i++) {
     const drop = bot.nearestEntity((e) => {
       if (e.name !== 'item' || e.position.distanceTo(b.position.offset(0.5, 0, 0.5)) > 2.5) return false;

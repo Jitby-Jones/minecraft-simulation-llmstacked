@@ -487,3 +487,48 @@ describe('a nether portal frame', () => {
     expect(bp.problems).toEqual([]);
   });
 });
+
+describe("what a model's design names, made real", () => {
+  it('a porch or a fence of a wood by name is of that wood; a block the game lacks is reported', async () => {
+    const { unknownBlocks } = await import('@agora/agent/building/materials');
+    const design = DesignSchema.parse({
+      name: 'birch porch house',
+      kind: 'house',
+      wallHeight: 3,
+      parts: [{ size: [7, 6], walls: 'oak_planks', posts: 'oak_log', roof: { style: 'gable', material: 'birch' } }],
+      door: { side: 'south', material: 'birch' },
+      features: [{ type: 'porch', side: 'south', material: 'birch' }, { type: 'fence', material: 'spruce' }, { type: 'chimney', material: 'stone_brick' }],
+    });
+    const bp = compileDesign(design);
+    const names = new Set(bp.blocks.map((b) => parseState(b.state).name));
+    expect(unknownBlocks(bp)).toEqual([]);
+    expect(names.has('birch_fence')).toBe(true);
+    expect(names.has('birch_slab')).toBe(true);
+    expect(names.has('spruce_fence')).toBe(true);
+    expect(names.has('spruce_fence_gate')).toBe(true);
+    expect(names.has('birch')).toBe(false);
+    expect(unknownBlocks({ blocks: [{ x: 0, y: 1, z: 0, state: 'birch' }, { x: 1, y: 1, z: 0, state: 'oak_planks' }] })).toEqual(['birch']);
+  });
+
+  it('a trapdoor against the block above faces away from the one placing it; against a side, from that side', async () => {
+    const { clickFor, yawOf } = await import('@agora/agent/body/skills/construct');
+    const { Vec3 } = await import('@agora/agent/body/bot');
+    const solidAt = (cells: string[]) =>
+      ({
+        blockAt: (p: { x: number; y: number; z: number }) => {
+          const solid = cells.includes(`${p.x},${p.y},${p.z}`);
+          return { position: new Vec3(p.x, p.y, p.z), name: solid ? 'stone' : 'air', boundingBox: solid ? 'block' : 'empty', shapes: solid ? [[0, 0, 0, 1, 1, 1]] : [] };
+        },
+      }) as never;
+    const top = parseState('birch_trapdoor[facing=north,half=top]');
+    // Only the block above to go against: clicked from below, the placer faces south.
+    const above = clickFor(solidAt(['5,6,5']), new Vec3(5, 5, 5), top);
+    expect(above?.face.equals(new Vec3(0, -1, 0))).toBe(true);
+    expect(above?.yaw).toBe(yawOf('south'));
+    // The block behind it (south) there: its north face, the top half, no turning needed.
+    const side = clickFor(solidAt(['5,5,6', '5,6,5']), new Vec3(5, 5, 5), top);
+    expect(side?.face.equals(new Vec3(0, 0, -1))).toBe(true);
+    expect(side?.half).toBe('top');
+    expect(side?.yaw).toBeUndefined();
+  });
+});

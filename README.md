@@ -39,6 +39,31 @@ around them: a name, their character, a short story, how they talk, what they wa
 `personas: auto` uses the hand-written pool in `personas/` first, and `ctl add <persona>` adds one from the pool either
 way.
 
+## Buildings, gear and expeditions
+
+Agents put up buildings the way players do (`build {design}`): they clear the site, fill holes, and place every block
+facing the right way, standing on scaffolding they take down after. A building is drawn in a small building language
+(DESIGN.md §24, owner requests of 2026-10-24, items 11–13). The repertoire is the designs in `buildings/` plus every
+village building in the game's own structure files, read from your server jar (nothing is copied into the
+repository).
+
+An agent who wants something of its own asks the **architect** (`design {purpose}`), a strong model called only then
+(`architect:` in `config/models.yaml`). It draws a new design with the repertoire as its examples. Code checks the
+draft, swaps blocks too hard to get for lookalikes, works out the materials and how to craft the parts, and picks whom
+to ask for what; building it becomes the agent's plan. Designs the agents make are saved in `DATA_DIR/buildings/`.
+
+Agents make their own tools and chests, fight mobs they can beat, name their gear at an anvil and enchant it. By their
+own choice they also build nether portals and go into the Nether and the End, where people die.
+
+## The controller
+
+A hidden master model watches every agent (`controller:` in `config/models.yaml`). It steps in only when something has
+plainly gone wrong: a talk going round in circles, someone stuck in one spot, the same task failing again and again, a
+mind that won't settle. Code finds these cases, and the model judges each one; most it leaves alone. The agent takes
+the push as its own idea (it walks off from the talk, gives up the failing task, thinks again) and never learns of the
+controller. Each push shows on the dashboard. Switch it off for an agent in its **Debug** card (`controller`), or for
+everyone with `controller.enabled: false`.
+
 ## Agents' skins
 
 Each agent is created in a skin from [NameMC](https://namemc.com): one tagged **boy** for a male agent, **girl**
@@ -130,6 +155,7 @@ mounted, never copied in, and both ports are published on the host's `127.0.0.1`
 ```
 config/          models.yaml world.yaml hub.yaml versions.yaml sex-differences.yaml
 personas/        persona pool (YAML)
+buildings/       the building repertoire (designs in the building language)
 packages/shared  types, zod schemas, config, geometry, chat format, logging
 packages/llm     NanoGPT client and subscription lock
 packages/hub     supervisor, server management, rate limiter, dashboard

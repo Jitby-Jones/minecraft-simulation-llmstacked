@@ -685,3 +685,44 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(rig('stone_sword').fleeThreshold()).toBe(10);
   });
 });
+
+describe('digging that the server refuses', () => {
+  it("gives up once digging the block should long be done, and stops the dig, instead of waiting for ever", async () => {
+    const { digBlock } = await import('@agora/agent/body/skills/util');
+    let stopped = 0;
+    // A dig the server never lets finish: the block never turns to air.
+    const bot = { digTime: () => 50, dig: () => new Promise<void>(() => undefined), stopDigging: () => void stopped++ } as unknown as Bot;
+    const block = { name: 'oak_leaves', position: new Vec3(0, 0, 0) } as never;
+    const t0 = Date.now();
+    await expect(digBlock({ bot, signal: new AbortController().signal }, block)).rejects.toThrow(/oak_leaves would not break/);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(5000);
+    expect(stopped).toBe(1);
+    // One that breaks is done.
+    const ok = { digTime: () => 50, dig: () => Promise.resolve(), stopDigging: () => void stopped++ } as unknown as Bot;
+    await expect(digBlock({ bot: ok, signal: new AbortController().signal }, block)).resolves.toBeUndefined();
+    expect(stopped).toBe(1);
+  }, 15_000);
+});
+
+describe('a pathfinder stuck on a dig that never ended', () => {
+  it('is let go of the block, and walks again; one digging for real is left alone', async () => {
+    const { releaseStuckDig } = await import('@agora/agent/body/skills/util');
+    // The pathfinder's own bookkeeping, as mineflayer-pathfinder keeps it: a reset while digging waits for the dig's end.
+    const bot = new EventEmitter() as EventEmitter & { targetDigBlock: unknown; pathfinder: { isMining(): boolean; setGoal(g: null): void } };
+    let digging = true;
+    bot.targetDigBlock = null;
+    bot.pathfinder = {
+      isMining: () => digging,
+      setGoal: () => {
+        if (digging) bot.once('diggingAborted', () => (digging = false));
+      },
+    };
+    expect(releaseStuckDig(bot as unknown as Bot)).toBe(true);
+    expect(digging).toBe(false);
+    // A dig under way (mineflayer has hold of the block): not touched.
+    digging = true;
+    bot.targetDigBlock = { name: 'dirt' };
+    expect(releaseStuckDig(bot as unknown as Bot)).toBe(false);
+    expect(digging).toBe(true);
+  });
+});

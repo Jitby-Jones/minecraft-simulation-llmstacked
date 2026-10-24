@@ -12,6 +12,7 @@ import { ReflexController, type ReflexHooks, type ReflexOptions } from './reflex
 import { getSkill } from './skills/registry';
 import { type SkillRunRecord, runSkill } from './skills/runner';
 import type { AnySkill, DesignAsk, ProjectBook, SkillContext, SkillResult } from './skills/types';
+import { releaseStuckDig } from './skills/util';
 
 export interface BodyConfig extends BodyOptions {
   logger: Logger;
@@ -106,6 +107,20 @@ export class Body {
       if (String(bot.game.dimension ?? 'overworld') !== body.homeWorld) return;
       if (!body.home || p.distanceTo(body.home) > 64) body.home = p.clone();
     });
+    // The pathfinder left "digging" a block whose dig will never settle stops walking for good (util.ts
+    // releaseStuckDig): seen so for six seconds with no dig going on, it is let go.
+    let stuckFor = 0;
+    const watch = setInterval(() => {
+      if (!bot.pathfinder?.isMining() || bot.targetDigBlock) {
+        stuckFor = 0;
+        return;
+      }
+      if (++stuckFor < 3) return;
+      stuckFor = 0;
+      if (releaseStuckDig(bot)) cfg.logger.info({ module: 'body' }, 'the pathfinder was stuck on a dig that never ended; let go');
+    }, 2000);
+    watch.unref();
+    bot.once('end', () => clearInterval(watch));
     return body;
   }
 

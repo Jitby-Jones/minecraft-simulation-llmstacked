@@ -25,6 +25,8 @@
 > **v0.7:** adds §23 (portability and running headless over SSH: pinned, hash-verified setup; one `DATA_DIR`; Node-only scripts; native or Docker run modes; localhost binding plus SSH tunnel; graceful resume; export/import between machines; resource sizing).
 >
 > **v0.8 (owner requests, 2026-10-23):** debug controls for the operator: add, remove and restart agents; read and edit their memories; choose the model per tier and per agent; switch modules off; inspect and drive the Cognitive Controller (the dashboard was read-only, §8). Agents make their own plans and talk them over, with no fixed schedule (§4.2 module 10). They look around and wander rather than stand still. At night they hide only when badly scared, alone and far from anyone, and only by their own choice. Speech moves to L2. Test mode is off by default, with a switch (§16.3). What testing with the owner's NanoGPT key found, and the deviations, are in §24 under *Owner requests*.
+>
+> **v0.9 (owner requests, 2026-10-24):** a server console and Stop and Restart on the dashboard. A death ends every activity at once. Agents talk like Minecraft players, with a stronger model and time for it, taking turns and ending a talk once they agree. Agents make their own tools and real chests, and fight the mobs they can beat. Buildings: a building language; a repertoire drawn from photographs and read from the game's own files; a builder that puts designs up, clearing rough land; an architect, a fourth model called only to design, for buildings of their own; and moving to flatter land. Anvils and enchanting. Expeditions to the Nether and the End, by the agents' own choice. A hidden controller over all the agents steps in only on what has plainly gone wrong. All in §24 under *Owner requests: a console, deaths, talk, building and more*.
 
 ---
 
@@ -50,6 +52,7 @@
 | **M9b** families: starting one, the bed ritual, births on the Hub, inheritance, the newborn, youth and parents | **done** | `pnpm run check` (inheritance over 300 children; the family watch, the code default's family steps and its gate; a parent's word in youth; birth facts; youth and kin in the conflict core; the Hub's pairing, gate, gestation across a restart, a person as a partner, a full population) + `pnpm test:live` exit test `m9b-family` on Paper 26.1.2, 2/2: **T** through the real Hub and supervisor: partners with a home and food, one asks and the other says yes, they lie down side by side at night, each reports it, and the Hub brings their daughter into the world at the beds; her first words name her parents, who know her for theirs; her traits lie within her parents' range (28 of 28), and she knows her family and no one else; **U** a father warns his young daughter about the man who attacked him; she has never met him, and turns against him (5.00 to 4.49, a grievance told by her father), and a gift from him later mends it somewhat |
 | **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again With the key (`real-models`): glm-5.1 wrote `stock_up_logs` at the first try (a `gather` of `qty` oak logs, checked by `inventoryHas:oak_log>={qty}`). Tried at once in the world, it held (3 logs) and was kept. It ran again for 6 without being written again. Its trait annotation found a bug. The model named the experience in its own words ("robbed by Zed"), not by its key, and the note was dropped; such words now count. It had also copied the prompt's example, which was code's own words, so the prompt now gives the form only. Its notes now: "has grown more cautious since losing that fight to Vex". |
 | **Owner requests** (2026-10-23): debug controls (agents, memories, models, modules, the CC); agents that plan for themselves and talk their plans over; wandering and looking around instead of standing still, in company; hiding only when badly scared, alone and far from anyone; whole lines at L2; test mode off, with a switch; seeing what changes around them (a broken shelter) and reacting; each new person written by a master model, a child while it is carried | **done** | `pnpm run check` (576 tests) + the live regression on Paper 26.1.2 (§24 "Owner requests", item 14) + five observation runs with the key (`obs1`–`obs5`, the last two hardcore nights) + `real-models` with the key: the bias audit, a trait annotation, a skill written by L3, a broken shelter seen to and the master model's newcomers and a child, all by glm-5.1 |
+| **Owner requests** (2026-10-24): a server console with Stop and Restart; a death ends everything at once; talk like players, with a stronger model, turns, and an end once agreed; own tools, real chests, armed fights; buildings (a building language, a repertoire from photographs and the game's own files, a builder, an architect for their own designs, moving to flatter land); anvils and enchanting; expeditions to the Nether and the End; a hidden controller for what has gone wrong | **done** | `pnpm run check` + the live tests of each (§24 "Owner requests: a console, deaths, talk, building and more", item 19), the architect's own design drawn by glm-5.3 and built in the world, and the controller's prompt benched on the real models |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -2593,3 +2596,198 @@ that sets right only what is odd. Whether two API keys would help with timeouts 
      lines in 107 s, 25 of them over someone else's, and no agreement; now 29 lines in a minute, none over another, 28
      lowercase, the plan settled ("collect one stack of logs each and meet at the river hut spot"), and all three off
      gathering wood.
+8. **Agents make their own tools.** Agents waited to be handed tools: mine and gather failed with "need a stone_pickaxe"
+   and hunt went at animals bare-handed. A skill that needs a tool now makes it when it can, as a player would, through
+   obtain (the wood, the sticks, the cobblestone, the table).
+   - gather and mine make the pickaxe a block needs, once, and dig on; without the means they name the tool needed.
+   - gather makes an axe or a shovel first for six or more of wood or earth (and gathers as many more as the axe used).
+   - hunt makes a sword first when it carries no weapon. A tool being made makes none of its own.
+   - The decision rules say to make one's own tools and not wait to be handed one.
+   - Live (`m1-skills`): iron ore with a wooden pickaxe: a stone pickaxe made of the stone about, the ore mined; with
+     nothing to make one of, the error names the stone pickaxe; a cow hunted with a wooden sword made first; six logs
+     with a wooden axe made first.
+9. **Chests are things in the world.** Agents spoke of putting things in a chest that wasn't there.
+   - deposit at a spot with no chest says so. With no chest about at all, a builder makes one (anyone, when no builder
+     has been seen alive lately), sets it down by home and fills it; otherwise the error names the builder to ask.
+   - The decision check refuses a deposit or withdraw at a spot where no chest is known (the village chest, or one seen
+     there), saying where the village chest is, or that there is none yet; the packet says "no village chest yet".
+   - Placing: the spot finder had picked the cell on a crafting table obtain had just set down, and a click on a table
+     opens it (the server refused the chest). Spots on usable blocks are skipped, a plain block is placed against first,
+     and against a usable one the body sneaks, as players do.
+   - Live (`m1-skills`): deposit with no chest makes one of three logs and fills it; at a spot with none it says so.
+10. **Armed agents fight.** Against monsters only, a weapon lowers the health at which an agent runs: with a stone
+    weapon or better an average agent fights a zombie or skeleton down to about three hearts (it ran at five before);
+    with a wooden one, four. The decision rules say to fight what comes at you when armed and not low, and to run when
+    unarmed, low, or facing a creeper or a crowd. Live: armed at seven hearts, Pip kills a zombie without running; at
+    two hearts he runs.
+11. **Buildings: what was researched, and what came of it** (`packages/agent/src/building/`, `buildings/`). Building is
+    at the heart of this experiment, so the ways to get buildings agents can put up were weighed against each other.
+    - **From photographs.** The minecraft.wiki village pages show each village building in a photograph or two
+      (Planet Minecraft and Reddit refuse automated access, 403). Eight were studied: the plains small, medium and big
+      houses, library, fisher cottage and armorer's house, a savanna house and a desert house. Seen from one or two
+      sides, a photograph leaves the rest to be inferred: the far walls, the roof's other slopes and the inside. So
+      each was drawn as a design in a building language (below), not copied block by block. The unseen sides follow
+      from the style, and the inside is furnished from what such a building holds. Seventeen designs came of it and
+      of players' usual builds: cottages, a farmhouse, an L-shaped house, a longhouse, desert, savanna, taiga and snowy
+      houses, a stone tower, a library, a smithy, a storehouse, a starter hut, a wheat farm, an animal pen, a well and
+      a lamp post. Each was rendered from four sides and checked against its photograph.
+    - **From the game's own files** (`vanilla.ts`). Better than any photograph: every village building, from every
+      side and with its interior, is in the game's structure files. They are read from the owner's own server jar (the
+      Paper jar, or the Mojang jar bundled in it), 152 of them across the five village types. Nothing is copied into the
+      repository. Block states are kept where they matter (facing, half, axis, a door's hinge), natural ground is left
+      out, jigsaw markers become what they turn into, and structure blocks are dropped.
+    - **Alternatives considered.**
+      - *Research datasets* of houses built by people, with every block (the CraftAssist houses; 3D-Craft, with the
+        order they were built in): realistic, but large, from older versions with old block names, and under licences
+        that would need checking.
+      - *Shape grammars and procedural generators* (as in the GDMC settlement generation competition): good at fitting
+        terrain, but each style is hand-coded, and they give an agent nothing to ask for in words.
+      - *Wave function collapse* over tiles: varied, but it doesn't know where a door or a bed goes.
+      - *A model writing raw blocks*: what models do worst. Coordinates drift, blocks float, stairs face the wrong way,
+        and a three-block door is made of three unrelated blocks.
+      - *A model reading a photograph into blocks*: possible with several views, unreliable from one, and no better
+        than the game's own files for what the game already has.
+      - The choice: a small building language a model writes well and code turns into blocks correctly, with the
+        game's own buildings and the drawn designs as its examples.
+    - **The building language** (`design.ts`, compiled by `compile.ts`): one to three rectangular parts (an L or a T),
+      a wall height, walls with posts and beams, a roof (gable, hip, shed, flat; a style and a material), a door,
+      windows, furniture along the walls, a few features (a chimney, a porch, a fence, a path, a lamp), a plot (a pen, a
+      farm, a well) and free detail blocks. Block names are tidied (case, `minecraft:`, spaces).
+    - **The compiler** places blocks in an order a player can follow: each one against a block already there, and a
+      door's top or a bed's head right after its first half. Roofs over parts of one height become one surface, so
+      joined gables meet in a valley. Stairs face up the slope, ridges and peaks are slabs, gable ends are walled up,
+      and the inner rings of a hip get a block of their own to go against. Furniture goes against walls, ladders
+      against sturdy walls, torches beside the door. A door that can't go where asked is moved to the nearest outside
+      wall that takes it, and a detail with nothing to stand on is left out; both come back as notes. What can't be
+      built is reported, never built wrong.
+    - **Materials** (`materials.ts`): the bill, the crafting from gathered to placed (craft, smelt, strip, gather; each
+      recipe chosen by the cost of its ingredients), how hard each block is to get (sand and wool cost more where there
+      is none), and a lookalike for a block too hard to get (sandstone for smooth sandstone, a smithing or crafting
+      table for an anvil). Wood follows the trees about.
+12. **The builder** (`body/skills/construct.ts`, skill `build {design}`) puts any design up the way a player does:
+    - the site cleared of what is in the way, from the top down (a tree, a hillside), keeping earth that can be tilled;
+    - holes under the ground layer filled, deepest first;
+    - then each block placed nearest-first from where it can be reached, facing the way it must: stairs up the slope,
+      a door into the room, a chest into the room, a torch on its wall, a log along its beam, a slab in its half.
+      Paper checks only reach and that the click falls on the block, so the builder turns to the facing a block needs
+      before it clicks;
+    - it stands on its own work or on scaffolding that it takes down after, never digs through what it built, and walks
+      out of the door.
+    - Without coordinates it finds the best site near home, door toward home, away from other buildings. It starts with
+      a quarter of the materials or more, says what it lacks, and a second go carries on at the same place (the project
+      is kept in the village state). A building counts as done when nearly every block is in, nothing is missing, and
+      the doors went in.
+    - Live (`build`, 4 of 4): a cottage on flat land, a hut on a mound with a tree on it, one of the game's own plains
+      houses, and a build begun with half the materials finished on a second go.
+13. **The architect: a fourth model, only when a building is designed** (`building/architect.ts`, skill `design
+    {purpose}`). An agent who wants a building of its own asks the architect: the strongest models first (`architect`
+    in `config/models.yaml`: glm-5.3, glm-5.1, deepseek-v4-pro, then L3), 90 s, the nearest designs of the repertoire
+    as its examples, and what the agent knows: its purpose, the biome, what is to be had about, the village's buildings
+    and who does what.
+    - The compiler checks the draft and sends back once what doesn't work (a door moved, a floating detail left out, a
+      design too big for the effort the agent will put in, set by its conscientiousness); a second failure falls back
+      to the nearest design.
+    - Code swaps blocks too hard to get for lookalikes, works out the bill and the crafting of the parts (doors,
+      fences, glass, slabs), and picks who could bring what (the woodcutter the logs, the miner the stone, the farmer
+      the wool; up to two asks).
+    - The design is saved for the whole village, and building it becomes the agent's plan: get the materials it
+      gathers itself, ask the others for theirs (a talk), make the parts, build it.
+    - Bench (four real requests, five models): glm-5.3 drew all four buildable the first time in 7–12 s, and they
+      looked good; deepseek-v4-pro and glm-5.1 needed a second try for some; kimi-k2.6 and qwen3.5-397b often drew what
+      couldn't be built.
+    - Live with the real model (`build`, `AGORA_LIVE_LLM=1`): asked for "a cosy house for me and Wren, with room for a
+      child later", glm-5.3 drew a birch and oak house the first time, and the builder put it up in three minutes, 222
+      of its 225 blocks as drawn. The first try found two faults, both fixed:
+      - A porch given a wood's name ("birch") made posts of a block called "birch". A feature's wood now gives that
+        wood's fence and slabs, and every block of a draft is checked against the game's own block list, so one it
+        lacks goes back to the model to put right.
+      - A trapdoor put against the block above came out facing the wrong way. Against a block above or below, it faces
+        away from the one placing it, so the builder now turns first.
+14. **Rough land, and moving the village** (`body/skills/settle.ts`). `scout {for: "flat land"}` says how easy home is to
+    build on and looks out for level ground with room for a village: first what is in sight, then a walk out the most
+    promising way and another look. `settle {x,y,z}` makes a place home once the others agree to move, and the village
+    (its chest, huts, board and signs) starts again there. Talking it over and going together are the agents' own; the
+    decision rules say to clear land worth building on even if it is rough, and to talk the others into moving if home
+    is too rough.
+15. **Anvils and enchanting** (`body/skills/enchanting.ts`). `name {item, name}` names a tool, weapon or armour at an
+    anvil: one seen (remembered where), one carried, or one made from the 31 iron it takes, put down and used.
+    `enchant {item}` works an enchanting table (seen, carried, or made of a book, 2 diamonds and 4 obsidian) with lapis
+    and experience, taking the strongest offer it can pay for. Both spend real levels and say plainly what is missing.
+    The anvil is worked by hand (item in, name typed, result taken): mineflayer's helper predates item components and
+    misjudges the cost. Names and enchantments are read from components in every shape the game sends. Bolder life
+    goals are among the defaults now (a named, enchanted sword; the Nether; the End). Live (`enchant`, 3 of 3): a sword
+    named at an anvil in sight, after a plain no without experience; an anvil made of 31 iron and used; a sword
+    enchanted.
+16. **Expeditions to the Nether and the End** (`body/skills/expedition.ts`). These are possible but not easy, and chosen
+    by the agents themselves. The decision rules weigh riches and glory for their people against a likely death, and
+    say to talk friends into coming.
+    - `portal`: a frame of 10 obsidian (four corners of anything) built and lit with flint and steel (made if missing).
+    - `travel {to}`: through a known portal, both ends remembered in the village's portal book. The game won't take
+      anyone back through a portal they haven't stepped out of (each moment in it restarts the wait), so it steps out
+      on arrival, and out and in again if a trip doesn't happen.
+    - `eye`: throws an eye of ender and reads where it flies.
+    - `fill`: puts eyes into an End portal's frames, saying when it opens.
+    - In the Nether or the End the packet says what kills people there and where the portal home is. Home is in the
+      Overworld only, and remembered sightings are kept per world.
+    - Live (`expedition`, three runs in a row, plus 14 round trips from different places): a portal built and lit, into
+      the Nether and back; an End portal's twelve frames filled; into the End; and no way out while the dragon lives.
+17. **The controller: a hidden master model for what has gone wrong** (`packages/hub/src/hub/controller.ts`, agent
+    `modules/urges.ts`). It sees what every agent decides, does and says (their telemetry) and steps in only on the odd
+    and the irregular. Code finds the cases, with thresholds well past the ordinary:
+    - a talk going round in circles: three of five or more lines in five minutes saying again what was said (the talk's
+      own check ends one that says a line again word for word; this catches the same thing in other words);
+    - the same talk started and ended four times in twelve minutes;
+    - sixteen lines in eight minutes and nothing else done, standing in one place;
+    - the same task failing four times in ten minutes in one way after another (the agent's own stuck mark is for one
+      way);
+    - six minutes stuck in one spot, getting nowhere (not a long smelt, a rest or a night hidden);
+    - twelve changes of mind in three minutes with next to nothing done;
+    - six minutes with nothing under way and nothing done or said.
+    - Each case goes to the master model (glm-5.3, then kimi-k2.6, then L3), which judges it and words the push.
+      Putting off one's goals to talk, and a long talk that keeps moving on, are the agents' own business and left
+      alone. A case that ends while the model thinks is dropped.
+    - Pushes: move on (a goodbye in chat style, the talk ended, its people left alone four minutes, a walk away from
+      them), walk a little way off, give up what keeps failing (that skill for that thing, 15 minutes, lifted by a
+      success), or think again.
+    - The agent takes the push as an urge of its own, like a quirk's impulse. The thought goes on its mind in the first
+      person, and it never learns of the controller. The model's words are used only if they will do as the person's
+      own (no numbers, no stranger's name, nothing out of the world or about being pushed); otherwise code's. Without a
+      model, code pushes in these same cases.
+    - Seldom: each person and kind of trouble at most once in ten minutes, a person left alone three minutes after a
+      push, at most 20 urges an hour (`controller` in `config/models.yaml`). The dashboard shows each push to the
+      operator, who can switch the controller off per agent. The urge (`t: 'urge'`) is the one Hub message besides
+      `cautionShift` that changes an agent's inclination. Like it, it carries nothing the agent doesn't perceive: its
+      own trouble in its own words, and the names of whoever it was just talking with.
+    - Bench (the real prompt; five cases: a talk going round in circles, a long talk that keeps moving on, a craft
+      failing five times, a walk stuck in place, a busy talk full of "ok"s that code lets be): glm-5.3 judged every case
+      right each time, letting the long talk be in 6 of 6 (4–22 s). kimi-k2.6 was quicker but broke the long talk up
+      once in 4; deepseek-v4-pro broke it up every time. With the long talk spelled out as the agents' own, the right
+      verdicts held.
+    - Live (`controller`, twice): Ada says the same thing to Bram in other words in real chat. The controller sees it;
+      she says "aight im gonna go get stuff done, cya", ends the talk, leaves Bram be and walks off; nothing on her mind
+      speaks of a controller.
+18. **What the live regression found, and put right.**
+    - *A hand-over that worked was taken for a failure.* Two items tossed together merge on the ground, and the pickup
+      of the merged stack can still say one, so `give` said the other hadn't got them and the promise or trade looked
+      broken. When everything tossed is gone and only the one it was for picked any up, it is theirs, and the wait ends
+      as soon as nothing is left lying. The `m1-skills` give test failed 2 runs in 3 before, none in 3 after.
+    - *A walk that never took a step again.* After clearing a site with a tall tree on a mound, the next building
+      couldn't be begun: every walk timed out without a step. mineflayer lets go of a dig whose time is up and then
+      waits for the block to turn to air, so a dig the server refused never settles. The pathfinder, "digging" still,
+      never moves again, and its reset waits for an end that mineflayer has nothing left to send.
+      - Every stop now lets go of such a dig, and the body checks every 2 s for one left over.
+      - Our own digs end once the block should long have broken (its dig time and 5 s more), in every skill that digs.
+      - A failed walk waits for its stop to take hold before the next one starts.
+    - *A tree's top out of reach.* Clearing went strictly from the top, and the top of a tall oak can't be got at
+      from the ground past its own leaves. Clearing now goes in passes: what can't be got at waits for what is under
+      and around it to come away, and leaves left over once the logs are gone fall by themselves. Block after block
+      out of reach with nothing coming away, a build now stops and says so, instead of trying for most of an hour.
+    - `build`, all four tests, before: 1 run in 3 passed; after: 3 runs in 3, one with a 104-block tree.
+19. **Verified** on Paper 26.1.2:
+    - `pnpm run check`: 641 unit tests.
+    - The live tests of these requests: `build` (4, and the architect's own design with the real model), `enchant`
+      (3), `expedition` (2, three runs in a row), `controller` (twice), `death`, `m1-skills` (tools, chests, armed
+      fights), and `real-models` (the three-way talk).
+    - The live regression of what these changes touch: `m1-skills`, `m3-agent`, `aware` and `death`, 23 of 24. The one
+      failure was the give test, the bug of item 18, which passed 3 runs of 3 after the fix.
+    - The controller's prompt was benched on the real models.

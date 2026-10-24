@@ -6,7 +6,7 @@ import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
 import { USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, shelterHole, wallsAround } from '../world';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 const FACES = [
@@ -204,7 +204,7 @@ async function climbOut(ctx: SkillContext, done = 'survived the night'): Promise
   try {
     const feet = bot.entity.position.floored();
     const coverBlock = bot.blockAt(feet.offset(0, 2, 0));
-    if (coverBlock && !isAirLike(coverBlock)) await abortable(ctx.signal, bot.dig(coverBlock, true), () => bot.stopDigging());
+    if (coverBlock && !isAirLike(coverBlock)) await digBlock(ctx, coverBlock);
     const exit = shaftExit(bot, feet);
     if (!exit) return { ok: true, observed: `${done} but found no way out yet` };
     bot.pathfinder.setMovements(ctx.movements());
@@ -253,7 +253,7 @@ export const shelter = defineSkill({
         if (b) {
           const tool = bot.pathfinder.bestHarvestTool(b);
           if (tool) await bot.equip(tool, 'hand');
-          await abortable(ctx.signal, bot.dig(b, true), () => bot.stopDigging());
+          await digBlock(ctx, b);
         }
         // Drop into the hole.
         for (let t = 0; t < 15 && bot.entity.position.floored().y >= feet.y; t++) await waitMs(ctx, 100);

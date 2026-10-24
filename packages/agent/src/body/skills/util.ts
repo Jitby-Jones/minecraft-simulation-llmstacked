@@ -3,6 +3,7 @@
 import { sleep } from '@agora/shared';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import type { Bot } from 'mineflayer';
+import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { type SkillContext, SkillAbortedError } from './types';
 
@@ -61,10 +62,24 @@ export function stopMotion(bot: Bot): void {
     // at once ("PathStopped"). Clearing the goal stops it outright; a moving one still stops at its next step.
     if (bot.pathfinder.isMoving()) bot.pathfinder.stop();
     else bot.pathfinder.setGoal(null);
+    releaseStuckDig(bot);
   } catch {
     // not moving
   }
   bot.clearControlStates();
+}
+
+/**
+ * The pathfinder stuck "digging": mineflayer lets go of a dig whose time is up and then waits for the block to turn to
+ * air, so a dig of the pathfinder's that the server refused never settles, and the pathfinder, digging still, never
+ * takes another step (every walk after times out without a step). With no dig going on, it is let go of the block: a
+ * reset while digging listens for the dig's end, which mineflayer has nothing left to send. True if it was stuck.
+ */
+export function releaseStuckDig(bot: Bot): boolean {
+  if (!bot.pathfinder.isMining() || bot.targetDigBlock) return false;
+  bot.pathfinder.setGoal(null);
+  (bot as unknown as { emit(ev: string, b: null): void }).emit('diggingAborted', null);
+  return true;
 }
 
 /** Pathfinds to within `range` of `pos`. Applies the 'path' slip as a detour (§21.1). */
@@ -158,6 +173,21 @@ async function walkStraightTo(ctx: SkillContext, where: () => Vec3 | null, withi
     }
   } finally {
     bot.clearControlStates();
+  }
+}
+
+/**
+ * Digs a block, for as long as digging it takes and a few seconds more. mineflayer waits for the block to turn to air,
+ * and a dig the server refused (out of reach, the block changed under us) would wait for ever.
+ */
+export async function digBlock(ctx: Pick<SkillContext, 'bot' | 'signal'>, block: Block): Promise<void> {
+  const { bot } = ctx;
+  const ms = Math.min(60_000, (bot.digTime(block) || 5000) + 5000);
+  try {
+    await abortable(ctx.signal, withTimeout(bot.dig(block, true), ms, `the ${block.name} would not break`), () => bot.stopDigging());
+  } catch (err) {
+    if (!ctx.signal.aborted) bot.stopDigging();
+    throw err;
   }
 }
 

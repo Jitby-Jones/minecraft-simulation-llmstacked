@@ -19,7 +19,7 @@ import { type BlockState, type Facing, FACINGS, facingVec, itemFor, opposite, pa
 import { USABLE_BLOCK, isAirLike, isSolid } from '../world';
 import { makeTool } from './tools';
 import { type Footprint, type SkillContext, SkillAbortedError } from './types';
-import { abortable, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 
 /** Where a blueprint goes: its box's north-west corner at the ground's top layer, and how far it is turned. */
 export interface Site {
@@ -125,7 +125,9 @@ export function clickFor(bot: Bot, pos: Vec3, s: BlockState): Click | null {
     const ref = bot.blockAt(pos.plus(d));
     if (!ref || !isSolid(ref)) continue;
     const face = d.scaled(-1);
-    const pf = placerFacing(s);
+    // A trapdoor against a side takes its facing from that side; against the block above or below, it faces away
+    // from the one placing it.
+    const pf = /_trapdoor$/.test(s.name) ? (d.y !== 0 && f && FACINGS.includes(f) ? opposite(f) : null) : placerFacing(s);
     let pitch: number | undefined;
     // A lantern hangs when placed looking up; a barrel faces away from where it is looked at from.
     if (s.name === 'lantern' || s.name === 'soul_lantern') pitch = s.props.hanging === 'true' ? 1.2 : -1.2;
@@ -194,6 +196,9 @@ class GoalReach extends goals.GoalPlaceBlock {
     return super.isEnd(node as never);
   }
 }
+
+/** Blocks given up on one after another, nothing done between, before a build stops and says it can't get at them. */
+const STUCK_AFTER = 8;
 
 /** How far a block can be from the eyes to be placed or dug (the game allows 4.5 to its nearest side, and a little). */
 const REACH = 4.4;
@@ -268,19 +273,23 @@ async function reach(ctx: SkillContext, pos: Vec3, faces: Vec3[] | null, timeout
   } catch (err) {
     if (err instanceof SkillAbortedError) throw err;
     stopMotion(bot);
+    ctx.logger.debug({ module: 'build', at: key(pos), from: key(bot.entity.position.floored()), err: errMsg(err) }, 'could not get near');
+    // A stop asked of a moving pathfinder takes hold at its next step; the next walk set before then is wiped with it.
+    await bot.waitForTicks(2);
+    stopMotion(bot);
   }
   return within(bot, pos) && !inMyWay(bot, pos);
 }
 
-async function dig(ctx: SkillContext, b: Block): Promise<boolean> {
+async function dig(ctx: SkillContext, b: Block, reachMs?: number): Promise<boolean> {
   const { bot } = ctx;
-  if (!(await reach(ctx, b.position, null))) return false;
+  if (!(await reach(ctx, b.position, null, reachMs))) return false;
   const now = bot.blockAt(b.position);
   if (!now || isAirLike(now) || now.name === 'water' || now.name === 'lava') return true;
   const tool = bot.pathfinder.bestHarvestTool(now);
   if (tool) await bot.equip(tool, 'hand');
   try {
-    await abortable(ctx.signal, bot.dig(now, true), () => bot.stopDigging());
+    await digBlock(ctx, now);
   } catch (err) {
     if (err instanceof SkillAbortedError) throw err;
     ctx.logger.debug({ module: 'build', at: key(b.position), block: now.name, err: errMsg(err) }, 'could not dig');
@@ -408,6 +417,9 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
   const lack = (item: string) => (report.missing[item] = (report.missing[item] ?? 0) + 1);
   const size = turnedSize(bp, site.turn);
 
+  // A walk of whatever ran before is over first (a stop still pending would wipe the first walk here).
+  stopMotion(bot);
+  await bot.waitForTicks(2);
   // While building: never dig through what is built; no scaffolding where a block or a room is meant to be.
   const m = ctx.movements();
   const keep = (b: Block) => {
@@ -457,15 +469,49 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
       const tillable = (p: Vec3) => wanted.get(key(p))?.state.name === 'farmland' && /^(dirt|grass_block|coarse_dirt|rooted_dirt|dirt_path)$/.test(bot.blockAt(p)?.name ?? '');
       const order = [...new Map(inTheWay.filter((p) => !tillable(p)).map((p) => [key(p), p])).values()].sort((a, b) => b.y - a.y || a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));
       if (order.length > 0) ctx.progress(`clearing the site: ${order.length} blocks in the way`);
-      for (const p of order) {
-        throwIfAborted(ctx.signal);
-        if (Date.now() > deadline) {
-          report.stoppedFor = 'out of time clearing the site';
-          return report;
+      // In passes, from the top: what can't be got at yet (the top of a tree, seen past its own leaves) waits for what
+      // is under and around it to come away, and leaves left over once the logs are gone fall by themselves.
+      let left = order;
+      for (let pass = 0; pass < 4 && left.length > 0; pass++) {
+        const missed: Vec3[] = [];
+        let gone = 0;
+        let stuck = 0;
+        let i = 0;
+        for (; i < left.length; i++) {
+          const p = left[i];
+          if (!p) continue;
+          throwIfAborted(ctx.signal);
+          if (Date.now() > deadline) {
+            report.stoppedFor = 'out of time clearing the site';
+            return report;
+          }
+          const b = bot.blockAt(p);
+          if (!b || isAirLike(b)) continue;
+          if (SOFT.test(b.name) || (await dig(ctx, b, 12_000))) {
+            report.dug++;
+            gone++;
+            stuck = 0;
+          } else {
+            missed.push(p);
+            // One after another out of reach, nothing coming away: on to the next pass rather than all of them.
+            if (++stuck >= STUCK_AFTER) break;
+          }
         }
-        const b = bot.blockAt(p);
-        if (!b || isAirLike(b)) continue;
-        if (SOFT.test(b.name) || (await dig(ctx, b))) report.dug++;
+        // What wasn't got at, and what this pass didn't come to; not what has gone since, nor grass (placing over it does).
+        const rest = [...missed, ...left.slice(i + 1)].filter((p) => {
+          const b = bot.blockAt(p);
+          return b !== null && !isAirLike(b) && !SOFT.test(b.name);
+        });
+        if (rest.length === 0) break;
+        if (gone === 0) {
+          // Nothing came away this pass: leaves alone left may fall by themselves; anything else can't be got at.
+          if (!rest.every((p) => /_leaves$/.test(bot.blockAt(p)?.name ?? ''))) {
+            report.stoppedFor = 'could not get at what is in the way';
+            return report;
+          }
+          for (let t = 0; t < 30 && rest.some((p) => !isAirLike(bot.blockAt(p))); t++) await waitMs(ctx, 1000);
+        }
+        left = rest;
       }
     }
 
@@ -508,6 +554,7 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
     const tries = new Map<string, number>();
     const skip = new Set<string>();
     let progress = 0;
+    let stuck = 0;
     for (let round = 0; pending.length > 0 && round < 20_000; round++) {
       throwIfAborted(ctx.signal);
       if (Date.now() > deadline) {
@@ -535,6 +582,7 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
         await placeOne(ctx, pick);
         if (sameBlock(bot.blockAt(pick.pos), pick.state) || (pick.state.name === 'farmland' && bot.blockAt(pick.pos)?.name === 'farmland')) {
           report.placed++;
+          stuck = 0;
           pending.splice(pending.indexOf(pick), 1);
           if (++progress % 10 === 0) ctx.progress(`building ${bp.name}: ${report.already + report.placed}/${report.total}`);
         } else throw new Error(`it came out as ${bot.blockAt(pick.pos)?.name ?? 'nothing'}`);
@@ -555,6 +603,11 @@ export async function construct(ctx: SkillContext, bp: Blueprint, site: Site, op
           skip.add(k);
           report.failed++;
           if (/_door$/.test(pick.state.name)) report.doorsFailed++;
+          // Block after block given up on, nothing placed between: stop and say so.
+          if (++stuck >= STUCK_AFTER) {
+            report.stoppedFor = 'could not get at the blocks';
+            break;
+          }
         }
       }
     }

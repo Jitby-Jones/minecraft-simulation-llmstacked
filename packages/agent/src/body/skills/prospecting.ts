@@ -9,7 +9,7 @@ import { Vec3 } from 'vec3';
 import { itemMatcher } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { blockIdsDropping, isAirLike, isSolid } from '../world';
-import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
 /** Feet height where each ore is common in today's overworld generation. */
@@ -87,7 +87,7 @@ async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
     if (liquid) throw new Blocked(`${liquid} ahead`);
     const tool = bot.pathfinder.bestHarvestTool(b);
     if (tool) await bot.equip(tool, 'hand');
-    await abortable(ctx.signal, bot.dig(b, true), () => bot.stopDigging());
+    await digBlock(ctx, b);
     await waitMs(ctx, 150);
   }
   throw new Blocked('gravel keeps falling');

@@ -13,7 +13,7 @@ import type { LlmClient } from '@agora/llm';
 import { z } from 'zod';
 import { type Blueprint, ROOF_MATERIALS, compileDesign } from './compile';
 import { type Design, DesignSchema, KINDS } from './design';
-import { type MaterialsPlan, type Need, type Substitution, billOf, planMaterials, substitute } from './materials';
+import { type MaterialsPlan, type Need, type Substitution, billOf, planMaterials, substitute, unknownBlocks } from './materials';
 import { type Building, type Repertoire } from './repertoire';
 
 export interface DesignRequest {
@@ -216,7 +216,7 @@ export async function designBuilding(req: DesignRequest, o: ArchitectOptions): P
       if (!parsed.success) wrong = parsed.error.issues.slice(0, 8).map((i) => `${i.path.join('.') || 'design'}: ${i.message}`);
       else {
         const bp = compileDesign(parsed.data);
-        wrong = bp.problems.slice(0, 8);
+        wrong = [...bp.problems.slice(0, 8), ...unknownBlocks(bp).map((n) => `there is no block called "${n}": name a real one (a wood's blocks are like birch_planks, birch_log, birch_fence)`)];
         // The work it takes once what is hard to get here is swapped for what is easier, as it will be built.
         const effort = planMaterials(billOf(substitute(bp, { ...(req.raw ? { raw: req.raw } : {}) }).blueprint), { ...(req.raw ? { raw: req.raw } : {}) }).effort;
         if (effort > maxEffort * 1.6) wrong.push(`it is about ${effort} minutes of work: make it smaller (at most about ${maxEffort})`);
