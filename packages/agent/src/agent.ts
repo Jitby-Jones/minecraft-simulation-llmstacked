@@ -18,6 +18,7 @@ import type { Body } from './body/body';
 import { cannedBusyLine } from './body/reflexes';
 import { ActionAwareness } from './modules/awareness';
 import { CognitiveController } from './modules/cc';
+import { Consensus } from './modules/consensus';
 import { Conversations } from './modules/conversations';
 import { SkillExecutor } from './modules/executor';
 import { type MindLevers, leversFor } from './modules/levers';
@@ -77,6 +78,9 @@ export interface AgentOptions {
   birth?: { facts: BirthFacts; youthUntil: number };
   /** The tier Talking writes lines with (models.yaml speech.tier). */
   speechTier?: 'L1' | 'L2' | 'L3';
+  /** Models tried first for a line, and their per-try timeout (models.yaml speech.models, speech.timeoutMs). */
+  speechModels?: readonly string[];
+  speechTimeoutMs?: number;
   /** §19.3: the bed ritual done beside our partner: the Hub is told (conception), with what we believe of them. */
   onConception?: (c: { partner: AgentName; bedPos: Vec3; partnerModel: Record<string, number>; partnerSex: Sex | 'unknown' }) => void;
   now?: () => number;
@@ -90,6 +94,8 @@ export class Agent {
   readonly executor: SkillExecutor;
   readonly awareness: ActionAwareness;
   readonly talking: Talking;
+  /** Ends a talk once it has settled what to do (owner request, 2026-10-24). */
+  readonly consensus: Consensus;
   readonly selfMonitor: SelfMonitor;
   readonly cc: CognitiveController;
   readonly memory: Memory | null;
@@ -188,8 +194,11 @@ export class Agent {
       ...(mem ? { recall: (text: string, k: number) => mem.relevantTo(text, k) } : {}),
       rungOf: (name) => this.conflict.rungOf(name),
       ...(o.speechTier ? { tier: o.speechTier } : {}),
+      ...(o.speechModels && o.speechModels.length > 0 ? { models: o.speechModels } : {}),
+      ...(o.speechTimeoutMs ? { timeoutMs: o.speechTimeoutMs } : {}),
       now,
     });
+    this.consensus = new Consensus({ store: this.store, bus: this.bus, logger, llm, conversations: this.conversations, me: username, now });
     this.selfMonitor = new SelfMonitor({ store: this.store, bus: this.bus, logger, llm, me: username, now });
     this.cc = new CognitiveController({
       store: this.store,
@@ -770,6 +779,7 @@ export class Agent {
     this.awareness.start();
     this.executor.start();
     this.talking.start();
+    this.consensus.start();
     this.selfMonitor.start();
     this.memory?.start();
     this.cc.start();
@@ -848,6 +858,7 @@ export class Agent {
     this.goalGen?.stop();
     this.cc.stop();
     this.selfMonitor.stop();
+    this.consensus.stop();
     this.talking.stop();
     this.executor.stop();
     this.awareness.stop();

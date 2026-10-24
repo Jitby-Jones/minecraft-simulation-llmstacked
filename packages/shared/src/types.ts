@@ -581,6 +581,10 @@ export type AgentEvent =
   | { type: 'decision'; decision: Decision }
   | { type: 'conversationStarted'; convId: ConvId }
   | { type: 'conversationEnded'; convId: ConvId; reason: string }
+  /** A line of ours went out in a conversation. */
+  | { type: 'spoke'; convId: ConvId; text: string }
+  /** A talk settled on something to do now (owner request, 2026-10-24): what, with whom, and our part in it. */
+  | { type: 'agreed'; with: AgentName[]; what: string; mine?: string }
   | { type: 'observedAction'; action: ObservedAction }
   | { type: 'systemEvent'; event: SystemEvent }
   /** A death notice about someone else (§16.3); grief −1 (relief) … 1 by how we felt about them. */

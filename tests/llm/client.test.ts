@@ -187,6 +187,25 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(fake.chatRequests().filter((q) => q.body?.model === first).length).toBe(before);
   });
 
+  it('tries the models a call prefers first (speech), skipping one not on the list; the operator’s model still first; its own timeout', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const rt = await runtime(fake);
+    const tierFirst = rt.router.chain('L2')[0];
+    fake.chat = ({ model }) => (model === 'p2-big' ? { text: GOOD, delayMs: 600 } : { text: GOOD });
+    // p2-big answers in 600 ms: past the tier's 300 ms, within this call's 1500.
+    const r = await ask(rt, { prefer: ['not-on-the-list', 'p2-big', 'p3-big'], timeoutMs: 1500 });
+    expect(r.ok && r.model).toBe('p2-big');
+    expect(fake.chatRequests().map((q) => q.body?.model)).toEqual(['p2-big']);
+    // With the tier's own timeout it is too slow: the next preferred model answers.
+    const slow = await ask(rt, { prefer: ['p2-big', 'p3-big'] });
+    expect(slow.ok && slow.model).toBe('p3-big');
+    // The operator chose a model for the tier: it comes first all the same.
+    rt.client.setRouting({ tierModel: { L2: 'p1-mid' } });
+    const routed = await ask(rt, { prefer: ['p3-big'] });
+    expect(routed.ok && routed.model).toBe('p1-mid');
+    expect(tierFirst).toBeDefined();
+  });
+
   it('takes a rate token for every request it sends: a fallback model’s and a repair’s too (NanoGPT counts each)', async () => {
     const fake = new FakeNanoGpt(standardModels());
     let tokens = 0;

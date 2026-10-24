@@ -28,7 +28,16 @@ export const ModelsConfigSchema = z
       })
       .prefault({}),
     /** What agents speak with: the tier lines are written with (a small model's lines come late and short). */
-    speech: z.object({ tier: TierNameSchema.default('L2') }).prefault({}),
+    // The tier lines are written with, and models tried first for them (each must be on the subscription list) with
+    // a timeout of their own: talk drives the agents' dealings with each other, so a line is worth a better model and
+    // a few seconds (owner request, 2026-10-24).
+    speech: z
+      .object({
+        tier: TierNameSchema.default('L2'),
+        models: z.array(z.string().min(1)).default([]),
+        timeoutMs: z.number().int().min(1000).max(60_000).optional(),
+      })
+      .prefault({}),
     embeddings: z
       .object({
         provider: z.enum(['local', 'nanogpt']).default('local'),

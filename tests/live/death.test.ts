@@ -69,7 +69,7 @@ describe.skipIf(!liveJavaPath())('live: a death ends everything', () => {
       const fell = body.bot.entity.position.clone();
       // A while after: nothing of her acts.
       await sleep(8000);
-      expect(body.bot.isAlive).toBe(false);
+      expect((body.bot as unknown as { isAlive: boolean }).isAlive).toBe(false);
       expect(body.bot.health).toBeLessThanOrEqual(0);
       expect(body.bot.entity.position.distanceTo(fell)).toBeLessThan(0.5);
       expect(said.filter((l) => l.at > diedAt)).toEqual([]);

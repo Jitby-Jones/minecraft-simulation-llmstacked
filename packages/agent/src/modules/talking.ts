@@ -2,9 +2,9 @@
 // (§13 rule 3): without `mayCommit` Talking never promises anything. That is in the prompt AND checked in code
 // (regenerate once, then "let me think about it."). A request gets a quick non-committal reply and wakes the CC with
 // `needsDecision`; the CC's speechIntent then drives the real answer. Reply timing follows the busy matrix; lines
-// that arrive while a reply is pending are answered together (batching).
+// that arrive while a reply is pending, from anyone, are answered together (batching), one line at a time.
 
-import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, countWords, dropUnfinished, endsSentence, fitWords, mentionsName } from '@agora/shared';
+import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, countWords, dropUnfinished, endsSentence, fitWords, maxTurnsFor, mentionsName } from '@agora/shared';
 import type { ChatMessage, LlmClient, TierName } from '@agora/llm';
 import { SingleFlight } from '@agora/llm';
 import { z } from 'zod';
@@ -12,6 +12,7 @@ import type { AgentBus } from '../bus';
 import type { Body } from '../body/body';
 import { SURRENDER_RE } from '../body/skills/duel';
 import { talkPolicy } from '../state/policies';
+import { pushWorkmem } from '../state/workmem';
 import type { AgentStateStore } from '../state/store';
 import type { Conversations } from './conversations';
 import type { SkillExecutor } from './executor';
@@ -39,6 +40,24 @@ const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand
 const FIGHT_ANNOUNCED_MS = 15_000;
 /** §6.2 floor control for a line nobody asked for: said once nobody in earshot has spoken for this long. */
 const LULL_MS = 4000;
+/**
+ * Turn-taking (owner request, 2026-10-24: people talked over each other, and too fast). A line is read before it is
+ * answered (READ_BASE_MS plus READ_MS_PER_CHAR a character, up to READ_MAX_MS), and a line waits for a gap of
+ * FLOOR_GAP_MS after anyone else's (up to FLOOR_WAIT_MS) before it goes out.
+ */
+const READ_BASE_MS = 500;
+const READ_MS_PER_CHAR = 30;
+const READ_MAX_MS = 3500;
+const FLOOR_GAP_MS = 1200;
+/** Others who spoke this recently count as part of the talk (a group, when there are two or more of them). */
+const GROUP_RECENT_MS = 30_000;
+/** After a talk settled what to do: small talk waits this long (a question put to us by name doesn't). */
+const FOCUS_MS = 45_000;
+/** In a group talk, this many lines of ours over the turn cap within GROUP_WINDOW_MS is enough: back to it. */
+const GROUP_SLACK = 2;
+const GROUP_WINDOW_MS = 120_000;
+/** One key for every line: we say one thing at a time. */
+const SPEAK = 'speak';
 /** Waiting for a lull this many times its length at most; then the line goes unsaid. */
 const LULL_PATIENCE = 15;
 /**
@@ -150,6 +169,9 @@ export interface TalkingOptions {
   lullMs?: number;
   /** The tier lines are written with (models.yaml speech.tier; L2 by default). */
   tier?: TierName;
+  /** Models tried first for a line, and the per-try timeout (models.yaml speech.models, speech.timeoutMs). */
+  models?: readonly string[];
+  timeoutMs?: number;
 }
 
 interface Pending {
@@ -158,7 +180,12 @@ interface Pending {
 }
 
 export class Talking {
-  private readonly pending = new Map<ConvId, Pending>();
+  /** The reply in the making: every line put to us since, from anyone, answered together. */
+  private pending: Pending | null = null;
+  /** Until when small talk waits (a talk just settled what to do, or went on long enough). */
+  private focusUntil = -Infinity;
+  /** When we said our last lines (any conversation). */
+  private saidAt: number[] = [];
   /** Conversations waiting for the CC's answer to a request. */
   private readonly awaiting = new Map<ConvId, number>();
   private readonly flight = new SingleFlight<void>();
@@ -181,6 +208,21 @@ export class Talking {
     this.offs.push(this.o.bus.on('overheard', (e) => this.onOverheard(e.utterance)));
     this.offs.push(this.o.bus.on('addressed', (e) => this.onAddressed(e.utterance)));
     this.offs.push(this.o.bus.on('decision', (e) => this.onDecision(e.decision)));
+    // A talk settled what to do (consensus.ts): small talk waits a while; what was waiting is dropped, unless it
+    // asked us something.
+    this.offs.push(
+      this.o.bus.on('agreed', () => {
+        this.focusUntil = this.now() + FOCUS_MS;
+        const p = this.pending;
+        if (p && !p.lines.some((l) => needsDecision(l.text) || mentionsName(l.text, this.o.me))) {
+          clearTimeout(p.timer);
+          this.pending = null;
+        }
+      }),
+    );
+    // Turn-taking at the moment a line goes out (after typing): not over someone else's.
+    const chat = (this.o.body as { chat?: { setFloor?: (f: () => number) => void } }).chat;
+    chat?.setFloor?.(() => this.floorWait());
     this.offs.push(
       this.o.bus.on('needsDecision', (e) => {
         if (e.reason === 'nudge' && e.convId) void this.say(e.convId, [], NUDGE);
@@ -190,8 +232,8 @@ export class Talking {
 
   stop(): void {
     this.stopped = true;
-    for (const p of this.pending.values()) clearTimeout(p.timer);
-    this.pending.clear();
+    if (this.pending) clearTimeout(this.pending.timer);
+    this.pending = null;
     for (const off of this.offs.splice(0)) off();
   }
 
@@ -237,6 +279,20 @@ export class Talking {
     void go().catch((err: unknown) => this.o.logger.info({ module: 'talking', err: String(err) }, 'interjection failed'));
   }
 
+  /** How long until the floor is ours: FLOOR_GAP_MS after anyone else's last line (0 when it is). */
+  private floorWait(): number {
+    const last = Math.max(-Infinity, ...this.o.store.state.perception.heardSpeech.filter((x) => x.from !== this.o.me).map((x) => x.ts));
+    return Math.max(0, FLOOR_GAP_MS - (this.now() - last));
+  }
+
+  /** Two or more others (the speaker among them) spoke in earshot lately: a group talk. */
+  private groupAround(speaker: AgentName | undefined): boolean {
+    const t = this.now();
+    const others = new Set(this.o.store.state.perception.heardSpeech.filter((x) => x.from !== this.o.me && t - x.ts < GROUP_RECENT_MS).map((x) => x.from));
+    if (speaker) others.add(speaker);
+    return others.size >= 2;
+  }
+
   /** Someone other than the speaker (and us) spoke after `u`: the floor is taken. */
   private someoneAnswered(u: Utterance): boolean {
     return this.o.store.state.perception.heardSpeech.some((x) => x.ts > u.ts && x.from !== u.from && x.from !== this.o.me);
@@ -274,10 +330,13 @@ export class Talking {
   /** Says something right away to them, no model and no waiting (§18.5 outbursts); replaces a reply in the making. */
   async blurt(to: AgentName, text: string, volume: SpeechIntent['volume'] = 'normal', urgent = false): Promise<boolean> {
     const conv = this.o.conversations.withPartner(to) ?? this.o.conversations.open(to, true);
-    const p = this.pending.get(conv.convId);
+    const p = this.pending;
     if (p) {
-      clearTimeout(p.timer);
-      this.pending.delete(conv.convId);
+      p.lines = p.lines.filter((l) => l.from !== to);
+      if (p.lines.length === 0) {
+        clearTimeout(p.timer);
+        this.pending = null;
+      }
     }
     return this.send(conv.convId, text, volume, undefined, urgent);
   }
@@ -319,28 +378,39 @@ export class Talking {
   private onAddressed(u: Utterance): void {
     if (!u.convId) return;
     if ((this.refusing.get(u.from) ?? 0) > this.now()) return;
-    const p = this.pending.get(u.convId);
-    if (p) {
-      p.lines.push(u); // batched into the pending reply
+    // A talk just settled what to do, or went on long enough: small talk waits; a question put to us doesn't.
+    if (this.now() < this.focusUntil && !needsDecision(u.text) && !mentionsName(u.text, this.o.me)) return;
+    if (this.pending) {
+      this.pending.lines.push(u); // batched into the pending reply, whoever said it
       return;
     }
     const level = this.busyLevel();
     const j = (lo: number, hi: number) => lo + this.rng() * (hi - lo);
-    const delay = level === 'critical' ? j(200, 500) : level === 'working' ? j(600, 1500) : this.speakerBusy(u.from) ? j(1500, 3000) : j(300, 900);
-    const timer = setTimeout(() => void this.flush(u.convId), delay);
-    this.pending.set(u.convId, { lines: [u], timer });
+    // Read it first, as people do: a long line takes longer to answer than "hey".
+    const read = Math.min(READ_MAX_MS, READ_BASE_MS + READ_MS_PER_CHAR * u.text.length);
+    const delay = level === 'critical' ? j(200, 500) : level === 'working' ? Math.max(read * 0.6, j(600, 1500)) : this.speakerBusy(u.from) ? Math.max(read, j(1500, 3000)) : read + j(0, 600);
+    const timer = setTimeout(() => void this.flush(), delay);
+    this.pending = { lines: [u], timer };
   }
 
-  private async flush(convId: ConvId): Promise<void> {
-    const p = this.pending.get(convId);
-    this.pending.delete(convId);
+  private async flush(): Promise<void> {
+    const p = this.pending;
     if (!p) return;
+    // One line at a time: while one is on its way, what came in since waits for it, and joins the batch.
+    if (this.flight.inFlight(SPEAK)) {
+      p.timer = setTimeout(() => void this.flush(), 400);
+      return;
+    }
+    this.pending = null;
+    // Answered in the conversation of whoever spoke last; the others we answer note the line too.
+    const convId = p.lines[p.lines.length - 1]?.convId ?? '';
+    const also = [...new Set(p.lines.map((l) => l.convId))].filter((id) => id && id !== convId);
     const level = this.busyLevel();
     if (level === 'critical') {
       const line = this.o.store.state.flags.busySpeech;
       if (line && this.now() - this.lastCanned > 10_000) {
         this.lastCanned = this.now();
-        await this.send(convId, line);
+        await this.send(convId, line, 'normal', undefined, false, also);
       }
       return;
     }
@@ -369,7 +439,7 @@ export class Talking {
     } else {
       intent = this.currentIntent(from) ?? { stance: 'chat', gist: 'friendly and short', mayCommit: false };
     }
-    await this.say(convId, p.lines, intent, from);
+    await this.say(convId, p.lines, intent, from, undefined, also);
   }
 
   /** A fresh CC speech intent aimed at this person (or at whoever we're talking to). */
@@ -439,19 +509,24 @@ export class Talking {
    * Says the line for this intent in the conversation; `to` is whom it is meant for, named in a worded line. `wanted`,
    * if given, is asked again just before the line goes out.
    */
-  private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName, wanted?: () => boolean): Promise<void> {
-    await this.flight.run(convId, async () => {
+  private async say(convId: ConvId, incoming: Utterance[], intent: SpeechIntent, to?: AgentName, wanted?: () => boolean, also: readonly ConvId[] = []): Promise<void> {
+    await this.flight.run(SPEAK, async () => {
       let conv = this.o.conversations.get(convId);
       // An opening line whose conversation ended meanwhile (it had gone quiet): said in a new one.
       if ((!conv || conv.status === 'ended') && incoming.length === 0 && to && (wanted?.() ?? true)) conv = this.o.conversations.open(to, true);
       if (!conv || conv.status === 'ended') return;
       convId = conv.convId;
-      // Chiming in (floor control): someone else may have answered while we were thinking or typing.
+      // Chiming in (floor control): someone else may have answered while we were thinking or typing. So too in a
+      // group, for a line not put to us by name: whoever answers first has the floor, and the rest of us take our turn
+      // after, unless we have something else to say (no, a counter-offer, a sharp word).
       const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
-      const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) && (wanted?.() ?? true) : wanted;
+      const ours = incoming.some((u) => mentionsName(u.text, this.o.me));
+      const contrary = ['decline', 'negotiate', 'hostile', 'threaten', 'apologize'].includes(intent.stance);
+      const groupTurn = incoming.length > 0 && !chimingIn && !ours && !contrary && this.groupAround(incoming[incoming.length - 1]?.from);
+      const stillWanted = chimingIn || groupTurn ? () => !incoming.some((u) => this.someoneAnswered(u)) && (wanted?.() ?? true) : wanted;
       const text = await this.compose(convId, incoming, intent, to);
-      const sent = !text || (stillWanted && !stillWanted()) ? false : await this.send(convId, text, intent.volume, stillWanted);
-      if (!sent && chimingIn) {
+      const sent = !text || (stillWanted && !stillWanted()) ? false : await this.send(convId, text, intent.volume, stillWanted, false, also);
+      if (!sent && (chimingIn || groupTurn)) {
         this.o.logger.info({ module: 'talking' }, 'someone else answered first; staying quiet');
         this.o.conversations.discardIfUnspoken(convId);
       }
@@ -462,8 +537,9 @@ export class Talking {
     return text.length > 0 && !GIVEAWAY_RE.test(text) && !NOT_PG_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
   }
 
-  private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean, urgent = false): Promise<boolean> {
+  private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean, urgent = false, also: readonly ConvId[] = []): Promise<boolean> {
     const conv = this.o.conversations.get(convId);
+    if (this.stopped) return false;
     try {
       const sent = await this.o.body.say(text, volume ?? 'normal', conv?.participants.filter((p) => p !== this.o.me) ?? [], stillWanted, urgent);
       if (!sent) return false;
@@ -472,7 +548,25 @@ export class Talking {
       return false;
     }
     this.o.conversations.noteOwnUtterance(convId, text);
+    for (const id of also) this.o.conversations.noteOwnUtterance(id, text);
+    this.o.bus.emit({ type: 'spoke', convId, text });
+    this.enoughTalk();
     return true;
+  }
+
+  /**
+   * In a group talk, a few lines past our turn cap in two minutes is enough (owner request, 2026-10-24: people stood
+   * about talking): our talks end, and small talk waits a while.
+   */
+  private enoughTalk(): void {
+    const t = this.now();
+    this.saidAt = [...this.saidAt.filter((x) => t - x < GROUP_WINDOW_MS), t];
+    if (this.saidAt.length < maxTurnsFor(this.o.store.state.self.persona) + GROUP_SLACK || !this.groupAround(undefined)) return;
+    for (const c of this.o.conversations.active()) this.o.conversations.end(c.convId, 'talked enough');
+    this.focusUntil = t + FOCUS_MS;
+    this.saidAt = [];
+    pushWorkmem(this.o.store, "I've talked long enough for now; time to get on with things", 0.6, 'self_observed', { now: t });
+    this.o.bus.emit({ type: 'needsDecision', reason: 'talkedEnough' });
   }
 
   /**
@@ -603,6 +697,8 @@ export class Talking {
           module: 'talking',
           agent: this.o.me,
           messages,
+          ...(this.o.models && this.o.models.length > 0 ? { prefer: this.o.models } : {}),
+          ...(this.o.timeoutMs ? { timeoutMs: this.o.timeoutMs } : {}),
           fallback: () => this.canned(intent, false, undefined, to),
           signal: guard.signal,
           isStale: guard.isStale,

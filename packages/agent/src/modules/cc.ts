@@ -1086,9 +1086,13 @@ export class CognitiveController {
         if (e.reason === 'request') this.trigger(`${e.from ?? 'someone'} asked you something`, { convId: e.convId, from: e.from, urgent: true });
         // They took our offer: hand over our half (the deal's give task is queued).
         if (e.reason === 'deal') this.trigger(`${e.from ?? 'someone'} agreed to your trade`, { urgent: !this.o.executor.busy });
+        // A group talk went on long enough (talking.ts): on with things.
+        if (e.reason === 'talkedEnough') this.trigger('you have talked long enough for now; get on with things', { urgent: true });
       }),
     );
     this.offs.push(b.on('newGoal', (e) => this.trigger(`new goal: ${e.goal.text}`, { urgent: !this.o.executor.busy })));
+    // A talk settled what to do (consensus.ts): on to it now, mid-stroll or mid-talk alike.
+    this.offs.push(b.on('agreed', (e) => this.trigger(`you agreed${e.with.length > 0 ? ` with ${e.with.join(', ')}` : ''}: ${e.what}`, { urgent: true })));
     // §17.5: things getting worse with someone, or someone we're at odds with coming near, is worth a decision now,
     // even in the middle of a task.
     this.offs.push(
