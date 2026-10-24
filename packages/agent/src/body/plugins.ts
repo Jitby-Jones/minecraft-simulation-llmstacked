@@ -8,8 +8,10 @@ import { plugin as pvpPlugin } from 'mineflayer-pvp';
 import { plugin as collectBlockPlugin } from 'mineflayer-collectblock';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
+import type { Item } from 'prismarine-item';
 import { Vec3 } from 'vec3';
 import { type PathCostRule, pathCostRules } from './quirks';
+import { toolFor } from './toolChoice';
 
 const { pathfinder, Movements, goals } = pathfinderPkg;
 
@@ -27,6 +29,21 @@ export function loadBodyPlugins(bot: Bot): void {
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvpPlugin);
   bot.loadPlugin(collectBlockPlugin);
+  // The tool a player takes to a block, for the walk's digging and the collect plugin's alike (toolChoice.ts).
+  (bot.pathfinder as unknown as { bestHarvestTool(b: Block): Item | null }).bestHarvestTool = (b) => toolFor(bot, b);
+  // The collect plugin loads its tool plugin a tick later: wrapped once it is there.
+  const wrapTool = (): boolean => {
+    const tool = (bot as unknown as { tool?: { equipForBlock(b: Block, o?: object): Promise<void> } }).tool;
+    if (!tool) return false;
+    const equipForBlock = tool.equipForBlock.bind(tool);
+    tool.equipForBlock = async (b, o = {}) => {
+      const t = toolFor(bot, b);
+      if (!t) return equipForBlock(b, o);
+      if (bot.heldItem?.slot !== t.slot) await bot.equip(t, 'hand');
+    };
+    return true;
+  };
+  if (!wrapTool()) setTimeout(() => wrapTool() || setTimeout(wrapTool, 100), 0);
   // Line-of-sight goals around foliage (upper tree logs) need more search than the 5 s default.
   bot.pathfinder.thinkTimeout = 10_000;
   bot.pathfinder.tickTimeout = 25;

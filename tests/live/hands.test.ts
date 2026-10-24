@@ -273,6 +273,28 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'cobblestone')).toBe(2240 - 128 + 1);
   }, 120_000);
 
+  it('an iron pickaxe nearly gone is spared where a stone one does the job, and used when it is all there is', async () => {
+    const x = 5500;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 3} ${Y} -3 ${x + 3} ${Y + 3} 3 air`);
+    await server.cmd(`fill ${x + 2} ${Y} -2 ${x + 2} ${Y} 2 stone`);
+    for (const g of ['iron_pickaxe[damage=230] 1', 'stone_pickaxe 1']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(2000);
+    const used = (name: string) => (body.bot.inventory.items().find((i) => i.name === name) as unknown as { durabilityUsed?: number } | undefined)?.durabilityUsed ?? -1;
+    expect(used('iron_pickaxe')).toBe(230);
+    const r = await run('mine', { block: 'stone', qty: 3 });
+    logger.info({ r, iron: used('iron_pickaxe'), stone: used('stone_pickaxe') }, 'worn pickaxe spared');
+    expect(r.ok).toBe(true);
+    expect(used('iron_pickaxe')).toBe(230);
+    expect(used('stone_pickaxe')).toBeGreaterThanOrEqual(3);
+    // The stone one gone: the worn iron one it is.
+    await server.cmd('clear Ada minecraft:stone_pickaxe');
+    await sleep(1000);
+    const again = await run('mine', { block: 'stone', qty: 1 });
+    expect(again.ok).toBe(true);
+    expect(used('iron_pickaxe')).toBe(231);
+  }, 120_000);
+
   it('in a tunnel with no room, a notch is dug in the wall to set a furnace down', async () => {
     const x = 5800;
     await at(x, 0);
