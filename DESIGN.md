@@ -2514,3 +2514,82 @@ They also gave a NanoGPT key to test the parts that need it. Everything below wa
     - NameMC still turns the Hub away (Cloudflare), so skins need its pages saved by hand (§16.5).
     - L1's small models time out often with five agents on a key (in `obs5`, llama-3.3-70b failed 91 of 215 calls, gemma-4-12b 66 of 295). An agent of low intelligence, whose CC runs on L1 (§21.1), falls back to the code default more often. `pnpm bench-models --tier L1`, or a model chosen for L1 with the debug controls, is the remedy at hand.
     - A hut needs a level, clear 7×7 patch near home. In hilly forest none may be found; the builder doesn't yet clear trees or level ground.
+
+### Owner requests: a console, deaths, talk, building and more (2026-10-24)
+
+The owner asked for, after playtesting: a server console and Stop and Restart buttons on the dashboard; agents that cease
+all activity when they die; dialogue that is cogent rather than quick (a larger model, about 8 s is fine) and sounds
+like Minecraft players; talks that take turns and end once a group agrees; agents that make their own tools, keep
+items in real chests, and fight mobs they can beat; buildings designed from a repertoire researched from real builds,
+with a fourth model tier for the design and its materials; land cleared for building, and moving to flatter ground;
+naming tools at an anvil, enchanting, and expeditions to the Nether and the End by choice; and a hidden controller
+that sets right only what is odd. Whether two API keys would help with timeouts was asked too (item 5).
+
+1. **A server console and Stop and Restart (dashboard).** A Server console card shows what the Minecraft server prints
+   and runs commands on it as its own console does (the slash is optional; the up arrow brings back earlier ones). It
+   goes through the control endpoint behind the same token, with the same refusals as `pnpm ctl rcon`: op and chat
+   spying only for the owner (§13 rule 9). The output is kept in memory only, the last thousand lines
+   (`dashboard/console.ts`); the page asks for new lines every two seconds, and those reads aren't logged. The Controls
+   card gets Restart and Stop, each after a confirm. Rendered in Chromium, light and dark, wide and at phone width: a
+   command and its answer show, the up arrow works, and both buttons reach the handler.
+2. **A death ends everything at once.** An agent went on acting for a moment after it died: mineflayer respawned the
+   bot at once (at the spawn, or on hardcore as a spectator), and the agent's modules ran on until the process wound
+   down. It could walk, speak and call its models in that time.
+   - The bot never respawns (`respawn: false`): the body stays where it fell.
+   - At the death event the agent stops everything synchronously (`Agent.die`): the body stops moving, digging, fighting
+     and using items, its reflexes stop, nothing more is said (what was waiting included), every module halts, and every
+     model call of the agent ends there, one under way included (`haltable`: the agent's client cut off by one signal).
+   - Perception keeps hearing the death's cause for the report; memory is written as the process ends.
+   - Live (`death`, new): Ada, killed mid-stroll, stays where she fell for 8 s, says nothing, decides nothing and runs no
+     skill; Bo beside her hears her die and nothing from her after.
+3. **Talk like players.** The talk rules ask for lines typed the way Minecraft players chat: mostly lowercase, short,
+   light on punctuation, the odd lol/ngl/tbh/omw where a player would, and plain about what is meant, naming things, and
+   saying so when something gets decided. A person's own way of talking still shows through.
+4. **A stronger model for lines, with time for it.** Talk drives how the agents deal with each other, so a line now gets
+   models of its own (`speech.models` in `config/models.yaml`, each tried before the tier's chain and only if on the
+   subscription list; the operator's model for the tier still comes first) and 8 s a try (`speech.timeoutMs`). Twelve
+   subscription models wrote eight lines each from the real speech prompt: a group sharing out the work, lending iron,
+   a plan agreed, a grudge, zombies at night, news of a village, talking someone into the Nether, a trade. All answered
+   within 8 s but `glm-5.3` (one 15 s reply, one timeout); most took about 2 s.
+   - `glm-5.1` wrote the clearest lines in the most natural player style ("ooh yeah lets do it!! all three of us, cave
+     east, iron mining fr. omw!"; "bram you took 4 of my logs without asking. stop taking my stuff go chop your own"),
+     p50 1.6 s, p90 2.1 s.
+   - `kimi-k2.6` ("sure np got 5 rn heres 2") and `mimo-v2.6-pro` were close; `minimax-m3`, L2's first by heuristics,
+     was plainer; `deepseek-v4-pro` made up places ("the birch grove west of here"); `mistral-small-4` got requests
+     wrong ("ok lets do it" to lending iron).
+   - The chain: glm-5.1, kimi-k2.6, mimo-v2.6-pro, minimax-m3, then L2's own.
+5. **Would two API keys help with timeouts?** Not with the timeouts we measured: those were the models answering slowly
+   (in `obs5`, the small L1 models, 7 s and more), not the key's limit, and a second key doesn't make a model answer
+   faster. What a second key could add is requests: our limiter keeps all the agents together under the 60 a minute
+   NanoGPT allows ("Subscription text requests are limited to 60 per minute"). Five agents used 35–40 a minute; eight
+   or more would queue. NanoGPT's documentation says its daily limits are per key, but not whether the 60 a minute is
+   per key or per subscription, and the weekly token allowance is the subscription's. So two keys on one subscription
+   may share both; two subscriptions would double both. A key pool (each key with its own limiter and its own startup
+   check that it cannot spend balance) is a small change once that is known.
+6. **Taking turns.** People talked over each other, and too fast. A conversation is between two in state, so in a group
+   each answered each partner separately.
+   - A line is read before it is answered: 0.5 s plus 30 ms a character, up to 3.5 s.
+   - Lines that come in while a reply is pending, from anyone, are answered together, one line at a time (a single
+     pending batch and one in-flight line per agent); the line is noted in each conversation it answers.
+   - A line put to a group without a name is answered by whoever is first; the rest stay quiet unless they have
+     something else to say (no, a counter-offer, a sharp word).
+   - A line goes out only once nobody else has spoken for 1.2 s: held in the chat queue after typing (when it would go
+     out), with a random beat of up to 0.6 s first, so two who waited for the same quiet don't both go.
+7. **A talk that has settled what to do ends** (`modules/consensus.ts`). A stroll stays put while a talk is live, and
+   people stood about talking long after they had agreed.
+   - With a model, a line that sounds like a yes, or every six lines of a group talk, is followed after 3 s by a short
+     L1 question: did the people talking agree on something to do now, with nobody still against it; what; and our part
+     in it. At most once every 10 s, and the lines that come meanwhile are read too: players agree loosely ("sounds good
+     but lemme finish these logs") and skip question marks, so the model judges, not the words alone.
+   - Without a model: a yes to something someone else put forward, with nobody pushing back in between or in the 3 s
+     after.
+   - Settled: the talks with those in it end (`agreed`), "we agreed with Pip, Wren: go to the cave east and mine iron
+     together; my part: bring torches" goes on the mind, and the mind decides at once. Small talk waits 45 s after (a
+     question put to us by name doesn't). The decision rules say: once a talk has settled what to do, stop talking and
+     go do it.
+   - A group talk a few lines past one's turn cap within two minutes is enough too: one's talks end, "I've talked long
+     enough for now" goes on the mind, and the mind gets on with things.
+   - Live with the real models (`real-models`, three from the pool, asked to go chop the oaks together): before, 75
+     lines in 107 s, 25 of them over someone else's, and no agreement; now 29 lines in a minute, none over another, 28
+     lowercase, the plan settled ("collect one stack of logs each and meet at the river hut spot"), and all three off
+     gathering wood.
