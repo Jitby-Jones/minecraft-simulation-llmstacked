@@ -298,13 +298,22 @@ export function fuelValue(name: string): number {
   return CATEGORIES.log?.(name) || name.endsWith('_planks') ? 1.5 : 1;
 }
 
+/** Kept back from the fire: a tool's sticks (an agent burned its last ones and could not make the iron pickaxe it had the iron for, the nearest tree 86 m off). */
+const KEPT_FROM_FIRE: Readonly<Record<string, number>> = { stick: 2 };
+
+/** How many of these may go in the fire. */
+export function burnable(bot: Bot, name: string): number {
+  return Math.max(0, countItem(bot, name) - (KEPT_FROM_FIRE[name] ?? 0));
+}
+
 /**
  * The fuel to burn for `need` items, never what is being cooked: coal and the like first, then planks before logs
- * (a log makes four planks, each burning as long as the log), then sticks; the first of them we carry enough of for
- * the whole batch, else whichever goes furthest (one plank put in for three raw iron cooked one of them).
+ * (a log makes four planks, each burning as long as the log), then sticks, a tool's two kept back; the first of them
+ * we carry enough of for the whole batch, else whichever goes furthest (one plank put in for three raw iron cooked
+ * one of them).
  */
 export function pickFuel(bot: Bot, prefer?: string, cooking?: string, need = 1): { name: string; perItem: number } | null {
-  const items = bot.inventory.items().filter((i) => i.name !== cooking);
+  const items = bot.inventory.items().filter((i) => i.name !== cooking && burnable(bot, i.name) > 0);
   const has = (name: string) => items.some((i) => i.name === name);
   const order = [
     ...(prefer && has(prefer) ? [prefer] : []),
@@ -313,7 +322,7 @@ export function pickFuel(bot: Bot, prefer?: string, cooking?: string, need = 1):
     ...items.filter((i) => CATEGORIES.log?.(i.name)).map((i) => i.name),
     ...(has('stick') ? ['stick'] : []),
   ];
-  const burns = (name: string) => countItem(bot, name) * fuelValue(name);
+  const burns = (name: string) => burnable(bot, name) * fuelValue(name);
   const pick = order.find((n) => burns(n) >= need) ?? [...new Set(order)].sort((a, b) => burns(b) - burns(a))[0];
   return pick ? { name: pick, perItem: fuelValue(pick) } : null;
 }
@@ -337,7 +346,7 @@ export async function readyFurnace(bot: Bot, furnace: FurnaceApi, input: string,
   if (fuelType === undefined) return inFuel ? null : 'unknown fuel';
   const same = inFuel?.name === fuel.name;
   if (inFuel && !same) await furnace.takeFuel();
-  const n = Math.min(countItem(bot, fuel.name), Math.ceil((qty - (same ? burns : 0)) / fuel.perItem));
+  const n = Math.min(burnable(bot, fuel.name), Math.ceil((qty - (same ? burns : 0)) / fuel.perItem));
   if (n > 0) await furnace.putFuel(fuelType, null, n);
   return null;
 }
@@ -367,7 +376,7 @@ function planksOf(log: string): string {
 async function planksForFuel(ctx: SkillContext, input: string, qty: number): Promise<number> {
   const { bot } = ctx;
   const fuel = pickFuel(bot, undefined, input, qty);
-  if (fuel && countItem(bot, fuel.name) * fuel.perItem >= qty) return 0;
+  if (fuel && burnable(bot, fuel.name) * fuel.perItem >= qty) return 0;
   const other = bot.inventory.items().find((i) => CATEGORIES.log?.(i.name) && i.name !== input);
   const log = other?.name ?? (CATEGORIES.log?.(input) ? input : null);
   if (!log) return 0;

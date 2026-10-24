@@ -630,7 +630,12 @@ describe('cooking what was hunted (the obtain planner)', () => {
     // Enough for the batch: one plank won't cook three raw iron, two logs will; failing that, what goes furthest.
     expect(pickFuel(bot([['oak_planks', 1], ['birch_log', 2]]), undefined, 'raw_iron', 3)?.name).toBe('birch_log');
     expect(pickFuel(bot([['oak_planks', 3], ['birch_log', 2]]), undefined, 'raw_iron', 3)?.name).toBe('oak_planks');
-    expect(pickFuel(bot([['oak_planks', 1], ['stick', 4]]), undefined, 'raw_iron', 8)?.name).toBe('stick');
+    expect(pickFuel(bot([['oak_planks', 1], ['stick', 12]]), undefined, 'raw_iron', 8)?.name).toBe('stick');
+    // A tool's two sticks are kept back from the fire (the last ones burned, an iron pickaxe could not be made).
+    expect(pickFuel(bot([['oak_planks', 1], ['stick', 4]]), undefined, 'raw_iron', 8)?.name).toBe('oak_planks');
+    expect(pickFuel(bot([['stick', 2]]), undefined, 'raw_iron', 1)).toBeNull();
+    expect(await readyFurnace(bot([['raw_iron', 3], ['stick', 5]]), furnace({}), 'raw_iron', 3)).toBeNull();
+    expect(done.splice(0)).toEqual(['fuel 3']);
   });
 
   it('iron is mined and smelted, not made out of an iron block nobody has seen', async () => {
