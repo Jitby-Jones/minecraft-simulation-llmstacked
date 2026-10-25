@@ -169,6 +169,27 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(body.bot.blockAt(body.bot.entity.position.floored().offset(0, -1, 0))?.name).not.toBe('air');
   }, 120_000);
 
+  it('a block put toward "the nearest zombie", as said: it goes between, on that side', async () => {
+    // Asked so in a cave, one was told there was no "nearest zombie" in sight, and took it that it was under a roof.
+    const x = 7900;
+    await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+    await server.cmd(`fill ${x - 8} ${Y} -8 ${x + 8} ${Y + 4} 8 air`);
+    await server.cmd(`fill ${x - 8} ${Y + 5} -8 ${x + 8} ${Y + 5} 8 glowstone`);
+    await server.cmd(`tp Ada ${x}.5 ${Y} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:cobblestone 4');
+    await server.cmd(`summon zombie ${x + 5}.5 ${Y} 0.5 {PersistenceRequired:1b,NoAI:1b}`);
+    await sleep(1500);
+    try {
+      const r = await body.run('place', { block: 'cobblestone', toward: 'the nearest zombie' }, { signal: new AbortController().signal });
+      logger.info({ ok: r.ok, observed: r.observed, err: r.error }, 'a block toward the nearest zombie');
+      expect(r.ok).toBe(true);
+      expect(body.bot.blockAt(body.bot.entity.position.floored().offset(1, 0, 0))?.name).toBe('cobblestone');
+    } finally {
+      await server.cmd('kill @e[type=minecraft:zombie]');
+    }
+  }, 60_000);
+
   it('gravel comes down on its head in a tunnel: dug out and a step aside, and it lives', async () => {
     const x = 7200;
     const y = Y - 8;

@@ -45,7 +45,7 @@ When something has failed, work out why before you try again: the same thing don
  * Thinking in a danger: no time to think it all through, as anyone in a fight knows; the seven steps above took a mind
  * twelve seconds, and five zombies took a body from 7 health to none in less.
  */
-export const UNDER_FIRE_THINKING = `You are in danger, and there is no time to think it all through. Take it in at a glance, the way anyone does in a fight: what is coming at you and how close, how much more your body can take, what you have on you that could help, and which way is open. Then choose what gets you through alive, and do it now.`;
+export const UNDER_FIRE_THINKING = `You are in danger, and there is no time to think it all through. Take it in at a glance, the way anyone does in a fight: what is coming at you and how close, how much more your body can take, what you have on you that could help, and which way is open. Then choose what gets you through alive, and do it now; what takes long leaves you open to it while it goes on.`;
 
 /** The thought a danger leaves time for. */
 export const UNDER_FIRE_FORMAT = `In a danger your "thought" is one or two short sentences, no more.`;

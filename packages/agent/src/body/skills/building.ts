@@ -221,6 +221,20 @@ const WAYS: Readonly<Record<string, Vec3>> = { north: new Vec3(0, 0, -1), south:
  * a block goes between one and it (asked to "block the arrows" with no spot, one went down anywhere, and the skeleton
  * shot on). Null when there is no such way or thing, or both cells there are taken.
  */
+/** Something in sight as a player names it: "the nearest zombie", "those skeletons", "Bram". */
+function inSight(bot: Bot, said: string) {
+  let w = said.trim().toLowerCase();
+  for (let i = 0; i < 3; i++) w = w.replace(/^(the|a|an|that|this|those|these|nearest|closest|near|nearby|biggest|first)\s+/, '');
+  return findEntity(bot, w, 32) ?? (w.endsWith('s') ? findEntity(bot, w.slice(0, -1), 32) : null);
+}
+
+/** Why there is nowhere to put a block toward it, in plain words. */
+function whyNotToward(bot: Bot, toward: string): string {
+  const w = toward.trim().toLowerCase();
+  if (/^(north|south|east|west)/.test(w)) return `both cells beside you to the ${/^(north|south|east|west)/.exec(w)?.[1] ?? w} are taken already`;
+  return inSight(bot, toward) ? `both cells beside you toward the ${toward} are taken already` : `no ${toward} in sight within 32 blocks`;
+}
+
 function besideToward(bot: Bot, toward: string): Vec3 | null {
   const w = toward.trim().toLowerCase();
   // Up: over one's head (the lid of a hole one stands in; asked "toward up", one was told there was no up in sight).
@@ -230,7 +244,7 @@ function besideToward(bot: Bot, toward: string): Vec3 | null {
   }
   let d = WAYS[/^(north|south|east|west)/.exec(w)?.[1] ?? ''] ?? null;
   if (!d) {
-    const e = findEntity(bot, w.replace(/^(the|a|an)\s+/, ''), 32);
+    const e = inSight(bot, w);
     if (!e) return null;
     const dx = e.position.x - bot.entity.position.x;
     const dz = e.position.z - bot.entity.position.z;
@@ -272,7 +286,7 @@ export const place = defineSkill({
         const over = ctx.bot.blockAt(ctx.bot.entity.position.floored().offset(0, 2, 0));
         return isSolid(over) ? { ok: true, observed: `there is ${over?.name.replace(/_/g, ' ') ?? 'a block'} over your head already` } : { ok: false, observed: 'nowhere to put it over your head', error: `the cell over your head is ${over?.name.replace(/_/g, ' ') ?? 'not loaded'}` };
       }
-      if (!beside) return { ok: false, observed: `nowhere to put it toward ${args.toward}`, error: `no ${args.toward} in sight, or both cells beside you that way are taken` };
+      if (!beside) return { ok: false, observed: `nowhere to put it toward ${args.toward}`, error: whyNotToward(ctx.bot, args.toward) };
       try {
         await placeItemAt(ctx, args.block, beside);
       } catch (err) {
