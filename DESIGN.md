@@ -3093,7 +3093,10 @@ What changed:
    exploring the caves). `place {block, toward}` puts a block beside one toward a way or something in sight, at the
    feet, then at the head: a wall between (asked to "block the arrows" with no spot, one went down anywhere); toward
    up, over one's head (one digging itself in at dusk asked for that, and there was no "up" to put it).
-   And being stuck is the same failure over and over: failing closer each time ("need 27 more", then "need 11 more"),
+   When both a spot and `toward` are given, the way meant wins (a spot worked out under fire put the wall to one side
+   of a tunnel), and names are read as said ("the nearest zombie"). And a wait for the day is no work to look up
+   from: it ends on its own or when something happens (looked up from after three minutes, one sealed in went out
+   into the dark to chop a tree). And being stuck is the same failure over and over: failing closer each time ("need 27 more", then "need 11 more"),
    or another way, starts the count again (a hut refused three times for blocks was refused on with forty planks in
    hand).
 5. **Someone one has never met stands out.** A person come into view whom one has not met is noticed ("Someone you
@@ -3128,6 +3131,8 @@ Live:
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
 | solo, seed 1 (20) | stopped at 16 min | started on the code before thinking under fire | (stopped, to run the new mind) |
+| solo, seed 1 (23) | 37 min | **house met at 26 min**; the first night sealed in a dugout, out by a stair at dawn, fled the mobs still about and dug a closed stair down at 5 health; the second night, sealed in and waiting for day, the three-minute look up from "the work" had it tunnel up to chop a tree "instead of standing idle", and a zombie and a spider killed it | a wait for the day is no work to look up from |
+| duo (27) | 16 min (Bram) | the first meeting noticed; talk at once and like players ("kinda busy rn, need like 42 more planks for this hut"); Ada took Bram up a tree for a flyer; **house at 5 min**; out at night after logs, a skeleton shot Bram while he dug down under its arrows (17 to 3), and he died running | a climb is no flight; under fire, what takes long leaves one open |
 | solo, seed 1 (22) | 21 min | thinking as a player now ("no food and 9 health at night — that's the real problem now, iron can wait"); fought a creeper it chose to ("strike first and step back"), but the hand stood and swung: 20 to 7; with no food, waited out the night 50 blocks down, then at dawn hunted and looked for wood down there, found none, and went exploring the caves; a skeleton and a spider; its "block the arrows" put blocks anywhere | a creeper fought as a player fights one; where things are, said where they were not found; a block put toward something |
 | duo (24) | 20 min (the worker ran out of memory) | **house met at 5 min**; the heap flat at 100–300 MB, then 2 GB within a minute and a half | room for the worker; the heap past 1 GB logs what each agent was doing |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |

@@ -273,14 +273,16 @@ export const place = defineSkill({
   slipKinds: [],
   // Toward something, the skill says what came of it (a lid already over one's head uses no block).
   expect: (args) =>
-    args.x !== undefined && args.y !== undefined && args.z !== undefined
-      ? { kind: 'blockAt', pos: new Vec3(args.x, args.y, args.z), block: blockMatcher(args.block).label }
-      : args.toward
-        ? { kind: 'none' }
+    args.toward
+      ? { kind: 'none' }
+      : args.x !== undefined && args.y !== undefined && args.z !== undefined
+        ? { kind: 'blockAt', pos: new Vec3(args.x, args.y, args.z), block: blockMatcher(args.block).label }
         : { kind: 'inventoryLoss', item: itemMatcher(args.block).label, atLeast: 1 },
   async run(ctx, args) {
     const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
-    if (!at && args.toward) {
+    // Toward, with a spot as well: the way meant goes first (a spot worked out under fire put a wall to one side of a
+    // tunnel, and five zombies came down it).
+    if (args.toward) {
       const beside = besideToward(ctx.bot, args.toward);
       if (!beside && UP.test(args.toward.trim().toLowerCase())) {
         const over = ctx.bot.blockAt(ctx.bot.entity.position.floored().offset(0, 2, 0));

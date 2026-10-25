@@ -1228,7 +1228,11 @@ export class CognitiveController {
       if (this.o.executor.busy) {
         const opt = s.option;
         const t = this.now();
-        if (opt?.status === 'running' && t - opt.startedAt >= LOOK_UP_MS && t - this.lastDecisionAt >= LOOK_UP_MS) {
+        // A wait for something (the day, to heal) ends on its own and is broken by whatever happens; looked up from
+        // every three minutes, one sealed in for the night went up into the dark to chop a tree "instead of standing
+        // idle", and a zombie and a spider killed it.
+        const waitingFor = opt?.skill === 'wait' && typeof opt.args?.until === 'string';
+        if (opt?.status === 'running' && !waitingFor && t - opt.startedAt >= LOOK_UP_MS && t - this.lastDecisionAt >= LOOK_UP_MS) {
           this.trigger(`you have been at ${opt.skill ?? opt.option} for ${Math.round((t - opt.startedAt) / 60_000)} min${opt.progress ? ` (${opt.progress})` : ''}; you look up from the work a moment`, { urgent: true });
         }
         return;

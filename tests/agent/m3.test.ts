@@ -518,6 +518,34 @@ describe('a look up from long work', () => {
     expect(asked.at(-1)).toMatch(/you have been at prospect for 4 min; you look up from the work a moment/);
     expect(s.state.option?.startedAt).toBe(started);
   }, 15_000);
+
+  it('a wait for the day is no work to look up from: it ends on its own, or when something happens', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    let asked = 0;
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      asked++;
+      return { text: JSON.stringify({ option: 'rest', task: { skill: 'wait', args: { until: 'day' } }, terminate: { maxSeconds: 600 }, rationale: 'sealed in' }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    executor.start();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const clock = { t: Date.now() };
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false, now: () => clock.t });
+    cc.start();
+    cc.trigger('testing');
+    for (let i = 0; i < 40 && asked === 0; i++) await wait(25);
+    expect(s.state.option?.skill).toBe('wait');
+    clock.t += 4 * 60_000;
+    await wait(2500);
+    cc.stop();
+    executor.stop();
+    expect(asked).toBe(1);
+  }, 15_000);
 });
 
 describe('the end of what a newer decision replaced', () => {
