@@ -809,6 +809,10 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     logger.info({ r3: r3.observed, err: r3.error }, 'a lid over the head');
     expect(r3.ok).toBe(true);
     expect(body.bot.blockAt(new Vec3(x + 4, Y - 1, 0))?.name).toBe('cobblestone');
+    // Closed over already: said so, not "no up in sight".
+    const r4 = await run('place', { block: 'cobblestone', toward: 'up' });
+    expect(r4.ok).toBe(true);
+    expect(r4.observed).toMatch(/over your head already/);
   }, 60_000);
 
   it('hunting 30 down in the stone: none in sight, and it says how far up the sky is, where the animals are', async () => {

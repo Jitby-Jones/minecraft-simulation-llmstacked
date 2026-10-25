@@ -213,6 +213,7 @@ export async function spotOrNotch(ctx: SkillContext, item?: string): Promise<Vec
   return null;
 }
 
+const UP = /^(up|above|over|overhead|over my head|the top)$/;
 const WAYS: Readonly<Record<string, Vec3>> = { north: new Vec3(0, 0, -1), south: new Vec3(0, 0, 1), east: new Vec3(1, 0, 0), west: new Vec3(-1, 0, 0) };
 
 /**
@@ -223,7 +224,7 @@ const WAYS: Readonly<Record<string, Vec3>> = { north: new Vec3(0, 0, -1), south:
 function besideToward(bot: Bot, toward: string): Vec3 | null {
   const w = toward.trim().toLowerCase();
   // Up: over one's head (the lid of a hole one stands in; asked "toward up", one was told there was no up in sight).
-  if (/^(up|above|over|overhead|over my head|the top)$/.test(w)) {
+  if (UP.test(w)) {
     const lid = bot.entity.position.floored().offset(0, 2, 0);
     return placeableInto(bot.blockAt(lid)) ? lid : null;
   }
@@ -264,6 +265,10 @@ export const place = defineSkill({
     const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
     if (!at && args.toward) {
       const beside = besideToward(ctx.bot, args.toward);
+      if (!beside && UP.test(args.toward.trim().toLowerCase())) {
+        const over = ctx.bot.blockAt(ctx.bot.entity.position.floored().offset(0, 2, 0));
+        return isSolid(over) ? { ok: true, observed: `there is ${over?.name.replace(/_/g, ' ') ?? 'a block'} over your head already` } : { ok: false, observed: 'nowhere to put it over your head', error: `the cell over your head is ${over?.name.replace(/_/g, ' ') ?? 'not loaded'}` };
+      }
       if (!beside) return { ok: false, observed: `nowhere to put it toward ${args.toward}`, error: `no ${args.toward} in sight, or both cells beside you that way are taken` };
       try {
         await placeItemAt(ctx, args.block, beside);
