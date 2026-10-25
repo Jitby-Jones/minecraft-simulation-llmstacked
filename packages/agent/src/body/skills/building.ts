@@ -257,10 +257,13 @@ export const place = defineSkill({
   }),
   talkOverable: false,
   slipKinds: [],
+  // Toward something, the skill says what came of it (a lid already over one's head uses no block).
   expect: (args) =>
     args.x !== undefined && args.y !== undefined && args.z !== undefined
       ? { kind: 'blockAt', pos: new Vec3(args.x, args.y, args.z), block: blockMatcher(args.block).label }
-      : { kind: 'inventoryLoss', item: itemMatcher(args.block).label, atLeast: 1 },
+      : args.toward
+        ? { kind: 'none' }
+        : { kind: 'inventoryLoss', item: itemMatcher(args.block).label, atLeast: 1 },
   async run(ctx, args) {
     const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
     if (!at && args.toward) {

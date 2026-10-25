@@ -811,6 +811,7 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.blockAt(new Vec3(x + 4, Y - 1, 0))?.name).toBe('cobblestone');
     // Closed over already: said so, not "no up in sight".
     const r4 = await run('place', { block: 'cobblestone', toward: 'up' });
+    logger.info({ r4: r4.observed, err: r4.error, at: body.bot.entity.position.toString() }, 'a lid there already');
     expect(r4.ok).toBe(true);
     expect(r4.observed).toMatch(/over your head already/);
   }, 60_000);
