@@ -28,10 +28,15 @@ export function resolveCraftTarget(bot: Bot, raw: string): string | null {
   const n = said.replace(/^(wooden|wood)_/, '');
   if (bot.registry.itemsByName[n]) return n;
   const items = bot.inventory.items();
-  const fromPlanks = items.filter((i) => i.name.endsWith('_planks')).map((i) => i.name.replace(/_planks$/, ''));
-  const fromLogs = items.filter((i) => CATEGORIES.log?.(i.name)).map((i) => i.name.replace(/_(log|stem)$/, ''));
-  // Planks are made from logs; the rest from planks.
-  const woods = n === 'planks' ? [...fromLogs, ...fromPlanks, 'oak'] : [...fromPlanks, ...fromLogs, 'oak'];
+  const woodOf = (name: string) => name.replace(/^stripped_/, '').replace(/_(planks|log|wood|stem|hyphae)$/, '');
+  const fromPlanks = items.filter((i) => i.name.endsWith('_planks')).map((i) => woodOf(i.name));
+  const fromLogs = items.filter((i) => CATEGORIES.log?.(i.name)).map((i) => woodOf(i.name));
+  // The wood there is most of on hand, in planks (a log makes four): asked for planks with 5 birch and 8 oak logs,
+  // the hands made them birch, the first logs in the bag, and went up a cliff for more.
+  const amount = (wood: string) => items.reduce((a, i) => a + (woodOf(i.name) !== wood ? 0 : i.name.endsWith('_planks') ? i.count : CATEGORIES.log?.(i.name) ? 4 * i.count : 0), 0);
+  const most = (ws: string[]) => [...new Set(ws)].sort((a, b) => amount(b) - amount(a));
+  // Planks are made from logs; the rest from planks, or from logs made into planks.
+  const woods = n === 'planks' ? [...most(fromLogs), ...most(fromPlanks), 'oak'] : [...most([...fromPlanks, ...fromLogs]), 'oak'];
   for (const wood of woods) if (bot.registry.itemsByName[`${wood}_${n}`]) return `${wood}_${n}`;
   const colours = [...items.filter((i) => i.name.endsWith('_wool')).map((i) => i.name.replace(/_wool$/, '')), 'white'];
   for (const colour of colours) if (bot.registry.itemsByName[`${colour}_${n}`]) return `${colour}_${n}`;

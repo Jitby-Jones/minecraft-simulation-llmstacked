@@ -55,7 +55,7 @@
 | **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again With the key (`real-models`): glm-5.1 wrote `stock_up_logs` at the first try (a `gather` of `qty` oak logs, checked by `inventoryHas:oak_log>={qty}`). Tried at once in the world, it held (3 logs) and was kept. It ran again for 6 without being written again. Its trait annotation found a bug. The model named the experience in its own words ("robbed by Zed"), not by its key, and the note was dropped; such words now count. It had also copied the prompt's example, which was code's own words, so the prompt now gives the form only. Its notes now: "has grown more cautious since losing that fight to Vex". |
 | **Owner requests** (2026-10-23): debug controls (agents, memories, models, modules, the CC); agents that plan for themselves and talk their plans over; wandering and looking around instead of standing still, in company; hiding only when badly scared, alone and far from anyone; whole lines at L2; test mode off, with a switch; seeing what changes around them (a broken shelter) and reacting; each new person written by a master model, a child while it is carried | **done** | `pnpm run check` (576 tests) + the live regression on Paper 26.1.2 (§24 "Owner requests", item 14) + five observation runs with the key (`obs1`–`obs5`, the last two hardcore nights) + `real-models` with the key: the bias audit, a trait annotation, a skill written by L3, a broken shelter seen to and the master model's newcomers and a child, all by glm-5.1 |
 | **Owner requests** (2026-10-24): a server console with Stop and Restart; a death ends everything at once; talk like players, with a stronger model, turns, and an end once agreed; own tools, real chests, armed fights; buildings (a building language, a repertoire from photographs and the game's own files, a builder, an architect for their own designs, moving to flatter land); anvils and enchanting; expeditions to the Nether and the End; a hidden controller for what has gone wrong | **done** | `pnpm run check` + the live tests of each (§24 "Owner requests: a console, deaths, talk, building and more", item 19), the architect's own design drawn by glm-5.3 and built in the world, and the controller's prompt benched on the real models |
-| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (699 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet |
+| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (735 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -3248,10 +3248,32 @@ What changed:
       of armor takes part of every blow from the moment it is worn, long before the set is whole.
     Replayed with the new packet (glm-5.3, 4 times each): with the old one it went on for the log every time; with the
     new, twice it saw that "it sent me up top to an oak tree for logs" and crafted from what it had instead.
+18. **Stuck in a hole, and the night the steps walked into.** The duo (34): mining stone, Bram broke into a sealed
+    cave pocket 16 blocks down and stood 19 minutes in a one-block notch of its pond, the ceiling a hand over his
+    head. His packet said "in the water, under a roof", as the ceiling was 2 m up, and nothing said he had not moved:
+    he asked for planks four times (they came as birch, the first logs in his bag, and the hands went up a cliff for
+    more birch), then a hut, and his walks out ended where they began. The solo (27) sealed herself in her hut at
+    night, thought "then use the nearby crafting table and trees once light improves", and put the logs straight
+    after the table in her next steps: the hands went out for them in the dark, and a creeper killed her at 15 min.
+    The noticing of coming out into the night did not fire: the client's sky light is the light the ground came
+    with, so her own hut was still lit by the sky. What changed:
+    - Underground is said however low the ceiling, by how far up the open sky is: "underground, the ceiling 2 m up,
+      the open sky some 16 blocks up".
+    - A spot stayed in with things failing there is felt: "You have not got more than a few blocks from -73,62,55 in
+      19 minutes, and 16 things you tried there failed in that time" (after 4 minutes and 3 failures).
+    - Planks said plainly are any wood's, as a hut takes them: from the logs on hand, the kind there is most of
+      first, then logs of any tree for the rest (live: 42 from 5 birch and 8 oak logs in 2 s, nothing gathered). A
+      thing of a kind (a door, a sign) is made in the wood there is most of on hand.
+    - Coming out into the night goes by what is overhead, not by the light.
+    - How the next steps are carried out, said plainly: each starts straight after the one before, so a step meant
+      for later waits only behind a wait step or in "later".
+    Replayed (glm-5.3, 3 times each): with the stayed-put line, Bram moved off twice rather than building where he
+    stood.
 
 Live:
 
-- `hands` (1 new): sent for a log from 30 down, the hands say "13 m south-east, 30 m up, out under the open sky".
+- `hands` (2 new): sent for a log from 30 down, the hands say "13 m south-east, 30 m up, out under the open sky"; 42
+  planks from 5 birch and 8 oak logs on hand, the oak cut first, nothing gathered.
 - `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
 - `hands` (2 more): a wall put up toward the east, feet then head; a hunt 30 down says how far up the sky is.
 - `thinking`: Kelby, whom Ada has not met, noticed as he comes into view (and his flying still seen); hungry with
@@ -3270,6 +3292,8 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| solo, seed 1 (27) | 15 min | huts and a door by dusk, a skeleton about; sealed in at night, a spider got at her (16 to 14); "trees once light improves", but the logs came straight after the table in her steps: out for them in the dark, a creeper at 2 m (14 to 0); coming out was not noticed (her hut was still sky-lit to the client) | out into the night by what is overhead; steps run straight on, said plainly |
+| duo (34) | (running) | Bram 19 minutes in a notch of a sealed cave pond, "under a roof"; planks as birch, the cliff's; out on his own after the night | underground however low the ceiling; a spot stayed in, felt; planks of any wood |
 | solo, seed 1 (26) | 34 min | prospecting found iron at y 7 by 28 min (an iron pickaxe at 21); 14 ingots, no armor, no sword, nothing eaten all run; a minute after nightfall the obtain for two pickaxes went up 30 blocks to a tree for a log; a skeleton and a zombie, 20 to 4 with a wooden axe; ran for its one placed block as "the cobblestone structure" and died | the hands say where they are going; out into the night noticed; how long it has been dark; a lone block is that; food as healing, armor as it is worn |
 | duo (33) | stopped at 10 min | renewable food marked at 5 min, falsely (a village's crops) | the crop check counts only crops sown |
 | duo (32) | 13 min (both) | no fight at the first meeting (the server's word on hurts); renewable food marked at 8 min, falsely (nothing was sown: a village's fields); the chat full of the speech model's working; at nightfall both out at chores: Bram ran for his hut by its asked-for spot, 8 blocks off, and died to a zombie with a wooden axe; Ada after him, out to hand over logs | speech models without working; one's own huts in the packet |

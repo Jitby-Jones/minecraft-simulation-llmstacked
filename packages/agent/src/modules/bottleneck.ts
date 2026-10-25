@@ -104,6 +104,8 @@ export function buildPacket(i: PacketInput): string {
   if (healingLine) out.push(healingLine);
   const frail = frailty(s);
   if (frail) out.push(frail);
+  const stayed = stayedPut(s, now);
+  if (stayed) out.push(stayed);
   // Where home is: without it a model's "head home" went to a made-up 0,64,0, hundreds of blocks off.
   const home = s.village.home;
   if (home && world === 'overworld') {
@@ -289,6 +291,22 @@ export function healing(s: AgentState): string | null {
   const meals = s.self.inventory.filter((i) => EDIBLE.test(i.item));
   const carry = meals.length > 0 ? `you carry ${meals.map((m) => `${m.qty} ${m.item}`).join(', ')}` : 'you carry nothing to eat';
   return `Health comes back by itself only with food at ${HEALS_FROM} of 20 or more, fastest with the bar full; ${now}; ${carry}.`;
+}
+
+/** In one spot this long, with things failing there, one knows it. */
+const STAYED_MS = 4 * 60_000;
+
+/**
+ * How long one has been in one spot, once one's hands keep failing there (null: on the move, or staying on purpose
+ * with nothing failing), as anyone knows they have not got anywhere. One fallen into a pond under a roof stayed there
+ * 19 minutes, its walks out ending where they began, and went on asking its hands for planks and a hut.
+ */
+export function stayedPut(s: AgentState, now: number): string | null {
+  const st = s.self.stayed;
+  if (!st || now - st.since < STAYED_MS) return null;
+  const failed = s.actionLog.filter((a) => a.ts >= st.since && !a.ok).length;
+  if (failed < 3) return null;
+  return `You have not got more than a few blocks from ${Math.round(st.at.x)},${Math.round(st.at.y)},${Math.round(st.at.z)} in ${Math.round((now - st.since) / 60_000)} minutes, and ${failed} things you tried there failed in that time.`;
 }
 
 /** The hits on hand from these kinds, by which one hits hardest (null: nothing to fear). */

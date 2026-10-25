@@ -37,6 +37,8 @@ const ENTITY_RADIUS = CREATURE_SIGHT;
 /** Close enough to hear footsteps: perceived even without line of sight. */
 const HEAR_RADIUS = 4;
 const MAX_ENTITIES = 24;
+/** Within this many blocks of where one was, one is still in the same spot. */
+const STAYED_WITHIN = 4;
 /** Distances to those about are written again at most this often when only they changed. */
 const DISTANCE_REFRESH_MS = 1000;
 const RING_ACTIONS = 20;
@@ -322,6 +324,8 @@ export class Perception {
         isSleeping: bot.isSleeping,
         spawnPos: spawn ? v(spawn) : s.spawnPos,
         difficulty: String(bot.game.difficulty ?? 'normal'),
+        // Where one has been all this while: a new spot once one is more than a few blocks from the last.
+        stayed: s.stayed && Math.hypot(s.stayed.at.x - pos.x, s.stayed.at.y - pos.y, s.stayed.at.z - pos.z) <= STAYED_WITHIN ? s.stayed : { at: pos, since: this.now() },
       }),
       'perception:self',
     );

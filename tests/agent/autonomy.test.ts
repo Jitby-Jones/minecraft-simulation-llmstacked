@@ -10,7 +10,7 @@ import type { Body } from '@agora/agent/body/body';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { AgentBus } from '@agora/agent/bus';
 import { Feelings } from '@agora/agent/mind/feelings';
-import { buildPacket, dayPart, frailty, healing, hunger } from '@agora/agent/modules/bottleneck';
+import { buildPacket, dayPart, frailty, healing, hunger, stayedPut } from '@agora/agent/modules/bottleneck';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { routeItemTask } from '@agora/agent/modules/itemTasks';
 import { codeDecision, validateDecision, whyNotGo } from '@agora/agent/modules/cc';
@@ -278,6 +278,21 @@ describe('module switches (debug controls)', () => {
     expect(isOff(s.state, 'cc.llm')).toBe(true);
     expect(isOff(s.state, 'talking.llm')).toBe(true);
     expect(isOff(s.state, 'reflection')).toBe(false);
+  });
+});
+
+describe('one spot for long, with things failing there (one stayed 19 minutes in a cave pond, asking for a hut)', () => {
+  const s = createInitialState({ persona, username: 'Pip', now: 0 });
+  const failed = (ts: number) => ({ id: `a${ts}`, skill: 'goTo', args: { x: -74, y: 63, z: 52 }, expected: '', observed: 'interrupted; 3.2 blocks away', ok: false, ts, durationMs: 1000, error: 'aborted: time is up' });
+  const st = { ...s, self: { ...s.self, stayed: { at: { x: -72.7, y: 62, z: 54.7 }, since: 0 } }, actionLog: [failed(60_000), failed(120_000), failed(300_000)] };
+  it('felt as anyone knows they have got nowhere, with no telling what to do', () => {
+    expect(stayedPut(st, 19 * 60_000)).toBe('You have not got more than a few blocks from -73,62,55 in 19 minutes, and 3 things you tried there failed in that time.');
+  });
+  it('a while in a shelter with nothing failing, or only a little while: nothing to say', () => {
+    expect(stayedPut({ ...st, actionLog: [] }, 19 * 60_000)).toBeNull();
+    expect(stayedPut(st, 3 * 60_000)).toBeNull();
+    // Failures from before one came to this spot are not this spot's.
+    expect(stayedPut({ ...st, self: { ...st.self, stayed: { at: st.self.stayed.at, since: 200_000 } } }, 19 * 60_000)).toBeNull();
   });
 });
 

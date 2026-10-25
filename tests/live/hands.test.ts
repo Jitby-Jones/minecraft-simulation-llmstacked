@@ -970,6 +970,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(notes.find((n) => /digging/.test(n))).toBe('digging 1 oak_log, 13 m south-east, 30 m up, out under the open sky');
   }, 90_000);
 
+  it('planks said plainly are any wood\'s: 42 from 5 birch and 8 oak logs on hand, nothing gathered', async () => {
+    // Made birch (the first logs in the bag), the hands went up a cliff for more birch and timed out four times.
+    await at(9400, 0);
+    await server.cmd('give Ada minecraft:birch_log 5');
+    await server.cmd('give Ada minecraft:oak_log 8');
+    await sleep(1000);
+    const r = await run('obtain', { item: 'planks', qty: 42 });
+    logger.info({ r }, 'any planks');
+    expect(r.ok).toBe(true);
+    const items = body.bot.inventory.items();
+    const planks = items.filter((i) => i.name.endsWith('_planks')).reduce((a, i) => a + i.count, 0);
+    expect(planks).toBeGreaterThanOrEqual(42);
+    // The oak, there being most of it, went first: all 8 cut, and of the birch only what was short.
+    expect(items.filter((i) => i.name === 'oak_log')).toHaveLength(0);
+    expect(items.find((i) => i.name === 'birch_log')?.count ?? 0).toBeGreaterThanOrEqual(2);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

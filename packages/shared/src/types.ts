@@ -554,6 +554,8 @@ export interface SelfState {
   spawnPos: Vec3 | null;
   /** The world's difficulty (how hard monsters hit, whether hunger can kill). */
   difficulty?: string;
+  /** The spot one has stayed within a few blocks of, and since when (perception keeps it as one moves). */
+  stayed?: { at: Vec3; since: number };
 }
 
 /** How something moves, as a player sees it (owner request, 2026-10-24: complete senses). */

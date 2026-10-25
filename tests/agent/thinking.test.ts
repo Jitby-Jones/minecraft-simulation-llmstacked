@@ -266,7 +266,8 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     w.bot.blockAt = (p: Vec3) => {
       const f = p.floored();
       if (roof && f.y === 67 && Math.abs(f.x) <= 3 && Math.abs(f.z) <= 3) return { name: 'stone', type: data.blocksByName.stone?.id ?? 1, boundingBox: 'block', position: f, getProperties: () => ({}) };
-      if (f.x === 0 && f.y >= 64 && f.y <= 66 && f.z === 0) return { name: 'air', type: 0, boundingBox: 'empty', position: f, skyLight: roof ? 0 : 15, getProperties: () => ({}) } as never;
+      // The sky's light is the ground's from before (a hut one built is still lit by the sky): the roof is what counts.
+      if (f.x === 0 && f.y >= 64 && f.y <= 66 && f.z === 0) return { name: 'air', type: 0, boundingBox: 'empty', position: f, skyLight: 15, getProperties: () => ({}) } as never;
       return base(p);
     };
     const s = store();
@@ -415,6 +416,10 @@ describe('the hands make what is one craft away, as a player does without a thou
     expect(r({}, 'boat')).toBe('oak_boat');
     // Planks come from logs: the logs' wood, whatever planks are about.
     expect(r({ spruce_planks: 2, birch_log: 3 }, 'planks')).toBe('birch_planks');
+    // Of the woods on hand, the one there is most of (5 birch and 8 oak logs had made it birch, the first in the bag).
+    expect(r({ birch_log: 5, oak_log: 8 }, 'planks')).toBe('oak_planks');
+    expect(r({ oak_planks: 2, birch_log: 3 }, 'door')).toBe('birch_door');
+    expect(r({ oak_planks: 20, birch_log: 3 }, 'door')).toBe('oak_door');
     expect(r({ red_wool: 3 }, 'bed')).toBe('red_bed');
     expect(r({}, 'wool')).toBe('white_wool');
     expect(r({}, 'stick')).toBe('stick');

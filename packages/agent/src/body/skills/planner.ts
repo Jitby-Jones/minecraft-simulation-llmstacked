@@ -15,7 +15,7 @@ import { gather, isFoodName, pickup } from './gathering';
 import { attack } from './combat';
 import { shearSheep, woollySheep } from './hands';
 import { ANIMALS, hunt } from './village';
-import { defineSkill, type SkillContext, SkillAbortedError } from './types';
+import { defineSkill, type SkillContext, SkillAbortedError, type SkillResult } from './types';
 import { throwIfAborted, waitMs } from './util';
 
 /** Furnace outputs the planner knows (items.ts). */
@@ -449,6 +449,62 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
 /** Kinds of thing that are found as they come (any log, any flower), not made in one kind. */
 const FOUND_KINDS = new Set(['log', 'flower', 'leaves', 'sapling']);
 
+/** Planks said plainly: any wood's, as a hut takes them and a player builds with what the logs on hand make. */
+const isAnyPlanks = (raw: string): boolean => normalizeItemName(raw) === 'planks';
+
+function planksHeld(bot: Bot): number {
+  return countItem(bot, itemMatcher('planks'));
+}
+
+/** The planks a log is cut into (oak_log, stripped_oak_wood: oak_planks; crimson_stem: crimson_planks). */
+function plankOf(bot: Bot, log: string): string | null {
+  const p = `${log.replace(/^stripped_/, '').replace(/_(log|wood|stem|hyphae)$/, '')}_planks`;
+  return bot.registry.itemsByName[p] ? p : null;
+}
+
+/** The logs carried cut into planks, the kind there is most of first, until `qty` planks of any wood are held. */
+async function cutLogs(ctx: SkillContext, qty: number): Promise<void> {
+  const { bot } = ctx;
+  const logs = new Map<string, number>();
+  for (const i of bot.inventory.items()) if (CATEGORIES.log?.(i.name)) logs.set(i.name, (logs.get(i.name) ?? 0) + i.count);
+  for (const [log, n] of [...logs].sort((a, b) => b[1] - a[1])) {
+    const short = qty - planksHeld(bot);
+    if (short <= 0) return;
+    const planks = plankOf(bot, log);
+    if (!planks) continue;
+    const want = Math.min(n, Math.ceil(short / 4)) * 4;
+    // A craft at a time makes at most a stack.
+    for (let made = 0; made < want; made += 64) {
+      const res = await craft.run(ctx, { item: planks, qty: Math.min(64, want - made) });
+      if (!res.ok) throw new ObtainError(res.error ?? `could not cut ${log} into planks`);
+    }
+  }
+}
+
+/**
+ * Planks of any wood: those carried, then those the logs on hand make, then logs of any tree for the rest. Asked for 42
+ * with 8 oak and 5 birch logs on hand, the hands made it birch (the first logs in the bag), went for more birch up a
+ * cliff they could not reach, and ran out of time four times over eight minutes.
+ */
+async function anyPlanks(ctx: SkillContext, qty: number): Promise<SkillResult> {
+  const { bot } = ctx;
+  const had = planksHeld(bot);
+  if (had >= qty) return { ok: true, observed: `already holding ${had} planks: qty is how many in all, so that covers the ${qty} asked for (for more, ask for the total)` };
+  try {
+    await cutLogs(ctx, qty);
+    const short = qty - planksHeld(bot);
+    if (short > 0) {
+      await acquire(ctx, WorldScan.for(bot), 'log', count(bot, 'log') + Math.ceil(short / 4), 0, []);
+      await cutLogs(ctx, qty);
+    }
+  } catch (err) {
+    if (err instanceof SkillAbortedError) throw err;
+    return { ok: false, observed: `holding ${planksHeld(bot)} planks`, error: err instanceof Error ? err.message : String(err) };
+  }
+  const held = planksHeld(bot);
+  return held >= qty ? { ok: true, observed: `holding ${held} planks` } : { ok: false, observed: `holding ${held} planks`, error: `made only ${held} of the ${qty} planks` };
+}
+
 function resolveTarget(bot: Bot, raw: string): string {
   const n = normalizeItemName(raw);
   if (CATEGORIES[n] && FOUND_KINDS.has(n)) return n;
@@ -461,8 +517,9 @@ export const obtain = defineSkill({
   argsSchema: z.object({ item: z.string().min(1), qty: z.coerce.number().int().min(1).max(256).default(1) }),
   talkOverable: true,
   slipKinds: ['path'],
-  expect: (args, _before, bot) => ({ kind: 'inventoryHas', item: resolveTarget(bot, args.item), atLeast: args.qty }),
+  expect: (args, _before, bot) => ({ kind: 'inventoryHas', item: isAnyPlanks(args.item) ? 'planks' : resolveTarget(bot, args.item), atLeast: args.qty }),
   async run(ctx, args) {
+    if (isAnyPlanks(args.item)) return anyPlanks(ctx, args.qty);
     const target = resolveTarget(ctx.bot, args.item);
     // Asked for what is already held, it says so: "holding 2 iron_ingot" for one more asked as {qty: 1} three times
     // over taught an agent that obtain "doesn't conjure a third ingot".

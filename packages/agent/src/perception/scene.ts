@@ -20,7 +20,7 @@ import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
 import { WORN, freeSlots, toolWear } from '../body/inventory';
 import { EDIBLE } from '../body/items';
-import { type Room, besideWords, biomeAt, canSeeBlock, isEnclosed, roomAround, roomBeside, roomWords } from '../body/world';
+import { type Room, besideWords, biomeAt, canSeeBlock, isEnclosed, roomAround, roomBeside, roomWords, skyUp } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -443,8 +443,11 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   else if (at?.name === 'lava') parts.push('IN LAVA');
   else if (under && under.boundingBox === 'block') parts.push(`standing on ${nice(under.name)}`);
   else parts.push('with nothing underfoot');
+  // Underground however low the ceiling, by how far up the open sky is: one in a notch of a cave pond, 16 blocks
+  // down with the ceiling a hand over its head, was "under a roof", and asked its hands for a hut there for 19 minutes.
+  const up = roof !== null && sky === 0 && dim === 'overworld' ? skyUp(bot) : null;
   if (roof === null) parts.push(dim === 'overworld' ? 'under the open sky' : 'nothing overhead');
-  else if (sky === 0 && roof > 2) parts.push(`underground, the ceiling ${roof} m up`);
+  else if (sky === 0 && (roof > 2 || (up !== null && up >= 6))) parts.push(`underground, the ceiling ${roof} m up${up !== null && up >= 6 ? `, the open sky some ${up} blocks up` : ''}`);
   else parts.push(roof <= 4 ? 'under a roof' : `something overhead ${roof} m up`);
   // The room one is in, as seen from inside: shut in, or which way it opens out; out under the sky, one just outside.
   const room = roomWords(roomAround(bot));
@@ -828,11 +831,11 @@ export class SceneEyes {
     // A share of the look around; once round, what is in view is grouped anew.
     if (this.look.step()) {
       const w = whereNow(bot);
-      const wasRoofed = this.roofed;
+      const wasCovered = this.where !== '' && !this.where.includes('under the open sky');
       this.where = w.text;
       this.roofed = w.roofed;
       this.checkRoom(now);
-      this.checkNightOut(now, wasRoofed);
+      this.checkNightOut(now, wasCovered);
       const hits = [...new Map([...this.look.seen, ...this.notableInSight()].map((h) => [`${h.x},${h.y},${h.z}`, h] as const)).values()];
       this.features = featuresOf(bot, hits, bot.entity.position, this.roofed);
       this.markFirsts(seen);
@@ -1026,13 +1029,15 @@ export class SceneEyes {
   /**
    * Out from under a roof into the open at night: the dark all round, as anyone stepping out sees it. Hands sent for a
    * log went up 34 blocks from a mine to a tree a minute after nightfall, and a skeleton and a zombie were on the body
-   * before its mind knew it was out.
+   * before its mind knew it was out. By what is overhead, not by the light: the client's sky light is the light the
+   * ground came with, so a hut one built oneself stays lit by the sky (one went out of hers for logs at night, and
+   * nothing was noticed).
    */
-  private checkNightOut(now: number, wasRoofed: boolean): void {
+  private checkNightOut(now: number, wasCovered: boolean): void {
     const bot = this.o.bot;
     const t = ((bot.time.timeOfDay % 24000) + 24000) % 24000;
     const dim = String(bot.game?.dimension ?? 'overworld').replace(/^minecraft:/, '');
-    if (!wasRoofed || this.roofed || dim !== 'overworld' || t < 13_000 || t >= 23_000 || now - this.nightOutAt < NIGHT_OUT_MS) return;
+    if (!wasCovered || dim !== 'overworld' || t < 13_000 || t >= 23_000 || now - this.nightOutAt < NIGHT_OUT_MS) return;
     if (!this.where.includes('under the open sky')) return;
     this.nightOutAt = now;
     const min = Math.max(1, Math.round((23_000 - t) / 1200));

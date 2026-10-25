@@ -77,7 +77,7 @@ strings, no "none", no placeholders. Every reply has "thought", "option", "termi
 - "family": {"with": "<name>", "phase": "propose|accept|decline|warn", "about": "<name>"}   (only with your partner)
 - "terminate": {"maxSeconds": 120, "until": "inventoryHas:oak_log>=16"}   (until is optional)
 - "rationale": one sentence, why.
-- "then": [{"skill": "...", "args": {...}}, ...]   (optional: up to 4 skills you mean to do next, in order, once this is done, if all goes well; [] drops what you meant to do next)
+- "then": [{"skill": "...", "args": {...}}, ...]   (optional: up to 4 skills you mean to do next, in order, once this is done, if all goes well; each starts straight after the one before, so a step meant for a later time waits only behind a wait step or in "later"; [] drops what you meant to do next)
 - "lesson": "..."   (optional: something you have just learned from what happened, to remember)
 - "later": {"what": "...", "when": "see:<creature or block>|have:<item>|have:<item>>=<n>|day|night|minutes:<n>"}   (optional: something you put off until then)
 - "taskDone": "#<number>: why" / "taskDropped": "#<number>: why"   (optional: one of the tasks you have taken on, by its # in that list, that you are sure is done, or that you give up on; never a step of your plan)

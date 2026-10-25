@@ -7,7 +7,7 @@ import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
 import { besideWords, daytime, goingFor, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
 import { evalCondition } from '@agora/agent/modules/conditions';
-import { openedUp } from '@agora/agent/perception/scene';
+import { openedUp, whereNow } from '@agora/agent/perception/scene';
 import { createInitialState } from '@agora/agent/state/initial';
 import { PersonaSchema } from '@agora/shared';
 
@@ -112,7 +112,7 @@ describe('where the hands are going', () => {
       const solid = log || (f.y <= 40 && f.y >= -40 && !tunnel);
       return { position: f, name: log ? 'oak_log' : solid ? 'stone' : 'air', boundingBox: solid ? 'block' : 'empty', skyLight: solid ? 0 : f.y > 40 ? 15 : 0, getProperties: () => ({}) };
     };
-    return { entity: { position: new Vec3(0.5, 0, 0.5) }, blockAt, game: { minY: -64, height: 384 } } as unknown as Bot;
+    return { entity: { position: new Vec3(0.5, 0, 0.5) }, blockAt, game: { minY: -64, height: 384, dimension: 'overworld' }, world: {}, time: { timeOfDay: 1000 } } as unknown as Bot;
   }
 
   it('a block a walk away: how far, which way, how far up, and out under the open sky from down a mine', () => {
@@ -121,6 +121,10 @@ describe('where the hands are going', () => {
     expect(goingFor(mine(), new Vec3(30, 0, 0))).toBe('30 m east');
     // Close by: nothing to say.
     expect(goingFor(mine(), new Vec3(3, 0, 0))).toBe('');
+  });
+
+  it('underground however low the ceiling, with how far up the sky is (a notch of a cave pond had been "under a roof")', () => {
+    expect(whereNow(mine()).text).toContain('underground, the ceiling 2 m up, the open sky some 41 blocks up');
   });
 });
 
