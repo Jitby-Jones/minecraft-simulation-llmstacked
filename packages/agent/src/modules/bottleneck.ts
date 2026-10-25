@@ -11,6 +11,7 @@ import { EDIBLE } from './villageMove';
 import { ISOLATED_RANGE } from './hiding';
 import { WORN } from '../body/inventory';
 import { armorPoints, asDifficulty, mobBlow } from '../body/combatOdds';
+import { craftableNow } from './craftable';
 
 export interface PacketInput {
   state: AgentState;
@@ -94,6 +95,9 @@ export function buildPacket(i: PacketInput): string {
   }
   const inv = self.inventory.map((st) => `${st.qty} ${st.item}${st.left !== undefined && st.left < WORN ? ` (nearly worn out: ${Math.round(st.left * 100)}% left)` : ''}`).join(', ');
   out.push(`Carrying: ${inv || 'nothing'}${self.equipped ? ` (holding ${self.equipped})` : ''}${self.armor.length > 0 ? `; wearing ${self.armor.join(', ')}` : '; wearing no armor'}.`);
+  // What the recipe book shows from what one carries, of what keeps one alive.
+  const makeable = craftableNow(s);
+  if (makeable) out.push(makeable);
   // A full inventory, as the hotbar and the pockets show it: what is dug or picked up next has nowhere to go.
   if (self.slotsFree !== undefined && self.slotsFree <= 2) {
     out.push(`Your inventory is ${self.slotsFree === 0 ? 'full' : 'nearly full'} (${self.slotsFree} of 36 slots free): what you dig or pick up next ${self.slotsFree === 0 ? "won't fit" : 'may not fit'}. Drop what you don't need (drop {item, qty}).`);
