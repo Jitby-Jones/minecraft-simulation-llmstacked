@@ -3061,7 +3061,9 @@ What changed:
    mind thinks again (in a live run it began a hut with a zombie at its back and went from 12 health to none waiting for
    its next thought). Under fire the thought is a glance, not the seven steps (`UNDER_FIRE_THINKING`: what is coming
    and how close, what the body can take, what is on hand, which way is open), one or two sentences, and a try that is
-   slow gives way to the next model after 7 s. A danger's end is said as it stands, in memory and to the mind: "you
+   slow gives way to the next model after 7 s. What the mind chose in a danger is done in a hurry: a walk away is a
+   run (one walking from a zombie went from 9 health to 1), and steps meant before being badly hurt (6 health or
+   more since) wait for a thought (at one heart the next step was "gather oak logs"). A danger's end is said as it stands, in memory and to the mind: "you
    never got to the skeleton; it is still about, 12 m off (health 20 to 17)", not "fought off" (told so each time a
    skeleton shooting from a cave's dark broke off, one mined on among them for four minutes). A decision of before
    the danger still in flight no longer holds it up:

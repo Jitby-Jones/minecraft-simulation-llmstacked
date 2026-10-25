@@ -662,6 +662,8 @@ export interface Intention {
   at: number;
   /** Meant in danger (a way out in steps): the steps go on while the danger lasts. */
   underFire?: boolean;
+  /** Our health when it was meant: hurt badly since, the steps wait for a thought. */
+  health?: number;
 }
 
 /** A place the agent saw something worth coming back to (a herd of sheep, ore in a cliff, a building): its map memory. */

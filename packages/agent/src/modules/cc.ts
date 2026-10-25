@@ -95,6 +95,9 @@ export interface ValidationEnv {
   chestThere?: (pos: { x: number; y: number; z: number }) => string | null;
 }
 
+/** Health lost since steps were meant that stops them for a thought. */
+const HURT_SINCE = 6;
+
 /** How long a try at a thought under fire may take before the next model is tried. */
 const UNDER_FIRE_TIMEOUT_MS = 7000;
 
@@ -1706,6 +1709,15 @@ export class CognitiveController {
       return;
     }
     const goesOn = !s.flags.inDanger || meant?.underFire === true;
+    // Badly hurt since the steps were meant (9 health to 1 on the way): nobody goes on to "gather oak logs" at one
+    // heart without a thought; the steps wait for one.
+    const hurtSince = meant?.health !== undefined && s.self.health <= meant.health - HURT_SINCE;
+    if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && hurtSince) {
+      this.o.store.update('mind', (m) => ({ ...m, intention: null }), 'hurt since');
+      const next = meant.steps[0];
+      this.trigger(`you meant to ${next?.skill ?? next?.text ?? 'go on'} next, but you have been hurt since you decided (health ${Math.round(meant.health ?? 0)} to ${Math.round(s.self.health)})`, s.flags.inDanger ? { urgent: true, emergency: true } : { urgent: true });
+      return;
+    }
     if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
       const [step, ...rest] = meant.steps;
       this.o.store.update('mind', (m) => ({ ...m, intention: rest.length > 0 ? { ...meant, steps: rest } : null }), 'next step');
@@ -1762,7 +1774,7 @@ export class CognitiveController {
         // "then" says what comes next (and [] that nothing does); without it, what was meant still stands.
         if (out.then) {
           const underFire = store.state.flags.inDanger;
-          next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now, ...(underFire ? { underFire: true } : {}) } : null };
+          next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now, health: store.state.self.health, ...(underFire ? { underFire: true } : {}) } : null };
         }
         if (out.later) {
           const cue = cueFrom(out.later.when, now, store.state.self.isDay);

@@ -548,6 +548,50 @@ describe('a look up from long work', () => {
   }, 15_000);
 });
 
+describe('badly hurt since the steps were meant', () => {
+  it('they wait for a thought: nobody goes on to gather logs at one heart without one', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const asked: string[] = [];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      asked.push(JSON.stringify(body?.messages ?? ''));
+      return { text: JSON.stringify({ thought: 'Back off, then wood.', option: 'work', task: { skill: 'goTo', args: { x: 10, y: 64, z: 0 } }, terminate: { maxSeconds: 60 }, rationale: 'away', then: [{ skill: 'gather', args: { item: 'oak_log', qty: 8 } }] }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const finish = new Map<string, () => void>();
+    const body = {
+      skill: () => ({ talkOverable: true }),
+      run: (skill: string, args: Record<string, unknown>, opts: { signal: AbortSignal }) =>
+        new Promise<SkillRunRecord>((resolve) => {
+          const rec = (ok: boolean, aborted: boolean): SkillRunRecord => ({ id: 'r', skill, args, expected: 'x', observed: aborted ? 'interrupted' : 'done', ok, mismatch: false, aborted, slip: null, startedAt: 0, durationMs: 1, ...(aborted ? { error: 'aborted' } : {}) });
+          finish.set(skill, () => resolve(rec(true, false)));
+          opts.signal.addEventListener('abort', () => resolve(rec(false, true)), { once: true });
+        }),
+    } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    executor.start();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    s.update('self', (x) => ({ ...x, health: 18 }));
+    cc.start();
+    cc.trigger('testing', { urgent: true });
+    for (let i = 0; i < 80 && !finish.has('goTo'); i++) await wait(25);
+    // Hit on the way: 18 to 5.
+    s.update('self', (x) => ({ ...x, health: 5 }));
+    finish.get('goTo')?.();
+    for (let i = 0; i < 80 && decided.length < 2; i++) await wait(25);
+    cc.stop();
+    executor.stop();
+    expect(decided[1]).toBe('llm:goTo');
+    expect(decided).not.toContain('intention:gather');
+    expect(asked.at(-1)).toMatch(/you meant to gather next, but you have been hurt since you decided \(health 18 to 5\)/);
+  }, 15_000);
+});
+
 describe('the end of what a newer decision replaced', () => {
   it('is no news: the steps meant after the new one wait for it; its own end brings them on', async () => {
     const s = store();

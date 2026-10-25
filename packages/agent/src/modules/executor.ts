@@ -242,6 +242,7 @@ export class SkillExecutor {
       store.update('option', (o) => (o && o.decisionId === opt.decisionId ? { ...o, skill: step.skill, args: step.args } : o), `running ${step.skill}`);
       const r = await body.run(step.skill, step.args, {
         signal: ac.signal,
+        ...(opt.underFire ? { hurry: true } : {}),
         slipChance: L.slipChance,
         knowsRecipe: this.o.knowsRecipe,
         planDepth: L.planDepth,

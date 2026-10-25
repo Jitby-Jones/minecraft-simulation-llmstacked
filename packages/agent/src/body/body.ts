@@ -25,6 +25,8 @@ export interface BodyConfig extends BodyOptions {
 
 export interface RunOptions {
   signal?: AbortSignal;
+  /** In a danger: every walk is a run (one walking away from a zombie it chose to get away from went from 9 health to 1). */
+  hurry?: boolean;
   slipChance?: number;
   knowsRecipe?: (item: string) => boolean;
   progress?: (note: string) => void;
@@ -202,7 +204,7 @@ export class Body {
       logger: this.logger,
       rng: this.rng,
       signal: opts.signal ?? new AbortController().signal,
-      movements: (sprint?: boolean) => this.movements(sprint),
+      movements: (sprint?: boolean) => this.movements(sprint ?? opts.hurry),
       knowsRecipe: opts.knowsRecipe ?? (() => true),
       say: async (text, volume, urgent) => {
         await this.say(text, volume, [], undefined, urgent);
