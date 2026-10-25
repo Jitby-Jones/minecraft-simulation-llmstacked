@@ -733,8 +733,8 @@ export class Agent {
               : summary === 'closed the hole over'
                 ? `closed the hole I was in over, against ${who} at its mouth`
                 : (HAZARD_OVER[this.dangerSource] ?? `escaped ${this.dangerSource}`);
-        const hurt = bout && typeof bout.health === 'string' && /^(\d+) to (\d+)$/.exec(bout.health);
-        const health = hurt && Number(hurt[1]) > Number(hurt[2]) ? ` (health ${bout.health})` : '';
+        const lost = typeof bout?.health === 'string' ? /^(\d+) to (\d+)$/.exec(bout.health) : null;
+        const health = lost && Number(lost[1]) > Number(lost[2]) ? ` (health ${lost[0]})` : '';
         pushWorkmem(this.store, `I ${what}${health}`, 0.6, 'self_observed', { now: now() });
         this.bus.emit({ type: 'dangerCleared', what: `you ${what}${health}` });
       },
