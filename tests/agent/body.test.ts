@@ -388,6 +388,30 @@ describe('attack attribution (§17.6)', () => {
     void late;
   });
 
+  it("the server's word on a hurt goes first: a fall is nobody's blow, whoever was swinging nearby (two chopping one tree fought over a drop)", async () => {
+    const { bot, entities, em } = fakeWorld();
+    const client = new EventEmitter();
+    Object.assign(bot, { _client: client });
+    const tracker = new SwingTracker(bot);
+    const victim = { id: 1, type: 'player', username: 'Pip', position: new Vec3(0, 64, 0), yaw: 0 };
+    const bram = { id: 2, type: 'player', username: 'Bram', position: new Vec3(0, 64, 2), yaw: 0 };
+    const skeleton = { id: 7, type: 'hostile', name: 'skeleton', position: new Vec3(0, 64, 12), yaw: 0 };
+    Object.assign(entities, { 1: victim, 2: bram, 7: skeleton });
+    // Bram swings at the log by Pip, facing Pip; the hurt is a fall: no one caused it.
+    em.emit('entitySwingArm', bram);
+    client.emit('damage_event', { entityId: 1, sourceCauseId: 0, sourceDirectId: 0 });
+    const fall = await new Promise((r) => tracker.attribute(victim as never, (a) => r(a)));
+    expect(fall).toEqual({ attacker: null, kind: 'unknown' });
+    // The word coming just after the health it took: waited for.
+    const late = new Promise((r) => tracker.attribute(victim as never, (a) => r(a)));
+    setTimeout(() => client.emit('damage_event', { entityId: 1, sourceCauseId: 3, sourceDirectId: 3 }), 20);
+    expect(await late).toEqual({ attacker: bram, kind: 'melee' });
+    // An arrow: the skeleton caused it, the arrow dealt it.
+    client.emit('damage_event', { entityId: 1, sourceCauseId: 8, sourceDirectId: 41 });
+    const shot = await new Promise((r) => tracker.attribute(victim as never, (a) => r(a)));
+    expect(shot).toEqual({ attacker: skeleton, kind: 'ranged' });
+  });
+
   it('falls back to a melee mob within 3 blocks', () => {
     const { bot, entities } = fakeWorld();
     const tracker = new SwingTracker(bot, () => 0);

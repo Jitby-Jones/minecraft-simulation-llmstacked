@@ -20,8 +20,18 @@ const RANGED_ITEMS = new Set(['bow', 'crossbow', 'trident']);
 /** How long after a hurt its swing may still arrive. */
 export const SWING_LAG_MS = 150;
 
+/** The server's own word on a hurt (1.19.4+): who it was hurt by (its "cause", none for a fall or a fire) and how. */
+interface Told {
+  at: number;
+  cause: number;
+  direct: number;
+}
+
 export class SwingTracker {
   private readonly swings = new Map<number, number>();
+  private readonly told = new Map<number, Told>();
+  /** Whether this server says who hurt whom: then its word goes before any guess from swings. */
+  private serverSays = false;
 
   constructor(
     private readonly bot: Bot,
@@ -30,6 +40,26 @@ export class SwingTracker {
     bot.on('entitySwingArm', (e: Entity) => {
       this.swings.set(e.id, this.now());
     });
+    // Two chopping one tree each lost a heart to something else (a drop from its trunk) and each, guessing from the
+    // other's swings at the log, took it for a blow: a fight, a yield, and a bad first impression.
+    const client = (bot as unknown as { _client?: { on(e: string, cb: (p: { entityId: number; sourceCauseId: number; sourceDirectId: number }) => void): void } })._client;
+    client?.on('damage_event', (p) => {
+      this.serverSays = true;
+      this.told.set(p.entityId, { at: this.now(), cause: p.sourceCauseId - 1, direct: p.sourceDirectId - 1 });
+    });
+  }
+
+  /** What the server said of the victim's hurt at about `at` (null: it said nothing about it). */
+  private toldOf(victim: Entity, at: number): Attribution | null {
+    const t = this.told.get(victim.id);
+    if (!t || Math.abs(t.at - at) > 500) return null;
+    // Each hurt has its own word: once taken for one, it is not taken for the next.
+    this.told.delete(victim.id);
+    const cause = t.cause >= 0 ? (this.bot.entities[t.cause] ?? null) : null;
+    // No one: a fall, a fire, a cactus, hunger, a wall one is caught in.
+    if (!cause) return { attacker: null, kind: 'unknown' };
+    const ranged = t.direct >= 0 && t.direct !== t.cause;
+    return { attacker: cause, kind: ranged ? 'ranged' : isPlayer(cause) ? 'melee' : 'mob' };
   }
 
   lastSwing(id: number): number {
@@ -39,6 +69,16 @@ export class SwingTracker {
   /** Who struck the victim just now; if no swing has been seen yet, looks again once it may have arrived. */
   attribute(victim: Entity, cb: (a: Attribution) => void): void {
     const at = this.now();
+    const told = this.toldOf(victim, at);
+    if (told) {
+      cb(told);
+      return;
+    }
+    // The server's word can trail the health it took: looked for again in a moment, and only then a guess.
+    if (this.serverSays) {
+      setTimeout(() => cb(this.toldOf(victim, at) ?? this.attackerOf(victim, at)), SWING_LAG_MS).unref();
+      return;
+    }
     const a = this.attackerOf(victim, at);
     if (a.kind === 'melee') {
       cb(a);

@@ -42,6 +42,8 @@ export const TEMPTED_BY: Readonly<Record<string, readonly string[]>> = {
 const SEED_OF: Readonly<Record<string, string>> = { wheat: 'wheat_seeds', carrots: 'carrot', potatoes: 'potato', beetroots: 'beetroot_seeds', nether_wart: 'nether_wart' };
 const RIPE_AGE: Readonly<Record<string, number>> = { wheat: 7, carrots: 7, potatoes: 7, beetroots: 3, nether_wart: 3 };
 const REACH = 3.5;
+/** What a right-click sets on top of a block: seeds and what is planted like them. */
+const SOWN = /(_seeds|^carrot|^potato|^nether_wart|_sapling|^sweet_berries|^cocoa_beans)$/;
 const ENTITY_REACH = 2.6;
 
 function heldOne(bot: Bot, raw: string): { name: string } | null {
@@ -255,7 +257,10 @@ export const use = defineSkill({
         const used = new Set<string>();
         for (let i = 0; i < args.times; i++) {
           throwIfAborted(ctx.signal);
-          const target = at ? bot.blockAt(at) : pickBlock(bot, ids, used);
+          // What goes in on top (a seed, a sapling, a block) goes where the top is free: seeds on farmland already sown
+          // came to nothing four times over.
+          const onTop = Boolean(args.item && SOWN.test(normalizeItemName(args.item)));
+          const target = at ? bot.blockAt(at) : pickBlock(bot, ids, used, onTop);
           if (!target) break;
           used.add(target.position.toString());
           await walkNear(ctx, target.position, REACH - 0.8, 30_000);
@@ -367,9 +372,11 @@ async function fish(ctx: SkillContext, times: number, at: Vec3 | null): Promise<
 }
 
 /** The nearest block of these kinds in sight and reach of a walk, not used yet this run. */
-function pickBlock(bot: Bot, ids: readonly number[], used: ReadonlySet<string>): Block | null {
+function pickBlock(bot: Bot, ids: readonly number[], used: ReadonlySet<string>, freeTop = false): Block | null {
   for (const p of bot.findBlocks({ matching: [...ids], maxDistance: 24, count: 64 })) {
     if (used.has(p.toString())) continue;
+    if (freeTop && bot.blockAt(p.offset(0, 1, 0))?.boundingBox !== 'empty') continue;
+    if (freeTop && /^(wheat|carrots|potatoes|beetroots|nether_wart|torchflower_crop|pitcher_crop|melon_stem|pumpkin_stem)$/.test(bot.blockAt(p.offset(0, 1, 0))?.name ?? '')) continue;
     if (!canSeeBlock(bot, p, 25)) continue;
     const b = bot.blockAt(p);
     if (b) return b;

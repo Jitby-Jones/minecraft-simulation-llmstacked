@@ -3178,6 +3178,14 @@ What changed:
     about it", "bram said hes got iron") is said as before.
     And what one's own hands got is known by its kind: a gather of "log" cut short brought two oak logs in after
     it, and that was "2 oak_log appeared in your inventory out of nowhere".
+12. **Who hurt whom, by the server's word.** The duo's first minute: Ada and Bram chopped the same tree, each lost a
+    heart to something that was not the other, and each, guessing from the other's swings at the log (a swing toward
+    one within 400 ms), took it for a blow: a fight with planks in hand, "ok ok, I give up!", and a first impression
+    soured before a word was said. Since 1.19.4 the server says who caused each hurt (`damage_event`: its cause and
+    what dealt it). That word now goes first: no cause (a fall, a fire, a cactus, hunger) is nobody's blow; a cause
+    with something else dealing it (an arrow) is a shot; a player's own blow is a blow. Swings are only the guess
+    where the server says nothing. And seeds go where the farmland's top is free: sown cells were picked first, and
+    "nothing came of it" four times over.
 
 Live:
 
@@ -3211,7 +3219,8 @@ Live:
 | duo (24) | 20 min (the worker ran out of memory) | **house met at 5 min**; the heap flat at 100–300 MB, then 2 GB within a minute and a half | room for the worker; the heap past 1 GB logs what each agent was doing |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
 
-Verified (8–10): 725 unit tests; live `hands`: the dark dig, the wet prospect, the pickaxe's last uses, the dig from
+Verified (11–12): 727 unit tests; live `melee` (9 of 9), `m6b` (the clash, 1 of 1), `hands`: seeds on part-sown
+farmland, the ripe field, shears, wheat on two cows. Verified (8–10): 725 unit tests; live `hands`: the dark dig, the wet prospect, the pickaxe's last uses, the dig from
 the floor of the last one, the gravel, fishing (4 casts, 4 bites), a cow's drops taken, a door from inside and from
 outside with the room seen each way, the doorway filled from inside. Verified (7): 723 unit tests; live `hands`: the doorway filled from inside, the night's hut, a bed in a nook, the
 furnace in a notch and against a block's side, the wall toward a way (the quick hut's walk to its corner failed once and

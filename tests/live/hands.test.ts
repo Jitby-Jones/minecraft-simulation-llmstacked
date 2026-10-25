@@ -733,6 +733,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(whereNow(body.bot).text).toContain('walled in on every side');
   }, 180_000);
 
+  it('seeds on farmland where two of four cells are sown already: the two free ones are sown (sown ones came to nothing four times over)', async () => {
+    const x = 8900;
+    await at(x, 0);
+    // Four farmland cells in a row by water, the nearest two already sown.
+    await server.cmd(`fill ${x + 1} ${Y - 1} 0 ${x + 4} ${Y - 1} 0 farmland`);
+    await server.cmd(`setblock ${x + 1} ${Y - 1} 1 water`);
+    await server.cmd(`setblock ${x + 1} ${Y} 0 wheat`);
+    await server.cmd(`setblock ${x + 2} ${Y} 0 wheat`);
+    await server.cmd('give Ada minecraft:wheat_seeds 4');
+    await sleep(1500);
+    const r = await run('use', { item: 'wheat_seeds', on: 'farmland', times: 2 });
+    logger.info({ r, seeds: countItem(body.bot, 'wheat_seeds') }, 'seeds on part-sown farmland');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'wheat_seeds')).toBe(2);
+    for (let dx = 1; dx <= 4; dx++) expect(body.bot.blockAt(new Vec3(x + dx, Y, 0))?.name).toBe('wheat');
+  }, 120_000);
+
   it('a cow attacked and killed: what it dropped is walked over and taken (a salmon killed in a river was hunted for again and again)', async () => {
     const x = 8800;
     await at(x, 0);
