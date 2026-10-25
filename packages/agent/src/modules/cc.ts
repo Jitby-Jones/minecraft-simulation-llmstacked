@@ -1164,10 +1164,12 @@ export class CognitiveController {
       }),
     );
     this.offs.push(
-      b.on('dangerCleared', () => {
+      b.on('dangerCleared', (e) => {
         const d = this.deferred;
         this.deferred = null;
-        this.trigger(d ? `the danger is over; earlier: ${d.reason}` : 'the danger is over', d?.ctx ?? {});
+        // How it ended, as it stands (one still about is not one fought off).
+        const over = e.what ? `the danger is over: ${e.what}` : 'the danger is over';
+        this.trigger(d ? `${over}; earlier: ${d.reason}` : over, d?.ctx ?? {});
       }),
     );
     this.offs.push(

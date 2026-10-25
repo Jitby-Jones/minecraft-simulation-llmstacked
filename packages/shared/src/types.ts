@@ -822,7 +822,8 @@ export type AgentEvent =
   | { type: 'stateChanged'; reason: string }
   | { type: 'perception' }
   | { type: 'danger'; source: string; level: number; kind?: 'fight' | 'flee' | 'hazard' | 'defend' }
-  | { type: 'dangerCleared' }
+  /** `what`: how it ended, in words ("never got to the skeleton; it is still about, 12 m off; health 20 to 17"). */
+  | { type: 'dangerCleared'; what?: string }
   | { type: 'heard'; utterance: Utterance }
   | { type: 'addressed'; utterance: Utterance }
   /** A line in earshot not addressed to us (§6.2 group floor control decides whether to chime in). */

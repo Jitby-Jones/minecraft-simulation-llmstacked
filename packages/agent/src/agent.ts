@@ -714,16 +714,29 @@ export class Agent {
         const who = this.dangerIsPerson ? this.dangerSource : `${/^[aeiou]/i.test(this.dangerSource) ? 'an' : 'a'} ${this.dangerSource}`;
         // A hazard says what it was: told only "I escaped water", an agent pulled out of a pond ten times running took
         // the creepers it had seen for what kept stopping it.
+        // A fight "over" is one gone quiet, not one won: told "I fought off a skeleton" each time one shooting from a
+        // cave's dark broke off, an agent mined on among them for four minutes. What it was is said as it stands.
+        const bout = body.reflexes.fightRecord();
+        const still = this.dangerIsPerson ? null : (nearbyHostiles(body.bot, 24).find((e) => e.name === this.dangerSource) ?? null);
+        const off = still ? `; it is still about, ${Math.round(still.position.distanceTo(body.bot.entity.position))} m off` : '';
+        const fought =
+          !still
+            ? `fought off ${who}`
+            : bout && bout.foe === this.dangerSource && bout.landed === 0
+              ? `never got to ${who}${off}`
+              : `broke off from ${who}${off}`;
         const what =
           summary === 'fight over'
-            ? `fought off ${who}`
+            ? fought
             : summary === 'got away'
-              ? `got away from ${who}`
+              ? `got away from ${who}${off}`
               : summary === 'closed the hole over'
                 ? `closed the hole I was in over, against ${who} at its mouth`
                 : (HAZARD_OVER[this.dangerSource] ?? `escaped ${this.dangerSource}`);
-        pushWorkmem(this.store, `I ${what}`, 0.6, 'self_observed', { now: now() });
-        this.bus.emit({ type: 'dangerCleared' });
+        const hurt = bout && typeof bout.health === 'string' && /^(\d+) to (\d+)$/.exec(bout.health);
+        const health = hurt && Number(hurt[1]) > Number(hurt[2]) ? ` (health ${bout.health})` : '';
+        pushWorkmem(this.store, `I ${what}${health}`, 0.6, 'self_observed', { now: now() });
+        this.bus.emit({ type: 'dangerCleared', what: `you ${what}${health}` });
       },
       onAttacked: (by, damage) => {
         this.bus.emit({ type: 'attacked', by, damage });

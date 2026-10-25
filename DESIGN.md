@@ -3061,7 +3061,10 @@ What changed:
    mind thinks again (in a live run it began a hut with a zombie at its back and went from 12 health to none waiting for
    its next thought). Under fire the thought is a glance, not the seven steps (`UNDER_FIRE_THINKING`: what is coming
    and how close, what the body can take, what is on hand, which way is open), one or two sentences, and a try that is
-   slow gives way to the next model after 7 s. A decision of before the danger still in flight no longer holds it up:
+   slow gives way to the next model after 7 s. A danger's end is said as it stands, in memory and to the mind: "you
+   never got to the skeleton; it is still about, 12 m off (health 20 to 17)", not "fought off" (told so each time a
+   skeleton shooting from a cave's dark broke off, one mined on among them for four minutes). A decision of before
+   the danger still in flight no longer holds it up:
    the danger drops that one and the thought under fire comes next (it waited for the next blow before, and five
    zombies took a body from 7 health to none first).
 2. **A felt body** (commit 4f4f783). The packet says it as a player feels it: "At 5 health, two more hits from a zombie
