@@ -83,6 +83,9 @@ describe('expectations: what does not fit what is known to be possible stands ou
     // A jump is no surprise, nor a run.
     expect(ex.observe({ id: 4, name: 'Bo', kind: 'player', type: 'player', motion: motion({ supported: false, airborneSec: 0.5, aboveGround: 1, vy: 2, speed: 5.5 }), distance: 5, visible: true })).toBeNull();
     expect(ex.observe({ id: 4, name: 'Bo', kind: 'player', type: 'player', motion: motion({ speed: 5.6 }), distance: 5, visible: true })).toBeNull();
+    // A climb up a tree or a pillar, a second up, is jumps landed on; a rise kept up for two is not.
+    expect(ex.observe({ id: 5, name: 'Bram', kind: 'player', type: 'player', motion: motion({ supported: false, airborneSec: 1.1, aboveGround: 1.2, vy: 3 }), distance: 13, visible: true })).toBeNull();
+    expect(ex.observe({ id: 6, name: 'Kelby', kind: 'player', type: 'player', motion: motion({ supported: false, airborneSec: 2, aboveGround: 5, vy: 3 }), distance: 13, visible: true })?.key).toBe('rise');
   });
 
   it('too fast for anyone, there in an instant, out of nowhere, inside a wall: each its own surprise', () => {

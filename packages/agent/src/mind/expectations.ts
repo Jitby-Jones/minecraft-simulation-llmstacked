@@ -125,7 +125,9 @@ export class Expectations {
     } else if (free && !FLIERS.has(c.type) && !CLIMBERS.has(c.type) && !SWIMMERS.has(c.type)) {
       const hoverLimit = Math.max(1.5, env.hover * 1.5);
       const slow = SLOW_FALLERS.has(c.type) && m.vy < -0.2;
-      if (!slow && m.vy > 2 && m.airborneSec > 0.8 && !JUMPERS.has(c.type)) {
+      // Rising for a second and a half: a pillar or a climb up a tree is a burst of jumps, each landed on (one up a tree
+      // after its logs was taken for "rising straight up into the air", and asked how it floated).
+      if (!slow && m.vy > 2 && m.airborneSec > 1.5 && !JUMPERS.has(c.type)) {
         found = { key: 'rise', text: `${cap(who)} is rising straight up into the air, ${ONE_DP(m.aboveGround)} m off the ground now`, strength: 0.75 };
       } else if (!slow && Math.abs(m.vy) < 1.2 && m.airborneSec > hoverLimit && m.aboveGround >= 0.6) {
         const high = m.aboveGround >= 2 ? `${ONE_DP(m.aboveGround)} m up in the air` : 'up off the ground';
@@ -199,7 +201,10 @@ export class Expectations {
     const prior = PRIOR[type] ?? PRIOR.default;
     if (!prior) return;
     const cur = this.o.state().knowledge.envelopes?.[type];
-    const hovering = !m.supported && m.medium === 'air' && Math.abs(m.vy) < 1.2;
+    // A hover is learned only within what is already known: learned from one still going on, each look stretched the
+    // limit half as far again past it, and someone hanging in the air for minutes was never surprising (seen once the
+    // rise that used to be noticed first came to be taken more slowly).
+    const hovering = !m.supported && m.medium === 'air' && Math.abs(m.vy) < 1.2 && m.airborneSec <= Math.max(prior.hover, cur?.hover ?? 0);
     // Speed kept up is what a kind can do; a burst says nothing of it.
     const kept = m.sustained ?? 0;
     const next: Envelope = {

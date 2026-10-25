@@ -3099,6 +3099,11 @@ What changed:
 5. **Someone one has never met stands out.** A person come into view whom one has not met is noticed ("Someone you
    haven't met: Bram, 11 m east") strongly enough to think about at once, as anyone looks up at a stranger: two put
    down together each built a hut twenty blocks from the other and never said a word in twenty minutes.
+   And a climb is no flight: rising counts as "rising straight up into the air" only when kept up a second and a half
+   (one going up a tree after its logs was asked how it floated). That showed a flaw in learning from what fits: a
+   hover was learned from while it went on, each look stretching the limit half again past it, so someone hanging in
+   the air was never surprising once the rise was no longer noticed first; a hover is now learned only within what is
+   already known.
 6. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
    attack hand goes in for one blow and backs off out of its reach while it hisses, then in again (one that stood and
    swung, as at a zombie, was blown from 20 health to 7). Whether to fight one stays the mind's call.
