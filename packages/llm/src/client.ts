@@ -170,6 +170,8 @@ export class LlmClient {
   private readonly circuit: CircuitBreaker;
   private readonly now: () => number;
   private readonly schemaFails = new Map<string, number[]>();
+  /** Models whose JSON mode answered with an empty object: asked in plain from then on, the format in the prompt. */
+  private readonly plainOnly = new Set<string>();
   private route: Routing = {};
 
   constructor(private readonly deps: LlmClientDeps) {
@@ -358,7 +360,7 @@ export class LlmClient {
     const schema = o.schema;
     const name = o.schemaName ?? 'reply';
     const native = (this.deps.structured ?? 'object') === 'schema' && (this.deps.router.allowlist.get(model)?.capabilities.has('structured_output') ?? false);
-    const format = native ? { type: 'json_schema' as const, json_schema: { name, schema: jsonSchemaOf(schema), strict: false } } : { type: 'json_object' as const };
+    const format = this.plainOnly.has(model) ? undefined : native ? { type: 'json_schema' as const, json_schema: { name, schema: jsonSchemaOf(schema), strict: false } } : { type: 'json_object' as const };
     // The reply format goes at the end of the system prompt (a system message after the conversation confuses some).
     const line = replyFormatLine(name, o.formatInPrompt ? null : JSON.stringify(jsonSchemaOf(schema)));
     const [head, ...rest] = o.messages;
@@ -367,7 +369,16 @@ export class LlmClient {
       : head?.role === 'system'
         ? [{ role: 'system', content: `${head.content}\n\n${line}` }, ...rest]
         : [{ role: 'system', content: line }, ...o.messages];
-    const first = await this.request(o, model, spec, messages, format);
+    let first = await this.request(o, model, spec, messages, format);
+    // A JSON mode that answers "{}" is no answer: the model is asked again in plain, and in plain from then on
+    // (glm-5.3 answered "{}" six times of six on two of the mind's packets, and in plain gave the whole decision).
+    if (format && /^\s*\{\s*\}\s*$/.test(first.text)) {
+      this.plainOnly.add(model);
+      this.deps.logger.info({ module: 'llm', caller: o.module, model }, 'json mode came back empty; asking in plain from now on');
+      await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
+      const plain = await this.request(o, model, spec, messages, undefined);
+      first = { ...plain, usage: { inputTokens: first.usage.inputTokens + plain.usage.inputTokens, outputTokens: first.usage.outputTokens + plain.usage.outputTokens } };
+    }
     const p1 = this.validate(first.text, schema, o.prepare);
     if (p1.ok) return { value: p1.value, text: first.text, usage: first.usage };
     // One repair retry with the validation error (§4.3).
@@ -380,14 +391,15 @@ export class LlmClient {
     try {
       // The repair is a request of its own: another token.
       await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
-      second = await this.request(o, model, spec, repair, format);
+      second = await this.request(o, model, spec, repair, this.plainOnly.has(model) ? undefined : format);
     } catch (err) {
       throw new AttemptError(this.toLlmError(err, model, o.signal), first.usage);
     }
     const usage = { inputTokens: first.usage.inputTokens + second.usage.inputTokens, outputTokens: first.usage.outputTokens + second.usage.outputTokens };
     const p2 = this.validate(second.text, schema, o.prepare);
     if (p2.ok) return { value: p2.value, text: second.text, usage };
-    this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, reply: second.text.slice(0, 600) }, 'reply still invalid after repair');
+    // The first reply and what was wrong with it as well: a model that answers a repair with "{}" hides why it failed.
+    this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, first: first.text.slice(0, 600), firstError: p1.error.slice(0, 300), reply: second.text.slice(0, 600) }, 'reply still invalid after repair');
     throw new AttemptError(new LlmError('schema_invalid', `invalid reply after repair: ${p2.error}`, { model }), usage);
   }
 

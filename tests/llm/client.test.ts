@@ -159,6 +159,23 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(r2.value).toEqual(DEFAULT);
   });
 
+  it('a JSON mode that answers "{}" is no answer: asked again in plain, and in plain from then on', async () => {
+    // glm-5.3 answered "{}" six times of six on two of the mind's packets in JSON mode, and in plain gave the decision.
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = ({ body }) => ({ text: body.response_format ? '{}' : GOOD });
+    const rt = await runtime(fake);
+    const r1 = await ask(rt);
+    expect(r1.ok).toBe(true);
+    const [first, second] = fake.chatRequests();
+    expect(first?.body?.response_format).toBeDefined();
+    expect(second?.body?.response_format).toBeUndefined();
+    // The same model next time: no JSON mode at all, one request.
+    const before = fake.chatRequests().length;
+    expect((await ask(rt)).ok).toBe(true);
+    expect(fake.chatRequests().length - before).toBe(1);
+    expect(fake.chatRequests().at(-1)?.body?.response_format).toBeUndefined();
+  });
+
   it('marks a model unreliable for a tier after repeated schema failures and swaps', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const rt = await runtime(fake);
