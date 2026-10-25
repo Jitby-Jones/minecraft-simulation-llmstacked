@@ -74,7 +74,10 @@ export const eat = defineSkill({
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: 'could not eat', error: errMsg(err) };
     }
-    // What went: the bite may have been another (the eat reflex's, of what it chose).
+    // What went: the bite may have been another (the eat reflex's, of what it chose). The count drops a moment after
+    // the bite ends (the slot's update comes after): looked at at once, rotten flesh eaten was "still on hand", and
+    // the next action was the one that lost it.
+    for (let i = 0; i < 10 && countOf(bot, item.name) >= had; i++) await waitMs(ctx, 100);
     if (countOf(bot, item.name) < had) return { ok: true, observed: `ate ${item.name}, food ${bot.food}` };
     return { ok: true, observed: `food ${bot.food} (something else was being eaten; the ${item.name} is still on hand)` };
   },

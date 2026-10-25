@@ -620,6 +620,27 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'egg')).toBe(1);
   }, 120_000);
 
+  it('what was eaten is said so, though its count drops a moment after the bite ("still on hand", it had said)', async () => {
+    await at(7550, 0);
+    await server.cmd('difficulty easy');
+    await server.cmd('give Ada minecraft:bread 2');
+    // Hungry: strong hunger a second at a time until the bar is down a good way.
+    for (let i = 0; i < 8 && body.bot.food > 14; i++) {
+      await server.cmd('effect give Ada minecraft:hunger 1 255');
+      await sleep(1500);
+    }
+    await server.cmd('effect clear Ada');
+    await sleep(500);
+    const before = body.bot.food;
+    const r = await run('eat', { item: 'bread' });
+    await server.cmd('difficulty peaceful');
+    logger.info({ r, before }, 'bread eaten');
+    expect(before).toBeLessThan(20);
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/^ate bread, food \d+/);
+    expect(countItem(body.bot, 'bread')).toBe(1);
+  }, 120_000);
+
   it('a hunt for a cow in view 45 m off: it walks to it and brings back the beef', async () => {
     const x = 7400;
     await at(x, 0);

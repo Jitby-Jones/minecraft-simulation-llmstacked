@@ -3276,7 +3276,8 @@ What changed:
     of it that keeps one alive, gear better than what one has on or carries, and food cooked or baked: "From what
     you carry you could make: iron armor from your 9 iron ingots (a chestplate takes 8, leggings 7, a helmet 5,
     boots 4), an iron sword (2 iron ingots and a stick), a shield (6 planks and an iron ingot)". It never says
-    what to make.
+    what to make. And what was eaten is said so: the count drops a moment after the bite, and looked at at once the
+    rotten flesh eaten was "still on hand, something else was being eaten" (live: "ate bread, food 14").
 
 Live:
 
