@@ -7,7 +7,7 @@ import { Vec3 } from 'vec3';
 import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
-import { blockIdsDropping, blockIdsNamed, canSee } from '../world';
+import { blockIdsDropping, blockIdsNamed, canSee, underTheGround } from '../world';
 import { type ToolKind, ensureTool, makeTool } from './tools';
 import { lightTheWay } from './light';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
@@ -167,6 +167,14 @@ async function walkOutFrom(ctx: SkillContext, home: Vec3): Promise<void> {
  * seen any iron_ore around here; raw_iron comes from mining it"). Told only "any raw_iron", a model asked for the
  * drop five times over at the spot where the one block of ore it had found was gone.
  */
+/** What grows only under the sky (trees, grass, flowers, crops): looked for underground, where it is said to be. */
+const GROWS = /(_log|_stem|_leaves|^short_grass|^tall_grass|^fern|_sapling|^dandelion|^poppy|_tulip|^sugar_cane|^pumpkin|^melon|^wheat|^carrots|^potatoes|^beetroots|^bamboo|^cactus|^sweet_berry_bush)$/;
+
+function grownUp(bot: Bot, blockIds: readonly number[]): string {
+  if (!blockIds.some((id) => GROWS.test(bot.registry.blocks[id]?.name ?? ''))) return '';
+  return underTheGround(bot, 'trees and plants grow up on the surface');
+}
+
 function unseenText(bot: Bot, blockIds: readonly number[], label: string): string {
   const names = blockIds.map((id) => bot.registry.blocks[id]?.name).filter((n): n is string => Boolean(n));
   const source = names.find((n) => !n.startsWith('deepslate_')) ?? names[0];
@@ -218,7 +226,7 @@ async function collectUntil(
         error:
           lastError ||
           (blockIds.some((id) => isInferable(bot.registry.blocks[id]?.name ?? ''))
-            ? `no ${label} within ${maxDistance} blocks`
+            ? `no ${label} within ${maxDistance} blocks${grownUp(bot, blockIds)}`
             : unseenText(bot, blockIds, label)),
       };
     }

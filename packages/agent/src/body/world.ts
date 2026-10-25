@@ -26,6 +26,29 @@ export function entityHealth(bot: Bot, e: Entity): number | undefined {
   return typeof v === 'number' ? v : e.health;
 }
 
+/**
+ * How far up the open sky is from where one stands (blocks to the top of what is overhead), as a player in a cave knows
+ * the way up; null under the sky already, or when what is overhead isn't known.
+ */
+export function skyUp(bot: Bot): number | null {
+  const feet = bot.entity.position.floored();
+  const g = bot.game as unknown as { minY?: number; height?: number };
+  const top = (g.minY ?? -64) + (g.height ?? 384);
+  let roof: number | null = null;
+  for (let y = feet.y + 2; y < top; y++) {
+    const b = bot.blockAt(new Vec3(feet.x, y, feet.z));
+    if (!b) return null;
+    if (b.boundingBox === 'block' && !/_leaves$/.test(b.name)) roof = y;
+  }
+  return roof === null ? null : roof + 1 - feet.y;
+}
+
+/** What one goes looking for under the ground that only the surface has, said as a fact where it was not found. */
+export function underTheGround(bot: Bot, what: string): string {
+  const up = skyUp(bot);
+  return up !== null && up >= 6 ? `; you are underground, the open sky some ${up} blocks up: ${what}` : '';
+}
+
 /** A creeper hissing, its fuse burning (or lit with flint and steel): it goes off in a moment and a half. */
 export function hissing(bot: Bot, e: Entity): boolean {
   if (e.name !== 'creeper') return false;

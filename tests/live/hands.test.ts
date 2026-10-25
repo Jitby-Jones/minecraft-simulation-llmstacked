@@ -788,6 +788,35 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(Math.floor(body.bot.entity.position.y)).toBe(Y - 6);
   }, 120_000);
 
+  it('a block put toward a way, and again: at the feet, then at the head, a wall that way', async () => {
+    // Asked to "block the arrows" with no spot, one went down anywhere and the skeleton shot on.
+    const x = 8200;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:cobblestone 4');
+    await sleep(1000);
+    const feet = body.bot.entity.position.floored();
+    const r1 = await run('place', { block: 'cobblestone', toward: 'east' });
+    const r2 = await run('place', { block: 'cobblestone', toward: 'east' });
+    logger.info({ r1: r1.observed, r2: r2.observed }, 'a wall toward the east');
+    expect(r1.ok && r2.ok).toBe(true);
+    expect(body.bot.blockAt(feet.offset(1, 0, 0))?.name).toBe('cobblestone');
+    expect(body.bot.blockAt(feet.offset(1, 1, 0))?.name).toBe('cobblestone');
+  }, 60_000);
+
+  it('hunting 30 down in the stone: none in sight, and it says how far up the sky is, where the animals are', async () => {
+    // At dawn, at 9 health with no food, one hunted 50 blocks down, found nothing, and went off exploring the caves.
+    const x = 8300;
+    await server.cmd(`fill ${x} ${Y - 30} 0 ${x} ${Y - 29} 0 air`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 30} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await sleep(2000);
+    const r = await run('hunt', { qty: 2 });
+    logger.info({ r }, 'a hunt underground');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/you are underground, the open sky some 3\d blocks up: animals live up on the surface/);
+  }, 60_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

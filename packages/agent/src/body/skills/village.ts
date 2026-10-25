@@ -7,7 +7,7 @@ import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { isSignBlock, readSign, wrapForSign } from '../signs';
-import { CREATURE_SIGHT, canSee, isAirLike, isHostile, isSolid } from '../world';
+import { CREATURE_SIGHT, canSee, isAirLike, isHostile, isSolid, underTheGround } from '../world';
 import { bearingOf } from '../../perception/sceneWords';
 import { BOARD_RADIUS } from '../../perception/village';
 import { sharedRepertoire } from '../../building/repertoire';
@@ -131,7 +131,9 @@ export const hunt = defineSkill({
     if (got <= 0) {
       if (kills > 0) return { ok: false, observed: 'killed but picked nothing up', error: 'lost the meat', data: { kills } };
       const which = args.animal ?? 'animal';
-      return { ok: false, observed: `no ${which} within ${CREATURE_SIGHT} m${fartherAnimal(bot, kinds)}`, error: `no ${which} to hunt nearby`, data: { kills } };
+      // Hunting in a cave: what grazes lives up on the grass (one at 9 health and no food hunted at dawn 50 blocks
+      // down, found nothing, and went off exploring the caves).
+      return { ok: false, observed: `no ${which} within ${CREATURE_SIGHT} m${fartherAnimal(bot, kinds)}`, error: `no ${which} to hunt nearby${underTheGround(bot, 'animals live up on the surface')}`, data: { kills } };
     }
     return { ok: got >= Math.min(args.qty, 1), observed: `hunted ${kills} animal(s), +${got} raw meat`, data: { kills, meat: got } };
   },

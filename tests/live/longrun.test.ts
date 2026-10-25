@@ -194,6 +194,29 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         return out;
       };
       let lastReport = 0;
+      // The heap past 1 GB: what each agent was doing then, once a minute (the spikes came between two minute readings).
+      let heapLoggedAt = 0;
+      const heapWatch = setInterval(() => {
+        const mem = process.memoryUsage();
+        if (mem.heapUsed < 1e9 || Date.now() - heapLoggedAt < 60_000) return;
+        heapLoggedAt = Date.now();
+        const doing = agents.map((a, i) => {
+          const bot = bodies[i]?.bot;
+          const o = a.store.state.option;
+          const pf = bot?.pathfinder as unknown as { isMoving?: () => boolean; isMining?: () => boolean; goal?: object | null } | undefined;
+          return {
+            name: a.name,
+            doing: o ? `${o.option} ${o.skill ?? ''} ${JSON.stringify(o.args ?? {})} ${o.status}` : null,
+            moving: pf?.isMoving?.() ?? null,
+            mining: pf?.isMining?.() ?? null,
+            goal: pf?.goal ? pf.goal.constructor.name : null,
+            entities: bot ? Object.keys(bot.entities).length : null,
+            pos: a.store.state.self.pos,
+          };
+        });
+        logger.warn({ test: name, heapMB: Math.round(mem.heapUsed / 1e6), rssMB: Math.round(mem.rss / 1e6), doing }, 'heap past 1 GB');
+      }, 2000);
+      heapWatch.unref();
       try {
         while (Date.now() - t0 < minutes * 60_000) {
           check();
@@ -206,6 +229,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           await sleep(5000);
         }
       } finally {
+        clearInterval(heapWatch);
         const r = report(true);
         logger.info({ test: name, met: r.met, missing: r.missing, calls }, 'the long run is over');
         for (const a of agents) await a.stop();

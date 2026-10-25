@@ -3087,13 +3087,19 @@ What changed:
    two zombies "that will burn in daylight"). Death being permanent is now said "as in hardcore": the word brings
    with it how players with one life go about the game (food on them, armor before caves, no needless risks).
 
-4. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
+4. **Where things are, said where they were not found; a block put between.** Hunting or looking for wood
+   underground, the failure says what a player knows: "you are underground, the open sky some 30 blocks up: animals
+   live up on the surface" (at 9 health with no food, one hunted at dawn 50 blocks down, found nothing, and went off
+   exploring the caves). `place {block, toward}` puts a block beside one toward a way or something in sight, at the
+   feet, then at the head: a wall between (asked to "block the arrows" with no spot, one went down anywhere).
+5. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
    attack hand goes in for one blow and backs off out of its reach while it hisses, then in again (one that stood and
    swung, as at a zombie, was blown from 20 health to 7). Whether to fight one stays the mind's call.
 
 Live:
 
 - `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
+- `hands` (2 more): a wall put up toward the east, feet then head; a hunt 30 down says how far up the sky is.
 - `hands` (4 new): from a pocket 30 down, a stair up to the grass in 75 s; two blocks into a cave wall, the way in
   closed with stone at the feet and the head; a stair up out of a cave room, closed behind; a stair down six steps.
 - `m1-skills`: while what the mind chose holds the body, hurt again and again by a zombie at hand, the body takes it back.
@@ -3109,7 +3115,9 @@ Live:
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
 | solo, seed 1 (20) | stopped at 16 min | started on the code before thinking under fire | (stopped, to run the new mind) |
+| solo, seed 1 (22) | 21 min | thinking as a player now ("no food and 9 health at night — that's the real problem now, iron can wait"); fought a creeper it chose to ("strike first and step back"), but the hand stood and swung: 20 to 7; with no food, waited out the night 50 blocks down, then at dawn hunted and looked for wood down there, found none, and went exploring the caves; a skeleton and a spider; its "block the arrows" put blocks anywhere | a creeper fought as a player fights one; where things are, said where they were not found; a block put toward something |
+| duo (24) | 20 min (the worker ran out of memory) | **house met at 5 min**; the heap flat at 100–300 MB, then 2 GB within a minute and a half | room for the worker; the heap past 1 GB logs what each agent was doing |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
 
-Verified: 711 unit tests; live `hands` (the 4 digging cases and the explore case), `m1-skills` (the two cases of the
+Verified: 711 unit tests; live `hands` (all 45: 43 in one full run of the suite, then the wall and the hunt underground), `m1-skills` (the two cases of the
 mind holding the body), `underfire` (2 of 2).

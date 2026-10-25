@@ -5,7 +5,7 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findPlaceableSpot, isAirLike, isNight, isSolid, nearbyHostiles, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
+import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findEntity, findPlaceableSpot, isAirLike, isNight, isSolid, nearbyHostiles, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -213,14 +213,41 @@ export async function spotOrNotch(ctx: SkillContext, item?: string): Promise<Vec
   return null;
 }
 
+const WAYS: Readonly<Record<string, Vec3>> = { north: new Vec3(0, 0, -1), south: new Vec3(0, 0, 1), east: new Vec3(1, 0, 0), west: new Vec3(-1, 0, 0) };
+
+/**
+ * The cell beside one toward a way or something in sight, at the feet, or at the head once the feet are walled: where
+ * a block goes between one and it (asked to "block the arrows" with no spot, one went down anywhere, and the skeleton
+ * shot on). Null when there is no such way or thing, or both cells there are taken.
+ */
+function besideToward(bot: Bot, toward: string): Vec3 | null {
+  const w = toward.trim().toLowerCase();
+  let d = WAYS[/^(north|south|east|west)/.exec(w)?.[1] ?? ''] ?? null;
+  if (!d) {
+    const e = findEntity(bot, w.replace(/^(the|a|an)\s+/, ''), 32);
+    if (!e) return null;
+    const dx = e.position.x - bot.entity.position.x;
+    const dz = e.position.z - bot.entity.position.z;
+    d = Math.abs(dx) >= Math.abs(dz) ? new Vec3(Math.sign(dx) || 1, 0, 0) : new Vec3(0, 0, Math.sign(dz) || 1);
+  }
+  const feet = bot.entity.position.floored();
+  for (const dy of [0, 1]) {
+    const c = feet.plus(d).offset(0, dy, 0);
+    if (placeableInto(bot.blockAt(c))) return c;
+  }
+  return null;
+}
+
 export const place = defineSkill({
   name: 'place',
-  description: 'place {block, x?,y?,z?} — place a block from your inventory (next to you if no position)',
+  description:
+    'place {block, x?,y?,z?, toward?} — place a block from your inventory: at x,y,z; or beside you toward a way (north...) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
   argsSchema: z.object({
     block: z.string().min(1),
     x: z.coerce.number().optional(),
     y: z.coerce.number().optional(),
     z: z.coerce.number().optional(),
+    toward: z.string().min(1).optional(),
   }),
   talkOverable: false,
   slipKinds: [],
@@ -229,10 +256,19 @@ export const place = defineSkill({
       ? { kind: 'blockAt', pos: new Vec3(args.x, args.y, args.z), block: blockMatcher(args.block).label }
       : { kind: 'inventoryLoss', item: itemMatcher(args.block).label, atLeast: 1 },
   async run(ctx, args) {
-    const target =
-      args.x !== undefined && args.y !== undefined && args.z !== undefined
-        ? new Vec3(Math.floor(args.x), Math.floor(args.y), Math.floor(args.z))
-        : await spotOrNotch(ctx, itemMatcher(args.block).label);
+    const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
+    if (!at && args.toward) {
+      const beside = besideToward(ctx.bot, args.toward);
+      if (!beside) return { ok: false, observed: `nowhere to put it toward ${args.toward}`, error: `no ${args.toward} in sight, or both cells beside you that way are taken` };
+      try {
+        await placeItemAt(ctx, args.block, beside);
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        return { ok: false, observed: `could not place at ${beside.toString()}`, error: errMsg(err) };
+      }
+      return { ok: true, observed: `placed ${args.block} at ${beside.x},${beside.y},${beside.z}, beside you toward ${args.toward}` };
+    }
+    const target = at ? new Vec3(Math.floor(args.x ?? 0), Math.floor(args.y ?? 0), Math.floor(args.z ?? 0)) : await spotOrNotch(ctx, itemMatcher(args.block).label);
     if (!target) return { ok: false, observed: 'no free spot', error: 'no free spot to place a block nearby' };
     try {
       await placeItemAt(ctx, args.block, target);
