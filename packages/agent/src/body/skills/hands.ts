@@ -245,7 +245,9 @@ export const use = defineSkill({
         if (done === 0) return { ok: false, observed: `no ${kind.replace(/_/g, ' ')} in reach`, error: `no ${kind.replace(/_/g, ' ')} in sight to use it on` };
       } else {
         const names = at ? [bot.blockAt(at)?.name ?? ''] : blockKinds(bot, args.on);
-        if (!names || names[0] === '') return { ok: false, observed: 'nothing to use it on', error: `you don't know what "${args.on}" is` };
+        // What the hands take: a block or a creature by name, or x,y,z. Asked to use a door "on doorway", one was told
+        // only that it didn't know what that was, the doorway's spot given it a moment before.
+        if (!names || names[0] === '') return { ok: false, observed: 'nothing to use it on', error: `"${args.on}" is no block or creature you can name (give x,y,z for a spot); a door, a block or a torch is set down with place {block, x,y,z}` };
         const ids = names.map((n) => bot.registry.blocksByName[n]?.id).filter((x): x is number => x !== undefined);
         const used = new Set<string>();
         for (let i = 0; i < args.times; i++) {
