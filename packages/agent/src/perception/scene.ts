@@ -19,6 +19,7 @@ import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
 import { WORN, freeSlots, toolWear } from '../body/inventory';
+import { EDIBLE } from '../body/items';
 import { biomeAt, canSeeBlock, isEnclosed } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
@@ -207,6 +208,13 @@ interface Group {
 }
 
 const CELL = 3;
+
+/** Animals that give meat (and fish): what a hungry eye goes to. */
+const MEAT = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom', 'cod', 'salmon']);
+/** Food at or below this with nothing to eat on one, and an animal in view stands out. */
+const HUNGRY_EYE = 12;
+/** One animal standing out so at most this often. */
+const FOOD_EYE_MS = 120_000;
 
 function nice(name: string): string {
   return name.replace(/^minecraft:/, '').replace(/_/g, ' ');
@@ -604,6 +612,8 @@ export class SceneEyes {
   private lastCreaturesAt = 0;
   private lastKey = '';
   private notices: Notice[] = [];
+  /** When an animal last caught a hungry eye. */
+  private foodNoticedAt = -Infinity;
   private readonly known = new Set<number>();
   private readonly offs: (() => void)[] = [];
   private notableIds: number[] | null = null;
@@ -778,6 +788,7 @@ export class SceneEyes {
       const hits = [...new Map([...this.look.seen, ...this.notableInSight()].map((h) => [`${h.x},${h.y},${h.z}`, h] as const)).values()];
       this.features = featuresOf(bot, hits, bot.entity.position, this.roofed);
       this.markFirsts(seen);
+      this.markFood(seen);
       this.remember(seen);
       this.write(seen, now, true);
       return;
@@ -839,6 +850,21 @@ export class SceneEyes {
     if (fresh.length === 0 && kept.length === old.length) return;
     const places = [...kept, ...fresh].sort((a, b) => a.seenAt - b.seenAt).slice(-MAX_PLACES);
     this.o.store.update('knowledge', (k) => ({ ...k, places }), 'places seen');
+  }
+
+  /**
+   * Hungry with nothing to eat, an animal in view catches the eye, as food does a hungry person's: one starving strolled
+   * past a chicken, saw it ("saw grass block, chicken"), and went on looking for fish.
+   */
+  private markFood(seen: readonly Seen[]): void {
+    const self = this.o.store.state.self;
+    const now = this.o.now();
+    if (self.food > HUNGRY_EYE || now - this.foodNoticedAt < FOOD_EYE_MS || self.inventory.some((i) => EDIBLE.test(i.item))) return;
+    const prey = seen.filter((x) => x.visible && MEAT.has(x.e.name ?? x.name) && x.distance <= 32).sort((a, b) => a.distance - b.distance)[0];
+    if (!prey) return;
+    this.foodNoticedAt = now;
+    const how = self.food <= 6 ? 'starving' : 'hungry';
+    this.add({ id: `n${now.toString(36)}food`, ts: now, kind: 'cue', about: prey.e.name ?? prey.name, key: 'food', text: `A ${nice(prey.e.name ?? prey.name)}, ${Math.round(prey.distance)} m ${bearingOf(this.o.bot.entity.position, prey.e.position)}: meat, and you are ${how} with nothing to eat on you`, strength: self.food <= 6 ? 0.7 : 0.6, seenBefore: 0 });
   }
 
   /** The first of a remarkable kind of thing this agent ever saw. */

@@ -67,6 +67,9 @@ export function gearScore(armor: readonly string[], held: string | null | undefi
   return Math.min(1, (armorMean * 0.65 + weaponTier(held) * 0.35) / 5);
 }
 
+/** What can be eaten, raw or cooked. */
+export const EDIBLE = /^(bread|apple|golden_apple|cooked_\w+|beef|porkchop|mutton|chicken|rabbit|cod|salmon|carrot|golden_carrot|baked_potato|potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie|pumpkin_pie|mushroom_stew|rabbit_stew|beetroot_soup|dried_kelp)$/;
+
 const SYNONYMS: Readonly<Record<string, string>> = {
   wood: 'log',
   logs: 'log',
@@ -107,6 +110,10 @@ const SYNONYMS: Readonly<Record<string, string>> = {
   raw_rabbit: 'rabbit',
   raw_cod: 'cod',
   raw_salmon: 'salmon',
+  // "Fish" as players say it: cod or salmon ("obtain fish" was told there is no item called fish).
+  fish: 'fish',
+  raw_fish: 'fish',
+  cooked_fish: 'cooked_fish',
 };
 
 /**
@@ -133,6 +140,8 @@ export function normalizeItemName(raw: string): string {
 
 /** Category names that match a family of items/blocks. */
 export const CATEGORIES: Readonly<Record<string, (name: string) => boolean>> = {
+  fish: (n) => n === 'cod' || n === 'salmon',
+  cooked_fish: (n) => n === 'cooked_cod' || n === 'cooked_salmon',
   log: (n) => /_(log|stem)$/.test(n) && !n.startsWith('stripped_'),
   planks: (n) => n.endsWith('_planks'),
   wool: (n) => n.endsWith('_wool'),

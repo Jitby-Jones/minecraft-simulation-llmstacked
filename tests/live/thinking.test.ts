@@ -153,6 +153,31 @@ describe.skipIf(!liveJavaPath())('live: a thinking agent', () => {
     }
   }, 300_000);
 
+  it('hungry with nothing to eat, a cow in view catches her eye (one starving strolled past a chicken)', async () => {
+    const x = 4900;
+    await server.cmd(`forceload add ${x - 32} -32 ${x + 32} 32`);
+    const body = await join('Ada', x, 0);
+    await sleep(1500);
+    // On peaceful hunger never comes: easy for this, by day on open ground.
+    await server.cmd('difficulty easy');
+    await server.cmd('effect give Ada minecraft:hunger 10 200');
+    await waitFor(() => body.bot.food <= 12, 20_000, 'hungry', 100);
+    await server.cmd('effect clear Ada');
+    const ada = agentFor(body, 'Ada', null);
+    ada.perception.start();
+    try {
+      await sleep(3000);
+      await server.cmd(`summon cow ${x + 8} ${Y} 3`);
+      await waitFor(() => ada.store.state.scene.notices.some((n) => n.key === 'food'), 20_000, 'the cow noticed as food', 250);
+      expect(ada.store.state.scene.notices.find((n) => n.key === 'food')?.text).toMatch(/^A cow, \d+ m [a-z-]+: meat, and you are (hungry|starving) with nothing to eat on you/);
+    } finally {
+      await server.cmd('kill @e[type=minecraft:cow]');
+      await server.cmd('difficulty peaceful');
+      await ada.stop();
+      await body.disconnect();
+    }
+  }, 120_000);
+
   it.skipIf(!withModel)('wool with only two sheep about: she works out a way that keeps them, and does not go round in circles', async () => {
     const x = 4600;
     await server.cmd(`forceload add ${x - 48} -48 ${x + 48} 48`);

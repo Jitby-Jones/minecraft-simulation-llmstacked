@@ -6,6 +6,7 @@
 import type { AgentState, DecisionOutput, Vec3 } from '@agora/shared';
 import { HUT_BLOCKS, isHutMaterial } from '../body/skills/village';
 import { FOOD_ITEM, type VillageKind } from '../social/village';
+import { EDIBLE } from '../body/items';
 
 export interface VillageMoveCtx {
   isStuck: (skill: string, args: Record<string, unknown>) => boolean;
@@ -128,8 +129,7 @@ export function hurtMove(s: AgentState, v: VillageMoveCtx): DecisionOutput | nul
   return { option: 'rest', terminate: { maxSeconds: 30 }, rationale: 'code default: badly hurt, resting until I heal' };
 }
 
-/** What can be eaten, raw or cooked. */
-export const EDIBLE = /^(bread|apple|golden_apple|cooked_\w+|beef|porkchop|mutton|chicken|rabbit|cod|salmon|carrot|golden_carrot|baked_potato|potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie|pumpkin_pie|mushroom_stew|rabbit_stew|beetroot_soup|dried_kelp)$/;
+export { EDIBLE };
 
 /**
  * Hungry (food ≤ 12; badly hurt, below 18, since no health comes back under that) with nothing to eat (§16.3: always

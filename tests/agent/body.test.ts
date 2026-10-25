@@ -38,6 +38,11 @@ describe('item names and tiers', () => {
     expect(log.matches('oak_planks')).toBe(false);
     expect(itemMatcher('planks').matches('birch_planks')).toBe(true);
     expect(itemMatcher('oak_log').matches('birch_log')).toBe(false);
+    // Fish as players say it: cod or salmon ("obtain fish" was told there is no item called fish).
+    expect(itemMatcher('fish').matches('salmon')).toBe(true);
+    expect(itemMatcher('raw fish').matches('cod')).toBe(true);
+    expect(itemMatcher('fish').matches('tropical_fish')).toBe(false);
+    expect(itemMatcher('cooked fish').matches('cooked_cod')).toBe(true);
     // An ore is the same ore in deepslate, either way it is named; other blocks are what they are named.
     expect(blockMatcher('iron_ore').matches('deepslate_iron_ore')).toBe(true);
     // Raw meat as players say it is the game's plain name; raw iron stays raw iron.

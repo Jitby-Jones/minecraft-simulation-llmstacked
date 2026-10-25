@@ -3107,6 +3107,9 @@ What changed:
    hover was learned from while it went on, each look stretching the limit half again past it, so someone hanging in
    the air was never surprising once the rise was no longer noticed first; a hover is now learned only within what is
    already known.
+   Hunger draws the eye: hungry (food 12 or less) with nothing edible on one, an animal in view stands out ("A
+   chicken, 12 m north-east: meat, and you are starving with nothing to eat on you"), as food does a hungry person's
+   (one starving strolled past a chicken and went on looking for fish). And "fish" is cod or salmon, as players say.
 6. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
    attack hand goes in for one blow and backs off out of its reach while it hisses, then in again (one that stood and
    swung, as at a zombie, was blown from 20 health to 7). Whether to fight one stays the mind's call.
@@ -3115,7 +3118,8 @@ Live:
 
 - `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
 - `hands` (2 more): a wall put up toward the east, feet then head; a hunt 30 down says how far up the sky is.
-- `thinking`: Kelby, whom Ada has not met, noticed as he comes into view (and his flying still seen).
+- `thinking`: Kelby, whom Ada has not met, noticed as he comes into view (and his flying still seen); hungry with
+  nothing to eat, a cow in view catches her eye.
 - `hands` (4 new): from a pocket 30 down, a stair up to the grass in 75 s; two blocks into a cave wall, the way in
   closed with stone at the feet and the head; a stair up out of a cave room, closed behind; a stair down six steps.
 - `m1-skills`: while what the mind chose holds the body, hurt again and again by a zombie at hand, the body takes it back.
