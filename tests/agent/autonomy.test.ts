@@ -421,7 +421,10 @@ describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389
     expect(dayPart(3000, true)).toBe('daytime');
     expect(dayPart(10600, true)).toBe('evening, dark in about 2 min');
     expect(dayPart(12900, true)).toBe('evening, dark in about 1 min');
-    expect(dayPart(14000, false)).toBe('night, light in about 8 min');
+    // Early in the night, how long it has been dark ("light in about 7 min" was taken for nearly over).
+    expect(dayPart(14000, false)).toBe('night, light in about 8 min (it fell a minute ago)');
+    expect(dayPart(16000, false)).toBe('night, light in about 6 min (it fell 3 min ago)');
+    expect(dayPart(17000, false)).toBe('night, light in about 5 min');
     expect(dayPart(23500, false)).toBe('night');
   });
 });

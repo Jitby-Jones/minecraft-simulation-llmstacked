@@ -7,6 +7,7 @@
 // Knowledge only: what to do with it is the mind's.
 
 import type { AgentState } from '@agora/shared';
+import { EDIBLE } from '../body/items';
 import { SMELTS } from '../body/skills/planner';
 
 /** The parts of the game data this reads (minecraft-data, as `bot.registry`). */
@@ -72,7 +73,7 @@ const FACTS: readonly Fact[] = [
 const TOPICS: readonly { about: RegExp; text: string }[] = [
   {
     about: /\b(hungry|starving)\b/i,
-    text: 'Food: raw meat fills little and cooked much more (raw beef 3, cooked 8; a furnace and any fuel cooks it); animals live out on grassy land and are not replaced once killed, so when those about are gone more are found farther off; tall grass drops seeds now and then, and wheat from them makes bread (3 a loaf); a fishing rod (3 sticks and 2 string) catches fish in any open water; oak leaves sometimes drop apples; rotten flesh fills a little but often brings on hunger.',
+    text: 'Food: health comes back by itself only while the food bar is at 18 of 20 or more, and fast while it is full just after a good meal: a steak or a cooked porkchop eaten when hurt brings back several hearts within seconds, so food carried is health in reserve; work, sprinting, fighting and healing burn the bar down. Raw meat fills little and cooked much more (raw beef 3, cooked 8; a furnace and any fuel cooks it); animals live out on grassy land and are not replaced once killed, so when those about are gone more are found farther off; tall grass drops seeds now and then, and wheat from them makes bread (3 a loaf); a fishing rod (3 sticks and 2 string) catches fish in any open water; oak leaves sometimes drop apples; rotten flesh fills a little but often brings on hunger.',
   },
   {
     about: /\b(renewable|sustainable|steady|farm|food (source|supply)|never run out)\b/i,
@@ -92,7 +93,7 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
   },
   {
     about: /\barmou?r\b/i,
-    text: 'Armor: a set is a helmet, a chestplate, leggings and boots; in iron that is 5 + 8 + 7 + 4 = 24 iron ingots (smelted from raw iron); the same set in copper ingots (from raw copper, common around y 48 and in dripstone caves) protects less than iron, more than leather, and far more than none.',
+    text: 'Armor: each piece takes part of every blow from the moment it is worn (an iron chestplate alone about a fifth of a zombie\'s, the whole iron set over half), so a piece helps long before the set is whole; a set is a helmet, a chestplate, leggings and boots; in iron that is 5 + 8 + 7 + 4 = 24 iron ingots (smelted from raw iron); the same set in copper ingots (from raw copper, common around y 48 and in dripstone caves) protects less than iron, more than leather, and far more than none.',
   },
   {
     about: /\btools?\b/i,
@@ -112,7 +113,7 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
   },
   {
     about: /\b(diamonds?|iron|ore|ores|mine|mining|cave|caves|underground|dig|digging)\b/i,
-    text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open, and no sun reaches down there, so what is about in a cave does not burn by day; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
+    text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open, and no sun reaches down there, so what is about in a cave does not burn by day; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; nothing to eat grows or lives down there (zombies drop rotten flesh), so a meal there is one brought down; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
   },
   {
     about: /\bdripstone\b/i,
@@ -325,8 +326,11 @@ export function knowledgeLines(k: GameKnowledge, s: AgentState): string[] {
   }
   // What bears on the moment first (the step at hand, the plan, where one is), then what the tasks are about.
   const hour = !s.self.isDay ? 'night' : s.self.time >= 9600 && s.self.time < 13_000 ? 'evening' : '';
-  // Hunger is on one's mind as the hour is: under the 18 that healing needs, or hurt with nothing to heal on.
-  const hungry = s.self.food <= 14 || (s.self.food < 18 && s.self.health <= 14) ? 'hungry' : '';
+  // Hunger is on one's mind as the hour is: under the 18 that healing needs, or hurt with nothing to heal on, or the bar
+  // going down with nothing to eat on one (an agent mined on for half an hour with none, and met its first fight at
+  // night unfed and out of food, 20 to 0).
+  const carries = s.self.inventory.some((i) => EDIBLE.test(i.item));
+  const hungry = s.self.food <= 14 || (s.self.food < 18 && s.self.health <= 14) || (s.self.food < 20 && !carries) ? 'hungry' : '';
   const now = [hour, hungry, s.goals.current?.text ?? '', s.goals.plan?.aim ?? '', s.scene.where].join('. ');
   const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open').map((t) => t.text).join('. ');
   for (const t of [...new Set([...k.topics(now), ...k.topics(tasks)])].slice(0, 3)) lines.push(t);

@@ -43,6 +43,36 @@ export function skyUp(bot: Bot): number | null {
   return roof === null ? null : roof + 1 - feet.y;
 }
 
+/**
+ * Where something the hands are going for lies, when it is a walk away: how far and which way, how far up or down, and
+ * whether it is out under the open sky while one is under the ground ('' when it is close by). Told only "digging 1
+ * oak_log", a mind did not know its hands were taking it 34 blocks up from a mine to a tree, into the night.
+ */
+export function goingFor(bot: Bot, p: Vec3): string {
+  const me = bot.entity.position;
+  const dx = p.x + 0.5 - me.x;
+  const dz = p.z + 0.5 - me.z;
+  const flat = Math.hypot(dx, dz);
+  const dy = Math.round(p.y - me.y);
+  if (flat < 8 && Math.abs(dy) < 4) return '';
+  const dir = COMPASS[(Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) + 8) % 8] ?? 'east';
+  const parts = [`${Math.round(flat)} m ${dir}`];
+  if (dy >= 4) parts.push(`${dy} m up`);
+  else if (dy <= -4) parts.push(`${-dy} m down`);
+  const up = skyUp(bot);
+  if (up !== null && up >= 6 && skyBeside(bot, p)) parts.push('out under the open sky');
+  return parts.join(', ');
+}
+
+/** Whether the sky reaches the open cells beside or over a block (the light the ground came with: 10 under leaves). */
+function skyBeside(bot: Bot, p: Vec3): boolean {
+  for (const [x, y, z] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] as const) {
+    const b = bot.blockAt(p.offset(x, y, z));
+    if (b && b.boundingBox === 'empty' && (b.skyLight ?? 0) >= 10) return true;
+  }
+  return false;
+}
+
 /** What one goes looking for under the ground that only the surface has, said as a fact where it was not found. */
 export function underTheGround(bot: Bot, what: string): string {
   const up = skyUp(bot);

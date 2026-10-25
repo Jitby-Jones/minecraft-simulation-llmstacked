@@ -224,6 +224,23 @@ function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** How many built blocks stand together round a few seen (up to 2 blocks off each way): one put down alone is 1. */
+function builtAround(bot: Bot, hits: readonly Hit[]): number {
+  const cells = new Set<string>();
+  for (const h of hits) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dz = -2; dz <= 2; dz++) {
+          const p = new Vec3(h.x + dx, h.y + dy, h.z + dz);
+          const b = bot.blockAt(p);
+          if (b && featureKindOf(b.name) === 'built') cells.add(p.toString());
+        }
+      }
+    }
+  }
+  return cells.size;
+}
+
 /** What a group of blocks is, in a player's words. */
 function words(kind: SceneFeatureKind, blocks: Record<string, number>, hits: readonly Hit[], bot: Bot, roofed: boolean): string {
   const names = Object.entries(blocks).sort((a, b) => b[1] - a[1]);
@@ -277,6 +294,10 @@ function words(kind: SceneFeatureKind, blocks: Record<string, number>, hits: rea
       if (fenceOnly) return `a fence${has(/_fence_gate$/) ? ' with a gate' : ''}`;
       if (names.every(([n]) => n === 'dirt_path')) return 'a path';
       const mats = names.filter(([n]) => !/_door$|torch|lantern|glass|_pane$/.test(n)).slice(0, 2).map(([n]) => nice(n));
+      // A block or two set down is that, not "something built": one at one health ran for "the cobblestone structure"
+      // to shelter in, 15 m off, the one block it had put in a skeleton's way.
+      const lone = total <= 3 && parts.length === 0 ? builtAround(bot, hits) : 0;
+      if (lone > 0 && lone <= 2 && mats[0]) return `${lone === 1 ? 'a' : '2'} ${mats[0]} block${lone === 1 ? '' : 's'}, nothing more`;
       return `something built of ${mats.join(' and ') || 'blocks'}${parts.length > 0 ? `, with ${parts.join(' and ')}` : ''}`;
     }
     case 'station':
@@ -619,6 +640,8 @@ const MAX_PLACES = 80;
 const CREATURES_EVERY_MS = 1000;
 /** When the sun is low enough to be noticed, with time left to get ready (dark at 13000 of the day's 24000 ticks; a minute is 1200). */
 const DUSK_AT = 10_800;
+/** Coming out into the night stands out so at most this often (in and out of a doorway is one coming out). */
+const NIGHT_OUT_MS = 120_000;
 
 export class SceneEyes {
   readonly motion: MotionTracker;
@@ -634,6 +657,8 @@ export class SceneEyes {
   private notices: Notice[] = [];
   /** When an animal last caught a hungry eye. */
   private foodNoticedAt = -Infinity;
+  /** When coming out into the night was last noticed. */
+  private nightOutAt = -Infinity;
   private readonly known = new Set<number>();
   private readonly offs: (() => void)[] = [];
   private notableIds: number[] | null = null;
@@ -803,9 +828,11 @@ export class SceneEyes {
     // A share of the look around; once round, what is in view is grouped anew.
     if (this.look.step()) {
       const w = whereNow(bot);
+      const wasRoofed = this.roofed;
       this.where = w.text;
       this.roofed = w.roofed;
       this.checkRoom(now);
+      this.checkNightOut(now, wasRoofed);
       const hits = [...new Map([...this.look.seen, ...this.notableInSight()].map((h) => [`${h.x},${h.y},${h.z}`, h] as const)).values()];
       this.features = featuresOf(bot, hits, bot.entity.position, this.roofed);
       this.markFirsts(seen);
@@ -994,6 +1021,22 @@ export class SceneEyes {
         .map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
       if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.5));
     }
+  }
+
+  /**
+   * Out from under a roof into the open at night: the dark all round, as anyone stepping out sees it. Hands sent for a
+   * log went up 34 blocks from a mine to a tree a minute after nightfall, and a skeleton and a zombie were on the body
+   * before its mind knew it was out.
+   */
+  private checkNightOut(now: number, wasRoofed: boolean): void {
+    const bot = this.o.bot;
+    const t = ((bot.time.timeOfDay % 24000) + 24000) % 24000;
+    const dim = String(bot.game?.dimension ?? 'overworld').replace(/^minecraft:/, '');
+    if (!wasRoofed || this.roofed || dim !== 'overworld' || t < 13_000 || t >= 23_000 || now - this.nightOutAt < NIGHT_OUT_MS) return;
+    if (!this.where.includes('under the open sky')) return;
+    this.nightOutAt = now;
+    const min = Math.max(1, Math.round((23_000 - t) / 1200));
+    this.add({ id: `n${now.toString(36)}out`, ts: now, kind: 'cue', about: 'the world', key: 'nightOut', text: `You have come out under the open sky, and it is night: dark all round until it gets light in about ${min} min, and in the dark the monsters come out`, strength: 0.65, seenBefore: 0 });
   }
 
   /**

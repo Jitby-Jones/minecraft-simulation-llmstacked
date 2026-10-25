@@ -344,5 +344,8 @@ export function dayPart(time: number, isDay: boolean): string {
   const t = ((time % 24000) + 24000) % 24000;
   const min = (ticks: number) => Math.max(1, Math.round(ticks / 1200));
   if (isDay) return t >= 9600 && t < 13000 ? `evening, dark in about ${min(13000 - t)} min` : 'daytime';
-  return t >= 13000 && t < 23000 ? `night, light in about ${min(23000 - t)} min` : 'night';
+  if (!(t >= 13000 && t < 23000)) return 'night';
+  // How long it has been dark, early on: "light in about 7 min" was taken for "night's nearly over" a minute after
+  // nightfall, and the mind went up to a tree on the surface.
+  return `night, light in about ${min(23000 - t)} min${t - 13000 < 3600 ? ` (it fell ${t - 13000 < 1800 ? 'a minute' : `${min(t - 13000)} min`} ago)` : ''}`;
 }

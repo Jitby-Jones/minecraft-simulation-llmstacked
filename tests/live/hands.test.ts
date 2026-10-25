@@ -943,6 +943,33 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(r.error).toMatch(/you are underground, the open sky some 3\d blocks up: animals live up on the surface/);
   }, 60_000);
 
+  it('sent for a log from 30 down, the hands say where it is: up, out under the open sky', async () => {
+    // Told only "digging 1 oak_log", a mind did not know its hands were taking it 34 blocks up to a tree at night.
+    const x = 9300;
+    await server.cmd(`tp Ada ${x}.5 ${Y + 2} 0.5`);
+    await sleep(2000);
+    // Set once the chunks are loaded round her (a setblock in an unloaded chunk does nothing).
+    await server.cmd(`fill ${x} ${Y - 30} 0 ${x} ${Y - 29} 0 air`);
+    await server.cmd(`setblock ${x + 12} ${Y} 6 minecraft:oak_log`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 30} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(2000);
+    const notes: string[] = [];
+    const ac = new AbortController();
+    const r = await body
+      .run('gather', { item: 'oak_log', qty: 1 }, {
+        signal: ac.signal,
+        progress: (n) => {
+          notes.push(n);
+          if (/digging/.test(n)) ac.abort();
+        },
+      })
+      .catch((e: unknown) => String(e));
+    logger.info({ notes, r }, 'a log from down a mine');
+    expect(notes.find((n) => /digging/.test(n))).toBe('digging 1 oak_log, 13 m south-east, 30 m up, out under the open sky');
+  }, 90_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

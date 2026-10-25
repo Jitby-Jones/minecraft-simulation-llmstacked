@@ -7,7 +7,7 @@ import { Vec3 } from 'vec3';
 import { countItem } from '../inventory';
 import { itemMatcher, type ItemMatcher } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
-import { blockIdsDropping, blockIdsNamed, canSee, underTheGround } from '../world';
+import { blockIdsDropping, blockIdsNamed, canSee, goingFor, underTheGround } from '../world';
 import { type ToolKind, ensureTool, makeTool } from './tools';
 import { lightTheWay } from './light';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
@@ -246,7 +246,8 @@ async function collectUntil(
     }
     const remaining = qty - (countItem(bot, matcher) - start);
     const batch = harvestable.slice(0, Math.max(1, Math.min(remaining, 4)));
-    ctx.progress(`digging ${batch.length} ${batch[0]?.name ?? label}`);
+    const far = batch[0] ? goingFor(bot, batch[0].position) : '';
+    ctx.progress(`digging ${batch.length} ${batch[0]?.name ?? label}${far ? `, ${far}` : ''}`);
     bot.pathfinder.setMovements(ctx.movements());
     const had = countItem(bot, matcher);
     try {

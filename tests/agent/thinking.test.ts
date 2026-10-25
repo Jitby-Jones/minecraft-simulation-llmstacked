@@ -259,6 +259,50 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     eyes.stop();
   });
 
+  it('coming out under the open sky at night is noticed, once (hands sent for a log went up 34 blocks into the dark)', () => {
+    const w = fakeWorld();
+    let roof = true;
+    const base = w.bot.blockAt;
+    w.bot.blockAt = (p: Vec3) => {
+      const f = p.floored();
+      if (roof && f.y === 67 && Math.abs(f.x) <= 3 && Math.abs(f.z) <= 3) return { name: 'stone', type: data.blocksByName.stone?.id ?? 1, boundingBox: 'block', position: f, getProperties: () => ({}) };
+      if (f.x === 0 && f.y >= 64 && f.y <= 66 && f.z === 0) return { name: 'air', type: 0, boundingBox: 'empty', position: f, skyLight: roof ? 0 : 15, getProperties: () => ({}) } as never;
+      return base(p);
+    };
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    w.bot.time.timeOfDay = 14_000;
+    const look = () => {
+      for (let i = 0; i < 16; i++) {
+        t.now += 250;
+        eyes.tick([]);
+      }
+    };
+    look();
+    expect(eyes.recent().filter((n) => n.key === 'nightOut')).toEqual([]);
+    roof = false;
+    look();
+    const out = eyes.recent().filter((n) => n.key === 'nightOut');
+    expect(out.map((n) => n.text)).toEqual(['You have come out under the open sky, and it is night: dark all round until it gets light in about 8 min, and in the dark the monsters come out']);
+    expect(out[0]?.strength).toBeGreaterThanOrEqual(0.6);
+    // In and straight out again (a doorway): the same coming out.
+    roof = true;
+    look();
+    roof = false;
+    look();
+    expect(eyes.recent().filter((n) => n.key === 'nightOut')).toHaveLength(1);
+    // Out by day: nothing to notice.
+    const day = fakeWorld();
+    const eyes2 = new SceneEyes({ bot: day.bot as never, store: store(), bus: new AgentBus(), now: () => t.now });
+    eyes2.start();
+    look();
+    expect(eyes2.recent().filter((n) => n.key === 'nightOut')).toEqual([]);
+    eyes.stop();
+    eyes2.stop();
+  });
+
   it("a tool nearly worn out is noticed once, as its bar turns red; and its breaking, with none of its kind left", () => {
     const w = fakeWorld();
     const s = store();
@@ -412,6 +456,15 @@ describe('the scene: blocks in view grouped as a player sees them', () => {
     expect(what).toContain('ore:iron ore (2 blocks):west');
     expect(what).toContain('built:something built of oak planks, with a door:south');
     expect(what).toContain('water:a pond:west');
+    // A block or two put down is that, not something built: one at one health ran 15 m for "the cobblestone
+    // structure" to shelter in, the one block it had put in a skeleton's way.
+    const placed = new Set(['5,64,5']);
+    const world = { registry: data, blockAt: (p: Vec3) => ({ name: placed.has(`${p.x},${p.y},${p.z}`) ? 'cobblestone' : 'air' }) };
+    const one = featuresOf(world as never, [{ x: 5, y: 64, z: 5, id: at('cobblestone') }], new Vec3(0, 64, 0), false);
+    expect(one[0]?.what).toBe('a cobblestone block, nothing more');
+    for (const [x, y] of [[6, 64], [7, 64], [5, 65], [6, 65], [7, 65]]) placed.add(`${x},${y},5`);
+    const wall = featuresOf(world as never, [{ x: 5, y: 64, z: 5, id: at('cobblestone') }, { x: 7, y: 65, z: 5, id: at('cobblestone') }], new Vec3(0, 64, 0), false);
+    expect(wall[0]?.what).toBe('something built of cobblestone');
     expect(featureKindOf('grass_block')).toBe('ground');
     expect(featureKindOf('crafting_table')).toBe('station');
     expect(bearingOf({ x: 0, z: 0 }, { x: 0, z: -10 })).toBe('north');
@@ -580,7 +633,9 @@ describe('what it knows of the game, looked up for what matters', () => {
     };
     const lines = knowledgeLines(k, st);
     expect(lines[0]).toMatch(/^white wool: shear an adult sheep/);
-    expect(lines.join('\n')).toMatch(/Armor: a set is a helmet, a chestplate, leggings and boots; in iron that is 5 \+ 8 \+ 7 \+ 4 = 24 iron ingots/);
+    expect(lines.join('\n')).toMatch(/a set is a helmet, a chestplate, leggings and boots; in iron that is 5 \+ 8 \+ 7 \+ 4 = 24 iron ingots/);
+    // What armor does, as players know: each piece from the moment it is on (an agent carried 14 ingots and wore none).
+    expect(lines.join('\n')).toMatch(/Armor: each piece takes part of every blow from the moment it is worn/);
   });
 
   it('what bears on the moment comes before what the tasks are about: down a mine, the dark', () => {
@@ -605,8 +660,15 @@ describe('what it knows of the game, looked up for what matters', () => {
     // Hungry, what one knows of food comes to mind (one starving among salmon in a river never thought of cooking,
     // fishing or going farther for animals); fed, it does not.
     const hungry = knowledgeLines(k, { ...st, self: { ...st.self, food: 9 } });
-    expect(hungry.some((l) => l.startsWith('Food: raw meat fills little and cooked much more'))).toBe(true);
-    expect(lines.some((l) => l.startsWith('Food: raw meat'))).toBe(false);
+    expect(hungry.some((l) => l.startsWith('Food: health comes back by itself only while the food bar is at 18 of 20 or more'))).toBe(true);
+    expect(hungry.join('\n')).toMatch(/Raw meat fills little and cooked much more/);
+    expect(lines.some((l) => l.startsWith('Food:'))).toBe(false);
+    // The bar going down with nothing to eat on one, food comes to mind before hunger does (an agent mined on for half
+    // an hour with none, and met its first fight unfed); with a meal on one, not yet.
+    expect(knowledgeLines(k, { ...st, self: { ...st.self, food: 19 } }).some((l) => l.startsWith('Food:'))).toBe(true);
+    expect(knowledgeLines(k, { ...st, self: { ...st.self, food: 19, inventory: [{ item: 'bread', qty: 3 }] } }).some((l) => l.startsWith('Food:'))).toBe(false);
+    // Down there, nothing to eat but what one brought.
+    expect(lines.join('\n')).toMatch(/nothing to eat grows or lives down there/);
   });
 });
 

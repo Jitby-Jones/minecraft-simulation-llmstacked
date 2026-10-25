@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
-import { besideWords, daytime, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
+import { besideWords, daytime, goingFor, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { openedUp } from '@agora/agent/perception/scene';
 import { createInitialState } from '@agora/agent/state/initial';
@@ -99,6 +99,28 @@ describe('the room one stands in', () => {
     const cave: Record<string, Cell> = {};
     for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) cave[`${x},4,${z}`] = 'solid';
     expect(roomAround(world(cave))).toBeNull();
+  });
+});
+
+describe('where the hands are going', () => {
+  /** Stone from y -40 to 40 with a mine at y 0, a tree's log out on the grass at 30,41,20 under the open sky. */
+  function mine(): Bot {
+    const blockAt = (p: Vec3) => {
+      const f = p.floored();
+      const log = f.x === 30 && f.y === 41 && f.z === 20;
+      const tunnel = f.y >= 0 && f.y <= 1 && f.z === 0 && f.x >= 0 && f.x <= 40;
+      const solid = log || (f.y <= 40 && f.y >= -40 && !tunnel);
+      return { position: f, name: log ? 'oak_log' : solid ? 'stone' : 'air', boundingBox: solid ? 'block' : 'empty', skyLight: solid ? 0 : f.y > 40 ? 15 : 0, getProperties: () => ({}) };
+    };
+    return { entity: { position: new Vec3(0.5, 0, 0.5) }, blockAt, game: { minY: -64, height: 384 } } as unknown as Bot;
+  }
+
+  it('a block a walk away: how far, which way, how far up, and out under the open sky from down a mine', () => {
+    expect(goingFor(mine(), new Vec3(30, 41, 20))).toBe('36 m south-east, 41 m up, out under the open sky');
+    // Down the same tunnel, not under the sky.
+    expect(goingFor(mine(), new Vec3(30, 0, 0))).toBe('30 m east');
+    // Close by: nothing to say.
+    expect(goingFor(mine(), new Vec3(3, 0, 0))).toBe('');
   });
 });
 

@@ -3225,9 +3225,33 @@ What changed:
     not there at the start, and fields an agent came upon were among them: `duo (7)`, `duo (22)` and `duo (32)` were
     marked with nothing sown (only `duo (18)`'s six were sown, by Ada). It now counts a crop only when it comes up
     beside an agent whose hands are at a sowing or a harvest, and only while it still stands.
+17. **What one's hands are taking one into, and what one has on one.** Read as a player would, the solo (26) had an
+    iron pickaxe at 21 minutes and 14 iron ingots at 31, and wore no armor, carried no sword and had eaten nothing
+    all run (no animal came into view). A minute after the second nightfall a worn pickaxe sent it for two new ones;
+    with one plank for their sticks, `obtain` went for a log, and the nearest was a tree up on the surface. Its
+    packet said only "(digging 1 oak_log)", and "night, light in about 7 min" was read as "night's nearly over";
+    the mind let it go on ("once I surface I should hunt"), the body dug up 30 blocks into the dark, and a skeleton
+    and a zombie took it from 20 to 4 with a wooden axe. At 4 health it ran for "the cobblestone structure" to
+    shelter in, which was the one block it had put in the skeleton's way, and died on the way. What changed, all of
+    it what a player sees or knows:
+    - The hands say where they are going when it is a walk away: "digging 1 oak_log, 13 m south-east, 30 m up, out
+      under the open sky" (live, from 30 down: the light the ground came with tells the sky).
+    - Coming out from under a roof into the open at night is noticed at once, as the dusk is: "You have come out
+      under the open sky, and it is night: dark all round until it gets light in about 8 min, and in the dark the
+      monsters come out" (once in two minutes, so in and out of a doorway is one coming out).
+    - Early in the night the hour says how long it has been dark: "night, light in about 7 min (it fell a minute
+      ago)".
+    - A block or two set down is "a cobblestone block, nothing more", not "something built of cobblestone".
+    - What a player knows of food and armor: health comes back only with the bar at 18 or more and fast just after
+      a good meal, so food carried is health in reserve (this comes to mind once the bar starts going down with
+      nothing to eat on one, not only when hungry); nothing to eat lives underground but what one brings; each piece
+      of armor takes part of every blow from the moment it is worn, long before the set is whole.
+    Replayed with the new packet (glm-5.3, 4 times each): with the old one it went on for the log every time; with the
+    new, twice it saw that "it sent me up top to an oak tree for logs" and crafted from what it had instead.
 
 Live:
 
+- `hands` (1 new): sent for a log from 30 down, the hands say "13 m south-east, 30 m up, out under the open sky".
 - `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
 - `hands` (2 more): a wall put up toward the east, feet then head; a hunt 30 down says how far up the sky is.
 - `thinking`: Kelby, whom Ada has not met, noticed as he comes into view (and his flying still seen); hungry with
@@ -3246,6 +3270,8 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| solo, seed 1 (26) | 34 min | prospecting found iron at y 7 by 28 min (an iron pickaxe at 21); 14 ingots, no armor, no sword, nothing eaten all run; a minute after nightfall the obtain for two pickaxes went up 30 blocks to a tree for a log; a skeleton and a zombie, 20 to 4 with a wooden axe; ran for its one placed block as "the cobblestone structure" and died | the hands say where they are going; out into the night noticed; how long it has been dark; a lone block is that; food as healing, armor as it is worn |
+| duo (33) | stopped at 10 min | renewable food marked at 5 min, falsely (a village's crops) | the crop check counts only crops sown |
 | duo (32) | 13 min (both) | no fight at the first meeting (the server's word on hurts); renewable food marked at 8 min, falsely (nothing was sown: a village's fields); the chat full of the speech model's working; at nightfall both out at chores: Bram ran for his hut by its asked-for spot, 8 blocks off, and died to a zombie with a wooden axe; Ada after him, out to hand over logs | speech models without working; one's own huts in the packet |
 | solo, seed 2 (20) | 24 min | the stair down to the iron's depth in one dig, iron found but never got to ("nothing came of digging"), the way dug to it by hand; 6 raw iron and no fuel in a dripstone cave by day; skeletons and a creeper; the body's fight closed in on the creeper: 20 to 0 | a creeper kept away from; an ore never reached is said so |
 | solo, seed 1 (25) | 37 min | stone tools and a sword by 6 min; iron at 13 and **an iron pickaxe at 15**; wheat sown by 28; into its andesite hut at dusk, the doorway filled behind it; a creeper blew out its wall, and it waited on "sealed inside" until zombies came in (19 to 0) | a shut room opened up is seen at once |
