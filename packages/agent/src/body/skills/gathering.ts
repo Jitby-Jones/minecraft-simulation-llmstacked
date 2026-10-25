@@ -77,6 +77,17 @@ function wet(bot: Bot, p: Vec3): boolean {
  * stone under a pond, was pulled out of the water by its own swim reflex ten times running). */
 const WET_COST = 16;
 
+/** Stalagmites under where one would stand to dig it (in the block's column or beside it, a few blocks down). */
+function overSpikes(bot: Bot, p: Vec3): boolean {
+  for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    for (let dy = 1; dy <= 4; dy++) if (bot.blockAt(p.offset(dx, -dy, dz))?.name === 'pointed_dripstone') return true;
+  }
+  return false;
+}
+/** A block over stalagmites counts as this many farther off: coal up a dripstone cave's wall had an agent fall three
+ * blocks onto a point and hop on it till it died, "impaled on a stalagmite". */
+const SPIKES_COST = 24;
+
 /** The cheapest common tool that harvests the block, e.g. stone_pickaxe for iron_ore. */
 export function toolNameFor(bot: Bot, block: Block): string {
   const tools = (block as unknown as { harvestTools?: Record<string, boolean> }).harvestTools ?? {};
@@ -218,7 +229,7 @@ async function collectUntil(
       await walkOutFrom(ctx, home);
       continue;
     }
-    const cost = (b: Block) => b.position.distanceTo(bot.entity.position) + Math.max(0, b.position.y - feetY - 2) * 4 + (wet(bot, b.position) ? WET_COST : 0);
+    const cost = (b: Block) => b.position.distanceTo(bot.entity.position) + Math.max(0, b.position.y - feetY - 2) * 4 + (wet(bot, b.position) ? WET_COST : 0) + (overSpikes(bot, b.position) ? SPIKES_COST : 0);
     const candidates = outside.sort((a, b) => cost(a) - cost(b));
     if (candidates.length === 0) {
       const got = countItem(bot, matcher) - start;

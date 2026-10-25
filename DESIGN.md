@@ -3300,11 +3300,14 @@ What changed:
     quote ends a string only before a colon, a closing bracket, the end, or a comma and what can follow it there).
     And a gather weighs 96 of the nearest blocks, not 24: by a lake the 24 nearest stone blocks were all under water,
     the dry stone a little farther off was never weighed against them, and an agent swam for its pickaxe's stone
-    three times running, its swim reflex pulling it out each time.
+    three times running, its swim reflex pulling it out each time. A block with stalagmites under where one would
+    stand for it counts as 24 blocks farther off: after coal up a dripstone cave's wall, one fell three blocks onto
+    a point and hopped on it till it died, "impaled on a stalagmite" (live: the coal beside a point is passed over
+    for coal on clear ground farther off; without the cost, the near one is dug).
 
 Live:
 
-- `hands` (2 new): sent for a log from 30 down, the hands say "13 m south-east, 30 m up, out under the open sky"; 42
+- `hands` (4 new): coal beside a stalagmite passed over for clear coal farther off; what was eaten said so; sent for a log from 30 down, the hands say "13 m south-east, 30 m up, out under the open sky"; 42
   planks from 5 birch and 8 oak logs on hand, the oak cut first, nothing gathered.
 - `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
 - `hands` (2 more): a wall put up toward the east, feet then head; a hunt 30 down says how far up the sky is.

@@ -1008,6 +1008,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(items.find((i) => i.name === 'birch_log')?.count ?? 0).toBeGreaterThanOrEqual(2);
   }, 120_000);
 
+  it('coal over a stalagmite close by and coal on clear ground farther: the clear one, as a player would', async () => {
+    // Coal up a dripstone cave's wall: a fall of three blocks onto a point, then hop after hop on it, "impaled".
+    const x = 9500;
+    await at(x, 0);
+    // The point beside the coal's column, not under it (a block a stalactite hangs from is passed over already).
+    await server.cmd(`setblock ${x + 3} ${Y} 1 minecraft:pointed_dripstone[vertical_direction=up,thickness=tip]`);
+    await server.cmd(`setblock ${x + 3} ${Y + 1} 0 minecraft:coal_ore`);
+    await server.cmd(`setblock ${x + 10} ${Y} 4 minecraft:coal_ore`);
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(2000);
+    const r = await run('mine', { block: 'coal_ore', qty: 1 });
+    logger.info({ r }, 'clear coal');
+    expect(r.ok).toBe(true);
+    expect(body.bot.blockAt(new Vec3(x + 3, Y + 1, 0))?.name).toBe('coal_ore');
+    expect(body.bot.blockAt(new Vec3(x + 10, Y, 4))?.name).not.toBe('coal_ore');
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);
