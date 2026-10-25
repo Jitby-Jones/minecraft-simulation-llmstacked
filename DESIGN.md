@@ -3219,6 +3219,9 @@ What changed:
     out of the packet; a hut without a door is in no other line), and was killed there with a wooden axe; Ada, out
     in the dark to hand him logs as promised, after him. The rooms of the huts one built oneself, which the body
     already ran to, are now in the packet too: "Huts you built: one with its room inside at -49,78,65 (8 m east)".
+    And a fact of this version a player has: armor and tools come in copper too, smelted from raw copper (common
+    around y 48 and in dripstone caves: the seed-2 solo carried 19 of it, and no armor at all), short of iron and
+    far better than none (the armor and tool facts say so; live, a copper helmet obtained from raw copper).
 
 Live:
 

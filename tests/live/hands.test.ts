@@ -171,6 +171,17 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'charcoal')).toBeGreaterThanOrEqual(3);
   }, 240_000);
 
+  it('a copper helmet from raw copper: smelted and made, armor of this version short of iron', async () => {
+    const x = 9100;
+    await at(x, 8);
+    for (const g of ['raw_copper 5', 'coal 3', 'furnace 1', 'crafting_table 1']) await server.cmd(`give Ada minecraft:${g}`);
+    await sleep(1500);
+    const r = await run('obtain', { item: 'copper_helmet', qty: 1 });
+    logger.info({ r }, 'copper helmet');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'copper_helmet')).toBe(1);
+  }, 240_000);
+
   it('smelting six logs to charcoal with nothing else to burn: one goes to planks for fuel, five cook, none is left behind', async () => {
     const x = 5700;
     await at(x, 0);

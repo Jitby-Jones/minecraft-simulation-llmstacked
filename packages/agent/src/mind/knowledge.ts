@@ -92,11 +92,11 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
   },
   {
     about: /\barmou?r\b/i,
-    text: 'Armor: a set is a helmet, a chestplate, leggings and boots; in iron that is 5 + 8 + 7 + 4 = 24 iron ingots (smelted from raw iron).',
+    text: 'Armor: a set is a helmet, a chestplate, leggings and boots; in iron that is 5 + 8 + 7 + 4 = 24 iron ingots (smelted from raw iron); the same set in copper ingots (from raw copper, common around y 48 and in dripstone caves) protects less than iron, more than leather, and far more than none.',
   },
   {
     about: /\btools?\b/i,
-    text: 'Tools: a pickaxe takes 3 of its material, an axe 3, a shovel 1, a sword 2 and a hoe 2, with sticks; iron ones take iron ingots.',
+    text: 'Tools: a pickaxe takes 3 of its material, an axe 3, a shovel 1, a sword 2 and a hoe 2, with sticks; iron ones take iron ingots; copper ones, between stone and iron, take copper ingots.',
   },
   {
     about: /\b(house|home|hut|shelter|cabin|cottage|base)\b/i,
