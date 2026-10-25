@@ -3014,6 +3014,20 @@ they take; an `until` already true not watched. And false surprises gone: one's 
 and out of their nest, bursts of speed, one's own digs (a pathfinder patch: `removeAllListeners` ignores its second
 argument and took everyone's dig listeners with it).
 
+**Read from outside (2026-10-25, items 16-23).** Looked at as a player would look over another's shoulder, most deaths
+were not of thinking badly but of not being told, and of not thinking at all. Half the mind's decisions in some runs
+were the fallback model's or the code's: the first model's thinking ran out of tokens, or its JSON mode answered "{}",
+and the code's defaults then walked a hurt agent through the dark to an empty field or on a stroll at 12 health. The
+agents were not told what a player sees: where their hands were taking them (30 blocks up to a tree at nightfall),
+that they were stuck (19 minutes in a pond's notch) or underground at all ("under a roof"), that a block was one block,
+that they had stepped out into the night, how long the night had been dark, what their iron could make, or what food
+does for healing. And some steps ran on unexamined: logs straight after the table at night, a wait begun outside the
+hut. With those told and the mind answering, the solo (31) put food in its first plan, hunted a chicken by 7 minutes,
+made a sword and torches before dark and came through two nights in its hut; what killed it was a stroll of the code's
+at 12 health, and a plank roof it could not get down from. Still open: getting down off a built roof (the hands do not
+break what was built, nor drop more than three), the code defaults when hurt and unfed, and fights given up for a run
+where there is no room to run.
+
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes
 (`duo (21)`) and by 27 (`duo (7)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and
@@ -3337,6 +3351,9 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| solo, seed 1 (31) | 45 min | the first plan had food in it ("ponds draw animals"), a chicken by 7 min, a stone sword and torches before dark, a hut by its first night and through it and the second; out by day at 12 health with nothing to eat, the code's "nothing pressing" stroll of 78 blocks met a zombie (12 to 4); then stuck on a plank roof (no way down but a drop of four), asking three times to place "oak_plank" with 55 oak planks on hand; a zombie and a creeper | an item said in the singular; (open: no way down off a built roof; the code default's stroll when hurt and unfed) |
+| solo, seed 2 (25) | 17 min | a night's hut short of blocks twice (code default), cobblestone got, building at night: a zombie, 17 to 0 in 11 s while the body swung twice and ran inside the half-built walls | (open: a fight given up for a run where there is no running) |
+| duo (37) | stopped at 19 min (Bram dead at 15) | Bram to Ada's pillar at night along the water: two drowned, 13.5 to 0 | |
 | duo (36) | stopped at 28 min (Bram dead at 18) | at dusk Bram walked to his home's spot, a wall of his hut by then, stopped outside it and waited there in the open for the day; a zombie at the night's end, 20 to 0 with a wooden sword; Ada alive, alone | a long wait settled into where one stands |
 | solo, seed 2 (24) | 15 min | the obtain for a stone pickaxe swam for stone in a lake three times (the 24 nearest stone blocks all under water); then coal up a dripstone cave's wall, a fall of three blocks onto a point and hop after hop on it: "impaled on a stalagmite" | a gather weighs 96 blocks; a block over stalagmites is dearer |
 | duo (35) | Ada 13 min (stopped at 18) | out at night after noticing it; Ada fought a zombie off Bram with a wooden sword (20 to 13), a creeper drove her off, a second zombie finished her; Bram at 4 health | (the mind's first model answering "{}" in JSON mode: half the decisions the fallback's) |
