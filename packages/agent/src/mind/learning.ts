@@ -7,7 +7,7 @@
 // each also goes to long-term memory by way of working memory.
 
 import type { ActionRecord, AgentState, AssignedTask, Lesson, Logger } from '@agora/shared';
-import { type LlmClient, SingleFlight, ladder } from '@agora/llm';
+import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { personaCore } from '../modules/prompts';
@@ -203,7 +203,7 @@ export class Learning {
     if (lines.length < 4) return;
     this.since = this.now();
     this.failures = 0;
-    if (!this.o.llm || s.flags.codeOnly || !ladder(s.flags.degrade).enabled('reflection')) return;
+    if (!this.o.llm) return;
     const shown = lessonsToCheck(s.knowledge.lessons ?? [], lines);
     const known = shown.map((l, i) => `${i + 1}. ${l.text}`);
     const guard = this.o.store.guard(SLOW_POLICY);

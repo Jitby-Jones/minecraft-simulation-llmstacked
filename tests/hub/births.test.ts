@@ -97,7 +97,7 @@ describe('births in the supervisor (§19.3, §19.4)', () => {
       population: { initial: 2, minAlive: 2, maxAlive: o.maxAlive ?? 4, spawnStaggerSec: 0 },
       reproduction: { gestationSec: o.gestationSec ?? 0.2, coupleCooldownSec: 7200, youthSec: 1800 },
     });
-    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384), quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384) });
     await hub.listen(0);
     cleanups.push(() => hub.close());
     const bots = fakeBots(() => `ws://127.0.0.1:${hub.port}`);

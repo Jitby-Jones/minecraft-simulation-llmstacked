@@ -29,6 +29,8 @@
 > **v0.9 (owner requests, 2026-10-24):** a server console and Stop and Restart on the dashboard. A death ends every activity at once. Agents talk like Minecraft players, with a stronger model and time for it, taking turns and ending a talk once they agree. Agents make their own tools and real chests, and fight the mobs they can beat. Buildings: a building language; a repertoire drawn from photographs and read from the game's own files; a builder that puts designs up, clearing rough land; an architect, a fourth model called only to design, for buildings of their own; and moving to flatter land. Anvils and enchanting. Expeditions to the Nether and the End, by the agents' own choice. A hidden controller over all the agents steps in only on what has plainly gone wrong. All in §24 under *Owner requests: a console, deaths, talk, building and more*.
 >
 > **v0.10 (owner requests, 2026-10-24):** a mind that thinks rather than follows directives (§4.8), built on research into how players learn the game (`docs/research-human-learning.md`): complete senses, expectations and surprise, game knowledge, intentions and deferred intentions, tasks, lessons learned, and a player's habits in the hands. Fixes are made to the general mind and hands, never towards a goal. The console ops anyone. Long runs, alone and as a pair, in §24 under *Owner requests: a thinking mind, complete senses and long runs*.
+>
+> **v0.11 (owner request, 2026-10-25):** the quota governor is removed (§22.4). The quota never changes which model thinks, how much it may say or how often it thinks; smaller models and reply caps are chosen for speed, never cost. The subscription lock stays, so a used-up quota means refused calls, never paid ones. Fixed models for each kind of thought come next (`docs/plan-thinking-models.md`).
 
 ---
 
@@ -55,7 +57,7 @@
 | **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again With the key (`real-models`): glm-5.1 wrote `stock_up_logs` at the first try (a `gather` of `qty` oak logs, checked by `inventoryHas:oak_log>={qty}`). Tried at once in the world, it held (3 logs) and was kept. It ran again for 6 without being written again. Its trait annotation found a bug. The model named the experience in its own words ("robbed by Zed"), not by its key, and the note was dropped; such words now count. It had also copied the prompt's example, which was code's own words, so the prompt now gives the form only. Its notes now: "has grown more cautious since losing that fight to Vex". |
 | **Owner requests** (2026-10-23): debug controls (agents, memories, models, modules, the CC); agents that plan for themselves and talk their plans over; wandering and looking around instead of standing still, in company; hiding only when badly scared, alone and far from anyone; whole lines at L2; test mode off, with a switch; seeing what changes around them (a broken shelter) and reacting; each new person written by a master model, a child while it is carried | **done** | `pnpm run check` (576 tests) + the live regression on Paper 26.1.2 (§24 "Owner requests", item 14) + five observation runs with the key (`obs1`–`obs5`, the last two hardcore nights) + `real-models` with the key: the bias audit, a trait annotation, a skill written by L3, a broken shelter seen to and the master model's newcomers and a child, all by glm-5.1 |
 | **Owner requests** (2026-10-24): a server console with Stop and Restart; a death ends everything at once; talk like players, with a stronger model, turns, and an end once agreed; own tools, real chests, armed fights; buildings (a building language, a repertoire from photographs and the game's own files, a builder, an architect for their own designs, moving to flatter land); anvils and enchanting; expeditions to the Nether and the End; a hidden controller for what has gone wrong | **done** | `pnpm run check` + the live tests of each (§24 "Owner requests: a console, deaths, talk, building and more", item 19), the architect's own design drawn by glm-5.3 and built in the world, and the controller's prompt benched on the real models |
-| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (741 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet. Next: fixed models per kind of thought and the token budget (`docs/plan-thinking-models.md`) |
+| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (737 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet. The quota governor removed (owner request, 2026-10-25). Next: fixed models per kind of thought (`docs/plan-thinking-models.md`) |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -74,7 +76,7 @@ Deviations and implementation findings are logged in **§24** at the end of this
   - They keep a per-person **social model** (sentiment from 0 to 10, inferred goals and role, trust).
   - Agreements made in conversation become **commitments** that turn into real tasks and get checked against what actually happens.
 - All speech is **Minecraft chat**, limited to nearby players by the ProximityChat! plugin. Bots perceive everything through their own mineflayer client, exactly as a player's client would.
-- A small **Hub** process supervises the bots (keeping N alive, replacing the dead), runs the shared LLM rate limiter and budget, and serves the logs and dashboard. The Hub is **not** a shared mind. It never passes information between bots.
+- A small **Hub** process supervises the bots (keeping N alive, replacing the dead), runs the shared LLM rate limiter, and serves the logs and dashboard. The Hub is **not** a shared mind. It never passes information between bots.
 
 ---
 
@@ -149,7 +151,7 @@ Deviations and implementation findings are logged in **§24** at the end of this
                                     │  ├─ supervisor: keep N alive,│
                                     │  │   replace dead (§16)      │
                                     │  ├─ global LLM rate limiter  │
-                                    │  │   + budget                │
+                                    │  │   (no budget, §22.4)      │
                                     │  └─ logs / dashboard (read-  │
                                     │      only; never fed back)   │
                                     └──────────────────────────────┘
@@ -423,7 +425,7 @@ What each is for is the mind's to know. `obtain` knows shearing and mob drops as
   - timeout, then try the fallback model, then the module's **non-LLM default** (CC default: keep the current option; Talking default: canned line)
   - a token and cost meter per module and per agent
 - **Global rate limiting:** the Hub hands out tokens from a 20 rps bucket, leaving headroom under 25. Priority order: Talking > CC > Social > Self-Monitor > Goal > Reflection. Bots ask the Hub for a token over WebSocket. If the Hub is down, use a local fallback bucket of 20/N rps.
-- **Budgets (v0.6):** budgets are **subscription input-token quota**, not USD (§22.4). When an agent hits its share, L3 is disabled first, then social goal generation slows down, then L2 is replaced by L1, then the agent goes code-only.
+- **Budgets:** none (owner request, 2026-10-25, replacing v0.6's quota shares). The quota is read and shown to the operator, never used to ration thinking (§22.4). Smaller models and reply caps are chosen for speed only.
 - **Prompt caching (v0.6):** keep a **stable prefix** (system prompt + persona) per module and put variable content last. **Never send explicit cache controls** (`cache_control` and similar). NanoGPT bills those as pay-as-you-go even for subscribers (§22.2).
 - **Subscription:** active (owner, v0.2). Everything runs on subscription-included models only (§22).
 
@@ -601,8 +603,7 @@ The Hub **never sends a bot anything about the world or other players.** Message
 type HubToBot =
  | { t:'assign'; persona: Persona; username: string }     // who you are this life
  | { t:'llmGrant'; reqId:string }
- | { t:'budget'; remainingUsdThisHour:number; degrade: 0|1|2|3 }
- | { t:'shutdown'; reason:string };
+ | { t:'shutdown'; reason:string };   // (no budget message: the quota never limits thinking, §22.4)
 type BotToHub =
  | { t:'hello'; pid:number }
  | { t:'llmToken'; reqId:string; priority:number }
@@ -1455,26 +1456,20 @@ abilities:
 - **Refresh:** re-fetch the allowlist every 6 h, and immediately after any rejection or "model not found" response.
   - If a model in use **disappears from the list**, hot-swap to the next model in that tier's chain, record a `modelSwap` event, and keep running.
   - If a tier has **no** allowlisted model left, map it to the next lower tier (L3 → L2 → L1). If L1 is empty too, all agents go **code-only** (§22.4).
-- **Bench file hygiene:** `scripts/bench-models.ts` only ever benchmarks allowlisted models, through the subscription path, and only within the quota guard.
+- **Bench file hygiene:** `scripts/bench-models.ts` only ever benchmarks allowlisted models, through the subscription path.
 
-### 22.4 Layer 4: quota governor (budgets in tokens, not dollars)
-- **Poll** `GET /api/subscription/v1/usage` every 5 min, and immediately after any 402/429/quota error. Read `weeklyInputTokens.{used,remaining,resetAt}`, `dailyInputTokens` (if limited), `degraded`, and `routing.recommendedMode`. **Never hard-code quota sizes**; NanoGPT says to use the returned limits.
-- **Allocation:** `perAgentHourly = remaining / (activeAgents × hoursUntilReset × dutyCycle)`.
-  - `dutyCycle` = `llm.expectedRuntimeHoursPerWeek / 168`, set by the owner in config (e.g. 20 h/week of play gives a much bigger per-hour budget than 24/7).
-  - Spending follows module priority (Talking > CC > Social > Self-Monitor > Goal > Reflection).
-- **Degrade ladder,** per agent and globally by `percentUsed` of the weekly quota:
+### 22.4 Layer 4: the quota, shown but never rationed (owner request, 2026-10-25)
+The governor that stood here is removed: per-agent hourly shares and a degrade ladder that moved thinking to smaller tiers, made it rarer, and ended in code-only mode. In the owner's words: "It simply isn't necessary as I'm not trying to save any tokens, if needed I will just spend more money. We're using smaller model sizes only for speed on certain types of thought, not cost." What is left:
+- **Read, never acted on.** `GET /api/subscription/v1/usage` is read at startup, where the Layer 1 key check needs it anyway. The Hub then reads it every `usagePollSec`, for the dashboard, `ctl status` and the logs. Quota sizes are never hard-coded.
+- **No call is changed by it.** Every call goes to the tier and model it asks for, however much of the week is used. Reply caps and smaller models exist to keep a kind of thought fast.
+- **When the quota runs out:**
+  - the subscription refuses calls (the key cannot spend balance, Layer 1);
+  - each module falls back to its code default;
+  - the dashboard says it once: "The subscription's quota is used up: model calls are refused until the reset or more is bought".
 
-| Weekly used | Action |
-|---|---|
-| < 70 % | normal |
-| 70–85 % | Reflection and Goal Gen cadence ×2 slower, L3 → L2 |
-| 85–95 % | Social Goal Gen off, Self-Monitor every 30 s, intelligence-routed CC tiers forced to L1 |
-| 95–100 % | **code-only mode**: reflexes, skill continuation of the current plan, canned or emote speech, social and emotion math still runs (it's code) |
-| `recommendedMode: unavailable` or `paygo` | code-only mode until `resetAt`. **Never switch to paid billing** (per NanoGPT's own guidance for subscription-only keys) |
-
-- **Code-only mode should look natural in-game:** agents keep working and say short canned lines ("hmm", "busy", persona catchphrases). Dashboard banner: "Quota exhausted, resets at …".
-- `degraded: true` (quota unknown): continue at the 70–85 % level until a successful poll.
-- **Projected burn:** the dashboard shows tokens per hour by module, tier and agent, plus the projected exhaustion time against `resetAt`. Startup prints the projection for the configured population.
+  **Never switch to paid billing** still holds.
+- **A key turned away** (NanoGPT's daily key limit, or a rejected key): no call goes out until the limit resets, or for 10 minutes after a rejection, since every call would be refused.
+- **Burn, for the operator:** tokens per hour by module, tier and agent, and when the week's quota would run out at that rate.
 
 ### 22.5 Layer 5: embeddings and other endpoints
 - **Embeddings default to local** (`@xenova/transformers`), with no NanoGPT call.
@@ -1485,8 +1480,8 @@ abilities:
 | Response | Meaning (likely) | Action |
 |---|---|---|
 | 400/404 "model not found / not available" | lineup changed | refresh the allowlist, swap to the next model in the chain, retry once |
-| 402 or "not covered / subscription only" rejection | uncovered model or quota issue | remove the model from this session's allowlist, poll usage, swap, retry once; if the quota is exhausted, go code-only |
-| 429 | rate limit or quota | back off (exponential, jittered), lower the Hub token rate by 20 % for 10 min, poll usage |
+| 402 or "not covered / subscription only" rejection | uncovered model or quota issue | remove the model from this session's allowlist, swap, retry once; with every model refused, the code defaults run |
+| 429 | rate limit, or the key's daily limit | back off (exponential, jittered), lower the Hub token rate by 20 % for 10 min; at the daily key limit, no calls until it resets |
 | 5xx / timeout | provider trouble | next model in the chain (provider diversity preferred), circuit-break the model for 5 min after 3 failures |
 | schema-invalid JSON | weak model | one repair retry, then the module's code default; if this happens often, mark the model `unreliable` for that tier |
 
@@ -1497,9 +1492,8 @@ Every swap, circuit-break or mode change is logged and shown on the dashboard. *
 llm:
   baseUrl: subscription            # fixed; 'paid' requires allowPaidKey
   allowPaidKey: false              # refuse to start if the key can spend balance
-  expectedRuntimeHoursPerWeek: 30  # for quota allocation
   allowlistRefreshHours: 6
-  usagePollSec: 300
+  usagePollSec: 300                # how often the quota is read for the dashboard; it never limits thinking
   embeddings: { provider: local }  # local | nanogpt (§22.5 checks)
 ```
 
@@ -1508,7 +1502,7 @@ llm:
   - The client refuses a non-allowlisted model.
   - The request builder strips `X-Provider`, billing-mode fields and cache controls.
   - Allowlist removal triggers a hot-swap, and an empty L3 falls back to L2.
-  - The quota levels trigger the degrade ladder, and `recommendedMode: paygo` → code-only.
+  - The quota never changes a call: at 97 % of the week used, with NanoGPT advising `paygo`, every call keeps its tier and goes out; once the key is turned away (the daily key limit), nothing more is sent until it resets.
   - Startup refuses when `paidSpendPolicyAllowsBalance: true`.
 - **Live smoke test (M2):**
   - Check the balance, run 20 calls per tier, then check the balance again: it must not change.
@@ -3038,9 +3032,27 @@ tokens, or its JSON mode answered {}") names the symptom, and the cause was the 
 of the mind's requests became a decision that was acted on: about 14,500 input tokens per decision acted on, and 17% of
 decisions were the code's. The plan that answers this is in `docs/plan-thinking-models.md`:
 - one fixed model for each kind of thought, with a named backup for outages only;
-- a ladder that makes optional thought rarer but never shrinks the mind;
 - the waste cut;
 - benchmarks on real packets before the next long runs.
+
+**The quota governor removed (owner request, 2026-10-25).** "I think the quota governor needs to be removed entirely.
+It simply isn't necessary as I'm not trying to save any tokens." What changed:
+- The ladder, the per-agent hourly shares, the Hub's `budget` message, and the agents' `degrade` and `codeOnly` flags are
+  gone, and with them every check that skipped, slowed or shrank a thought because of the quota. That covered:
+  - plans, reflection, lessons, social goals and skills that slowed down or stopped;
+  - the self-monitor's 30 s gap;
+  - the mind put on L1.
+- The quota is still read, for the dashboard (`QuotaWatch`, `quotaView`), `ctl status` and the start log.
+- When the subscription stops covering calls, the dashboard and the log say so once; the calls are then refused, never
+  billed.
+- A key that NanoGPT turns away (its daily key limit, or a rejected key) pauses calls until the limit resets, since every
+  one would be refused. That is the client's error handling, not a ration.
+- `llm.expectedRuntimeHoursPerWeek` is gone from the config; `scripts/bench-models.ts` no longer asks `--yes` past 1% of
+  the remaining quota.
+- Tests: the ladder's unit tests became tests that the quota changes no call, at 97% used with NanoGPT advising `paygo`,
+  and that Social Goal Gen asks its model at 97%.
+
+Verified: lint, typecheck, the forbidden-strings check, and 737 unit tests.
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes

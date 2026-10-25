@@ -129,7 +129,7 @@ describe('debug commands', () => {
 
 describe('a debug request over the Hub', () => {
   it('goes to the named agent and comes back with its answer; one that is not here, or silent, says so', async () => {
-    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384), quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384) });
     await hub.listen(0);
     cleanups.push(() => hub.close());
     hub.on('hello', (s) => s.send({ t: 'assign', persona: PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['kind'] }), username: 'Pip', resume: false, giveStarterKit: false }));
@@ -191,7 +191,7 @@ describe('the supervisor, by name (debug controls)', () => {
   it('adds one from the pool or generated, removes one for good (no replacement), restarts one as itself', async () => {
     const paths = ensureDataDirs(dataPaths(tmp('agora-sup-dbg-')));
     const world = WorldConfigSchema.parse({ population: { initial: 1, minAlive: 1, maxAlive: 3, spawnStaggerSec: 0, respawnDelaySec: 0.1 } });
-    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384), quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384) });
     await hub.listen(0);
     cleanups.push(() => hub.close());
     const bots = fakeBots(() => `ws://127.0.0.1:${hub.port}`);

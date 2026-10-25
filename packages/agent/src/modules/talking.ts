@@ -278,7 +278,7 @@ export class Talking {
     if (u.heardAs === 'other' && this.rng() > s.self.persona.big5.extraversion * 0.3) return;
     if (u.heardAs !== 'other' && u.heardAs !== 'unsure') return;
     const go = async () => {
-      if (u.heardAs === 'unsure' && this.o.llm && !s.flags.codeOnly && this.busyLevel() !== 'critical') {
+      if (u.heardAs === 'unsure' && this.o.llm && this.busyLevel() !== 'critical') {
         const forMe = await this.classify(u);
         if (forMe) {
           this.lastChime = this.heardLines;

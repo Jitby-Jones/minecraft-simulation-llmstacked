@@ -1355,7 +1355,7 @@ export class CognitiveController {
       ...(this.o.family ? { mayStartFamily: (name: AgentName) => (family ? family.whyNotFamily(name) : 'starting a family is switched off for you') } : {}),
       ...(this.o.learned ? { learnedSkill: (name: string) => this.o.learned?.find(name) ?? null } : {}),
       // The code-only brain digs in at night (see codeDecision); a mind digs its own way.
-      codeOnly: !this.o.llm || this.o.store.state.flags.codeOnly,
+      codeOnly: !this.o.llm,
       mayGo: (pos) => whyNotGo(this.o.store.state, pos),
       ...(this.o.chestAt ? { chestThere: (pos: { x: number; y: number; z: number }) => whyNoChest(this.o.store.state, pos, this.o.chestAt?.(pos) ?? null) } : {}),
     };
@@ -1492,7 +1492,7 @@ export class CognitiveController {
     let out: DecisionOutput | null = null;
     let source: Decision['source'] = 'default';
     const L = this.o.levers();
-    if (this.o.llm && !s.flags.codeOnly && !isOff(s, 'cc.llm')) {
+    if (this.o.llm && !isOff(s, 'cc.llm')) {
       // Plans are made by Goal Gen (L3); a decision is the next step, on the CC's own tier.
       const tier = L.ccTier;
       const learned = this.o.learned?.offered() ?? [];
@@ -1595,7 +1595,7 @@ export class CognitiveController {
         ...(conflict ? { conflict } : {}),
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
         answered: this.answered,
-        codeOnly: !this.o.llm || store.state.flags.codeOnly,
+        codeOnly: !this.o.llm,
         ...(this.o.romance && !isOff(store.state, 'romance') ? { romance: this.o.romance } : {}),
         ...(this.o.family && !isOff(store.state, 'family') ? { family: this.o.family } : {}),
         ...(this.o.power && c ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),

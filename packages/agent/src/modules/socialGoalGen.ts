@@ -7,7 +7,7 @@
 // dashboard.
 
 import { type AgentName, type Goal, type Logger } from '@agora/shared';
-import { type LlmClient, SingleFlight, ladder } from '@agora/llm';
+import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { type VillageKind, type VillageView, VILLAGE_KINDS, chooseWork, describeVillage, isVillageKind, roleFrom } from '../social/village';
@@ -98,15 +98,13 @@ export class SocialGoalGen {
 
   private schedule(): void {
     if (this.timer) clearTimeout(this.timer);
-    // §22.4: half as often under quota pressure (the per-agent 80 % step folds into level 1), off from level 2.
-    const slow = this.o.store.state.flags.degrade >= 1 ? 2 : 1;
     this.timer = setTimeout(
       () => {
         this.timer = null;
         this.kick('periodic');
         this.schedule();
       },
-      (60_000 + this.rng() * 60_000) * slow,
+      60_000 + this.rng() * 60_000,
     );
     this.timer.unref();
   }
@@ -133,7 +131,7 @@ export class SocialGoalGen {
     const view = this.o.view();
     const current = s.goals.social.find((g) => g.status === 'active')?.work;
     let out: Picked[] | null = null;
-    if (this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('socialGoal')) {
+    if (this.o.llm) {
       const guard = this.o.store.guard(SLOW_POLICY);
       try {
         const t = this.now();

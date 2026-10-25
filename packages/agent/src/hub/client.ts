@@ -1,5 +1,5 @@
 // The bot's side of the Hub link (§8). Infrastructure only: who this bot is this life (assign), LLM rate tokens,
-// budgets, the shared embedder, the global speech guard and lifecycle. Nothing about the world or other players
+// the shared embedder, the global speech guard and lifecycle. Nothing about the world or other players
 // ever arrives here (§3, §16.1). Uses Node's built-in WebSocket; reconnects with backoff. While the Hub is
 // unreachable, rate tokens come from a local bucket of 20/N rps (§5) and the speech guard lets lines through
 // (the per-bot and per-pair guards still hold).
@@ -8,7 +8,6 @@ import { type BotToHub, type HubToBot, type LlmModule, type Logger, parseHubToBo
 import { type Embedder, LocalRateLimiter, SUBSCRIPTION_BURST, SUBSCRIPTION_RPS, type TokenSource } from '@agora/llm';
 
 type Assign = Extract<HubToBot, { t: 'assign' }>;
-type Budget = Extract<HubToBot, { t: 'budget' }>;
 
 export interface HubClientOptions {
   url: string;
@@ -37,7 +36,6 @@ export class HubClient {
   private readonly fallback: LocalRateLimiter;
   private openWaiters: (() => void)[] = [];
   private lastAssign: Assign | null = null;
-  lastBudget: Budget | null = null;
 
   constructor(private readonly o: HubClientOptions) {
     this.fallback = new LocalRateLimiter({ rps: SUBSCRIPTION_RPS / Math.max(1, o.expectedBots ?? 1), burst: SUBSCRIPTION_BURST });
@@ -121,7 +119,6 @@ export class HubClient {
 
   private dispatch(msg: HubToBot): void {
     if (msg.t === 'assign') this.lastAssign = msg;
-    if (msg.t === 'budget') this.lastBudget = msg;
     // A reqId on a grant answers one of our requests; the Hub's own requests (a snapshot, an operator's debug
     // request) carry theirs and go to the handlers.
     const reqId = 'reqId' in msg ? msg.reqId : undefined;

@@ -7,7 +7,7 @@
 // times. Every model call has its tier, timeout, fallback, abort signal, state-version check, schema and cost log.
 
 import type { AgentName, Logger, WorldConfig } from '@agora/shared';
-import { type LlmClient, SingleFlight, ladder } from '@agora/llm';
+import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { getSkill } from '../body/skills/registry';
@@ -138,7 +138,7 @@ export class SkillWriter {
   private async write(tr: Trial): Promise<void> {
     const s = this.o.store.state;
     const llm = this.o.llm;
-    if (!llm || s.flags.codeOnly || !ladder(s.flags.degrade).enabled('skillWriter')) return;
+    if (!llm) return;
     const guard = this.o.store.guard(SLOW_POLICY);
     let draft: SkillDraft | null;
     try {

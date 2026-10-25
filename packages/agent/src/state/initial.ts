@@ -48,7 +48,7 @@ export function createInitialState(o: InitialStateOptions): AgentState {
     social: {},
     conversations: {},
     actionLog: [],
-    flags: { inDanger: false, stuck: false, busyLevel: 'idle', busySpeech: null, codeOnly: false, degrade: 0, inCrowd: false },
+    flags: { inDanger: false, stuck: false, busyLevel: 'idle', busySpeech: null, inCrowd: false },
     drives: { caution: p.drives.caution, cautionBaseline: p.drives.caution, brakeShift: 0, brakeUntil: 0 },
     emotions: { anger: 0, fear: 0, joy: 0, sadness: 0, disgust: 0, shame: 0, envy: 0, affection: 0, arousal: 0 },
     mood: { valence: 0, baselineShift: 0 },

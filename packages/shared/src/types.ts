@@ -4,7 +4,6 @@
 import type { Vec3 } from './geometry';
 import type { ItemStack, Sex, Volume } from './schemas/common';
 import type { CommitmentWhat, Decision, OptionName } from './schemas/decision';
-import type { DegradeLevel } from './schemas/hub';
 import type { BiasName, Persona } from './schemas/persona';
 
 export type AgentName = string;
@@ -523,8 +522,6 @@ export interface AgentFlags {
   busyLevel: 'idle' | 'working' | 'critical';
   /** Canned fast line Talking should use while a reflex is busy ("hang on, zombie!"). */
   busySpeech: string | null;
-  codeOnly: boolean;
-  degrade: DegradeLevel;
   inCrowd: boolean;
   /** Modules the operator switched off (debug controls, TUNABLE_MODULES). */
   off?: string[];

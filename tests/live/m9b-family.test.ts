@@ -111,9 +111,8 @@ describe.skipIf(!liveJavaPath())('M9b live: families', () => {
     const root = path.join(server.dir, '..', 'm9b-t');
     fs.rmSync(root, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(root));
-    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null, quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null });
     await hub.listen(0);
-    hub.start();
     const w = WorldConfigSchema.parse({
       population: { initial: 2, minAlive: 2, maxAlive: 4, spawnStaggerSec: 1, spawnRadius: 0, starterKit: 'persona' },
       server: { host: '127.0.0.1', port: server.port },

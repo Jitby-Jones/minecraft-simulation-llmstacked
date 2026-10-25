@@ -217,7 +217,7 @@ export class CommitmentTracker {
 
   /** §6.4 custom promises: an L1 judgment at the deadline from what was seen (no model: let it lapse unjudged). */
   private async judge(c: Commitment): Promise<void> {
-    if (!this.o.llm || this.o.store.state.flags.codeOnly) {
+    if (!this.o.llm) {
       this.resolve(c, 'cancelled');
       return;
     }

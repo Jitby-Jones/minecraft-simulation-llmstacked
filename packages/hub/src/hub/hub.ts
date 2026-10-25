@@ -1,5 +1,5 @@
 // The Hub (§3, §8): infrastructure only. It hands out LLM rate tokens from the one shared bucket (NanoGPT's
-// subscription takes 60 text requests a minute per key; we use 54), budgets, the shared local embedder (§23.5) and the global speech guard (§6.2),
+// subscription takes 60 text requests a minute per key; we use 54), the shared local embedder (§23.5) and the global speech guard (§6.2),
 // and it collects logs and telemetry for the dashboard. It never sends a bot anything about the world or other
 // players: chat goes through the Minecraft server and its proximity plugin (§15, §16.1). Every message is checked
 // with zod on both ends; the socket binds to localhost by default (§23.3).
@@ -7,15 +7,13 @@
 import { EventEmitter } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { type BotToHub, type HubConfig, type HubToBot, type Logger, parseBotToHub } from '@agora/shared';
-import { type Embedder, LocalRateLimiter, type QuotaStatus, type TokenSource, agentDegrade, perAgentHourly } from '@agora/llm';
+import { type Embedder, LocalRateLimiter, type TokenSource } from '@agora/llm';
 
 export interface HubSession {
   id: number;
   slot: string | null;
   username: string | null;
   pid: number | null;
-  /** Input tokens this agent used in the current hour (its share of the budget, §5). */
-  spent: { hourStart: number; tokens: number };
   send(msg: HubToBot): void;
   close(): void;
 }
@@ -37,9 +35,6 @@ export interface HubOptions {
   logger: Logger;
   /** The shared embedder; null when embeddings are unavailable. */
   embedder: Embedder | null;
-  /** Current quota status (null: no key, code-only). */
-  quota: () => QuotaStatus | null;
-  runtimeHoursPerWeek: number;
   /** world.conflict.maxConcurrentFights (§17.10). */
   maxConcurrentFights?: number;
   now?: () => number;
@@ -78,7 +73,6 @@ export class Hub extends EventEmitter<HubEvents> {
   private readonly limiter: LocalRateLimiter;
   private readonly speech: SpeechBucket;
   private readonly now: () => number;
-  private budgetTimer: NodeJS.Timeout | null = null;
   readonly counters = { llmGranted: 0, llmDenied: 0, speechGranted: 0, speechDenied: 0, embedded: 0 };
 
   constructor(private readonly o: HubOptions) {
@@ -108,14 +102,7 @@ export class Hub extends EventEmitter<HubEvents> {
     });
   }
 
-  /** Budgets go out when they change (the caller's governor) and once a minute. */
-  start(): void {
-    this.budgetTimer = setInterval(() => this.broadcastBudget('periodic'), 60_000);
-    this.budgetTimer.unref();
-  }
-
   async close(): Promise<void> {
-    if (this.budgetTimer) clearInterval(this.budgetTimer);
     for (const s of this.sessions.values()) s.close();
     await new Promise<void>((resolve) => {
       if (!this.wss) return resolve();
@@ -138,7 +125,6 @@ export class Hub extends EventEmitter<HubEvents> {
       slot: null,
       username: null,
       pid: null,
-      spent: { hourStart: this.now(), tokens: 0 },
       send: (msg) => {
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
       },
@@ -171,7 +157,6 @@ export class Hub extends EventEmitter<HubEvents> {
         return;
       case 'ready':
         s.username = msg.username;
-        this.sendBudget(s, 'joined');
         this.emit('ready', s, msg.username);
         return;
       case 'llmToken': {
@@ -223,13 +208,9 @@ export class Hub extends EventEmitter<HubEvents> {
         }
         return;
       }
-      case 'cost': {
-        const t = this.now();
-        if (t - s.spent.hourStart >= 3_600_000) s.spent = { hourStart: t, tokens: 0 };
-        s.spent.tokens += msg.inputTokens;
+      case 'cost':
         this.emit('telemetry', s, msg);
         return;
-      }
       case 'died':
         this.emit('died', s, msg);
         return;
@@ -250,30 +231,6 @@ export class Hub extends EventEmitter<HubEvents> {
         this.emit('conception', s, msg);
         return;
     }
-  }
-
-  /** The agent's budget message: its share of the hourly quota (§5, §22.4). */
-  private budgetFor(s: HubSession): Extract<HubToBot, { t: 'budget' }> {
-    const q = this.o.quota();
-    if (!q) return { t: 'budget', remainingTokensThisHour: 0, degrade: 3, codeOnly: true, resetAt: null, reason: 'no NanoGPT key: code-only' };
-    const living = Math.max(1, this.list().filter((x) => x.username).length);
-    const share = perAgentHourly(q.remaining, q.resetAt, living, this.o.runtimeHoursPerWeek, this.now());
-    const d = agentDegrade(s.spent.tokens, share);
-    const level = Math.max(q.level, d.codeOnly ? 3 : d.l2ToL1 ? 2 : d.l3Off ? 1 : 0) as 0 | 1 | 2 | 3;
-    return {
-      t: 'budget',
-      remainingTokensThisHour: share === null ? -1 : Math.max(0, Math.round(share - s.spent.tokens)),
-      degrade: level,
-      codeOnly: q.codeOnly || d.codeOnly,
-      resetAt: q.resetAt,
-      reason: q.codeOnly ? q.reason : d.codeOnly ? 'this hour’s share is used up' : q.reason,
-    };
-  }
-
-  sendBudget(s: HubSession, why: string): void {
-    const b = this.budgetFor(s);
-    s.send(b);
-    this.o.logger.debug({ module: 'hub', agent: s.username, why, degrade: b.degrade, codeOnly: b.codeOnly }, 'budget');
   }
 
   /**
@@ -329,10 +286,6 @@ export class Hub extends EventEmitter<HubEvents> {
       this.on('debugResult', done);
       s.send({ t: 'debug', reqId, op, args });
     });
-  }
-
-  broadcastBudget(why: string): void {
-    for (const s of this.list()) if (s.username) this.sendBudget(s, why);
   }
 
   broadcast(msg: HubToBot): void {

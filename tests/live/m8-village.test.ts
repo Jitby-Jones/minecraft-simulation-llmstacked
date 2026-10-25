@@ -140,9 +140,8 @@ describe.skipIf(!liveJavaPath())('M8 live: social goals, roles and the notice bo
     const dataDir = path.join(server.dir, '..', 'data-village');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
-    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder, quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder });
     await hub.listen(0);
-    hub.start();
     // What each agent reports to the dashboard (M7): its role, its part in the village, what it did.
     type Seen = { role: string | null; village: string[]; goal: string | null; isDay: boolean; at: number };
     const latest = new Map<string, Seen>();

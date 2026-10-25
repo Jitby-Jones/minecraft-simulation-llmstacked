@@ -357,9 +357,8 @@ describe.skipIf(!liveJavaPath())('M6 live: social model, commitments and deaths'
     await server.cmd(`forceload add ${x - 24} -24 ${x + 24} 24`);
     await server.cmd(`setworldspawn ${x} ${Y} 0`);
     await server.cmd('gamerule respawn_radius 0');
-    const h = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null, quota: () => null, runtimeHoursPerWeek: 30 });
+    const h = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null });
     await h.listen(0);
-    h.start();
     const w = WorldConfigSchema.parse({ population: { initial: 3, minAlive: 3, maxAlive: 5, spawnStaggerSec: 1, respawnDelaySec: 5, spawnRadius: 0 }, server: { host: '127.0.0.1', port: PORT } });
     const bots = new Map<string, RunningBot>();
     const launcher: Launcher = (slot) => {

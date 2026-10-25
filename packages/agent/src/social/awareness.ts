@@ -334,7 +334,7 @@ export class SocialAwareness {
     const theirs = conv.transcript.filter((u) => u.from === partner).map((u) => u.text);
     const fallback = () => codeSocialUpdate(theirs);
     const s = this.o.store.state;
-    if (!this.o.llm || s.flags.codeOnly) return fallback();
+    if (!this.o.llm) return fallback();
     const old = this.profile(partner);
     const r = await this.o.llm.call<SocialUpdate>({
       tier: 'L2',
@@ -445,7 +445,7 @@ export class SocialAwareness {
   private async extractPromises(partner: AgentName, conv: ConversationState, theirs: readonly string[]): Promise<void> {
     const fallback = () => codePromises(theirs, [...Object.keys(this.o.store.state.social), this.o.me]);
     let out: Promises = fallback();
-    if (this.o.llm && !this.o.store.state.flags.codeOnly) {
+    if (this.o.llm) {
       const r = await this.o.llm.call<Promises>({
         tier: 'L1',
         module: 'social',

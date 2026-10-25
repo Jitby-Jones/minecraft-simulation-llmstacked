@@ -3,7 +3,7 @@
 // matches what it does. Works with an LLM client or without one (code-only, §22.4).
 
 import { type AgentName, type AssignedTask, type BirthFacts, type Logger, type Persona, type Sex, type Tuning, type Urge, type Vec3, type WorldConfig, WorldConfigSchema, isPrivateHost, parseProximityLine } from '@agora/shared';
-import type { Embedder, LlmCallOptions, LlmClient, LlmResult, QuotaGovernor } from '@agora/llm';
+import type { Embedder, LlmCallOptions, LlmClient, LlmResult } from '@agora/llm';
 import { AgentBus } from './bus';
 import type { MemoryDB } from './memory/db';
 import { Memory } from './memory/memory';
@@ -88,8 +88,6 @@ export interface AgentOptions {
   llm: LlmClient | null;
   logger: Logger;
   world?: WorldConfig;
-  /** Quota mode for flags.degrade / codeOnly (the Hub's budget messages take over in M5). */
-  governor?: QuotaGovernor;
   /** Long-term memory (M4): the bot's SQLite file and the shared embedder. Without it the agent only has workmem. */
   memory?: { db: MemoryDB; embedder: Embedder };
   /** Goal Generation picks goals (M4). Off when a test or the runner drives goals by hand. */
@@ -747,16 +745,6 @@ export class Agent {
         }
       },
     });
-    if (o.governor) {
-      const apply = () => {
-        const q = o.governor?.status;
-        if (!q) return;
-        this.store.update('flags', (f) => (f.degrade === q.level && f.codeOnly === q.codeOnly ? f : { ...f, degrade: q.level, codeOnly: q.codeOnly }), 'quota mode');
-      };
-      apply();
-      o.governor.on('change', apply);
-      this.offs.push(() => o.governor?.off('change', apply));
-    }
   }
 
   get name(): AgentName {
@@ -909,7 +897,7 @@ export class Agent {
         have,
       },
       {
-        llm: s.flags.codeOnly || isOff(s, 'architect') ? null : llm,
+        llm: isOff(s, 'architect') ? null : llm,
         repertoire: sharedRepertoire(),
         logger: this.o.logger,
         ...(this.o.architectModels && this.o.architectModels.length > 0 ? { models: this.o.architectModels } : {}),

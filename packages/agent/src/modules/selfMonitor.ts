@@ -3,7 +3,7 @@
 // 30 s (§22.4). Code default: a plain summary built from the state.
 
 import type { Logger } from '@agora/shared';
-import { type LlmClient, SingleFlight, ladder } from '@agora/llm';
+import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { SUMMARY_POLICY } from '../state/policies';
@@ -35,11 +35,9 @@ export function codeSummary(s: AgentStateStore['state']): string {
 export class SelfMonitor {
   private timer: NodeJS.Timeout | null = null;
   private beat: NodeJS.Timeout | null = null;
-  private lastRun = 0;
   private lastWorkmemVersion = -1;
   private readonly flight = new SingleFlight<void>();
   private readonly rng: () => number;
-  private readonly now: () => number;
   private readonly onChange = (c: { facet: string; next: AgentStateStore['state'] }) => {
     if (c.facet !== 'workmem') return;
     const newest = c.next.workmem[c.next.workmem.length - 1];
@@ -48,7 +46,6 @@ export class SelfMonitor {
 
   constructor(private readonly o: SelfMonitorOptions) {
     this.rng = o.rng ?? Math.random;
-    this.now = o.now ?? Date.now;
   }
 
   start(): void {
@@ -69,8 +66,7 @@ export class SelfMonitor {
 
   private schedule(): void {
     if (this.timer) return;
-    const minGap = (ladder(this.o.store.state.flags.degrade).selfMonitorMinSec ?? 0) * 1000;
-    const wait = Math.max(5000 + this.rng() * 5000, this.lastRun + minGap - this.now());
+    const wait = 5000 + this.rng() * 5000;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.flight.run('self', () => this.run()).catch((err: unknown) => this.o.logger.warn({ module: 'selfMonitor', err: String(err) }, 'self summary failed'));
@@ -80,12 +76,11 @@ export class SelfMonitor {
 
   async run(): Promise<void> {
     if (isOff(this.o.store.state, 'selfMonitor')) return;
-    this.lastRun = this.now();
     this.lastWorkmemVersion = this.o.store.facetVersion('workmem');
     const s = this.o.store.state;
     const fallback = () => ({ summary: codeSummary(s) });
     let summary = fallback().summary;
-    if (this.o.llm && !s.flags.codeOnly) {
+    if (this.o.llm) {
       const guard = this.o.store.guard(SUMMARY_POLICY);
       try {
         const recent = s.actionLog.slice(-3).map((a) => `${a.skill}: ${a.ok ? 'ok' : `failed (${a.error ?? a.observed})`}`);

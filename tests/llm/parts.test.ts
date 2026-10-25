@@ -1,4 +1,4 @@
-// M2 building blocks: quota ladder, budgets, error classes, circuit breaker, rate limiter, single-flight,
+// M2 building blocks: the quota as the operator sees it, error classes, circuit breaker, rate limiter, single-flight,
 // model-list parsing and tier resolution.
 
 import { describe, expect, it } from 'vitest';
@@ -7,22 +7,20 @@ import {
   CostMeter,
   LocalRateLimiter,
   ModelAllowlist,
+  QuotaWatch,
   SUPERSEDED,
   SingleFlight,
   type TierSpec,
   type Usage,
-  agentDegrade,
-  applyAgentDegrade,
   classifyHttpError,
+  describeQuota,
   extractJson,
-  ladder,
   parseModelList,
   parseRetryAfter,
-  perAgentHourly,
+  quotaView,
   resolveTiers,
-  statusFromUsage,
 } from '@agora/llm';
-import { MODULE_PRIORITY } from '@agora/shared';
+import { type Logger, MODULE_PRIORITY, nullLogger } from '@agora/shared';
 
 const usage = (weekly: number | null, extra: Partial<Usage> = {}): Usage => ({
   active: true,
@@ -32,46 +30,28 @@ const usage = (weekly: number | null, extra: Partial<Usage> = {}): Usage => ({
   ...extra,
 });
 
-describe('quota ladder (§22.4)', () => {
-  it('maps weekly use to levels and treats paygo/unavailable as code-only', () => {
-    expect(statusFromUsage(usage(0.5)).level).toBe(0);
-    expect(statusFromUsage(usage(0.75)).level).toBe(1);
-    expect(statusFromUsage(usage(0.9)).level).toBe(2);
-    expect(statusFromUsage(usage(0.96))).toMatchObject({ level: 3, codeOnly: true });
-    expect(statusFromUsage(usage(0.1, { routing: { recommendedMode: 'paygo' } }))).toMatchObject({ codeOnly: true });
-    expect(statusFromUsage(usage(0.1, { routing: { recommendedMode: 'unavailable' } }))).toMatchObject({ codeOnly: true });
-    expect(statusFromUsage(usage(0.1, { active: false, state: 'inactive' }))).toMatchObject({ codeOnly: true });
-    expect(statusFromUsage(usage(null))).toMatchObject({ level: 1, unknown: true });
-    const daily = usage(0.2, { dailyInputTokens: { percentUsed: 0.88, resetAt: Date.now() + 3_600_000 } });
-    expect(statusFromUsage(daily).level).toBe(2);
+describe('the quota, read for the operator only (owner request, 2026-10-25)', () => {
+  it('reads what NanoGPT reports, and says it in a line', () => {
+    const reset = Date.now() + 86_400_000;
+    const q = quotaView(usage(0.42, { weeklyInputTokens: { used: 25_200_000, remaining: 34_800_000, percentUsed: 0.42, resetAt: reset } }));
+    expect(q).toMatchObject({ weeklyPercent: 0.42, remaining: 34_800_000, resetAt: reset, recommendedMode: 'subscription' });
+    expect(describeQuota(q)).toBe(`quota 42.0% of the week used, resets ${new Date(reset).toISOString()}`);
+    expect(quotaView(usage(null)).weeklyPercent).toBeNull();
+    expect(describeQuota(null)).toBe('quota not known');
   });
 
-  it('turns levels into module effects', () => {
-    expect(ladder(0).tier('L3', 'goal')).toBe('L3');
-    expect(ladder(1).tier('L3', 'goal')).toBe('L2');
-    expect(ladder(1).cadence('reflection')).toBe(2);
-    expect(ladder(1).cadence('talking')).toBe(1);
-    expect(ladder(2).tier('L2', 'cc')).toBe('L1');
-    expect(ladder(2).enabled('socialGoal')).toBe(false);
-    expect(ladder(2).selfMonitorMinSec).toBe(30);
-    expect(ladder(3).tier('L1', 'talking')).toBeNull();
-    expect(ladder(3).enabled('talking')).toBe(false);
-  });
-
-  it('degrades one agent as it uses up its hourly share (§5)', () => {
-    expect(agentDegrade(50, 100)).toEqual({ l3Off: false, socialGoalSlow: false, l2ToL1: false, codeOnly: false });
-    expect(applyAgentDegrade('L3', agentDegrade(75, 100))).toBe('L2');
-    expect(agentDegrade(85, 100).socialGoalSlow).toBe(true);
-    expect(applyAgentDegrade('L2', agentDegrade(92, 100))).toBe('L1');
-    expect(applyAgentDegrade('L1', agentDegrade(100, 100))).toBeNull();
-    expect(applyAgentDegrade('L2', agentDegrade(1e9, null))).toBe('L2');
-  });
-
-  it('allocates remaining quota per agent and runtime hour', () => {
-    const now = 0;
-    // 1.68M left, 4 agents, 100 h to reset, 30 h/week of play → 1.68M / (4 × 100 × 30/168) = 23 520 per hour.
-    expect(perAgentHourly(1_680_000, 100 * 3_600_000, 4, 30, now)).toBeCloseTo(23_520, 0);
-    expect(perAgentHourly(null, 100, 4, 30, now)).toBeNull();
+  it('says once when the subscription stops covering calls (they are refused, never paid for)', async () => {
+    const warned: string[] = [];
+    const logger = { ...nullLogger(), warn: (_o: unknown, m?: string) => void warned.push(m ?? '') } as Logger;
+    let next = usage(0.97);
+    const watch = new QuotaWatch({ fetchUsage: () => Promise.resolve(next), pollMs: 60_000, logger });
+    await watch.poll();
+    expect(warned).toEqual([]);
+    next = usage(1.0, { routing: { recommendedMode: 'paygo' } });
+    await watch.poll();
+    await watch.poll();
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toContain('calls will be refused until the reset or more is bought');
   });
 });
 

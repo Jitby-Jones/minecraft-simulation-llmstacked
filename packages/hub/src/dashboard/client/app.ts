@@ -4,14 +4,14 @@
 
 import { renderAgentDebug, renderConsole, renderControls } from './controls';
 
+/** The quota as last read: shown only, it limits nothing. */
 interface Quota {
-  level: number;
-  codeOnly: boolean;
-  reason: string;
-  resetAt: number | null;
   weeklyPercent: number | null;
+  dailyPercent: number | null;
   remaining: number | null;
-  unknown: boolean;
+  resetAt: number | null;
+  recommendedMode: string | null;
+  polledAt: number;
 }
 interface Usage {
   input: number;
@@ -49,7 +49,7 @@ interface AgentSummary {
   role: string | null;
   village: string[];
   option: OptionView | null;
-  flags: { inDanger?: boolean; codeOnly?: boolean; degrade?: number } | null;
+  flags: { inDanger?: boolean; busy?: string } | null;
   rungs: Record<string, number>;
   mood: number | null;
   feeling: { name: string; intensity: number } | null;
@@ -242,21 +242,27 @@ function renderHeader(o: Overview): void {
   $('updated').textContent = `updated ${clock(o.now)}`;
 }
 
-function statusColor(level: number): string {
-  return level >= 3 ? 'var(--critical)' : level === 2 ? 'var(--serious)' : level === 1 ? 'var(--warning)' : 'var(--good)';
+/** The subscription still covers calls (NanoGPT's routing advice). */
+function covered(q: Quota): boolean {
+  return !q.recommendedMode || q.recommendedMode === 'subscription';
 }
 
+function quotaColor(q: Quota): string {
+  const used = q.weeklyPercent ?? 0;
+  return !covered(q) || used >= 1 ? 'var(--critical)' : used >= 0.9 ? 'var(--warning)' : 'var(--good)';
+}
+
+/** Shown only once the subscription stops covering calls: they are refused, never paid for, until more is bought. */
 function renderBanner(q: Quota | null): void {
   const b = $('banner');
-  if (!q || (!q.codeOnly && q.level === 0)) {
+  if (!q || covered(q)) {
     b.hidden = true;
     return;
   }
   const dot = el('span', { cls: 'dot' });
-  dot.style.background = statusColor(q.codeOnly ? 3 : q.level);
-  const when = q.resetAt ? `resets at ${new Date(q.resetAt).toLocaleString()}` : 'reset time unknown';
-  const text = q.codeOnly ? `Quota exhausted, ${when}. Agents run code-only.` : q.unknown ? 'Quota unknown: saving tokens until NanoGPT answers.' : `Quota ${Math.round((q.weeklyPercent ?? 0) * 100)}% used: saving tokens (level ${q.level}), ${when}.`;
-  b.replaceChildren(dot, el('span', { text }));
+  dot.style.background = 'var(--critical)';
+  const when = q.resetAt ? `the reset at ${new Date(q.resetAt).toLocaleString()}` : 'the reset';
+  b.replaceChildren(dot, el('span', { text: `The subscription's quota is used up: model calls are refused until ${when} or more is bought, and the agents run on their code defaults meanwhile.` }));
   b.hidden = false;
 }
 
@@ -280,7 +286,7 @@ function renderKpis(o: Overview): void {
   $('kpis').replaceChildren(
     tile('Agents online', `${o.online}`, `${o.agents.length} known`),
     tile('Input tokens per hour', compact(o.cost.inputPerHour), `${o.cost.lastHour.calls} calls in the last hour`),
-    tile('Weekly quota used', used === null ? '—' : `${Math.round(used * 100)}%`, q ? (q.codeOnly ? 'code-only until reset' : `level ${q.level}`) : 'no key: code-only', used === null ? undefined : { frac: used, color: statusColor(q?.level ?? 0) }),
+    tile('Weekly quota used', used === null ? '—' : `${Math.round(used * 100)}%`, q ? (q.resetAt ? `resets ${new Date(q.resetAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : 'reset time not reported') : 'not read (no key)', used === null || !q ? undefined : { frac: used, color: quotaColor(q) }),
     tile(
       'Quota runs out',
       p.exhaustAt ? until(p.exhaustAt, o.now) : '—',
@@ -322,7 +328,7 @@ function renderAgents(o: Overview): void {
   for (const a of o.agents) {
     const status = el('span', { cls: 'status', text: a.name });
     status.style.setProperty('--status-color', a.died ? 'var(--critical)' : a.online ? (a.flags?.inDanger ? 'var(--serious)' : 'var(--good)') : 'var(--muted)');
-    const state = a.died ? `died: ${a.died.cause}` : a.online ? (a.flags?.inDanger ? 'in danger' : a.flags?.codeOnly ? 'code-only' : 'online') : 'offline';
+    const state = a.died ? `died: ${a.died.cause}` : a.online ? (a.flags?.inDanger ? 'in danger' : 'online') : 'offline';
     const sources = Object.entries(a.sources)
       .sort((x, y) => y[1] - x[1])
       .map(([k, v]) => `${k} ${v}`)

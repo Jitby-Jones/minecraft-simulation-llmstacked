@@ -6,7 +6,7 @@
 import http from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HubConfigSchema, nullLogger } from '@agora/shared';
-import type { QuotaStatus } from '@agora/llm';
+import type { QuotaView } from '@agora/llm';
 import { Hub } from '@agora/hub';
 import { ConsoleLog } from '@agora/hub/dashboard/console';
 import { controlHandler } from '@agora/hub/dashboard/control';
@@ -31,7 +31,7 @@ function statusFor(base: string, pathname: string, host: string): Promise<number
   });
 }
 
-const quota: QuotaStatus = { level: 0, codeOnly: false, reason: 'ok', resetAt: 1_000_000 + 48 * 3_600_000, weeklyPercent: 0.4, dailyPercent: null, remaining: 1_000_000, unknown: false, polledAt: 0 };
+const quota: QuotaView = { weeklyPercent: 0.4, dailyPercent: null, remaining: 1_000_000, resetAt: 1_000_000 + 48 * 3_600_000, recommendedMode: 'subscription', polledAt: 0 };
 
 function model(t = { now: 1_000_000 }) {
   return { t, m: new DashboardModel({ mode: () => 'test', quota: () => quota, personas: () => [{ username: 'Pip', traits: ['generous'], sex: 'female', status: 'alive' }], now: () => t.now }) };
@@ -343,7 +343,7 @@ describe('control commands (§23.3)', () => {
 
 describe('the dashboard fed by the Hub', () => {
   it('turns bots’ telemetry, cost reports and lifecycle into the model, and nothing goes back', async () => {
-    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: null, quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: null });
     await hub.listen(0);
     cleanups.push(() => hub.close());
     const { m } = model({ now: Date.now() });

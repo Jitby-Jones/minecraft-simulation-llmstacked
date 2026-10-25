@@ -267,18 +267,15 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(swaps.some((s) => s.from === head && s.tier === 'L2')).toBe(true);
   });
 
-  it('takes an uncovered model out for the session and polls usage (402 / not covered)', async () => {
+  it('takes an uncovered model out for the session (402 / not covered)', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const rt = await runtime(fake);
     const head = rt.router.chain('L2')[0] as string;
     fake.chat = ({ model }) => (model === head ? { status: 402, json: { error: 'Insufficient balance', status: 402 } } : { text: GOOD });
-    const polls = fake.count('/api/subscription/v1/usage');
     const r = await ask(rt);
     expect(r.ok).toBe(true);
     expect(rt.router.allowlist.has(head)).toBe(false);
     expect(rt.router.chain('L2')).not.toContain(head);
-    await new Promise((res) => setTimeout(res, 20));
-    expect(fake.count('/api/subscription/v1/usage')).toBe(polls + 1);
   });
 
   it('maps an empty L3 to L2, and an empty L1 to code-only without sending anything', async () => {
@@ -297,37 +294,23 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(none.chatRequests()).toHaveLength(0);
   });
 
-  it('follows the quota ladder: L3 → L2 at 70 %, Social Goal Gen off and CC on L1 at 85 %, code-only at 95 % and on paygo', async () => {
+  it('never lets the quota change a thought: nearly used up, every call keeps its tier and goes out (owner request, 2026-10-25)', async () => {
     const fake = new FakeNanoGpt(standardModels());
-    fake.chat = () => ({ text: GOOD });
-    fake.usage = { weeklyPercent: 0.75 };
+    fake.chat = () => ({ text: GOOD, usage: { prompt_tokens: 1000, completion_tokens: 10 } });
+    fake.usage = { weeklyPercent: 0.97, weeklyRemaining: 500, resetInMs: 72 * 3_600_000, recommendedMode: 'paygo' };
     const rt = await runtime(fake);
-    const r3 = await ask(rt, { tier: 'L3', module: 'goal' });
-    expect(r3.ok && r3.tier).toBe('L2');
-
-    fake.usage = { weeklyPercent: 0.9 };
-    await rt.governor.poll('test');
-    const cc = await ask(rt, { tier: 'L2', module: 'cc' });
-    expect(cc.ok && cc.tier).toBe('L1');
-    expect(await ask(rt, { module: 'socialGoal' })).toMatchObject({ ok: false, reason: 'disabled' });
-
-    fake.usage = { weeklyPercent: 0.97 };
-    await rt.governor.poll('test');
-    const sent = fake.chatRequests().length;
-    expect(await ask(rt, { module: 'talking', tier: 'L1' })).toMatchObject({ ok: false, reason: 'code-only' });
-
-    fake.usage = { weeklyPercent: 0.2, recommendedMode: 'paygo' };
-    await rt.governor.poll('test');
-    expect(rt.governor.status.codeOnly).toBe(true);
-    expect(await ask(rt)).toMatchObject({ ok: false, reason: 'code-only' });
-    expect(fake.chatRequests().length).toBe(sent);
-
-    fake.usage = { weeklyPercent: null, degraded: true };
-    await rt.governor.poll('test');
-    expect(rt.governor.status.level).toBe(1);
+    expect(rt.quota.view).toMatchObject({ weeklyPercent: 0.97, recommendedMode: 'paygo' });
+    const goal = await ask(rt, { tier: 'L3', module: 'goal' });
+    expect(goal.ok && goal.tier).toBe('L3');
+    for (let i = 0; i < 3; i++) {
+      const cc = await ask(rt, { tier: 'L2', module: 'cc' });
+      expect(cc.ok && cc.tier).toBe('L2');
+    }
+    expect((await ask(rt, { module: 'socialGoal' })).ok).toBe(true);
+    expect(fake.chatRequests()).toHaveLength(5);
   });
 
-  it('backs off on 429 and goes code-only on the daily key limit', async () => {
+  it('backs off on 429, and sends nothing more once the daily key limit is reached', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const limiter = new LocalRateLimiter({ rps: 10_000 });
     const rt = await startLlm({
@@ -345,9 +328,9 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(limiter.rate).toBeCloseTo(8000);
 
     fake.chat = () => ({ status: 429, json: { error: { message: 'daily limit', type: 'rate_limit_error', code: 'daily_rpd_limit_exceeded' } }, headers: { 'retry-after': '3600' } });
-    expect(await ask(rt)).toMatchObject({ ok: false, reason: 'code-only' });
+    expect(await ask(rt)).toMatchObject({ ok: false, reason: 'refused' });
     const sent = fake.chatRequests().length;
-    expect(await ask(rt)).toMatchObject({ ok: false, reason: 'code-only' });
+    expect(await ask(rt)).toMatchObject({ ok: false, reason: 'refused' });
     expect(fake.chatRequests().length).toBe(sent);
   });
 
@@ -370,19 +353,6 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(rt.meter.spentThisHour('Pip')).toBe(50);
   });
 
-  it('enforces an agent hourly share: L3 off, then L2 → L1, then code-only', async () => {
-    const fake = new FakeNanoGpt(standardModels());
-    fake.chat = () => ({ text: GOOD, usage: { prompt_tokens: 1000, completion_tokens: 10 } });
-    // 60M weekly × 0.9 remaining / (1 agent × 72 h × 30/168) ≈ 4.2M per hour: use a tiny remaining instead.
-    fake.usage = { weeklyPercent: 0.1, weeklyRemaining: 500, resetInMs: 72 * 3_600_000 };
-    const rt = await runtime(fake);
-    const share = rt.governor.perAgentHourly(1) ?? 0;
-    expect(share).toBeGreaterThan(0);
-    expect(share).toBeLessThan(1000);
-    const first = await ask(rt);
-    expect(first.ok).toBe(true);
-    expect(await ask(rt)).toMatchObject({ ok: false, reason: 'budget' });
-  });
 });
 
 describe('abort-on-stale (§4.2, M2 exit)', () => {

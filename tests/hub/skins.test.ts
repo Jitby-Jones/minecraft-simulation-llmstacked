@@ -320,7 +320,7 @@ describe('the skin service (§16.5)', () => {
 
 describe('the supervisor dresses each new agent before it first logs in (§16.5)', () => {
   async function startHub(): Promise<Hub> {
-    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384), quota: () => null, runtimeHoursPerWeek: 30, maxConcurrentFights: 2 });
+    const hub = new Hub({ config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 } }), logger: nullLogger(), embedder: new HashEmbedder(384), maxConcurrentFights: 2 });
     await hub.listen(0);
     cleanups.push(() => hub.close());
     return hub;

@@ -83,10 +83,6 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
       ...(o.fetch ? { fetch: o.fetch } : {}),
       onCost: (r) => hub.send({ t: 'cost', module: r.module, tier: r.tier, model: r.model, inputTokens: r.inputTokens, outputTokens: r.outputTokens, ms: r.ms, ok: r.ok }),
     });
-    const governor = rt.governor;
-    const applyBudget = (b: NonNullable<HubClient['lastBudget']>) => governor.setExternal(b.degrade, b.codeOnly, b.reason, b.resetAt);
-    hub.on('budget', applyBudget);
-    if (hub.lastBudget) applyBudget(hub.lastBudget);
   } else {
     logger.warn({ module: 'agent' }, 'NANOGPT_API_KEY is empty: code-only');
   }
@@ -108,7 +104,6 @@ export async function runBot(o: RunBotOptions): Promise<RunningBot> {
     llm: rt?.client ?? null,
     logger,
     world: o.world,
-    governor: rt?.governor,
     memory: { db, embedder },
     speechTier: o.models.speech.tier,
     speechModels: o.models.speech.models,

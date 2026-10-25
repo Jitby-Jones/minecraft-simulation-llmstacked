@@ -5,17 +5,9 @@
 
 import OpenAI from 'openai';
 import { z } from 'zod';
-import type { Logger } from '@agora/shared';
+import { type LlmModule, type Logger, MODULE_PRIORITY } from '@agora/shared';
 import { CircuitBreaker } from './circuit';
 import { LlmError, ModelNotInSubscription, classifyHttpError } from './errors';
-import {
-  MODULE_PRIORITY,
-  type ModuleName,
-  type QuotaGovernor,
-  agentDegrade,
-  applyAgentDegrade,
-  ladder,
-} from './governor';
 import { ForbiddenEndpointError, ForbiddenOptionError, SUBSCRIPTION_BASE_URL, createGuardedFetch } from './guard';
 import type { CostMeter, CostRecord } from './meter';
 import type { TokenSource } from './ratelimit';
@@ -31,7 +23,8 @@ export interface LlmUsage {
   outputTokens: number;
 }
 
-export type FallbackReason = 'code-only' | 'budget' | 'disabled' | 'stale' | 'aborted' | 'failed';
+/** `refused`: NanoGPT turned the key away (its daily limit, a revoked key), so no call goes out for a while. */
+export type FallbackReason = 'code-only' | 'refused' | 'disabled' | 'stale' | 'aborted' | 'failed';
 
 export type LlmResult<T> =
   | { ok: true; source: 'llm'; value: T; text: string; model: string; tier: TierName; usage: LlmUsage; ms: number; attempts: number; truncated?: boolean }
@@ -39,7 +32,7 @@ export type LlmResult<T> =
 
 export interface LlmCallOptions<T> {
   tier: TierName;
-  module: ModuleName;
+  module: LlmModule;
   agent: string;
   messages: readonly ChatMessage[];
   /** Structured reply: validated with zod, one repair retry (§4.3). */
@@ -83,7 +76,7 @@ export interface LlmCallOptions<T> {
 export interface Routing {
   off?: boolean;
   tierModel?: Partial<Record<TierName, string>>;
-  moduleTier?: Partial<Record<ModuleName, TierName>>;
+  moduleTier?: Partial<Record<LlmModule, TierName>>;
 }
 
 /**
@@ -106,14 +99,12 @@ export interface TierRuntime extends TierSpec {
 export interface LlmClientDeps {
   apiKey: string;
   router: ModelRouter;
-  governor: QuotaGovernor;
   meter: CostMeter;
   limiter: TokenSource;
   specs: Readonly<Record<TierName, TierRuntime>>;
   logger: Logger;
   /** Underlying fetch (tests inject a fake NanoGPT); always wrapped by the guard. */
   fetch?: typeof fetch;
-  activeAgents?: () => number;
   onCost?: (r: CostRecord) => void;
   circuit?: CircuitBreaker;
   /** How structured replies are asked for (default `object`). */
@@ -227,6 +218,8 @@ export class LlmClient {
   /** Models whose JSON mode answered with an empty object: asked in plain from then on, the format in the prompt. */
   private readonly plainOnly = new Set<string>();
   private route: Routing = {};
+  /** NanoGPT turned the key away: no calls until then. */
+  private refused: { reason: string; until: number } | null = null;
 
   constructor(private readonly deps: LlmClientDeps) {
     this.now = deps.now ?? Date.now;
@@ -273,15 +266,9 @@ export class LlmClient {
     });
     if (o.signal?.aborted) return fallback('aborted');
     if (this.route.off) return fallback('disabled', 'model calls switched off by the operator');
-
-    // Layer 4: quota ladder, then the agent's own hourly share.
-    const q = this.deps.governor.status;
-    const effects = ladder(q.level);
-    if (!effects.enabled(o.module)) return fallback(q.codeOnly ? 'code-only' : 'disabled', q.reason);
-    const share = this.deps.governor.perAgentHourly(this.deps.activeAgents?.() ?? 1);
-    const asked = this.route.moduleTier?.[o.module] ?? o.tier;
-    const tier = applyAgentDegrade(effects.tier(asked, o.module), agentDegrade(this.deps.meter.spentThisHour(o.agent), share));
-    if (tier === null) return fallback(q.codeOnly ? 'code-only' : 'budget', q.codeOnly ? q.reason : 'hourly share used up');
+    if (this.refused && this.now() < this.refused.until) return fallback('refused', this.refused.reason);
+    // The tier asked for (or the operator's for this module) is the tier used: the quota never changes it.
+    const tier = this.route.moduleTier?.[o.module] ?? o.tier;
 
     // Layer 3: only allowlisted models, refused before anything is sent.
     let chain: string[];
@@ -333,7 +320,7 @@ export class LlmClient {
         lastError = `${model}: ${e.message}`;
         this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, kind: e.kind, err: e.message }, 'llm attempt failed');
         const next = await this.onFailure(e, model, tier, o.signal);
-        if (next === 'stop') return fallback(e.kind === 'aborted' ? (o.isStale?.() ? 'stale' : 'aborted') : e.kind === 'daily_limit' ? 'code-only' : 'failed', lastError);
+        if (next === 'stop') return fallback(e.kind === 'aborted' ? (o.isStale?.() ? 'stale' : 'aborted') : e.kind === 'daily_limit' || e.kind === 'auth' ? 'refused' : 'failed', lastError);
       }
     }
     return fallback('failed', lastError || 'no model left to try');
@@ -349,11 +336,9 @@ export class LlmClient {
         return 'next';
       case 'not_covered':
         this.deps.router.removeForSession(model, e.message);
-        void this.deps.governor.poll('not covered');
         return 'next';
       case 'rate_limited': {
         this.deps.limiter.backOff?.();
-        void this.deps.governor.poll('429');
         const wait = Math.min(e.opts.retryAfterMs ?? 1000 + Math.random() * 1000, 4000);
         try {
           await abortableSleep(wait, signal);
@@ -364,12 +349,12 @@ export class LlmClient {
       }
       case 'daily_limit': {
         const until = this.now() + (e.opts.retryAfterMs ?? msUntilUtcMidnight(this.now()));
-        this.deps.governor.forceCodeOnly('NanoGPT daily key limit reached', until);
+        this.refuse('NanoGPT daily key limit reached', until);
         return 'stop';
       }
       case 'auth':
         this.deps.logger.error({ module: 'llm' }, 'NanoGPT rejected the API key (401); check NANOGPT_API_KEY in .env');
-        this.deps.governor.forceCodeOnly('NanoGPT rejected the API key', this.now() + 10 * 60_000);
+        this.refuse('NanoGPT rejected the API key', this.now() + 10 * 60_000);
         return 'stop';
       case 'provider':
       case 'timeout':
@@ -386,6 +371,12 @@ export class LlmClient {
       case 'not_in_subscription':
         return 'stop';
     }
+  }
+
+  /** NanoGPT said no to the key itself: every call would be refused, so none goes out until `until`. */
+  private refuse(reason: string, until: number): void {
+    if (!this.refused || this.refused.until < until) this.deps.logger.warn({ module: 'llm', reason, until: new Date(until).toISOString() }, 'no model calls until then');
+    this.refused = { reason, until };
   }
 
   private noteSchemaFailure(tier: TierName, model: string): void {

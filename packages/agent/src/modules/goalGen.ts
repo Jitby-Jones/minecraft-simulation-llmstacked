@@ -8,7 +8,7 @@
 // A step about having things carries a code-checkable `doneWhen`; one without gets a time on it.
 
 import { type AgentState, type Logger, type Plan, type PlanStep } from '@agora/shared';
-import { type LlmClient, SingleFlight, ladder } from '@agora/llm';
+import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { SLOW_POLICY } from '../state/policies';
@@ -257,8 +257,7 @@ export class GoalGen {
 
   private scheduleNext(): void {
     if (this.timer) clearTimeout(this.timer);
-    const cadence = ladder(this.o.store.state.flags.degrade).cadence('goal');
-    const ms = (180_000 + this.rng() * 120_000) * cadence;
+    const ms = 180_000 + this.rng() * 120_000;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.kick('periodic');
@@ -398,7 +397,7 @@ export class GoalGen {
   /** Asks the model for a plan (or whether to keep the one we have). Null: no answer (no model, failed, stale). */
   private async ask(tier: 'L2' | 'L3', task: string, lines: readonly string[]): Promise<PlanOutput | null> {
     const s = this.o.store.state;
-    if (!this.o.llm || s.flags.codeOnly || !ladder(s.flags.degrade).enabled('goal')) return null;
+    if (!this.o.llm) return null;
     const guard = this.o.store.guard(SLOW_POLICY);
     try {
       const r = await this.o.llm.call<PlanOutput>({
@@ -478,7 +477,7 @@ export class GoalGen {
   private afterTalk(convId: string): void {
     const s = this.o.store.state;
     const conv = s.conversations[convId];
-    if (!conv || !this.o.llm || s.flags.codeOnly || isOff(s, 'goalGen') || this.now() - this.lastRefine < REFINE_EVERY_MS) return;
+    if (!conv || !this.o.llm || isOff(s, 'goalGen') || this.now() - this.lastRefine < REFINE_EVERY_MS) return;
     const others = conv.participants.filter((p) => p !== this.o.me);
     const theirs = conv.transcript.filter((u) => u.from !== this.o.me);
     const mine = conv.transcript.filter((u) => u.from === this.o.me);

@@ -204,7 +204,7 @@ export class Memory {
 
   private async merge(rows: readonly MemoryRow[]): Promise<string> {
     const fallback = () => ({ text: rows.map((r) => r.text).slice(-3).join('; ').slice(0, 300) });
-    if (!this.o.llm || this.o.store.state.flags.codeOnly) return fallback().text;
+    if (!this.o.llm) return fallback().text;
     const r = await this.o.llm.call({
       tier: 'L1',
       module: 'memory',

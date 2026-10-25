@@ -15,7 +15,7 @@
 // words for the strongest such experience stand. Each experience is weighed once in a life.
 
 import type { AgentName, AgentState, Inoculable, Logger, SocialProfile } from '@agora/shared';
-import { type LlmClient, SingleFlight, ladder } from '@agora/llm';
+import { type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { rationalityOf } from '../mind/biases';
@@ -248,7 +248,7 @@ export class Reflection {
 
   private schedule(): void {
     if (this.timer) clearTimeout(this.timer);
-    const every = this.o.levers().reflectionEveryMin * 60_000 * ladder(this.o.store.state.flags.degrade).cadence('reflection');
+    const every = this.o.levers().reflectionEveryMin * 60_000;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.kick('periodic');
@@ -267,7 +267,7 @@ export class Reflection {
     if (this.stopped || s.flags.inDanger || isOff(s, 'reflection') || s.emotions.arousal >= CALM) return;
     const suspects = auditCandidates(s);
     let corrections: Suspect[] = suspects;
-    if (suspects.length > 0 && this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('reflection')) {
+    if (suspects.length > 0 && this.o.llm) {
       const guard = this.o.store.guard(SLOW_POLICY);
       try {
         const r = await this.o.llm.call<Audit>({
@@ -310,7 +310,7 @@ export class Reflection {
     if (!top) return;
     this.annotatedAt = t;
     let pick: { weighed: string[]; text: string | null; key: string } = { weighed: [top.key], text: top.becomes, key: top.key };
-    if (this.o.llm && !s.flags.codeOnly && ladder(s.flags.degrade).enabled('reflection')) {
+    if (this.o.llm) {
       const guard = this.o.store.guard(SLOW_POLICY);
       try {
         const r = await this.o.llm.call<Annotation>({

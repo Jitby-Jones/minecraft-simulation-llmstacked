@@ -1,12 +1,10 @@
 // Hub protocol (§8). v0.2: infrastructure only — the Hub never sends a bot anything about the world or other
-// players. v0.6: budgets are subscription token quota, not USD. §23.5: embeddings are a shared Hub service.
+// players. §23.5: embeddings are a shared Hub service. No budgets: the quota never limits thinking (owner request,
+// 2026-10-25).
 
 import { z } from 'zod';
 import { ItemStackSchema, LlmModuleSchema, TierNameSchema, Vec3Schema } from './common';
 import { BirthFactsSchema, PersonaSchema } from './persona';
-
-export const DegradeLevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
-export type DegradeLevel = z.infer<typeof DegradeLevelSchema>;
 
 /** Traits a parent believes its partner has (§19.3: the bot's perceived model, never ground truth). */
 export const PerceivedTraitsSchema = z.record(z.string(), z.number().min(0).max(1));
@@ -77,14 +75,6 @@ export const HubToBotSchema = z.discriminatedUnion('t', [
   }),
   z.object({ t: z.literal('llmGrant'), reqId: z.string() }),
   z.object({ t: z.literal('llmDeny'), reqId: z.string(), reason: z.string() }),
-  z.object({
-    t: z.literal('budget'),
-    remainingTokensThisHour: z.number(),
-    degrade: DegradeLevelSchema,
-    codeOnly: z.boolean(),
-    resetAt: z.number().nullable(),
-    reason: z.string(),
-  }),
   z.object({ t: z.literal('speechGrant'), reqId: z.string(), ok: z.boolean() }),
   z.object({ t: z.literal('fightGrant'), reqId: z.string(), ok: z.boolean() }),
   z.object({ t: z.literal('embedResult'), reqId: z.string(), vectors: z.array(z.array(z.number())).nullable() }),

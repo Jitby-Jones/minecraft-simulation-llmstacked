@@ -41,14 +41,14 @@ export function formatStatus(r: CtlResult): string {
     target?: number;
     living?: { username: string; slot: string; online: boolean; since: number }[];
     server?: string;
-    quota?: { level: number; codeOnly: boolean; weeklyPercent: number | null } | null;
+    quota?: { weeklyPercent: number | null; resetAt: number | null; recommendedMode: string | null } | null;
     dashboard?: string;
   };
   const lines = [
     `test mode ${d.mode === 'test' ? 'on' : d.mode === 'live' ? 'off' : '?'} (mode ${d.mode ?? '?'}), up ${Math.round((d.uptimeSec ?? 0) / 60)} min, server ${d.server ?? '?'}`,
     `population ${d.living?.length ?? 0} of ${d.target ?? '?'}`,
     ...(d.living ?? []).map((a) => `  ${a.online ? '●' : '○'} ${a.username} (${a.slot})`),
-    d.quota ? `quota: level ${d.quota.level}${d.quota.codeOnly ? ', code-only' : ''}${d.quota.weeklyPercent === null ? '' : `, ${Math.round(d.quota.weeklyPercent * 100)}% of the week used`}` : 'quota: no key (code-only)',
+    d.quota ? `quota: ${d.quota.weeklyPercent === null ? 'not reported' : `${Math.round(d.quota.weeklyPercent * 100)}% of the week used`}${d.quota.recommendedMode && d.quota.recommendedMode !== 'subscription' ? ', used up: model calls refused until the reset' : ''}` : 'quota: no key (code-only)',
     ...(d.dashboard ? [`dashboard ${d.dashboard}`] : []),
   ];
   return lines.join('\n');

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HubConfigSchema, type Persona, PersonaSchema, SeededRandom, SexDifferencesSchema, WorldConfigSchema, agentDbPath, dataPaths, ensureDataDirs, nullLogger } from '@agora/shared';
-import { HashEmbedder, type QuotaStatus } from '@agora/llm';
+import { HashEmbedder } from '@agora/llm';
 import { Hub, type Launcher, type PersonaSource, Supervisor, type WriteContext, loadRoster } from '@agora/hub';
 import { HubClient } from '@agora/agent/hub/client';
 
@@ -25,13 +25,11 @@ afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
 });
 
-async function startHub(quota: QuotaStatus | null = null, speechPerSec = 5, maxConcurrentFights = 2): Promise<Hub> {
+async function startHub(speechPerSec = 5, maxConcurrentFights = 2): Promise<Hub> {
   const hub = new Hub({
     config: HubConfigSchema.parse({ hub: { host: '127.0.0.1', port: 8765 }, speech: { globalPerSec: speechPerSec } }),
     logger: nullLogger(),
     embedder: new HashEmbedder(384),
-    quota: () => quota,
-    runtimeHoursPerWeek: 30,
     maxConcurrentFights,
   });
   await hub.listen(0);
@@ -49,8 +47,8 @@ function client(hub: Hub, slot: string): HubClient {
 const persona = (name: string, sex: 'male' | 'female') => PersonaSchema.parse({ id: name.toLowerCase(), name, sex, traits: ['kind'], inventory: [{ item: 'bread', qty: 2 }] });
 
 describe('Hub protocol (§8)', () => {
-  it('assigns, grants rate tokens, guards speech globally, embeds, and sends budgets', async () => {
-    const hub = await startHub(null, 3);
+  it('assigns, grants rate tokens, guards speech globally and embeds', async () => {
+    const hub = await startHub(3);
     hub.on('hello', (s) => s.send({ t: 'assign', persona: persona('Ada', 'female'), username: 'Ada', resume: false, giveStarterKit: false }));
     const c = client(hub, 'a0');
     const a = await c.assigned();
@@ -61,43 +59,12 @@ describe('Hub protocol (§8)', () => {
     expect(grants.filter(Boolean).length).toBe(3);
     const [v] = await c.embedder(384, 'hash').embed(['iron by the river']);
     expect(v?.length).toBe(384);
-    const budgets: boolean[] = [];
-    c.on('budget', (b) => budgets.push(b.codeOnly));
-    c.send({ t: 'ready', username: 'Ada' });
-    await until(() => budgets.length > 0);
-    expect(budgets[0]).toBe(true); // no key: code-only
-  });
-
-  it('shares the hourly quota between living agents (§5, §22.4)', async () => {
-    const quota: QuotaStatus = { level: 0, codeOnly: false, reason: 'ok', resetAt: Date.now() + 100 * 3_600_000, weeklyPercent: 0.2, dailyPercent: null, remaining: 6_000_000, unknown: false, polledAt: Date.now() };
-    const hub = await startHub(quota);
-    let n = 0;
-    hub.on('hello', (s) => s.send({ t: 'assign', persona: persona(`P${n}`, 'male'), username: `Pat${n++}`, resume: false, giveStarterKit: false }));
-    const a = client(hub, 'a0');
-    const b = client(hub, 'a1');
-    await Promise.all([a.assigned(), b.assigned()]);
-    const got: number[] = [];
-    b.on('budget', (m) => got.push(m.remainingTokensThisHour));
-    a.send({ t: 'ready', username: 'Pat0' });
-    await wait(50);
-    b.send({ t: 'ready', username: 'Pat1' });
-    await until(() => got.length > 0);
-    // 6M left over 100 h at a 30/168 duty cycle, split two ways.
-    expect(got[0]).toBeCloseTo(6_000_000 / (2 * 100 * (30 / 168)), -2);
-    // Spending this agent's share pushes only it down the ladder.
-    b.send({ t: 'cost', module: 'cc', tier: 'L2', model: 'm', inputTokens: 1_000_000, outputTokens: 10, ms: 100, ok: true });
-    await wait(50);
-    const levels: number[] = [];
-    b.on('budget', (m) => levels.push(m.degrade));
-    hub.broadcastBudget('test');
-    await until(() => levels.length > 0);
-    expect(levels[0]).toBe(3);
   });
 });
 
 describe('fight slots (§17.10 maxConcurrentFights)', () => {
   it('lets only so many fights run at once, and frees a slot when a fight ends or its bot goes away', async () => {
-    const hub = await startHub(null, 5, 2);
+    const hub = await startHub(5, 2);
     let n = 0;
     hub.on('hello', (s) => s.send({ t: 'assign', persona: persona(`F${n}`, 'male'), username: `Fay${n++}`, resume: false, giveStarterKit: false }));
     const [a, b, c] = [client(hub, 'f0'), client(hub, 'f1'), client(hub, 'f2')];

@@ -78,8 +78,8 @@ export const ModelsConfigSchema = z
       .object({
         baseUrl: z.enum(['subscription', 'paid']).default('subscription'),
         allowPaidKey: z.boolean().default(false),
-        expectedRuntimeHoursPerWeek: z.number().positive().max(168).default(30),
         allowlistRefreshHours: z.number().positive().default(6),
+        /** How often the quota is read for the operator to see (it rations nothing). */
         usagePollSec: z.number().int().min(30).default(300),
         /** How structured replies are asked for: a JSON object with the schema in the prompt, or the API's json_schema
          *  format (subscription models fill every optional field of one with empty strings). */

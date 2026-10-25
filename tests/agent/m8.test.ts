@@ -194,11 +194,10 @@ describe('roles from what people are seen doing (§6.3 perceivedRole)', () => {
 });
 
 describe('Social Goal Gen (§4.2 module 11)', () => {
-  function rig(o: { llm?: Awaited<ReturnType<typeof startLlm>> | null; company?: boolean; degrade?: 0 | 1 | 2 | 3 } = {}) {
+  function rig(o: { llm?: Awaited<ReturnType<typeof startLlm>> | null; company?: boolean } = {}) {
     let t = 10_000;
     const store = new AgentStateStore(base(persona('wren'), 'Wren'));
     if (o.company !== false) store.update('social', (all) => ({ ...all, Bo: { ...newSocialProfile('Bo', pip, 0), lastSeen: t } }));
-    if (o.degrade) store.update('flags', (f) => ({ ...f, degrade: o.degrade ?? 0 }));
     const bus = new AgentBus();
     const roles: [string, string | null][] = [];
     const said: string[] = [];
@@ -269,8 +268,9 @@ describe('Social Goal Gen (§4.2 module 11)', () => {
     }
   }, 15_000);
 
-  it('the quota ladder turns the model off from 85 % (§22.4): the code default still works', async () => {
+  it('asks the model however much of the quota is used, and the code default still fills an empty answer (owner request, 2026-10-25)', async () => {
     const fake = new FakeNanoGpt(standardModels());
+    fake.usage = { weeklyPercent: 0.97 };
     let calls = 0;
     fake.chat = () => {
       calls++;
@@ -278,9 +278,9 @@ describe('Social Goal Gen (§4.2 module 11)', () => {
     };
     const rt = await startLlm({ apiKey: 'test', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 50 }) });
     try {
-      const r = rig({ llm: rt, degrade: 2 });
+      const r = rig({ llm: rt });
       await r.sg.run('periodic');
-      expect(calls).toBe(0);
+      expect(calls).toBe(1);
       expect(r.store.state.goals.social).toHaveLength(1);
     } finally {
       rt.stop();

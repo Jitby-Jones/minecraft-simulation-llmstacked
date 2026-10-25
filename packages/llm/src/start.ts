@@ -1,14 +1,15 @@
-// Starts the LLM layer: layer-1 key check (§22.1), the subscription allowlist and tier chains (§22.3), the quota
-// governor (§22.4), and the client. Refuses to start when the key can spend balance.
+// Starts the LLM layer: layer-1 key check (§22.1), the subscription allowlist and tier chains (§22.3), and the client.
+// Refuses to start when the key can spend balance. The quota is read for the operator to see, never to ration
+// thinking (owner request, 2026-10-25; the §22.4 governor is gone).
 
 import fs from 'node:fs';
 import { z } from 'zod';
 import type { Logger, ModelsConfig } from '@agora/shared';
 import { LlmClient, type TierRuntime } from './client';
-import { QuotaGovernor } from './governor';
 import { createGuardedFetch } from './guard';
 import { CostMeter, type CostRecord } from './meter';
 import { ModelAllowlist, fetchSubscriptionModels } from './models';
+import { QuotaWatch } from './quota';
 import { LocalRateLimiter, SUBSCRIPTION_BURST, SUBSCRIPTION_RPS, type TokenSource } from './ratelimit';
 import { type BenchFile, ModelRouter, TIERS, type TierName } from './tiers';
 import { evaluateKeyLock, fetchUsage } from './usage';
@@ -65,19 +66,19 @@ export interface StartLlmOptions {
   /** Underlying fetch (tests: a fake NanoGPT). Always wrapped by the guard. */
   fetch?: typeof fetch;
   limiter?: TokenSource;
-  activeAgents?: () => number;
   onCost?: (r: CostRecord) => void;
   now?: () => number;
-  /** Periodic allowlist refresh and usage polling (off in tests). */
+  /** Periodic allowlist refresh and quota reading (off in tests). */
   background?: boolean;
-  /** Poll usage here (default). Off for bots under the Hub, which polls once for everyone and sends budgets. */
+  /** Keep reading the quota for the operator (default). Off for bots under the Hub, which reads it for the dashboard. */
   pollUsage?: boolean;
 }
 
 export interface LlmRuntime {
   client: LlmClient;
   router: ModelRouter;
-  governor: QuotaGovernor;
+  /** The quota as last read (at startup, then now and then if polled): for logs and the operator only. */
+  quota: QuotaWatch;
   meter: CostMeter;
   limiter: TokenSource;
   stop(): void;
@@ -112,44 +113,35 @@ export async function startLlm(o: StartLlmOptions): Promise<LlmRuntime> {
   logger.info({ module: 'llm', chains: res.chains, mappedTo: res.mappedTo, models: allowlist.size }, 'subscription tiers resolved');
   for (const n of res.notes) logger.warn({ module: 'llm' }, n);
 
-  // Layer 4: quota governor, seeded with the startup poll.
-  const governor = new QuotaGovernor({
-    fetchUsage: (signal) => fetchUsage(http, o.apiKey, signal),
-    pollMs: config.llm.usagePollSec * 1000,
-    runtimeHoursPerWeek: config.llm.expectedRuntimeHoursPerWeek,
-    logger,
-    now: o.now,
-  });
-  governor.ingest(usage);
+  const quota = new QuotaWatch({ fetchUsage: (signal) => fetchUsage(http, o.apiKey, signal), pollMs: config.llm.usagePollSec * 1000, logger, now: o.now });
+  quota.ingest(usage);
   const meter = new CostMeter(o.now);
   const limiter = o.limiter ?? new LocalRateLimiter({ rps: SUBSCRIPTION_RPS, burst: SUBSCRIPTION_BURST, now: o.now });
   const client = new LlmClient({
     apiKey: o.apiKey,
     router,
-    governor,
     meter,
     limiter,
     specs,
     logger,
     fetch: o.fetch,
-    activeAgents: o.activeAgents,
     onCost: o.onCost,
     structured: config.llm.structuredOutput,
     now: o.now,
   });
   if (o.background ?? true) {
     router.start();
-    if (o.pollUsage ?? true) governor.start();
+    if (o.pollUsage ?? true) quota.start();
   }
   return {
     client,
     router,
-    governor,
+    quota,
     meter,
     limiter,
     stop() {
       router.stop();
-      governor.stop();
+      quota.stop();
     },
   };
 }

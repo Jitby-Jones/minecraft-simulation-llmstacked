@@ -29,9 +29,10 @@ import {
   type Embedder,
   KeyLockError,
   type LlmRuntime,
-  QuotaGovernor,
+  QuotaWatch,
   createEmbedder,
   createGuardedFetch,
+  describeQuota,
   evaluateKeyLock,
   fetchSubscriptionModels,
   fetchUsage,
@@ -88,30 +89,19 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
 
   // Layer 1 (§22.1), once for everyone: refuse to start with a key that can spend balance.
   const key = getNanoGptKey();
-  let governor: QuotaGovernor | null = null;
+  // The quota is read for the operator to see; it never limits thinking (owner request, 2026-10-25).
+  let quota: QuotaWatch | null = null;
   if (key) {
     const http = createGuardedFetch({});
     const usage = await fetchUsage(http, key, AbortSignal.timeout(15_000));
     const verdict = evaluateKeyLock(usage, models.llm.allowPaidKey);
     for (const w of verdict.warnings) logger.warn({ module: 'llm' }, w);
     if (!verdict.ok) throw new KeyLockError(verdict.fatal ?? 'NanoGPT key check failed');
-    governor = new QuotaGovernor({
-      fetchUsage: (signal) => fetchUsage(http, key, signal),
-      pollMs: models.llm.usagePollSec * 1000,
-      runtimeHoursPerWeek: models.llm.expectedRuntimeHoursPerWeek,
-      logger,
-    });
-    const status = governor.ingest(usage);
-    governor.start();
-    // §16.2: the budget scales with the population; say what each agent gets.
-    const agents = world.population.initial;
-    const share = governor.perAgentHourly(Math.max(1, agents));
-    logger.info(
-      { module: 'agora', agents, quotaLevel: status.level, weeklyPercentUsed: status.weeklyPercent, perAgentHourlyInputTokens: share === null ? 'unknown' : Math.round(share) },
-      'subscription budget per agent',
-    );
+    quota = new QuotaWatch({ fetchUsage: (signal) => fetchUsage(http, key, signal), pollMs: models.llm.usagePollSec * 1000, logger });
+    logger.info({ module: 'agora' }, describeQuota(quota.ingest(usage)));
+    quota.start();
   } else {
-    logger.warn({ module: 'agora' }, 'NANOGPT_API_KEY is empty: every agent runs code-only (§22.4)');
+    logger.warn({ module: 'agora' }, 'NANOGPT_API_KEY is empty: every agent runs code-only');
   }
 
   let server: ManagedServer | null = null;
@@ -136,13 +126,9 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     config: hubCfg,
     logger,
     embedder,
-    quota: () => governor?.status ?? null,
-    runtimeHoursPerWeek: models.llm.expectedRuntimeHoursPerWeek,
     maxConcurrentFights: world.conflict.maxConcurrentFights,
   });
   await hub.listen();
-  hub.start();
-  governor?.on('change', () => hub.broadcastBudget('quota change'));
   const telemetry = fs.createWriteStream(path.join(paths.logs, 'telemetry.jsonl'), { flags: 'a' });
   hub.on('telemetry', (s, m) => telemetry.write(`${JSON.stringify({ agent: s.username, ...m })}\n`));
 
@@ -187,7 +173,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
   const startedAt = Date.now();
   const model = new DashboardModel({
     mode: () => world.mode,
-    quota: () => governor?.status ?? null,
+    quota: () => quota?.view ?? null,
     personas: () => supervisor.rosterSnapshot.agents.map((a) => ({ username: a.username, traits: a.persona.traits, sex: a.persona.sex, status: a.status })),
   });
   const detachDashboard = attachDashboard(hub, model);
@@ -243,7 +229,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
     detachDashboard();
     await hub.close();
     master?.stop();
-    governor?.stop();
+    quota?.stop();
     telemetry.end();
     await server?.stop();
     serverState = 'stopped';
@@ -272,7 +258,7 @@ async function run(onStop: (stop: (why: string, how: Ending) => Promise<void>) =
           snapshotAll: () => hub.snapshotAll(),
           ...(server ? { rcon: (c: string) => server.rcon.command(c), console: consoleLog } : {}),
           serverState: () => serverState,
-          quota: () => governor?.status ?? null,
+          quota: () => quota?.view ?? null,
           dashboardUrl: url,
           setMode: (mode, newWorld) => setWorldMode(mode, newWorld),
           stop: (why) => void stop(why, 'stop'),

@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   });
   const db = new MemoryDB(agentDbPath(paths, username));
   const goal = arg('goal');
-  const agent = new Agent({ body, persona, username, llm: rt?.client ?? null, logger, world, governor: rt?.governor, memory: { db, embedder }, goalGen: !goal });
+  const agent = new Agent({ body, persona, username, llm: rt?.client ?? null, logger, world, memory: { db, embedder }, goalGen: !goal });
   agent.start();
   if (goal) agent.setGoal(goal, arg('done'));
 

@@ -1,12 +1,13 @@
-// Token meter per module, tier, model and agent (§5, §22.4 projected burn). Budgets are input tokens.
+// Token meter per module, tier, model and agent, in input and output tokens: for the dashboard and the run reports.
+// It rations nothing (owner request, 2026-10-25: the quota never limits thinking).
 
-import type { ModuleName } from './governor';
+import type { LlmModule } from '@agora/shared';
 import type { TierName } from './tiers';
 
 export interface CostRecord {
   ts: number;
   agent: string;
-  module: ModuleName;
+  module: LlmModule;
   tier: TierName;
   model: string;
   inputTokens: number;

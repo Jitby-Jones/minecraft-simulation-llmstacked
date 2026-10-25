@@ -1,10 +1,10 @@
-// The dashboard's model (M7, §22.4, §18.8): what the operator sees, built from the bots' telemetry, their LLM cost
+// The dashboard's model (M7, §18.8): what the operator sees, built from the bots' telemetry, their LLM cost
 // reports and the Hub's own lifecycle events. Per agent: its latest state, recent decisions with their rationale,
 // what it did and said, its view of each person it knows, and its fear over time. Overall: the chat, notable
 // events, tokens per hour by module, tier and agent, and the projected exhaustion of the weekly quota. Read-only
 // infrastructure (§8): nothing here ever reaches a bot.
 
-import type { QuotaStatus } from '@agora/llm';
+import type { QuotaView } from '@agora/llm';
 import { type BotToHub, type TelemetryKind, shannonEntropy } from '@agora/shared';
 
 export type Row = { ts: number } & Record<string, unknown>;
@@ -75,7 +75,8 @@ interface CostBucket {
 export interface DashboardModelOptions {
   /** World mode, for the header. */
   mode: () => string;
-  quota?: () => QuotaStatus | null;
+  /** The quota as last read (it rations nothing: shown so the operator knows when to buy more). */
+  quota?: () => QuotaView | null;
   /** Persona facts for the agents the supervisor knows (traits, sex, abilities). */
   personas?: () => readonly { username: string; traits: string[]; sex: string; status: string }[];
   now?: () => number;
@@ -261,7 +262,7 @@ export class DashboardModel {
     while (this.costs.length > 0 && (this.costs[0]?.minute ?? cut) < cut) this.costs.shift();
   }
 
-  /** Tokens in the last hour, split three ways, and when the weekly quota runs out at this rate (§22.4). */
+  /** Tokens in the last hour, split three ways, and when the weekly quota runs out at this rate. */
   costView(): Record<string, unknown> {
     const t = this.now();
     const from = Math.floor((t - HOUR) / MINUTE);

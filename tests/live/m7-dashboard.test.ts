@@ -52,9 +52,8 @@ describe.skipIf(!liveJavaPath())('M7 live: the dashboard and ctl', () => {
     const dataDir = path.join(server.dir, '..', 'data-m7');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
-    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null, quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null });
     await hub.listen(0);
-    hub.start();
     const captured = fs.createWriteStream(path.join(server.dir, '..', 'telemetry.jsonl'));
     hub.on('telemetry', (s, m) => void captured.write(`${JSON.stringify({ agent: s.username, at: Date.now(), ...m })}\n`));
     const w = WorldConfigSchema.parse({ population: { initial: 2, minAlive: 1, maxAlive: 4, spawnStaggerSec: 1, respawnDelaySec: 5, spawnRadius: 0 }, server: { host: '127.0.0.1', port: PORT } });

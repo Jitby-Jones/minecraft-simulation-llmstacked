@@ -28,7 +28,7 @@ import {
   repoRoot,
   sleep,
 } from '@agora/shared';
-import { type Embedder, type QuotaStatus, createEmbedder } from '@agora/llm';
+import { type Embedder, createEmbedder } from '@agora/llm';
 import { Hub, type Launcher, Supervisor, loadRoster, nodeLauncher } from '@agora/hub';
 import { Body } from '@agora/agent/body/body';
 import { MemoryDB } from '@agora/agent/memory/db';
@@ -40,7 +40,6 @@ import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harne
 const versions = loadVersionsConfig();
 const PORT = 25571;
 const Y = -60;
-const OPEN_QUOTA: QuotaStatus = { level: 0, codeOnly: false, reason: 'test', resetAt: Date.now() + 100 * 3_600_000, weeklyPercent: 0.1, dailyPercent: null, remaining: 50_000_000, unknown: false, polledAt: Date.now() };
 
 describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => {
   let server: LiveServer;
@@ -65,10 +64,9 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     });
   }
 
-  async function hub(quota: QuotaStatus | null): Promise<Hub> {
-    const h = new Hub({ config: HubConfigSchema.parse({}), logger, embedder, quota: () => quota, runtimeHoursPerWeek: 30 });
+  async function hub(): Promise<Hub> {
+    const h = new Hub({ config: HubConfigSchema.parse({}), logger, embedder });
     await h.listen(0);
-    h.start();
     return h;
   }
 
@@ -76,7 +74,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     const dataDir = path.join(server.dir, '..', 'data-procs');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
-    const h = await hub(null);
+    const h = await hub();
     const launcher = nodeLauncher({
       entry: path.join(repoRoot(), 'packages', 'agent', 'src', 'main.ts'),
       cwd: repoRoot(),
@@ -164,7 +162,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     const dataDir = path.join(server.dir, '..', 'data-talk');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
-    const h = await hub(OPEN_QUOTA);
+    const h = await hub();
     const fake = new FakeNanoGpt(standardModels());
     const talkLines: Record<string, string[]> = {
       Juno: ['hi! nice day for it', 'I was looking for sheep around here', 'have you seen any?', 'I might try the hills', 'well, good luck to you'],
@@ -246,7 +244,7 @@ describe.skipIf(!liveJavaPath())('M5 live: a population through the Hub', () => 
     const dataDir = path.join(server.dir, '..', 'data-group');
     fs.rmSync(dataDir, { recursive: true, force: true });
     const paths = ensureDataDirs(dataPaths(dataDir));
-    const h = await hub(OPEN_QUOTA);
+    const h = await hub();
     const fake = new FakeNanoGpt(standardModels());
     fake.chat = ({ body }) => {
       const messages = body.messages as { role: string; content: string }[];

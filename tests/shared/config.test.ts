@@ -175,7 +175,7 @@ describe('hub protocol', () => {
     // about its own trouble, in its own words, and whom it was just talking with; a place or anything else is dropped.
     const kinds = HubToBotSchema.options.map((o) => o.shape.t.value);
     expect(kinds.sort()).toEqual(
-      ['assign', 'budget', 'cautionShift', 'debug', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant', 'tuning', 'urge'].sort(),
+      ['assign', 'cautionShift', 'debug', 'embedResult', 'fightGrant', 'llmDeny', 'llmGrant', 'retire', 'shutdown', 'snapshot', 'speechGrant', 'tuning', 'urge'].sort(),
     );
     expect(parseHubToBot(JSON.stringify({ t: 'urge', urge: { act: 'wander', thought: 'I should move', pos: { x: 1, y: 2, z: 3 }, ore: 'diamond' } }))).toEqual({ t: 'urge', urge: { act: 'wander', thought: 'I should move', avoid: [] } });
     expect(parseHubToBot(JSON.stringify({ t: 'urge', urge: { act: 'teleport', thought: 'go' } }))).toBeNull();

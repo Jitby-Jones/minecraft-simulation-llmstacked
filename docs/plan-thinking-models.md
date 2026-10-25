@@ -1,36 +1,40 @@
-# Plan: fixed minds, a token budget, and what still kills the agents
+# Plan: fixed minds, and what still kills the agents
 
 *Prepared 2026-10-25, with the week's quota at 96.1% (it resets 2026-10-26 00:00 UTC). Nothing here spent quota. It rests
 on the saved logs of the long runs on 2026-10-25 (eleven of them: solo seed 1 runs 29–31, solo seed 2 runs 22–25, duo
 runs 34–37), the subscription's model list and usage (both free reads), the code, and NanoGPT's documentation. The work
 starts when the owner says "Continue". The owner's words: "I don't think models should vary. L1, L2, L3 should be chosen
 by you. Try to find the most efficient one for each thought category." And: "Maybe using bigger models for the actual
-thinking process?"*
+thinking process?" Then, the same day: "I think the quota governor needs to be removed entirely. It simply isn't
+necessary as I'm not trying to save any tokens, if needed I will just spend more money. We're using smaller model sizes
+only for speed on certain types of thought, not cost. Of course some models might generate lengthy replies which need to
+be token limited to mitigate, but again that's only really necessary to keep the agents thinking fast." So "efficient"
+here means the best thinking within the time each kind of thought has, and tokens are not a cost to save.*
 
 ---
 
 ## 0. In short
 
 1. **The quota ladder shrank the mind, and that explains most of the day's broken replies.** The long runs read the
-   quota once, at startup, and keep that level for the whole run. From 85% the ladder moves the mind (the CC) to L1,
+   quota once, at startup, and kept that level for the whole run. From 85% the ladder moved the mind (the CC) to L1,
    and L1 allows a reply of 200 tokens. A decision with its thought runs 250–450 tokens. Every run started after
    04:20 UTC began at 85% or more, and its mind was cut off mid-reply. The one run before that, `duo (34)`, had no
-   broken replies at all (§1.1).
+   broken replies at all (§1.1). **The governor is now removed** (owner request, 2026-10-25; §4.2): the quota never
+   changes which model thinks, how much it may say or how often it thinks.
 2. **Only 41% of the mind's requests produced a decision that was used.** At least 863 requests went out and 351
-   decisions were acted on. A decision acted on cost about 14,500 input tokens, two and a half times one request. One
-   decision in six was the code's, not a thought's (§1.2).
+   decisions were acted on. Each wasted request is seconds of an agent going on without a thought, and one decision in
+   six was the code's, not a thought's (§1.2).
 3. **Models will be fixed, one per kind of thought**, with a set reasoning effort, reply length and time limit. Each
-   gets one named backup, used only when the first is down, never because a reply came back malformed. The ladder may
-   make optional thinking rarer. It never changes who thinks or how much they may say (§2, §3).
-4. **Bigger models: yes, wherever there is time to think.** The quota counts input tokens, and on this subscription a
-   strong model's input counts the same as a weak one's (except for about a dozen models counted double), so the
-   strongest model costs no more quota per thought. What it costs is seconds. Fast thought (moment to moment, under
-   fire) uses the same strong model with its hidden thinking off and a short answer, not a smaller model (§3.1).
-5. **Most of the saving is in waste, not in model choice.** That means fixing broken replies locally, small repair
-   requests, no cross-model fallback on a bad reply, and a shorter fixed prompt. The target is at most 5,500 input
-   tokens per decision acted on (from about 14,500) and at most 450,000 an agent-hour in all (from about 800,000) (§6).
-6. **The choices are confirmed on real packets before any long run**: about 3 million tokens of benchmarks, 5% of the
-   week. Long runs follow in three rounds, and no measured run starts above 70% of the week's quota (§5, §8).
+   gets one named backup, used only when the first is down, never because a reply came back malformed (§2, §3).
+4. **Bigger models: yes, wherever there is time to think.** Cost is not a concern, so the only price of a strong model
+   is seconds. Fast thought (moment to moment, under fire) uses the same strong model with its hidden thinking off and a
+   short answer. A smaller model is used only where a strong one can't answer in time, and a reply cap only to keep a
+   thought fast (§3.1).
+5. **Most of what is lost is lost to waste, not to model choice.** The cure is broken replies fixed locally, small
+   repair requests, no cross-model fallback on a bad reply, and no thought sent once it is stale. The targets are at
+   least 85% of requests used and at most 5% code defaults (§4.4, §6).
+6. **The choices are confirmed on real packets before any long run**, about 3 million input tokens of benchmarks. Long
+   runs follow in three rounds (§5, §8).
 
 ---
 
@@ -38,10 +42,11 @@ thinking process?"*
 
 ### 1.1 The quota ladder shrank the mind
 
-The ladder (§22.4, `packages/llm/src/governor.ts`) decides each call's tier from the week's quota: from 70%, L3 calls
-run on L2; from 85%, the CC runs on L1 as well; from 95%, no calls. The long-run test starts the LLM layer with
-`pollUsage: false`, so the level found at startup holds for the whole run. Nothing logs it. L1 allows 200 tokens of reply
-(`config/models.yaml`). The mind passes its own time limit but not its own reply length, so on L1 it was cut at 200.
+The ladder (§22.4 until 2026-10-25, `packages/llm/src/governor.ts`) decided each call's tier from the week's quota: from
+70%, L3 calls ran on L2; from 85%, the CC ran on L1 as well; from 95%, no calls. The long-run test starts the LLM layer
+with `pollUsage: false`, so the level found at startup held for the whole run, and nothing logged it. L1 allows 200 tokens
+of reply (`config/models.yaml`). The mind passed its own time limit but not its own reply length, so on L1 it was cut at
+200.
 
 | run | started (UTC) | quota then | level | the mind ran on | replies still broken after repair |
 |---|---|---|---|---|---|
@@ -76,10 +81,8 @@ Across the eleven runs (266 minutes, 6.6 agent-hours):
   dropped as stale.
 - **What made the decisions.** About 110 decisions an agent-hour in all: 53 from the model, 38 from intentions (the
   "then" steps of an earlier thought) and 19 code defaults (17%).
-- **Token cost.** A mind request is about 5,700 input tokens: a system prompt of about 3,600, of which the skills
-  catalogue is 1,790, and a packet of about 2,100 at the median. So each decision acted on cost about 14,500 input
-  tokens, and the mind alone spent about 775,000 an agent-hour. That is a lower bound, and it matches the
-  ~800,000 measured over the day.
+- **Size.** A mind request is about 5,700 input tokens: a system prompt of about 3,600, of which the skills catalogue is
+  1,790, and a packet of about 2,100 at the median. The runs used about 800,000 input tokens an agent-hour in all.
 - **Latency.** The mind took 4–5 s at the median and 10–22 s at the 90th percentile, repairs and fallbacks included.
 
 The code defaults matter beyond their number: "code default: get iron_pickaxe for the goal" is a directive in all but
@@ -93,27 +96,26 @@ thinking on, it took 10–25 s. It is the model that judged best in every carefu
 rather than killed, the flyer asked how, the controller's six cases, four buildings out of four. Its trouble is the
 unseen thinking, not its judgment. NanoGPT takes a `reasoning_effort` of `none`, `minimal`, `low`, `medium`, `high`,
 `xhigh` or `max`, and `none` turns thinking off "only on models that support turning it off". The mind already thinks in
-the open, in its `thought` field, so for the mind the hidden thinking is a second, unseen copy of the same work.
+the open, in its `thought` field, so for the mind the hidden thinking is a second, unseen copy of the same work, and the
+seconds it takes are the agent's.
 
-### 1.4 What the quota counts
+### 1.4 The quota
 
-- NanoGPT: "Input-token quotas count tokens". The weekly allowance is about 60 million input tokens. Output tokens,
-  hidden thinking included, cost time but not quota.
-- Reported (Standard Compute, checked 2026-10-13): 12 of the 315 subscription models count input twice. GLM 5.2 moved to
-  2x on 2026-10-12 and GLM 5.3 counts 1x. No full list is published, so the weights are measured in §5.1.
-- Cache markers (`cache_control`) move a request to pay-as-you-go billing. The guard already refuses them (§22), and
-  they stay refused. Whether automatic provider caching lowers the count is not documented, so the plan does not count on
-  it.
-- Only open-weight models are on the subscription. Claude, GPT and Gemini are pay-as-you-go, which the subscription lock
-  forbids.
-- A request that times out still takes one of the key's 60 requests a minute and probably its input tokens. A timeout
-  followed by a fallback is two requests for one thought.
+- The weekly allowance is about 60 million input tokens; output tokens, hidden thinking included, cost time but not
+  quota. About a dozen models reportedly count input twice. None of this decides a choice any more: the owner buys more
+  when it is needed.
+- The subscription lock stays (§22). Inference goes only to the subscription, with a key that can't spend balance, so a
+  used-up quota means refused calls, never paid ones. Cache markers (`cache_control`) would move a request to
+  pay-as-you-go billing, so the guard still refuses them.
+- Only open-weight models are on the subscription. Claude, GPT and Gemini are pay-as-you-go, which the lock forbids.
+- A request that times out still takes one of the key's 60 requests a minute. A timeout followed by a fallback is two
+  requests and two waits for one thought.
 
 ### 1.5 What is not measured
 
 The cost meter (`packages/llm/src/meter.ts`) keeps totals by module, tier, model and agent in memory, and the long runs
-throw them away. The quota level at startup is not logged. Failing replies are logged only up to 600 characters, so where
-a reply broke can't always be seen. Nothing records why a decision went stale.
+throw them away. Failing replies are logged only up to 600 characters, so where a reply broke can't always be seen.
+Nothing records why a decision went stale.
 
 ---
 
@@ -124,11 +126,11 @@ a reply broke can't always be seen. Nothing records why a decision went stale.
 2. **One named backup for each, for outages only.** The backup is used when the primary's circuit is open, after a
    provider error, or after two timeouts in a row. It is never used because a reply was malformed: a malformed reply is
    repaired (§4.4). Every switch is logged and counted.
-3. **The quota changes how often, never who or how much.** Under pressure, optional thinking (reflection, social goals,
-   re-planning, the controller) runs less often. The mind, speech, plans and quick checks keep their models and lengths.
-   At 95%, everything stops (code only), as now. The same rule holds for the per-agent hourly share.
-4. **Efficiency is input tokens per answer that was used**, after weighting each model by how it counts against the
-   quota. It is compared only among models that clear a quality floor and a time limit.
+3. **The quota changes nothing.** The governor is gone (§4.2). Every thought runs on its model, with its reply length, as
+   often as the mind calls for it.
+4. **The best thinking within the time the thought has.** Each kind of thought has a time limit (§5.2). Among the models
+   that answer within it, the one that thinks best wins; when two are as good, the faster one does. Tokens are not a
+   criterion, and a reply cap is set only to keep a thought fast.
 5. **Fast and slow thought, as in a person.** Fast thought (what to do next, what to do under fire, a quick check) has no
    hidden thinking and a short answer. Slow thought (plans, lessons, buildings, skills) may think unseen and take its
    time, because nothing waits on it.
@@ -147,7 +149,7 @@ each fixed.
 | **Under fire**: a glance and a choice | `cc.ts` in danger | `z-ai/glm-5.3` | none | 600 | 5 s | `deepseek/deepseek-v4-flash` | mimo-v2.6-flash, minimax-m3 |
 | **Speech**: a line said | `talking.ts` (the line) | `moonshotai/kimi-k2.6` | (none set) | 300 | 8 s | `minimax/minimax-m3` | glm-5.3 at none |
 | **Reading others** | `awareness.ts` (social), `socialGoalGen.ts` | `z-ai/glm-5.3` | none | 800 | 10 s | `deepseek/deepseek-v4-pro` | kimi-k2.6 |
-| **Quick checks**: was it kept, was it settled, was it said to me, is it worth remembering, am I stuck | `memory.ts`, `commitments.ts`, `awareness.ts` (promises), `consensus.ts`, `talking.ts` (addressed to me), `selfMonitor.ts` | `deepseek/deepseek-v4-flash` | none | 200 | 4 s | `xiaomi/mimo-v2.6-flash` | qwen3.8-flash, gpt-oss-120b, llama-3.3-70b (today's, which timed out at 7 s) |
+| **Quick checks**: was it kept, was it settled, was it said to me, is it worth remembering, am I stuck | `memory.ts`, `commitments.ts`, `awareness.ts` (promises), `consensus.ts`, `talking.ts` (addressed to me), `selfMonitor.ts` | `deepseek/deepseek-v4-flash` | none | 200 | 4 s | `xiaomi/mimo-v2.6-flash` | qwen3.8-flash, gpt-oss-120b, glm-5.3 at none, llama-3.3-70b (today's, which timed out at 7 s) |
 | **Plans** | `goalGen.ts` | `z-ai/glm-5.3` | medium | 4,000 | 60 s | `deepseek/deepseek-v4-pro` | kimi-k2.6 |
 | **Lessons and reflection** | `learning.ts`, `reflection.ts` (audit, annotation) | `z-ai/glm-5.3` | medium | 2,500 | 60 s | `deepseek/deepseek-v4-pro` | |
 | **Buildings** | `architect.ts` | `z-ai/glm-5.3` | medium | 4,000 | 90 s | `deepseek/deepseek-v4-pro` | (2026-10-24: glm-5.3 drew 4 of 4 first time) |
@@ -157,37 +159,38 @@ each fixed.
 
 Why these:
 
-- **The mind on glm-5.3 with thinking off.** It judged best in every careful test, it counts 1x, and its failures were
-  the reply length and unseen thinking, both of which go away with effort none. If NanoGPT refuses `none` for it and its
-  90th percentile at `low` passes 10 s, the mind goes to deepseek-v4-pro, which does not think unseen (2.9 s median in the
+- **The mind on glm-5.3 with thinking off.** It judged best in every careful test, and its failures were the reply
+  length and the unseen thinking, both of which go away with effort none. If NanoGPT refuses `none` for it and its 90th
+  percentile at `low` passes 10 s, the mind goes to deepseek-v4-pro, which does not think unseen (2.9 s median in the
   2026-10-23 bench), and its fast thought goes to deepseek-v4-flash.
 - **Under fire, the same mind.** A person's mind under fire is their own mind, quicker. The short format and a short
   reply make it fast; a smaller model would make it a different person. The backup is a fast model for when glm-5.3 is
   slow or down.
 - **Speech on kimi-k2.6.** In the 2026-10-25 test it wrote only the line, in a player's way, in 1.7–2.6 s. glm-5.1 wrote
   out its working before the line. Speech is the agents' voice, so it stays one model.
-- **Quick checks on a fast small model.** These are yes/no and a few words. Today's llama-3.3-70b and gemma-4-12b timed
-  out at 7 s (25 times in these runs). deepseek-v4-flash and mimo-v2.6-flash have not been timed yet, so the benchmark
-  picks between them.
+- **Quick checks on a fast model.** These are yes/no and a few words, and they sit in the way of what the agent does
+  next. Today's llama-3.3-70b and gemma-4-12b timed out at 7 s (25 times in these runs). deepseek-v4-flash and
+  mimo-v2.6-flash have not been timed yet, so the benchmark picks between them, against glm-5.3 at none in case the big
+  model is quick enough.
 - **Slow thought on glm-5.3 with thinking on.** Plans, lessons, buildings, skills and the overseer have time, and quality
   there pays for itself across hours of play.
 
 ### 3.1 Bigger models
 
-They help where there is time to think, and that is most kinds of thought. Since input tokens count the same for a large
-and a small model (bar the double-counted dozen), the strongest model costs no more quota per thought. It costs seconds,
-and the runs say seconds hurt less than broken replies: the median decision took 4–5 s, while 59% of requests were
-wasted. So each kind of thought gets the strongest model that answers well within its limit. For fast thought that means
-the same strong model with no hidden thinking. The strongest models on the subscription, by the listed price the code
-uses as a proxy for size, are deepseek-v4-pro, glm-5.1, longcat-2.0, glm-5.3, qwen3.5-397b-a17b and kimi-k2.6. All of
-them are in the benchmarks.
+They help where there is time to think, and that is most kinds of thought. Cost is not a concern, so a strong model's
+only price is seconds. The runs say seconds hurt less than broken replies: the median decision took 4–5 s, while 59% of
+requests were wasted. So each kind of thought gets the strongest model that answers well within its limit. For fast
+thought that means the same strong model with no hidden thinking. A smaller model is used only where a strong one can't
+answer in time, and a reply cap only to keep a thought fast. The strongest models on the subscription, by the listed
+price the code uses as a proxy for size, are deepseek-v4-pro, glm-5.1, longcat-2.0, glm-5.3, qwen3.5-397b-a17b and
+kimi-k2.6. All of them are in the benchmarks.
 
 A bigger model will not fix what the agent is not told or cannot do: a stalagmite under a block, a roof with no way down,
 a reply cut at 200 tokens. Those stay with the senses, the hands and the client (§4, §7).
 
 ---
 
-## 4. Changes that need no quota (first, once the owner says "Continue")
+## 4. Changes that need no quota
 
 **4.1 Fixed thoughts in the config.** Add a `thoughts:` section to `config/models.yaml`, with model, backup, effort, reply
 length and limit for each kind in §3. It replaces the `prefer` lists and the `auto` tiers for the agents, and is checked
@@ -196,28 +199,33 @@ being skipped silently. Each call names its kind of thought (`cc` under fire is 
 unconfigured install.
 Files: `packages/shared` (schema), `packages/llm/src/client.ts`, `router.ts`, the call sites in §3.
 
-**4.2 The ladder slows, never shrinks.** `ladder()` and `agentDegrade()` no longer change a thought's tier or model.
-Level 1 runs optional thought half as often; level 2 turns optional thought off; level 3 is code only, unchanged.
-Files: `governor.ts`, with its unit tests rewritten to say so.
+**4.2 The quota governor removed (done, 2026-10-25).** The ladder, the per-agent hourly shares, the Hub's `budget`
+message, and the agents' `degrade` and `codeOnly` flags are gone. So is every check that slowed, skipped or shrank a
+thought because of the quota.
+- What is left reads the quota and acts on nothing: the dashboard, `ctl status` and the start log show it, and say once
+  when the subscription stops covering calls.
+- A key that NanoGPT turns away (its daily key limit, or a rejected key) pauses calls until the limit resets, since every
+  call would be refused.
+- Files: `packages/llm/src/quota.ts` (was `governor.ts`), `client.ts`, `start.ts`, the Hub, the agent modules, and the
+  tests (DESIGN.md §22.4).
 
-**4.3 Long runs know their quota and keep their costs.**
-- The long run polls the quota and logs its level at startup and at every change.
-- A measured run will not start at 70% or more unless it is started with `AGORA_LONGRUN_ALLOW_DEGRADED=1`.
-- Every call's cost record goes to `<run>-calls.jsonl`: thought, model, input and output tokens, ms, ok, failure kind,
-  cut off, stale and why. Totals by thought and model go into the run's JSON report.
+**4.3 Long runs keep their costs.**
+- The long run logs the quota at startup, for the owner to see what the runs use.
+- Every call's record goes to `<run>-calls.jsonl`: thought, model, input and output tokens, ms, ok, failure kind, cut
+  off, stale and why. Totals by thought and model go into the run's JSON report.
 - Failing replies are kept whole in the packets file rather than cut at 600 characters.
 
 No key and no prompt text are written to any of these. Files: `tests/live/longrun.test.ts`, `packages/llm/src/start.ts`,
 `meter.ts`.
 
-**4.4 Fewer wasted requests.**
+**4.4 Fewer wasted requests.** Each wasted request is seconds of an agent without a thought.
 1. **Local repair first.** Before a model is asked again, a local repair closes a reply cut off mid-string, adds missing
    commas, drops trailing ones and escapes stray quotes (`escapeStrays` exists). The result is accepted only if it
-   passes the schema.
+   passes the schema. It takes no time at all.
 2. **A cut-off reply is not sent back.** When a reply stops at its length, it is logged as cut off rather than sent for
    repair under the same limit, because the cure is the length.
 3. **Small repair requests.** A model repair sends the bad reply, the error and the schema, about 1,000 tokens, not the
-   system prompt and packet again (about 6,000).
+   system prompt and packet again (about 6,000), so it comes back sooner.
 4. **The same model.** No other model is tried on a bad reply (§2.2).
 5. **Not sent if already stale.** A thought that went stale while waiting for its rate token is not sent.
 6. **Why it went stale.** The guard logs which change made a thought stale, so that only changes that matter (danger,
@@ -226,29 +234,23 @@ No key and no prompt text are written to any of these. Files: `tests/live/longru
 **4.5 Reasoning effort per thought.** `reasoning_effort` is a model setting, not a provider, billing or cache option, so
 the subscription lock allows it. The guard's tests add it as allowed, and the forbidden list stays as it is.
 
-**4.6 A shorter fixed prompt.** The skills catalogue drops from about 1,790 tokens to about 700, one line a skill; the
-reply format drops from about 880 to about 450. Both are measured with the sizes script. The target is 4,500 input tokens
-or fewer per mind request, from about 5,700. The prompt's fixed part stays first and the same for every call by one
-agent, which lets providers that cache prefixes answer faster even if the quota counts it all.
+**4.6 A clearer prompt, if it helps.** The skills catalogue (about 1,790 tokens) could be one line a skill, and the reply
+format (about 880) could be half as long. This is not done to save tokens. It is tried in the benchmark (§5) and kept
+only if the shorter prompt makes the mind faster or judge better. The prompt's fixed part stays first and the same for
+every call by one agent, so providers that cache prefixes answer faster.
 
-**4.7 The benchmark harness.** `scripts/bench-thoughts.ts` runs the cases in `bench/thoughts/*.jsonl` (§5.2) against
-named models through the real client, and writes a table: valid, cut off, latency at the median and 90th percentile,
-rubric score, input tokens, weight. The rubric is only for choosing models; nothing of it reaches an agent's prompt. The
-scoring gets unit tests.
+**4.7 The benchmark harness.** `scripts/bench-thoughts.ts` runs the cases in `bench/thoughts/*.jsonl` (§5.1) against
+named models through the real client, and writes a table: valid, cut off, latency at the median and 90th percentile, and
+rubric score. The rubric is only for choosing models; nothing of it reaches an agent's prompt. The scoring gets unit
+tests.
 
 **4.8 The behaviour items in §7** that need only the hands tests, which run without the model.
 
 ---
 
-## 5. Benchmarks after the reset
+## 5. Benchmarks
 
-### 5.1 How each model counts against the quota
-
-For each shortlisted model: one request of about 2,000 input tokens, asking for at most 1 token, reading `used` before and
-after (polled until it moves, up to 60 s). The weight is the change in `used` over the request's `prompt_tokens`. A model
-counted double is dropped unless it is far better. This costs about 30,000 tokens.
-
-### 5.2 Golden sets from real packets
+### 5.1 Golden sets from real packets
 
 Cases are taken from the saved packets of runs 22–37, chosen to cover what has killed or stalled the agents. Each case
 has the options and skills a sensible player might choose, the ones that are plainly wrong, and what the thought should
@@ -276,14 +278,13 @@ notice.
 - **Slow thought** (12 cases): a plan from seven tasks, a lesson from a death, a reflection, a building, a skill, two
   controller cases.
 
-### 5.3 What is measured and how a model is picked
+### 5.2 What is measured and how a model is picked
 
 For each model and kind of thought:
 - the share of valid replies, before and after the local repair;
 - the share cut off;
 - latency at the median and 90th percentile;
-- the rubric score, and any plainly wrong choice;
-- input tokens times the quota weight, per answer used.
+- the rubric score, and any plainly wrong choice.
 
 A model qualifies when, after the local repair, at least 95% of its replies are valid, none are cut off, and its 90th
 percentile is within the limit for that kind:
@@ -297,48 +298,37 @@ percentile is within the limit for that kind:
 | Plans and lessons | 60 s |
 | Buildings and skills | 90 s |
 
-Among the models that qualify, the highest rubric score wins. Within 5 points, the one with fewer weighted input tokens
-per answer used wins; after that, the faster. For the mind, the best two get a second pass of two more tries a case. For
-the top two, the thoughts are read as well as scored. The pick goes into `config/models.yaml` with its numbers in the
-comment, as the existing comments do, and the table goes into DESIGN.md §24.
+Among the models that qualify, the highest rubric score wins. Within 5 points, the faster wins. For the mind, the best
+two get a second pass of two more tries a case, and their thoughts are read as well as scored. The pick goes into
+`config/models.yaml` with its numbers in the comment, as the existing comments do, and the table goes into DESIGN.md §24.
 
-### 5.4 Cost
+### 5.3 What it uses
 
-| Benchmark | Calls | Input tokens |
-|---|---|---|
-| Quota weights | 15 | 30,000 |
-| The mind, first pass (7 setups × 30) | 210 | 950,000 |
-| The mind, second pass (2 × 30 × 2) | 120 | 540,000 |
-| Under fire (5 × 12 × 2) | 120 | 520,000 |
-| Quick checks (5 × 48 × 2) | 480 | 400,000 |
-| Speech (3 × 12 × 2) | 72 | 150,000 |
-| Slow thought (3 × 12) | 36 | 300,000 |
-| **All** | **about 1,050** | **about 2.9 million (5% of the week)** |
+About 1,050 calls and 2.9 million input tokens:
+
+| Benchmark | Calls |
+|---|---|
+| The mind, first pass (7 setups × 30) | 210 |
+| The mind, second pass (2 × 30 × 2) | 120 |
+| Under fire (5 × 12 × 2) | 120 |
+| Quick checks (5 × 48 × 2) | 480 |
+| Speech (3 × 12 × 2) | 72 |
+| Slow thought (3 × 12) | 36 |
 
 ---
 
-## 6. The token budget
+## 6. Targets
 
 | | Now (runs 22–37) | Target |
 |---|---|---|
-| Input tokens per mind request | about 5,700 | 4,500 or fewer |
 | Mind requests whose decision was used | 41% | 85% or more |
-| Input tokens per decision acted on | about 14,500 | 5,500 or fewer |
 | Decisions that are code defaults | 17% | 5% or fewer |
-| Input tokens per agent-hour, all thoughts | about 800,000 | 450,000 or fewer |
+| Replies cut off by their length | most of the broken ones | none |
+| The mind's latency, 90th percentile | 10–22 s | 10 s or less; under fire 4 s or less |
 
-The week, at 60 million input tokens:
-
-| Use | Input tokens | Share | Running total |
-|---|---|---|---|
-| Benchmarks (§5) | 2.9 million | 5% | 5% |
-| Round 1: three one-hour runs (solo seed 1, solo seed 2, the duo: 4 agent-hours) | 1.8 million | 3% | 8% |
-| Rounds 2–4: three four-hour runs each (16 agent-hours a round) | 21.6 million | 36% | 44% |
-| Benchmarks again after prompt changes | 2 million | 3% | 47% |
-| Kept in reserve: the owner's own use, surprises | | | to 70% |
-
-No measured run starts above 70%, the point where the ladder's level 1 begins. If the burn stays at today's 800,000 an
-agent-hour, only two four-hour rounds fit.
+For the owner's planning only: at today's rate of about 800,000 input tokens an agent-hour, a week's 60 million covers
+about 75 agent-hours. The benchmarks and the three rounds of §8 come to about 55 agent-hours. If they need more, more is
+bought; nothing in the agents waits on it.
 
 ---
 
@@ -385,8 +375,7 @@ How each is judged in the runs:
   fixed minds hold live:
   - at least 85% of requests used, and at most 5% code defaults;
   - nothing cut off;
-  - latency within the limits;
-  - at most 450,000 tokens an agent-hour.
+  - latency within the limits.
 
   If any of these fails, back to §4 and §5.
 - **Rounds 2–4** (four hours each: solo seed 1, solo seed 2, the duo). Each run is read as a player would read it:
@@ -394,23 +383,24 @@ How each is judged in the runs:
   found is answered as in §7 and checked with the hands tests before the next round.
 - **What is reported for each run:**
   - the conditions met and when;
-  - tokens by thought and model, from the cost log;
   - the share of decisions by the model, by intentions and by the code;
-  - the quota level throughout.
+  - latency by kind of thought;
+  - tokens by thought and model, from the cost log, so the owner can see what the runs use.
 
 ---
 
 ## 9. Order of work
 
-1. §4.1–4.6 with unit tests, and lint and typecheck passing. No quota.
+1. §4.1, §4.3–4.5 with unit tests, and lint and typecheck passing. No quota. (§4.2 is done.)
 2. §4.7 and the golden sets. No quota.
 3. §4.8 and the hands tests for §7. No quota.
-4. After the reset: §5.1, then §5.2–5.4, then the models in the config with their numbers. About 3 million tokens.
+4. Once the owner says "Continue": §5, with §4.6 tried in it, then the models in the config with their numbers.
 5. Round 1, then rounds 2–4, with DESIGN.md §24 kept current after each.
 
-Done means: each kind of thought on one named model chosen by measurement; no run degraded by the quota without saying
-so; the targets of §6 met in round 1; and the test conditions of both variations worked towards by agents that think
-rather than follow directives.
+Done means:
+- each kind of thought on one named model, chosen by measurement;
+- the targets of §6 met in round 1;
+- the test conditions of both variations worked towards by agents that think rather than follow directives.
 
 ---
 
@@ -421,9 +411,9 @@ rather than follow directives.
 - NanoGPT, *Subscription usage* ("Input-token quotas count tokens"; fields `used`, `remaining`, `percentUsed`,
   `resetAt`): https://docs.nano-gpt.com/api-reference/endpoint/subscription-usage.md
 - Standard Compute, *NanoGPT pricing guide*, facts checked 2026-10-13 (60 million input tokens a week; 12 of 315 models
-  counting input twice; GLM 5.2 at 2x and GLM 5.3 at 1x from 2026-10-12; cache markers moving a request to
-  pay-as-you-go): https://standardcompute.com/nanogpt-pricing
+  counting input twice; cache markers moving a request to pay-as-you-go): https://standardcompute.com/nanogpt-pricing
 - The subscription's own model list (`GET /api/subscription/v1/models?detailed=true`, read 2026-10-25: 327 models, 312
   of them chat).
-- This repository: `packages/llm/src/governor.ts` (the ladder), `client.ts` (attempts and repairs),
-  `tests/live/longrun.test.ts` (`pollUsage: false`), `config/models.yaml`, and the saved run logs of 2026-10-25.
+- This repository: the ladder as it was (`packages/llm/src/governor.ts` before commit "Remove the quota governor"),
+  `client.ts` (attempts and repairs), `tests/live/longrun.test.ts` (`pollUsage: false`), `config/models.yaml`, and the
+  saved run logs of 2026-10-25.

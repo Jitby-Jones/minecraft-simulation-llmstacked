@@ -31,9 +31,8 @@ embeddings: { provider: local }
 llm:
   baseUrl: subscription            # fixed; 'paid' requires allowPaidKey
   allowPaidKey: false              # refuse to start if the key can spend balance (§22.1)
-  expectedRuntimeHoursPerWeek: 30  # for quota allocation (§22.4)
   allowlistRefreshHours: 6
-  usagePollSec: 300
+  usagePollSec: 300               # how often the quota is read for the dashboard; it never limits thinking
   structuredOutput: object         # object: JSON reply, schema in the prompt | schema: the API's json_schema format
 
 # The mind (owner request, 2026-10-24): each decision is thought through (what is going on, what surprised, the ways

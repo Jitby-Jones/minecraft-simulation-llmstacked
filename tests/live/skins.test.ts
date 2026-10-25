@@ -171,9 +171,8 @@ describe.skipIf(!liveJavaPath())('skins live: NameMC skins by sex, signed throug
       fs.writeFileSync(path.join(paths.skins, 'namemc', tag, 'picks.txt'), `https://namemc.com/skin/${id}\n`);
     }
     const logger = createLogger({ name: 'skins-live', logDir: path.join(root, 'logs'), console: false });
-    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null, quota: () => null, runtimeHoursPerWeek: 30 });
+    const hub = new Hub({ config: HubConfigSchema.parse({}), logger, embedder: null });
     await hub.listen(0);
-    hub.start();
     const w = WorldConfigSchema.parse({ population: { initial: 2, minAlive: 1, maxAlive: 4, spawnStaggerSec: 1, spawnRadius: 0 }, server: { host: '127.0.0.1', port: server.port }, skins: { pages: 1 } });
     const skins = new SkinService({ config: w.skins, ownerDir: paths.skins, cacheDir: path.join(paths.cache, 'skins'), pluginDir: path.join(server.dir, 'plugins', 'AgoraSkins'), logger, rng: new SeededRandom(2), mineskinKey: getMineSkinKey() });
     const running: RunningBot[] = [];

@@ -4,7 +4,7 @@
 // an ordinary server message every player in range of chat sees.
 
 import { LLM_MODULES, type LlmModule, type Sex, TUNABLE_MODULES, type TierName, type TunableModule } from '@agora/shared';
-import type { QuotaStatus } from '@agora/llm';
+import type { QuotaView } from '@agora/llm';
 import type { TuningStore } from '../hub/tuning';
 import type { ConsoleLog } from './console';
 import type { ControlHandler, ControlResult } from './server';
@@ -26,7 +26,7 @@ export interface ControlDeps {
   /** What the server printed, and the commands run with their answers (the dashboard's console). */
   console?: ConsoleLog;
   serverState: () => string;
-  quota: () => QuotaStatus | null;
+  quota: () => QuotaView | null;
   dashboardUrl: string;
   /** Switches world mode (§16.3) in the config and server files; takes effect on restart. */
   setMode: (mode: 'test' | 'live', newWorld: boolean) => Promise<{ ok: boolean; message: string }>;

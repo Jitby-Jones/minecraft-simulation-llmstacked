@@ -122,7 +122,7 @@ export function startTelemetry(o: TelemetryOptions): () => void {
       emotions: { anger: r2(e.anger), fear: r2(e.fear), joy: r2(e.joy), sadness: r2(e.sadness), shame: r2(e.shame), envy: r2(e.envy), affection: r2(e.affection), arousal: r2(e.arousal) },
       mood: r2(s.mood.valence),
       caution: r2(s.drives.caution),
-      flags: { inDanger: s.flags.inDanger, codeOnly: s.flags.codeOnly, degrade: s.flags.degrade, busy: s.flags.busyLevel },
+      flags: { inDanger: s.flags.inDanger, busy: s.flags.busyLevel },
       rungs: Object.fromEntries(Object.entries(s.conflict.rungs).filter(([, v]) => v > 0)),
       inventory: s.self.inventory.slice(0, 10).map((i) => `${i.qty} ${i.item}`),
       queue: s.taskQueue.slice(0, 5).map((t) => t.note ?? t.skill),

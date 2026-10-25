@@ -124,7 +124,7 @@ export class Consensus {
   /** The model to ask, if there is one and talk with a model isn't switched off. */
   private llm(): LlmClient | null {
     const s = this.o.store.state;
-    return s.flags.codeOnly || isOff(s, 'talking.llm') ? null : this.o.llm;
+    return isOff(s, 'talking.llm') ? null : this.o.llm;
   }
 
   /**

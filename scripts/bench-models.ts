@@ -3,7 +3,7 @@
 // prefers over price heuristics. Bench hygiene: allowlisted models only, subscription path only, and it refuses to
 // run when the quota is tight.
 //
-//   pnpm bench-models [--count 10] [--tier L1 --tier L2] [--models id1,id2] [--dry-run] [--yes]
+//   pnpm bench-models [--count 10] [--tier L1 --tier L2] [--models id1,id2] [--dry-run]
 
 import path from 'node:path';
 import { z } from 'zod';
@@ -31,11 +31,10 @@ interface Args {
   tiers: TierName[];
   models: string[];
   dryRun: boolean;
-  yes: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { count: 10, tiers: [], models: [], dryRun: false, yes: false };
+  const a: Args = { count: 10, tiers: [], models: [], dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
     if (v === '--count') a.count = Math.max(1, Math.min(50, Number(argv[++i] ?? 10)));
@@ -44,7 +43,6 @@ function parseArgs(argv: string[]): Args {
       if (t === 'L1' || t === 'L2' || t === 'L3') a.tiers.push(t);
     } else if (v === '--models') a.models.push(...(argv[++i] ?? '').split(',').filter(Boolean));
     else if (v === '--dry-run') a.dryRun = true;
-    else if (v === '--yes') a.yes = true;
   }
   if (a.tiers.length === 0) a.tiers = [...TIERS];
   return a;
@@ -116,16 +114,12 @@ async function main(): Promise<void> {
   const apiKey = requireNanoGptKey();
   const rt = await startLlm({ apiKey, config, logger, bench: previous, background: false });
   try {
-    const q = rt.governor.status;
-    if (q.codeOnly || q.level >= 2) throw new Error(`quota too tight to benchmark (${q.reason}); try after ${q.resetAt ? new Date(q.resetAt).toISOString() : 'the reset'}`);
-    const count = q.level >= 1 ? Math.min(args.count, 5) : args.count;
+    const q = rt.quota.view;
+    const count = args.count;
     const plan = args.tiers.map((t) => ({ tier: t, models: [...new Set([...rt.router.resolution.own[t], ...args.models])] }));
     const calls = plan.reduce((a, p) => a + p.models.length * count, 0);
     const estimate = calls * 400;
-    console.log(`Benchmarking ${calls} calls (≈${estimate} input tokens; weekly quota left: ${q.remaining ?? 'unknown'}).`);
-    if (q.remaining !== null && estimate > q.remaining * 0.01 && !args.yes) {
-      throw new Error('that is over 1 % of the remaining weekly quota; re-run with --yes to proceed');
-    }
+    console.log(`Benchmarking ${calls} calls (≈${estimate} input tokens; weekly quota left: ${q?.remaining ?? 'unknown'}).`);
     const samples: BenchSample[] = [];
     for (const { tier, models } of plan) {
       for (const model of models) {
