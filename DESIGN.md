@@ -3351,6 +3351,7 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| solo, seed 1 (32) | stopped at 10 min | the subscription past 95% of its week: the quota governor (§22.4) put the agent in code-only mode, every decision the code's; the runs stop here until the quota resets | |
 | solo, seed 1 (31) | 45 min | the first plan had food in it ("ponds draw animals"), a chicken by 7 min, a stone sword and torches before dark, a hut by its first night and through it and the second; out by day at 12 health with nothing to eat, the code's "nothing pressing" stroll of 78 blocks met a zombie (12 to 4); then stuck on a plank roof (no way down but a drop of four), asking three times to place "oak_plank" with 55 oak planks on hand; a zombie and a creeper | an item said in the singular; (open: no way down off a built roof; the code default's stroll when hurt and unfed) |
 | solo, seed 2 (25) | 17 min | a night's hut short of blocks twice (code default), cobblestone got, building at night: a zombie, 17 to 0 in 11 s while the body swung twice and ran inside the half-built walls | (open: a fight given up for a run where there is no running) |
 | duo (37) | stopped at 19 min (Bram dead at 15) | Bram to Ada's pillar at night along the water: two drowned, 13.5 to 0 | |
