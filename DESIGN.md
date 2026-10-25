@@ -3193,6 +3193,10 @@ What changed:
     through the hole. As anyone sees a wall of theirs blown out, the room one sat shut in, opened up round one, is
     now a strong notice of its own, at once ("The room you are in has been opened up: it is open to the north now,
     where it was shut in on every side"), not when it is a door that opened or one's own hands digging.
+    And steps meant for after a wait wait for a thought when the wait is cut short before what it waited for came
+    (its next step, wool for a bed, went out at 12 health among four monsters, the wait for the day broken off by a
+    zombie at the hole). A dig for ore that never got to it says so ("could not get to the iron ore at 7,5,-27: no
+    way there to stand and dig it from"), not "nothing came of digging iron_ore".
 
 Live:
 

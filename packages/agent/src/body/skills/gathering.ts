@@ -270,6 +270,13 @@ async function collectUntil(
           'collect batch brought nothing in',
         );
       }
+      // Not dug at all: no way to it (seen through a gap, or up in a wall), said so; the way there is the mind's to
+      // dig (an agent told "nothing came of digging iron_ore" twice, with the ore untouched in a cave wall).
+      const untouched = batch.filter((b) => bot.blockAt(b.position)?.name === b.name);
+      if (countItem(bot, matcher) <= had && untouched.length === batch.length) {
+        const b = untouched[0];
+        throw new Error(`could not get to the ${b?.name.replace(/_/g, ' ') ?? label}${b ? ` at ${b.position.x},${b.position.y},${b.position.z}` : ''}: no way there to stand and dig it from`);
+      }
       // Dug, but nothing came of it (the drop wasn't picked up, or went to someone else): skip those blocks.
       if (countItem(bot, matcher) <= had) throw new Error(`nothing came of digging ${batch[0]?.name ?? label}`);
       failures = 0;

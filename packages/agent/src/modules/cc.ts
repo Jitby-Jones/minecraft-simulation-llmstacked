@@ -1712,13 +1712,20 @@ export class CognitiveController {
     // The world changed since the steps were meant, as anyone takes note of: badly hurt (9 health to 1 on the way;
     // nobody goes on to "gather oak logs" at one heart without a thought), or night come on. The steps wait for one.
     const hurtSince = meant?.health !== undefined && s.self.health <= meant.health - HURT_SINCE;
+    // A wait for something cut short before it came: what was meant for after it is not for now (a wait for the day,
+    // broken off by a zombie at the door, and the next step went out for wool at 12 health among four monsters).
+    const last = s.actionLog.at(-1);
+    const until = last?.skill === 'wait' && typeof last.args?.until === 'string' ? last.args.until : null;
+    const cutShort = until !== null && /stopped waiting early/.test(last?.observed ?? '');
     const since = hurtSince
       ? `you have been hurt since you decided (health ${Math.round(meant?.health ?? 0)} to ${Math.round(s.self.health)})`
-      : meant?.night === false && !s.self.isDay
-        ? 'night has fallen since you decided'
-        : null;
+      : cutShort
+        ? `the wait for ${until} was cut short before it came (${last?.observed ?? ''})`
+        : meant?.night === false && !s.self.isDay
+          ? 'night has fallen since you decided'
+          : null;
     if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && since) {
-      this.o.store.update('mind', (m) => ({ ...m, intention: null }), hurtSince ? 'hurt since' : 'night since');
+      this.o.store.update('mind', (m) => ({ ...m, intention: null }), hurtSince ? 'hurt since' : cutShort ? 'wait cut short' : 'night since');
       const next = meant.steps[0];
       this.trigger(`you meant to ${next?.skill ?? next?.text ?? 'go on'} next, but ${since}`, s.flags.inDanger ? { urgent: true, emergency: true } : { urgent: true });
       return;
