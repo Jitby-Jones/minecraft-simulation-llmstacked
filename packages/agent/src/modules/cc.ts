@@ -1000,13 +1000,16 @@ function nightMove(s: AgentStateStore['state'], isStuck: ValidationEnv['isStuck'
   const home = s.village.home;
   const p = s.self.pos;
   const off = home ? Math.hypot(p.x - home.x, p.z - home.z) : 0;
-  // Home a short run off, back to it; far off, a night's hut where one is (one sent home so from 200 blocks off walked
-  // the whole dark way, and came in with one heart left).
-  if (home && off > 32 && off <= HOME_RUN) {
+  // Home a short run off, back to it, if there is shelter there; far off, or nothing built there, a night's hut where
+  // one is (one sent home so from 200 blocks off walked the whole dark way, and came in with one heart left; one at
+  // 3.5 health was sent 40 m through the dark to a home with nothing built at it).
+  const near = (v: { x: number; z: number }) => home !== null && Math.hypot(v.x - home.x, v.z - home.z) <= 16;
+  const sheltered = Boolean(home) && ([...s.village.huts, ...(s.village.rooms ?? [])].some(near) || (s.village.projects ?? []).some((pr) => pr.doneAt !== null && near(pr.origin)));
+  if (home && sheltered && off > 32 && off <= HOME_RUN) {
     const args = { x: Math.round(home.x), y: Math.round(home.y), z: Math.round(home.z), range: 4 };
     if (!isStuck('goTo', args)) return { option: 'work', task: { skill: 'goTo', args }, terminate: { maxSeconds: 120 }, rationale: 'code default: dark now; back home' };
   }
-  if (home && off > HOME_RUN) {
+  if (home && (off > HOME_RUN || (off > 32 && !sheltered))) {
     const args = { structure: 'hut', room: 1 };
     if (!isStuck('build', args)) return { option: 'work', task: { skill: 'build', args }, terminate: { maxSeconds: 120 }, rationale: "code default: dark now, and home far off; a night's hut here" };
   }
