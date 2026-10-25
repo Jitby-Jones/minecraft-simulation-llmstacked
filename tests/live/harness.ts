@@ -71,6 +71,27 @@ function copyDir(src: string, dest: string): void {
   fs.cpSync(src, dest, { recursive: true, force: false, errorOnExist: false });
 }
 
+/**
+ * A server left running in this folder by a test worker that died (out of memory): it holds the port, and the next one
+ * exits at once ("Paper exited before ready"). Killed before a new one starts. Linux only (it reads /proc).
+ */
+async function killStaleServer(dir: string): Promise<void> {
+  if (process.platform !== 'linux') return;
+  let killed = 0;
+  for (const pid of fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p))) {
+    try {
+      const cwd = fs.readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/, '');
+      if (cwd === dir && /java/.test(fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8'))) {
+        process.kill(Number(pid), 'SIGKILL');
+        killed++;
+      }
+    } catch {
+      // gone already, or not ours to look at
+    }
+  }
+  if (killed > 0) await new Promise((r) => setTimeout(r, 2000));
+}
+
 export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServer> {
   const java = liveJavaPath();
   if (!java) throw new Error('No Java 25+ found: set AGORA_JAVA to a Java 25 binary to run live tests.');
@@ -78,6 +99,7 @@ export async function startLiveServer(opts: LiveServerOptions): Promise<LiveServ
   const main = dataPaths();
   const base = path.join(repoRoot(), 'data', 'live-test', opts.name);
   const dir = path.join(base, 'server');
+  await killStaleServer(dir);
   fs.rmSync(base, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, 'plugins'), { recursive: true });
   const jar = paperJarName(versions);
