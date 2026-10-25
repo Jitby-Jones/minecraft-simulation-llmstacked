@@ -565,6 +565,25 @@ describe('Action Awareness (§4.6)', () => {
     expect(awareness.isStuckOn('obtain', { item: 'iron_ingot', qty: 3 })).toBe(false);
   });
 
+  it('failing closer each time, or another way, is not stuck; the same failure three times is', () => {
+    const s = store();
+    const bus = new AgentBus();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    awareness.start();
+    const hut = { structure: 'hut', room: 1 };
+    const fail = (error: string) => bus.emit({ type: 'actionRecorded', record: { id: 'r', skill: 'build', args: hut, expected: '', observed: 'not built', ok: false, ts: 0, durationMs: 100, error } });
+    // Short 27, 27, then 11: closer, so not stuck (one refused so went on being refused with forty planks in hand).
+    fail('need 27 more building blocks (stone of any kind, planks or dirt)');
+    fail('need 27 more building blocks (stone of any kind, planks or dirt)');
+    fail('need 11 more building blocks (stone of any kind, planks or dirt)');
+    expect(awareness.isStuckOn('build', hut)).toBe(false);
+    // Short 11 three times over: the same rut.
+    fail('need 11 more building blocks (stone of any kind, planks or dirt)');
+    fail('need 11 more building blocks (stone of any kind, planks or dirt)');
+    expect(awareness.isStuckOn('build', hut)).toBe(true);
+    awareness.stop();
+  });
+
   it('marks a task stuck after three failures, and lifts the mark once a prospect finds what it lacked', () => {
     const s = store();
     const bus = new AgentBus();

@@ -222,6 +222,11 @@ const WAYS: Readonly<Record<string, Vec3>> = { north: new Vec3(0, 0, -1), south:
  */
 function besideToward(bot: Bot, toward: string): Vec3 | null {
   const w = toward.trim().toLowerCase();
+  // Up: over one's head (the lid of a hole one stands in; asked "toward up", one was told there was no up in sight).
+  if (/^(up|above|over|overhead|over my head|the top)$/.test(w)) {
+    const lid = bot.entity.position.floored().offset(0, 2, 0);
+    return placeableInto(bot.blockAt(lid)) ? lid : null;
+  }
   let d = WAYS[/^(north|south|east|west)/.exec(w)?.[1] ?? ''] ?? null;
   if (!d) {
     const e = findEntity(bot, w.replace(/^(the|a|an)\s+/, ''), 32);
@@ -241,7 +246,7 @@ function besideToward(bot: Bot, toward: string): Vec3 | null {
 export const place = defineSkill({
   name: 'place',
   description:
-    'place {block, x?,y?,z?, toward?} — place a block from your inventory: at x,y,z; or beside you toward a way (north...) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
+    'place {block, x?,y?,z?, toward?} — place a block from your inventory: at x,y,z; or beside you toward a way (north..., or up: over your head) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
   argsSchema: z.object({
     block: z.string().min(1),
     x: z.coerce.number().optional(),

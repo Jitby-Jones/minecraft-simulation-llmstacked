@@ -801,6 +801,14 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(r1.ok && r2.ok).toBe(true);
     expect(body.bot.blockAt(feet.offset(1, 0, 0))?.name).toBe('cobblestone');
     expect(body.bot.blockAt(feet.offset(1, 1, 0))?.name).toBe('cobblestone');
+    // Up: over one's head, in a hole three deep (its lid in the ground's top layer).
+    await server.cmd(`fill ${x + 4} ${Y - 3} 0 ${x + 4} ${Y - 1} 0 air`);
+    await server.cmd(`tp Ada ${x + 4}.5 ${Y - 3} 0.5`);
+    await sleep(1500);
+    const r3 = await run('place', { block: 'cobblestone', toward: 'up' });
+    logger.info({ r3: r3.observed, err: r3.error }, 'a lid over the head');
+    expect(r3.ok).toBe(true);
+    expect(body.bot.blockAt(new Vec3(x + 4, Y - 1, 0))?.name).toBe('cobblestone');
   }, 60_000);
 
   it('hunting 30 down in the stone: none in sight, and it says how far up the sky is, where the animals are', async () => {

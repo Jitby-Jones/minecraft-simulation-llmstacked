@@ -3091,7 +3091,11 @@ What changed:
    underground, the failure says what a player knows: "you are underground, the open sky some 30 blocks up: animals
    live up on the surface" (at 9 health with no food, one hunted at dawn 50 blocks down, found nothing, and went off
    exploring the caves). `place {block, toward}` puts a block beside one toward a way or something in sight, at the
-   feet, then at the head: a wall between (asked to "block the arrows" with no spot, one went down anywhere).
+   feet, then at the head: a wall between (asked to "block the arrows" with no spot, one went down anywhere); toward
+   up, over one's head (one digging itself in at dusk asked for that, and there was no "up" to put it).
+   And being stuck is the same failure over and over: failing closer each time ("need 27 more", then "need 11 more"),
+   or another way, starts the count again (a hut refused three times for blocks was refused on with forty planks in
+   hand).
 5. **Someone one has never met stands out.** A person come into view whom one has not met is noticed ("Someone you
    haven't met: Bram, 11 m east") strongly enough to think about at once, as anyone looks up at a stranger: two put
    down together each built a hut twenty blocks from the other and never said a word in twenty minutes.

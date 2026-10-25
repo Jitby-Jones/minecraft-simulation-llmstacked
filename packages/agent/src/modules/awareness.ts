@@ -40,6 +40,15 @@ export function attemptKey(skill: string, args: Record<string, unknown>): string
 /** Skills whose failures can still be partial progress (they collect things). */
 const GATHERING = new Set(['obtain', 'gather', 'mine', 'craft', 'smelt', 'pickup', 'withdraw']);
 
+/** How much a failure says is still short ("need 11 more building blocks"), if it says. */
+function shortBy(why: string): number | null {
+  const m = /\b(?:need|missing) (\d+) more\b/.exec(why);
+  return m ? Number(m[1]) : null;
+}
+
+/** The same failure, whatever its numbers. */
+const sameFailure = (a: string, b: string) => a.replace(/\d+(\.\d+)?/g, '#') === b.replace(/\d+(\.\d+)?/g, '#');
+
 function describe(r: ActionRecord): string {
   const args = Object.entries(r.args)
     .map(([k, v]) => `${k} ${typeof v === 'string' ? v : JSON.stringify(v)}`)
@@ -50,6 +59,8 @@ function describe(r: ActionRecord): string {
 export class ActionAwareness {
   /** Failure times and weights per task: a failure that still gained something counts half. */
   private readonly fails = new Map<string, { t: number; w: number }[]>();
+  /** Why each attempt failed last. */
+  private readonly lastWhy = new Map<string, string>();
   private readonly stuckUntil = new Map<string, { until: number; why: string }>();
   private readonly now: () => number;
   private off: (() => void) | null = null;
@@ -126,6 +137,7 @@ export class ActionAwareness {
         }
       }
       this.fails.delete(key);
+      this.lastWhy.delete(key);
       const lifted = this.givenUp.delete(`${r.skill}:${item ?? ''}`) || this.givenUp.delete(`${r.skill}:`);
       if ((this.stuckUntil.delete(key) || lifted) && this.stuckList().length === 0) {
         this.o.store.update('flags', (f) => (f.stuck ? { ...f, stuck: false } : f), 'unstuck');
@@ -136,6 +148,13 @@ export class ActionAwareness {
     const why = r.error ?? `expected ${r.expected}, saw ${r.observed}`;
     if (r.error?.startsWith('aborted') || r.error === 'time is up') return;
     const w = r.progressed && GATHERING.has(r.skill) ? 0.5 : 1;
+    // Failing closer each time ("need 27 more", then "need 11 more"), or another way, is not the same rut: the count
+    // starts again (a hut refused three times for blocks went on being refused with forty planks in hand).
+    const prev = this.lastWhy.get(key);
+    const now = shortBy(why);
+    const before = prev === undefined ? null : shortBy(prev);
+    if (prev !== undefined && ((now !== null && before !== null && now < before) || !sameFailure(prev, why))) this.fails.delete(key);
+    this.lastWhy.set(key, why);
     const list = [...(this.fails.get(key) ?? []), { t, w }].filter((x) => t - x.t < (this.o.windowMs ?? 10 * 60_000));
     this.fails.set(key, list);
     // The executor records a postcondition mismatch as "expected …, saw …".
