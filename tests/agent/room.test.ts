@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
-import { daytime, roomAround, roomWords } from '@agora/agent/body/world';
+import { besideWords, daytime, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { createInitialState } from '@agora/agent/state/initial';
 import { PersonaSchema } from '@agora/shared';
@@ -65,6 +65,16 @@ describe('the room one stands in', () => {
 
   it('outside the hut, beside its wall: no room', () => {
     expect(roomAround(world(hut(1, 'air'), new Vec3(3.5, 0, 0.5)))).toBeNull();
+  });
+
+  it('just outside a hut: the room beside, which way, and whether it is shut (one who shut himself out waited the night "sealed in")', () => {
+    const shut = world(hut(1, null), new Vec3(2.5, 0, 0.5));
+    expect(roomAround(shut)).toBeNull();
+    expect(besideWords(roomBeside(shut))).toBe('outside a room 2 m to the west, shut on every side');
+    const open = world(hut(1, 'air'), new Vec3(2.5, 0, 0.5));
+    expect(besideWords(roomBeside(open))).toBe('outside a room 2 m to the west, open to the north');
+    // Out in a field, nothing.
+    expect(roomBeside(world({}))).toBeNull();
   });
 
   it('a cave too big to take in as a room: none', () => {

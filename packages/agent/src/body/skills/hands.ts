@@ -12,7 +12,7 @@ import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { describeDiff, diffInventory, markThrown, snapshotInventory } from '../inventory';
 import { itemMatcher, normalizeBlockName, normalizeItemName } from '../items';
-import { biting, canSee, canSeeBlock } from '../world';
+import { biting, canSee, canSeeBlock, roomAround } from '../world';
 import { stopCollecting } from './gathering';
 import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -268,7 +268,8 @@ export const use = defineSkill({
           done++;
           const now = bot.blockAt(target.position);
           const nowAbove = bot.blockAt(target.position.offset(0, 1, 0));
-          if (now && now.stateId !== was) changes.push(changed(target, now));
+          // A door: which side of it one is on, as one sees (one shut its hut's door from outside and waited there).
+          if (now && now.stateId !== was) changes.push(`${changed(target, now)}${/_door$/.test(now.name) ? `, with you ${roomAround(bot) ? 'inside' : 'outside'}` : ''}`);
           else if (nowAbove && nowAbove.stateId !== above) changes.push(`${nowAbove.name.replace(/_/g, ' ')} on the ${target.name.replace(/_/g, ' ')}`);
           if (at) break;
         }

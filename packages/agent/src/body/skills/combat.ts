@@ -7,7 +7,7 @@ import type { Entity } from 'prismarine-entity';
 import type { Item } from 'prismarine-item';
 import { Vec3 } from 'vec3';
 import { weaponTier } from '../items';
-import { entityHealth, findEntity, hissing } from '../world';
+import { entityHealth, findEntity, hissing, nearbyHostiles } from '../world';
 import { stopCollecting } from './gathering';
 import { abortable, goals, stopMotion, throwIfAborted, upTo, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -115,6 +115,28 @@ async function hitAndBackOff(ctx: SkillContext, e: Entity, deadline: number): Pr
   }
 }
 
+/**
+ * Walks over the drops near where something fell: a chicken's flutter, a knock back, a drop down a bank or a current
+ * can carry them a few blocks off (twice in a row "killed but picked nothing up"; a look round 8 blocks after found
+ * the beef).
+ */
+export async function collectDropsAt(ctx: SkillContext, where: Vec3, most = 5): Promise<void> {
+  const { bot } = ctx;
+  for (let i = 0; i < most; i++) {
+    const drop = bot.nearestEntity((e) => e.name === 'item' && e.position.distanceTo(where) <= 8);
+    if (!drop) return;
+    bot.pathfinder.setMovements(ctx.movements());
+    try {
+      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 8000), () => stopMotion(bot));
+    } catch (err) {
+      if (err instanceof SkillAbortedError) throw err;
+      stopMotion(bot);
+      return;
+    }
+    await waitMs(ctx, 350);
+  }
+}
+
 export const attack = defineSkill({
   name: 'attack',
   description: 'attack {target, seconds?} — melee a mob type or a person until it is gone (fights with people are code-gated)',
@@ -130,6 +152,8 @@ export const attack = defineSkill({
     if (ctx.slip !== 'tool') await equipBestWeapon(bot);
     const p = pvp(bot);
     const deadline = Date.now() + args.seconds * 1000;
+    // Where it was last seen: what it drops falls there.
+    let fell = e.position.clone();
     try {
       if (e.name === 'creeper') await hitAndBackOff(ctx, e, deadline);
       else {
@@ -137,7 +161,10 @@ export const attack = defineSkill({
         await abortable(
           ctx.signal,
           (async () => {
-            while (alive(bot, e) && Date.now() < deadline) await waitMs(ctx, 250);
+            while (alive(bot, e) && Date.now() < deadline) {
+              fell = e.position.clone();
+              await waitMs(ctx, 250);
+            }
           })(),
           () => p.forceStop(),
         );
@@ -147,7 +174,15 @@ export const attack = defineSkill({
     } finally {
       p.forceStop();
     }
-    if (!alive(bot, e)) return { ok: true, observed: `${args.target} is gone` };
+    if (!alive(bot, e)) {
+      // What it dropped is taken, as a player walks over the loot, unless something else is at hand: a salmon killed
+      // in a river was hunted for again and again, its drop gone downstream.
+      if (e.type !== 'player' && nearbyHostiles(bot, 8).length === 0) {
+        await waitMs(ctx, 400);
+        await collectDropsAt(ctx, fell, 3);
+      }
+      return { ok: true, observed: `${args.target} is gone` };
+    }
     return { ok: false, observed: `${args.target} still standing`, error: 'could not finish the fight in time' };
   },
 });

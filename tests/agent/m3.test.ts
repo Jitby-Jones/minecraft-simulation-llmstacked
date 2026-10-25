@@ -759,6 +759,12 @@ describe('Skill Executor termination (§4.4)', () => {
     expect(walkSeconds(opt('tunnel', { direction: 'west', blocks: 3 }), s.state)).toBe(32);
     expect(walkSeconds(opt('wait', { until: 'day' }), s.state)).toBe(600);
     expect(walkSeconds(opt('wait', { seconds: 30 }), s.state)).toBe(0);
+    // A dig for iron from the surface: the stair down to y 14 (2.5 s a step), then the tunnel there.
+    s.update('self', (x) => ({ ...x, pos: { x: 0, y: 70, z: 0 } }));
+    expect(walkSeconds(opt('prospect', { item: 'iron_ore' }), s.state)).toBe(30 + 56 * 2.5 + 48 * 2);
+    expect(walkSeconds(opt('prospect', { item: 'diamond', maxBlocks: 96 }), s.state)).toBe(30 + 126 * 2.5 + 96 * 2);
+    s.update('self', (x) => ({ ...x, pos: { x: 0, y: 10, z: 0 } }));
+    expect(walkSeconds(opt('prospect', { item: 'iron_ore', maxBlocks: 20 }), s.state)).toBe(70);
   });
 
   it('an until-condition true from the start is not watched: the work goes on (5 more logs, holding 10)', async () => {
@@ -774,6 +780,27 @@ describe('Skill Executor termination (§4.4)', () => {
     expect(ends).toEqual([]);
     expect(ex.busy).toBe(true);
     ex.stop();
+  });
+
+  it('a walk to a spot is not cut short by "near" that same spot: it gets there (one stopped 2.6 blocks short, outside its hut)', async () => {
+    const s = store();
+    const bus = new AgentBus();
+    const ends: string[] = [];
+    bus.on('optionTerminated', (e) => ends.push(e.reason));
+    const ex = new SkillExecutor({ store: s, bus, body: fakeBody(), logger: nullLogger(), levers: () => leversFor(0.5) });
+    ex.start();
+    // 2.6 blocks from the room's cell, outside its wall: "near" (3 blocks) is true, the walk is not done.
+    s.update('self', (x) => ({ ...x, pos: { x: 8.6, y: 68, z: -35 } }));
+    s.set('option', { decisionId: 'd3', option: 'move', startedAt: Date.now(), maxSeconds: 60, until: 'near:6,68,-35', skill: 'goTo', args: { x: 6, y: 68, z: -35 }, status: 'running' });
+    await wait(1600);
+    expect(ends).toEqual([]);
+    expect(ex.busy).toBe(true);
+    ex.stop();
+    const { nearSameSpot } = await import('@agora/agent/modules/executor');
+    const walk = (until: string, args: Record<string, unknown>) => ({ decisionId: 'd', option: 'move', startedAt: 0, maxSeconds: 60, skill: 'goTo', until, args, status: 'running' }) as never;
+    expect(nearSameSpot(walk('near:6,68,-35', { x: '6', y: '68', z: '-35' }))).toBe(true);
+    // Near somewhere else on the way: watched as said.
+    expect(nearSameSpot(walk('near:20,68,-35', { x: 6, y: 68, z: -35 }))).toBe(false);
   });
 
   it('a new option starts once the one it replaced has cleaned up (its last stop of motion cut the new walk short)', async () => {

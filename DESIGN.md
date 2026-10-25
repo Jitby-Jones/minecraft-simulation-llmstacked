@@ -3146,6 +3146,26 @@ What changed:
      and cooked much more, animals are not replaced once killed so more are found farther off, seeds from tall grass
      grow wheat for bread, a rod catches fish in any open water, oak leaves drop apples, rotten flesh brings on
      hunger. Facts, as the night's are; what to do about them is the mind's.
+9. **A dig for ore goes where the ore is, and is given the time.** In ninety minutes the seed-2 solo had two raw
+   iron, and a seed-1 solo's three minutes of prospecting for iron from the surface found none: the 48 blocks it may
+   dig went on the stair down toward y 14 and ran out about there, before any tunnel at depth, and the three minutes
+   the mind gave it ran out 26 blocks down. A player digs the stair down once and then mines along at the ore's
+   depth. `prospect` now counts its blocks in the tunnel where the ore is (the stair down is the way there, up to 160
+   steps), and is given the time that takes (2.5 s a step down and 2 s a block of tunnel, 12 minutes at most).
+10. **Inside or outside, as one sees it.** With the packets kept, two more deaths at the first dusk read plainly. In
+    the seed-2 solo the mind meant "step inside, close the door, wait out the night": it walked toward the hut's room
+    with "until near" it (3 blocks), the walk stopped 2.6 blocks short outside the wall, the door was shut from there,
+    and it waited outside believing itself sealed in, until a skeleton and a zombie came. In the duo, Bram shut his
+    hut's doorway with a block from outside it, and waited there "sealed in". Each packet said "under the open sky";
+    the minds read their own narrative over it (replayed six times against the logged packet, glm-5.3 thought itself
+    inside every time, even told it was outside a room two blocks west). What changed is what made the story wrong:
+    - A walk to a spot ends by getting there: an "until near" that same spot (within 2 blocks of it) no longer cuts
+      the walk short.
+    - A door used says which side of it one is on ("the oak door shut, with you outside").
+    - Out under the sky, a room one stands just outside of is seen: "under the open sky, outside a room 2 m to the
+      west, shut on every side".
+    - A kill's drops are taken where it fell, as a player walks over the loot, unless another monster is at hand (a
+      salmon killed in a river was hunted for again and again, its drop gone downstream).
 
 Live:
 
@@ -3167,6 +3187,8 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| duo (29) | 14 min (Bram) | the first dusk: Bram's hut built, its doorway filled with dirt from outside, "the hut is sealed from inside"; a zombie in the night, 18 to 0 with a wooden axe | a door says which side one is on; a room seen from beside it |
+| solo, seed 2 (19) | 13 min | **house met at 9 min** (a starter hut from a design, with a door and lights, all but its bed); at dusk "step inside, close the door, wait": the walk stopped 2.6 blocks short on "until near", the door shut from outside, the night waited out beside the hut; a skeleton and a zombie | a walk ends by getting there |
 | duo (28) | 38 min (Bram) | the stranger greeted; huts; Bram's hut one across: the doorway refused twice from inside ("would place inside myself"), then a block set beside him outside it, and he waited out the night there "sealed in"; a skeleton (13 to 1), a zombie villager | a step back to fill a doorway from inside; the room seen from inside |
 | solo, seed 2 (18) | 90 min | **house met at 44 min**; a quarter of the run waiting out nights; ten minutes at 8 health, food just short of healing, after salmon in a river; "wait until day" in the evening ended at once and the next step went for iron down a mine at dusk: a zombie in the dark, 8 to 0 | the day as it is felt; steps meant by day wait when night falls |
 | solo, seed 1 (24) | 20 min | prospecting at night with a wooden axe and no food; a zombie and a creeper; the walk away chosen under fire was a walk (9 to 1), then "gather oak logs" at one heart; hid underground at 1 health with nothing to eat, came up at first light among a creeper and a zombie | a run chosen under fire is a run; steps wait when badly hurt since |
@@ -3177,7 +3199,9 @@ Live:
 | duo (24) | 20 min (the worker ran out of memory) | **house met at 5 min**; the heap flat at 100–300 MB, then 2 GB within a minute and a half | room for the worker; the heap past 1 GB logs what each agent was doing |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
 
-Verified (7): 723 unit tests; live `hands`: the doorway filled from inside, the night's hut, a bed in a nook, the
+Verified (8–10): 725 unit tests; live `hands`: the dark dig, the wet prospect, the pickaxe's last uses, the dig from
+the floor of the last one, the gravel, fishing (4 casts, 4 bites), a cow's drops taken, a door from inside and from
+outside with the room seen each way, the doorway filled from inside. Verified (7): 723 unit tests; live `hands`: the doorway filled from inside, the night's hut, a bed in a nook, the
 furnace in a notch and against a block's side, the wall toward a way (the quick hut's walk to its corner failed once and
 passed on its own: a walk to a wall's own cell). Before: 711 unit tests; live `hands` (all 45: 43 in one full run of the suite, then the wall and the hunt underground), `m1-skills` (the two cases of the
 mind holding the body), `underfire` (2 of 2).

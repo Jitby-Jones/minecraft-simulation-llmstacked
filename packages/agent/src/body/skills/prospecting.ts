@@ -26,6 +26,13 @@ const ORE_DEPTH: readonly [RegExp, number][] = [
   [/diamond/, -56],
   [/emerald/, 60],
 ];
+/** The height a dig for this ore goes down to first (14 when it is not known). */
+export function oreDepth(ore: string): number {
+  return ORE_DEPTH.find(([re]) => re.test(ore))?.[1] ?? 14;
+}
+/** Steps down at most, from the highest ground to the deepest dig. */
+const MOST_STEPS = 160;
+
 export const DIRS: Readonly<Record<string, Vec3>> = {
   east: new Vec3(1, 0, 0),
   west: new Vec3(-1, 0, 0),
@@ -189,7 +196,7 @@ function wayOf(v: unknown): unknown {
 
 export const prospect = defineSkill({
   name: 'prospect',
-  description: 'prospect {item, maxBlocks?, direction?, outside?} — dig down and tunnel to look for an ore you have not seen yet (needs a pickaxe); outside: start at least this many blocks from home',
+  description: 'prospect {item, maxBlocks?, direction?, outside?} — dig a stair down to where the ore is common, then tunnel maxBlocks there looking for one you have not seen yet (needs a pickaxe); outside: start at least this many blocks from home',
   argsSchema: z.object({
     item: z.string().min(1),
     // A dig of more than the most is a dig of the most; "down" is the way it goes first anyway, and "north-east" goes
@@ -223,7 +230,7 @@ export const prospect = defineSkill({
       });
     }
     const oreName = bot.registry.blocks[ids[0] ?? -1]?.name ?? args.item;
-    const depth = ORE_DEPTH.find(([re]) => re.test(oreName))?.[1] ?? 14;
+    const depth = oreDepth(oreName);
     const minY = (bot.game as unknown as { minY?: number }).minY ?? -64;
     const startY = Math.floor(bot.entity.position.y);
     // Below the ore's usual depth already (or on a flat world): stay just under the surface, with a roof if the
@@ -232,14 +239,17 @@ export const prospect = defineSkill({
     const targetY = Math.max(minY + 5, Math.min(depth, startY - 3));
     const names = Object.keys(DIRS);
     let dirName = args.direction ?? rockiestDirection(bot, targetY, ctx.rng.next()) ?? names[Math.floor(ctx.rng.next() * names.length)] ?? 'east';
+    // The tunnel's length is counted where the ore is: the stair down is the way there, not the search (the default
+    // 48 blocks went on a stair from the surface toward y 14 and ran out before any tunnel was dug at all).
     let dug = 0;
+    let steps = 0;
     let turns = 0;
     let outOfRock = 0;
     let lastBlock = '';
     // Each way that was tried and what stopped it: "water ahead" alone, three times over, says nothing of where to go.
     const stopped: string[] = [];
     try {
-      while (dug < args.maxBlocks) {
+      while (dug < args.maxBlocks && steps < MOST_STEPS) {
         throwIfAborted(ctx.signal);
         const d = DIRS[dirName] ?? new Vec3(1, 0, 0);
         const feet = bot.entity.position.floored();
@@ -262,7 +272,8 @@ export const prospect = defineSkill({
         const found = seen();
         if (found) return { ok: true, observed: `found ${found.name} at ${found.position.toString()} after digging ${dug} blocks${await mineTheVein(ctx, found.name, ids)}` };
         await stepTo(ctx, next);
-        dug++;
+        if (down) steps++;
+        else dug++;
         await lightTheWay(ctx);
         // Out of the rock for a while (digging dirt or sand): head back toward rock if there is any around.
         outOfRock = dugHere.some((n) => n !== null && HOST_ROCK.has(n)) ? 0 : outOfRock + 1;
@@ -274,7 +285,7 @@ export const prospect = defineSkill({
             outOfRock = 0;
           }
         }
-        ctx.progress(`tunneling ${dirName}, ${dug} blocks`);
+        ctx.progress(down ? `a stair down, ${steps} steps, at y ${next.y}` : `tunneling ${dirName}, ${dug} blocks`);
         const after = seen();
         if (after) return { ok: true, observed: `found ${after.name} at ${after.position.toString()} after digging ${dug} blocks${await mineTheVein(ctx, after.name, ids)}` };
       }

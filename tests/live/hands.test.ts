@@ -140,7 +140,8 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     const feetBlock = body.bot.blockAt(body.bot.entity.position.floored());
     logger.info({ light: feetBlock?.light, skyLight: feetBlock?.skyLight, name: feetBlock?.name }, 'light at feet');
     expect(feetBlock?.skyLight).toBe(0);
-    const r = await run('prospect', { item: 'diamond', maxBlocks: 16, direction: 'east' });
+    // Coal: a few steps down from here, then the tunnel (a dig for diamonds goes down to their depth first).
+    const r = await run('prospect', { item: 'coal', maxBlocks: 16, direction: 'east' });
     logger.info({ r, torches: countItem(body.bot, 'torch'), lit: lit() }, 'dark dig');
     expect(lit()).toBeGreaterThanOrEqual(1);
     expect(countItem(body.bot, 'torch')).toBeLessThan(16);
@@ -505,7 +506,8 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
 
   it('prospecting under a bed of gravel: what comes down is let come down and dug, never stepped in under, and it is unhurt', async () => {
     const x = 6300;
-    const y = 20;
+    // A few steps over the diamonds' depth: the stair down runs under the gravel.
+    const y = -50;
     await at(x, 0);
     // A pocket in the stone to start from, and gravel seven deep over the way the tunnel will go.
     await server.cmd(`forceload add ${x - 8} -8 ${x + 24} 8`);
@@ -731,8 +733,21 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(whereNow(body.bot).text).toContain('walled in on every side');
   }, 180_000);
 
+  it('a cow attacked and killed: what it dropped is walked over and taken (a salmon killed in a river was hunted for again and again)', async () => {
+    const x = 8800;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await server.cmd(`summon cow ${x + 4} ${Y} 0`);
+    await sleep(1500);
+    const r = await run('attack', { target: 'cow', seconds: 30 });
+    await sleep(500);
+    logger.info({ r, beef: countItem(body.bot, 'beef'), leather: countItem(body.bot, 'leather') }, 'a cow attacked');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'beef')).toBeGreaterThanOrEqual(1);
+  }, 120_000);
+
   it('a rod on a pond: cast from the bank, pulled in when a fish bites, and the catch in hand', async () => {
-    const x = 6300;
+    const x = 8700;
     await at(x, 0);
     // A pond seven across and three deep, its surface level with the ground, a step east of where she stands.
     await server.cmd(`fill ${x + 2} ${Y - 3} -3 ${x + 8} ${Y - 1} 3 water`);
@@ -762,6 +777,20 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.entity.position.x).toBeGreaterThan(x + 3);
     expect(door?.name).toBe('oak_door');
     expect(door?.getProperties?.().open).toBe(false);
+    // Inside, the room is seen as it is, and the hand on the door says which side of it one is on.
+    expect(whereNow(body.bot).text).toContain('inside a room, shut in on every side (a door to the west, shut)');
+    const opened = await run('use', { on: 'door' });
+    await sleep(500);
+    expect(opened.observed).toMatch(/opened, with you inside/);
+    expect(whereNow(body.bot).text).toContain('inside a room, open to the west (the door to the west standing open)');
+    // Out, and the door shut from there: outside it, as the hand and the eyes both say.
+    await server.cmd(`tp Ada ${x + 1}.5 ${Y} 0.5`);
+    await sleep(1500);
+    const shut = await run('use', { on: 'door' });
+    await sleep(500);
+    logger.info({ shut, where: whereNow(body.bot).text }, 'a door shut from outside');
+    expect(shut.observed).toMatch(/shut, with you outside/);
+    expect(whereNow(body.bot).text).toMatch(/under the open sky, outside a room \d m to the east, shut on every side/);
   }, 120_000);
 
   it('from a pocket 30 down in the stone, a stair dug up comes out under the open sky', async () => {

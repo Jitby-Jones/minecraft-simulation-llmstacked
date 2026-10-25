@@ -11,6 +11,7 @@ import { cueCame, cueFrom } from '../mind/later';
 import { evalCondition } from './conditions';
 import type { MindLevers } from './levers';
 import { whoMakesChests } from '../social/village';
+import { oreDepth } from '../body/skills/prospecting';
 
 export interface ExecutorOptions {
   store: AgentStateStore;
@@ -217,8 +218,11 @@ export class SkillExecutor {
     };
     const trueAlready = opt.until ? until(opt.until) === true : false;
     if (trueAlready) logger.debug({ module: 'executor', until: opt.until }, 'until-condition true already; not watched');
+    // A walk to a spot ends by getting there: "near" that same spot (3 blocks) stopped one 2.6 blocks short of its
+    // hut's room, outside the wall, and it shut the door with itself outside and waited the night there.
+    const ownArrival = opt.until ? nearSameSpot(opt) : false;
     const watch = setInterval(() => {
-      if (!opt.until || trueAlready) return;
+      if (!opt.until || trueAlready || ownArrival) return;
       const v = until(opt.until);
       if (v === null && !warned) {
         warned = true;
@@ -350,6 +354,15 @@ export class SkillExecutor {
  * takes its time): 20 s and 1.5 s a block, up to 4 min; a dig, 4 s a step; a wait for something, ten minutes. Zero
  * for anything else.
  */
+/** An until-condition "near" the very spot a walk goes to (within 2 blocks of it): the walk's own arrival ends it. */
+export function nearSameSpot(opt: ActiveOption): boolean {
+  const m = /^near:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(opt.until ?? '');
+  const a = opt.args ?? {};
+  const [x, y, z] = [Number(a.x), Number(a.y), Number(a.z)];
+  if (!m || opt.skill !== 'goTo' || ![x, y, z].every((v) => Number.isFinite(v))) return false;
+  return Math.hypot(Number(m[1]) - x, Number(m[2]) - y, Number(m[3]) - z) <= 2;
+}
+
 export function walkSeconds(opt: ActiveOption, s: AgentState): number {
   const a = opt.args ?? {};
   const n = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN);
@@ -360,5 +373,12 @@ export function walkSeconds(opt: ActiveOption, s: AgentState): number {
   else if (opt.skill === 'tunnel') return Math.min(480, 20 + (Number.isFinite(n(a.blocks)) ? n(a.blocks) : a.direction === 'up' ? 96 : 8) * 4);
   // Waiting for the day is waiting for it.
   else if (opt.skill === 'wait' && typeof a.until === 'string') return 600;
+  // A dig for ore: the stair down to its depth, two seconds a step, then the tunnel there (a 3-minute dig for iron
+  // from the surface ran out of time 26 blocks down, every time).
+  else if (opt.skill === 'prospect' && typeof a.item === 'string') {
+    const steps = Math.max(0, s.self.pos.y - oreDepth(a.item));
+    const blocks = Number.isFinite(n(a.maxBlocks)) ? Math.min(96, n(a.maxBlocks)) : 48;
+    return Math.min(720, 30 + steps * 2.5 + blocks * 2);
+  }
   return far > 0 ? Math.min(240, 20 + far * 1.5) : 0;
 }

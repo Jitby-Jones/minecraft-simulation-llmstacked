@@ -12,12 +12,12 @@ import { bearingOf } from '../../perception/sceneWords';
 import { BOARD_RADIUS } from '../../perception/village';
 import { sharedRepertoire } from '../../building/repertoire';
 import { placeItemAt } from './building';
-import { bestWeapon, equipBestWeapon, pvp } from './combat';
+import { bestWeapon, collectDropsAt, equipBestWeapon, pvp } from './combat';
 import { buildDesign } from './construct';
 import { stopCollecting } from './gathering';
 import { ensureTool } from './tools';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
-import { defineSkill, type SkillContext, SkillAbortedError } from './types';
+import { defineSkill, SkillAbortedError } from './types';
 
 // --- hunt ---------------------------------------------------------------------------------------------------------
 
@@ -37,27 +37,6 @@ function fartherAnimal(bot: Bot, kinds: readonly string[]): string {
   if (!far) return '';
   const p = far.position;
   return `; the nearest in view is a ${far.name ?? 'animal'} ${Math.round(p.distanceTo(bot.entity.position))} m ${bearingOf(bot.entity.position, p)}, at ${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`;
-}
-
-/**
- * Walks over the drops near where an animal fell: a chicken's flutter, a knock back or a drop down a bank can carry
- * them a few blocks off (twice in a row "killed but picked nothing up"; a look round 8 blocks after found the beef).
- */
-async function collectDropsAt(ctx: SkillContext, where: Vec3): Promise<void> {
-  const { bot } = ctx;
-  for (let i = 0; i < 5; i++) {
-    const drop = bot.nearestEntity((e) => e.name === 'item' && e.position.distanceTo(where) <= 8);
-    if (!drop) return;
-    bot.pathfinder.setMovements(ctx.movements());
-    try {
-      await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5)), 8000), () => stopMotion(bot));
-    } catch (err) {
-      if (err instanceof SkillAbortedError) throw err;
-      stopMotion(bot);
-      return;
-    }
-    await waitMs(ctx, 350);
-  }
 }
 
 export const hunt = defineSkill({

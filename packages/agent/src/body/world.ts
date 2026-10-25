@@ -393,14 +393,7 @@ const ROOM_REACH = 5;
  * night there, believing himself sealed in.
  */
 export function roomAround(bot: Bot, feet: Vec3 = bot.entity.position.floored()): Room | null {
-  const roofed = (c: Vec3): boolean => {
-    for (let dy = 2; dy <= 5; dy++) {
-      const b = bot.blockAt(c.offset(0, dy, 0));
-      if (!b) return false;
-      if (isSolid(b)) return true;
-    }
-    return false;
-  };
+  const roofed = (c: Vec3) => roofedAt(bot, c);
   if (!roofed(feet)) return null;
   const key = (c: Vec3) => `${c.x},${c.z}`;
   const seen = new Set([key(feet)]);
@@ -434,6 +427,46 @@ export function roomAround(bot: Bot, feet: Vec3 = bot.entity.position.floored())
     }
   }
   return { cells, open: [...open], doors: [...doors.values()] };
+}
+
+/** A roof over a cell, two to five blocks up (a tree's leaves are no roof). */
+function roofedAt(bot: Bot, c: Vec3): boolean {
+  for (let dy = 2; dy <= 5; dy++) {
+    const b = bot.blockAt(c.offset(0, dy, 0));
+    if (!b) return false;
+    if (isSolid(b) && !/_leaves$/.test(b.name)) return true;
+  }
+  return false;
+}
+
+/**
+ * A room one stands just outside of, within two blocks, as one sees a hut from beside its walls: the way to its
+ * inside and what it is like (null: none). A builder who had shut his hut's doorway with himself outside it waited
+ * out the night there "sealed in", under the open sky.
+ */
+export function roomBeside(bot: Bot, feet: Vec3 = bot.entity.position.floored()): { way: string; distance: number; room: Room } | null {
+  let best: { way: string; distance: number; room: Room } | null = null;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      if (dx === 0 && dz === 0) continue;
+      const c = feet.offset(dx, 0, dz);
+      const lo = bot.blockAt(c);
+      const hi = bot.blockAt(c.offset(0, 1, 0));
+      if (!lo || !hi || isSolid(lo) || isSolid(hi) || lo.name === 'water' || lo.name === 'lava' || !roofedAt(bot, c)) continue;
+      const room = roomAround(bot, c);
+      if (!room || room.cells > 9) continue;
+      const distance = Math.hypot(dx, dz);
+      if (!best || distance < best.distance) best = { way: wayTo(feet, c), distance, room };
+    }
+  }
+  return best;
+}
+
+/** A room one is outside of, in words ("outside a room 1 m to the west, shut on every side"). */
+export function besideWords(b: { way: string; distance: number; room: Room } | null): string | null {
+  if (!b) return null;
+  const how = b.room.open.length === 0 ? 'shut on every side' : `open to the ${b.room.open.slice(0, 2).join(' and the ')}`;
+  return `outside a room ${Math.max(1, Math.round(b.distance))} m to the ${b.way}, ${how}`;
 }
 
 /** A room in words, for where one is ("inside a room, open to the north"; null: not in one). */
