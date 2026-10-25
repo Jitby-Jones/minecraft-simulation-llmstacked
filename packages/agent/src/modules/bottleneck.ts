@@ -292,14 +292,17 @@ const HURTS = /^(zombie|husk|drowned|zombie_villager|skeleton|stray|bogged|spide
 /**
  * How near death one is, as a player feels it from the hearts and what is about (owner request, 2026-10-24: think,
  * don't follow directives): "at 5 health, two more hits from a zombie would kill you, and there are 3 of them about".
- * An agent at 1.5 health went on gathering logs in a cave among five zombies; the number alone said little.
+ * An agent at 1.5 health went on gathering logs in a cave among five zombies; the number alone said little. With
+ * monsters about it is felt at any health: at 19 with no armor, a cave at night full of skeletons was mined on in for
+ * four minutes, and three zombies and three skeletons took it from 16 to nothing in seconds.
  */
 export function frailty(s: AgentState): string | null {
   const h = s.self.health;
-  if (!(h > 0) || h > 12) return null;
+  if (!(h > 0)) return null;
   const about = s.perception.nearbyEntities.filter((e) => e.kind === 'hostile' && e.distance <= 16 && HURTS.test(e.name));
   const hp = Math.round(h * 2) / 2;
   if (about.length === 0) return hp <= 6 ? `At ${hp} health, a fall or a single monster could finish you.` : null;
+  if (h > 12 && about.every((e) => e.distance > 8)) return null;
   const difficulty = asDifficulty(s.self.difficulty);
   const armor = armorPoints(s.self.armor);
   const worst = about.map((e) => ({ name: e.name, blow: mobBlow(e.name, difficulty, armor) })).sort((a, b) => b.blow - a.blow)[0];

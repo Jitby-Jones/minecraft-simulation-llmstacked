@@ -331,7 +331,9 @@ describe('how the body heals, said as a fact (a model at 1 health and food 10 wa
     // Nothing about: only when it is low.
     expect(frailty(hurt(5, []))).toBe('At 5 health, a fall or a single monster could finish you.');
     expect(frailty(hurt(10, []))).toBeNull();
-    expect(frailty(hurt(16, [{ name: 'zombie', distance: 3 }]))).toBeNull();
+    // Well, with monsters at hand: felt all the same (no armor, and seven blows is not many); farther off, not yet.
+    expect(frailty(hurt(16, [{ name: 'zombie', distance: 3 }]))).toBe('At 16 health, 7 more hits from a zombie would kill you.');
+    expect(frailty(hurt(16, [{ name: 'zombie', distance: 12 }]))).toBeNull();
   });
 });
 

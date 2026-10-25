@@ -3066,7 +3066,9 @@ What changed:
    zombies took a body from 7 health to none first).
 2. **A felt body** (commit 4f4f783). The packet says it as a player feels it: "At 5 health, two more hits from a zombie
    would kill you, and there are 3 monsters about" (by difficulty and armor), and how health comes back ("only with food
-   at 18 of 20 or more, fastest with the bar full; you carry 4 cooked beef"). The way of thinking starts with how one
+   at 18 of 20 or more, fastest with the bar full; you carry 4 cooked beef"), at any health once a monster is close
+   ("At 16 health, 7 more hits from a zombie would kill you": one at 19 with no armor mined on among skeletons for four
+   minutes, and went from 16 to nothing in seconds). The way of thinking starts with how one
    is and how safe one stands (the light, what is about, the way out), and asks what one will be short of before long
    and what could go wrong that one would want to be ready for; a plan carries what one would want on one where it goes.
 3. **Hands to dig one's way, and the hole gone from the mind.** `tunnel {direction, blocks?, close?, toward?}` digs a
