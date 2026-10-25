@@ -690,7 +690,7 @@ export class Agent {
       mindLed: () => {
         const opt = this.store.state.option;
         if (!opt?.underFire || opt.status !== 'running' || opt.skill === 'attack' || opt.skill === 'duel') return null;
-        return opt.skill === 'eat' ? 'hands' : 'body';
+        return opt.skill === 'eat' ? 'hands' : opt.option === 'flee' || ['flee', 'goTo', 'explore', 'wander', 'follow'].includes(opt.skill ?? '') ? 'legs' : 'body';
       },
       takeBack: (why) => this.executor.abort(why),
       rooms: () => (this.store.state.village.rooms ?? []).map((r) => new BlockPos(r.x, r.y, r.z)),

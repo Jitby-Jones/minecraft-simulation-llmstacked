@@ -290,7 +290,7 @@ function shelterSpotNear(bot: Bot): Vec3 | null {
 }
 
 /** Sneaks to the middle of the block we stand on, so digging below drops us into the hole. */
-async function centerOnBlock(ctx: SkillContext): Promise<void> {
+export async function centerOnBlock(ctx: SkillContext): Promise<void> {
   const { bot } = ctx;
   const feet = bot.entity.position.floored();
   const target = new Vec3(feet.x + 0.5, bot.entity.position.y, feet.z + 0.5);
@@ -388,6 +388,10 @@ export const shelter = defineSkill({
   argsSchema: z.object({ untilMorning: z.coerce.boolean().optional(), untilHealed: z.coerce.boolean().default(false) }).transform((a) => ({ ...a, untilMorning: a.untilMorning ?? !a.untilHealed })),
   talkOverable: false,
   slipKinds: [],
+  // The code-only brain's night (§22.4), not a mind's: hurt among monsters a player runs, digs into the wall and up,
+  // and eats what they brought; nobody digs a hole in the floor to wait in (owner, 2026-10-24). A mind digs its own
+  // way with tunnel, and waits with wait.
+  codeOnly: true,
   expect: (args) => (args.untilMorning ? { kind: 'awakeAfterNight' } : { kind: 'none' }),
   async run(ctx, args) {
     const { bot } = ctx;

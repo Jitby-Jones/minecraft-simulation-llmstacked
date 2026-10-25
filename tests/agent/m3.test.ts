@@ -11,7 +11,6 @@ import { ActionAwareness } from '@agora/agent/modules/awareness';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { CognitiveController, codeDecision, validateDecision } from '@agora/agent/modules/cc';
 import { evalCondition } from '@agora/agent/modules/conditions';
-import { whyNotHide } from '@agora/agent/modules/hiding';
 import { Conversations, detectAddressee, textSimilarity } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
@@ -234,10 +233,14 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     // was that or be shot down in the open (M8's village).
     expect(codeDecision(company, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
     expect(codeDecision(night, {}, false, never, { candidates: [], roll: 0.9, codeOnly: true })?.task?.skill).toBe('shelter');
-    // A shelter the model chose goes through the same gate.
-    const env = { me: 'Pip', isStuck: never, canPerceive: () => true, mayHide: () => whyNotHide(company) };
-    expect(validateDecision({ option: 'work', task: { skill: 'shelter', args: {} }, terminate: { maxSeconds: 600 }, rationale: 'scared' }, env)).toMatch(/can't dig in to hide now: you are not alone/);
-    expect(validateDecision({ option: 'work', task: { skill: 'shelter', args: {} }, terminate: { maxSeconds: 600 }, rationale: 'scared' }, { ...env, mayHide: () => whyNotHide(scared) })).toBeNull();
+    // The hole is the code-only brain's routine, no hand of a mind's: a mind that names it is told there is none.
+    const env = { me: 'Pip', isStuck: never, canPerceive: () => true };
+    const hole = { option: 'work' as const, task: { skill: 'shelter', args: {} }, terminate: { maxSeconds: 600 }, rationale: 'scared' };
+    expect(validateDecision(hole, env)).toMatch(/there is no skill "shelter"/);
+    expect(validateDecision({ ...hole, task: { skill: 'hide', args: {} } }, env)).toMatch(/there is no skill "hide"/);
+    expect(validateDecision(hole, { ...env, codeOnly: true })).toBeNull();
+    // Its own way dug is: into the wall, the way behind closed.
+    expect(validateDecision({ ...hole, task: { skill: 'tunnel', args: { direction: 'west', blocks: 2, close: true } } }, env)).toBeNull();
     const goal = withState((x) => ({ ...x, goals: { ...x.goals, current: { id: 'g', text: 'stone tools', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'inventoryHas:stone_pickaxe>=1' } } }));
     expect(codeDecision(goal, {}, false, never)?.task).toEqual({ skill: 'obtain', args: { item: 'stone_pickaxe', qty: 1 } });
     const deep = {
@@ -410,6 +413,46 @@ describe('thinking under fire (owner request, 2026-10-24: think, don\'t follow d
     expect(ends).toEqual(['danger']);
     for (let i = 0; i < 120 && runs === 0; i++) await wait(25);
     expect(runs).toBe(1);
+    cc.stop();
+    executor.stop();
+  }, 15_000);
+
+  it('a thought of before the danger still in flight as it comes: dropped, and the thought under fire comes next, at a glance', async () => {
+    // Skipped while that one was in flight, the first thought under fire waited for the next blow: five zombies took a
+    // body from 7 health to none before any came.
+    const fake = new FakeNanoGpt(standardModels());
+    const asked: string[] = [];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      const m = JSON.stringify(body?.messages ?? '');
+      asked.push(m);
+      if (!/You are in danger now/.test(m)) return { text: JSON.stringify({ thought: 'Wood next.', option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'x' }), delayMs: 5000 };
+      return { text: JSON.stringify({ thought: 'Three of them. Back down the tunnel.', option: 'flee', terminate: { maxSeconds: 20 }, rationale: 'away' }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    let runs = 0;
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false, bodyInDanger: () => 'running from 3 zombies (the nearest 2 m off)', runNow: () => runs++ });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    cc.start();
+    cc.trigger('testing', { urgent: true });
+    for (let i = 0; i < 40 && asked.length === 0; i++) await wait(25);
+    expect(asked.length).toBe(1);
+    const t0 = Date.now();
+    s.update('flags', (f) => ({ ...f, inDanger: true }), 'danger');
+    bus.emit({ type: 'danger', source: 'zombie', level: 0.6, kind: 'flee' });
+    for (let i = 0; i < 80 && runs === 0; i++) await wait(25);
+    expect(runs).toBe(1);
+    expect(Date.now() - t0).toBeLessThan(1500);
+    expect(decided).toEqual(['llm:flee']);
+    // At a glance: the steps for when there is time are not asked for.
+    expect(asked[1]).toMatch(/there is no time to think it all through/);
+    expect(asked[1]).not.toMatch(/Did anything surprise you/);
     cc.stop();
     executor.stop();
   }, 15_000);
@@ -603,6 +646,11 @@ describe('Skill Executor termination (§4.4)', () => {
     expect(walkSeconds(opt('explore', { distance: 64 }), s.state)).toBe(116);
     expect(walkSeconds(opt('goTo', { agent: 'Bram' }), s.state)).toBe(0);
     expect(walkSeconds(opt('gather', { item: 'log', qty: 4 }), s.state)).toBe(0);
+    // A dig up out of the deep is minutes of it; a wait for the day, the wait.
+    expect(walkSeconds(opt('tunnel', { direction: 'up' }), s.state)).toBe(404);
+    expect(walkSeconds(opt('tunnel', { direction: 'west', blocks: 3 }), s.state)).toBe(32);
+    expect(walkSeconds(opt('wait', { until: 'day' }), s.state)).toBe(600);
+    expect(walkSeconds(opt('wait', { seconds: 30 }), s.state)).toBe(0);
   });
 
   it('an until-condition true from the start is not watched: the work goes on (5 more logs, holding 10)', async () => {

@@ -30,7 +30,7 @@ export const CALLABLE: ReadonlySet<string> = new Set([
   'smelt',
   'obtain',
   'place',
-  'shelter',
+  'tunnel',
   'deposit',
   'withdraw',
   'eat',

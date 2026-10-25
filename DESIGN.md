@@ -3033,3 +3033,71 @@ smelt, a cow 45 m off, an egg is no food, 40 down and 40 across to the surface i
 `m1-water` (4), `m1-skills` (22, with into its own hut at night and a zombie at a hut's door no fight; twice in a row),
 `m1-night`, `m4` (no x-ray), `build`. The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live
 longrun`), and what they show is answered the same way: in the general mind and hands, never for the case.
+
+### Owner request: think as a player would, under fire too (2026-10-24)
+
+The owner asked for the runs to be looked at from the outside: why would a player do what the agents did? The best solo
+run (`solo, seed 1 (19)`) had 7 diamonds by 27 minutes and died to monsters in a cave, sheltering: "the dig and hide
+skills shouldn't even be used, as why would a player ever do such a thing?" Hurt among monsters a player runs, digs
+into the wall and up to the surface; better still, they carry cooked food and eat to heal. None of that was to be coded
+in: the mind was to think of it. Read so, the runs showed four things wrong, none of them about the case:
+
+- **The mind was locked out in danger.** The reflexes had the body until the danger was over; every thought that came
+  meanwhile was dropped. Whatever the danger, the answer was the reflex's: fight, run, a pillar, a hole.
+- **Canned routines with their assumptions built in.** `shelter` dug straight down, sealed the top and waited for the
+  morning; underground by day it said "it is already day" and climbed out among the zombies, twice, at 1.5 health.
+- **No felt body.** The packet said "health 5", not what it means: two more blows from a zombie, and nothing comes
+  back without food at 18.
+- **No readiness.** Two hours of mining and not one meal carried; the last food eaten was rotten flesh.
+
+What changed:
+
+1. **Thinking under fire** (commit a82bc59). A danger asks the mind at once; the reason it is given says what the body
+   is doing ("running from 2 zombies (the nearest 3 m off)") and that what it chooses is done now. What it chooses runs
+   in the danger (`underFire`): the executor keeps it through the body's alarms, and the reflexes stand by (`led`):
+   a run of its choosing is left to the legs (`runNow`), eating on the run keeps the legs running. What no thought is
+   quick enough for still takes the body back: water, lava, a fall, a creeper about to go off, and now pain: hurt again
+   and again (4 health below the best since) at anything but a run or a meal, the body turns on what hurts it and the
+   mind thinks again (in a live run it began a hut with a zombie at its back and went from 12 health to none waiting for
+   its next thought). Under fire the thought is a glance, not the seven steps (`UNDER_FIRE_THINKING`: what is coming
+   and how close, what the body can take, what is on hand, which way is open), one or two sentences, and a try that is
+   slow gives way to the next model after 7 s. A decision of before the danger still in flight no longer holds it up:
+   the danger drops that one and the thought under fire comes next (it waited for the next blow before, and five
+   zombies took a body from 7 health to none first).
+2. **A felt body** (commit 4f4f783). The packet says it as a player feels it: "At 5 health, two more hits from a zombie
+   would kill you, and there are 3 monsters about" (by difficulty and armor), and how health comes back ("only with food
+   at 18 of 20 or more, fastest with the bar full; you carry 4 cooked beef"). The way of thinking starts with how one
+   is and how safe one stands (the light, what is about, the way out), and asks what one will be short of before long
+   and what could go wrong that one would want to be ready for; a plan carries what one would want on one where it goes.
+3. **Hands to dig one's way, and the hole gone from the mind.** `tunnel {direction, blocks?, close?, toward?}` digs a
+   passage two high any of the four ways, a stair up (to the open sky unless told how far: out means open ground to step
+   onto beside one's feet, not a head out of the ground), or a stair down, with prospect's care (water and lava walled
+   off, gravel let down first, no bedrock or stalactites); `close` puts blocks in the way behind once one is in, built up
+   from the floor where there is nothing to set one against. `wait {seconds?, until?}` waits for the day, to be healed
+   (health only comes back fed) or for quiet (no monster to be heard). `shelter` is now the code-only brain's night
+   (§22.4) and nothing more: not in the mind's list, refused by name ("there is no skill"), and "hide" no longer an alias;
+   the skill writer gets `tunnel` instead. A mind that wants a hole digs one with its own hands. And a fact a player
+   knows: no sun reaches underground, so what is about in a cave does not burn by day (a mind 30 down built a hut beside
+   two zombies "that will burn in daylight").
+
+Live:
+
+- `hands` (4 new): from a pocket 30 down, a stair up to the grass in 75 s; two blocks into a cave wall, the way in
+  closed with stone at the feet and the head; a stair up out of a cave room, closed behind; a stair down six steps.
+- `m1-skills`: while what the mind chose holds the body, hurt again and again by a zombie at hand, the body takes it back.
+- `underfire` (new, with the real model; `AGORA_LIVE_LLM=1`): hurt (7 health) and hungry (12) in a dark cave 30 down,
+  zombies coming from the far side. With three, cooked beef and a sword, she walled the tunnel off ("seal the gap, wall
+  them out, then eat and heal up"), lit it, ate and waited; with five, no food and a wooden sword, she walled herself in
+  within seconds ("fighting is suicide"). Both lived. Before the last two fixes both died: the first building beside
+  zombies, the second before any thought came.
+- A bench of the thought under fire (both prompts, two situations, two models): glm-5.3 3–9 s (once 34 s), minimax-m3
+  2–4 s; the short prompt no slower and its choices as good ("run west down that tunnel and seal it behind me with
+  cobblestone, then eat to heal").
+
+| Run | Length | How it ended | What changed |
+|---|---|---|---|
+| solo, seed 1 (20) | stopped at 16 min | started on the code before thinking under fire | (stopped, to run the new mind) |
+| solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
+
+Verified: 710 unit tests; live `hands` (the 4 digging cases and the explore case), `m1-skills` (the two cases of the
+mind holding the body), `underfire` (2 of 2).

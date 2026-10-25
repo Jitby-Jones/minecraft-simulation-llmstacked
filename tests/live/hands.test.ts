@@ -9,6 +9,8 @@ import { createLogger, loadVersionsConfig, repoRoot, sleep } from '@agora/shared
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { countItem } from '@agora/agent/body/inventory';
+import { underTheSky } from '@agora/agent/body/skills/digging';
+import { isIndoors, isSolid } from '@agora/agent/body/world';
 import { DEEP_GROUND_Y, type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -716,6 +718,74 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.entity.position.x).toBeGreaterThan(x + 3);
     expect(door?.name).toBe('oak_door');
     expect(door?.getProperties?.().open).toBe(false);
+  }, 120_000);
+
+  it('from a pocket 30 down in the stone, a stair dug up comes out under the open sky', async () => {
+    // A player deep in a cave with the way back lost digs a stair up; an agent hurt down there had no hands for it.
+    const x = 7800;
+    await server.cmd(`forceload add ${x - 8} -48 ${x + 48} 48`);
+    await server.cmd(`fill ${x} ${Y - 30} 0 ${x} ${Y - 29} 0 air`);
+    await server.cmd(`tp Ada ${x}.5 ${Y - 30} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_pickaxe 2');
+    await server.cmd('give Ada minecraft:cobblestone 16');
+    await sleep(3000);
+    const t0 = Date.now();
+    const r = await run('tunnel', { direction: 'up' });
+    logger.info({ r, s: (Date.now() - t0) / 1000, at: body.bot.entity.position.toString() }, 'a stair up to the sky');
+    expect(r.ok).toBe(true);
+    expect(underTheSky(body.bot)).toBe(true);
+    expect(body.bot.entity.position.y).toBeGreaterThan(Y - 1.5);
+  }, 400_000);
+
+  it('in a cave, dug two blocks into the wall with the way behind closed: out of reach in the rock', async () => {
+    const x = 7900;
+    // A cave room five across and three high, twenty down; the agent at its east wall.
+    await server.cmd(`fill ${x - 2} ${Y - 20} -2 ${x + 2} ${Y - 18} 2 air`);
+    await server.cmd(`tp Ada ${x + 2}.5 ${Y - 20} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await server.cmd('give Ada minecraft:cobblestone 16');
+    await sleep(2500);
+    const r = await run('tunnel', { direction: 'east', blocks: 2, close: true });
+    const feet = body.bot.entity.position.floored();
+    logger.info({ r, at: feet.toString() }, 'into the wall');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/the way behind closed/);
+    expect(feet.x).toBe(x + 4);
+    // The way in, where the room was: stone at the feet and at the head now.
+    expect(isSolid(body.bot.blockAt(new Vec3(x + 2, Y - 20, 0)))).toBe(true);
+    expect(isSolid(body.bot.blockAt(new Vec3(x + 2, Y - 19, 0)))).toBe(true);
+    expect(isIndoors(body.bot)).toBe(true);
+  }, 120_000);
+
+  it('a stair up out of a cave room with the way behind closed: nothing can come up after', async () => {
+    const x = 8000;
+    await server.cmd(`fill ${x - 2} ${Y - 12} -2 ${x + 2} ${Y - 10} 2 air`);
+    await server.cmd(`tp Ada ${x + 2}.5 ${Y - 12} 0.5`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await server.cmd('give Ada minecraft:cobblestone 16');
+    await sleep(2500);
+    const r = await run('tunnel', { direction: 'up', close: true, toward: 'east' });
+    logger.info({ r, at: body.bot.entity.position.toString() }, 'a stair up, closed behind');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/the way behind closed/);
+    // The first step's way in from the room, at what were its feet and head: closed.
+    expect(isSolid(body.bot.blockAt(new Vec3(x + 2, Y - 11, 0)))).toBe(true);
+    expect(isSolid(body.bot.blockAt(new Vec3(x + 2, Y - 10, 0)))).toBe(true);
+    expect(underTheSky(body.bot)).toBe(true);
+  }, 300_000);
+
+  it('a stair down six steps into the stone', async () => {
+    const x = 8100;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(1000);
+    const r = await run('tunnel', { direction: 'down', blocks: 6 });
+    logger.info({ r, at: body.bot.entity.position.toString() }, 'a stair down');
+    expect(r.ok).toBe(true);
+    expect(Math.floor(body.bot.entity.position.y)).toBe(Y - 6);
   }, 120_000);
 
   it('explores a chosen way', async () => {

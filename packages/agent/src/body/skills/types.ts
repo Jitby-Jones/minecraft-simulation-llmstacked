@@ -126,6 +126,11 @@ export interface SkillDef<A> {
   talkOverable: boolean;
   /** Slip kinds that apply to this skill. */
   slipKinds: readonly SlipKind[];
+  /**
+   * A routine of the code-only brain's (§22.4: no model to think with), not one of the hands the mind is given: not in
+   * the CC's list, and refused when a mind names it (it decides with the plain acts of the rest).
+   */
+  codeOnly?: boolean;
   expect(args: A, before: BodySnapshot, bot: Bot): Expectation;
   run(ctx: SkillContext, args: A): Promise<SkillResult>;
 }
@@ -136,6 +141,7 @@ export interface AnySkill {
   description: string;
   talkOverable: boolean;
   slipKinds: readonly SlipKind[];
+  codeOnly?: boolean;
   parseArgs(raw: unknown): { ok: true; args: unknown } | { ok: false; error: string };
   expect(args: unknown, before: BodySnapshot, bot: Bot): Expectation;
   run(ctx: SkillContext, args: unknown): Promise<SkillResult>;
@@ -147,6 +153,7 @@ export function defineSkill<A>(def: SkillDef<A>): AnySkill {
     description: def.description,
     talkOverable: def.talkOverable,
     slipKinds: def.slipKinds,
+    ...(def.codeOnly ? { codeOnly: true } : {}),
     parseArgs(raw) {
       const r = def.argsSchema.safeParse(raw ?? {});
       if (r.success) return { ok: true, args: r.data };

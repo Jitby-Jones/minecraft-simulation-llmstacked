@@ -17,7 +17,7 @@ import { codeDecision, validateDecision, whyNotGo } from '@agora/agent/modules/c
 import { Conversations } from '@agora/agent/modules/conversations';
 import { tidyDecision } from '@agora/agent/modules/decisionTidy';
 import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
-import { HIGH_FEAR, whyNotHide } from '@agora/agent/modules/hiding';
+import { HIGH_FEAR } from '@agora/agent/modules/hiding';
 import { hurtFear } from '@agora/agent/mind/feelings';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking, cleanReply } from '@agora/agent/modules/talking';
@@ -185,6 +185,19 @@ describe('never standing frozen', () => {
     expect(dig({ direction: 'North-East' })).toMatchObject({ ok: true, args: { direction: 'north' } });
     expect(dig({ maxBlocks: 200 })).toMatchObject({ ok: true, args: { maxBlocks: 96 } });
     expect(dig({ direction: 'up' })?.ok).toBe(false);
+    // One's own way dug: up as a player says it (out, to the surface), a way along as the first of two.
+    const way = (a: Record<string, unknown>) => getSkill('tunnel')?.parseArgs(a);
+    expect(way({ direction: 'to the surface' })).toEqual({ ok: true, args: { direction: 'up', close: false } });
+    expect(way({ direction: 'Up', blocks: 300, close: 'true', toward: 'south-west' })).toEqual({ ok: true, args: { direction: 'up', blocks: 96, close: true, toward: 'south' } });
+    expect(way({ direction: 'north-east', blocks: 2.4 })).toMatchObject({ ok: true, args: { direction: 'north', blocks: 2 } });
+    expect(way({ direction: 'deeper' })).toMatchObject({ ok: true, args: { direction: 'down' } });
+    expect(way({})?.ok).toBe(false);
+    // Waiting for something, as said: the morning is the day; and ten minutes at most.
+    const wait = (a: Record<string, unknown>) => getSkill('wait')?.parseArgs(a);
+    expect(wait({ until: 'morning' })).toEqual({ ok: true, args: { until: 'day' } });
+    expect(wait({ until: 'healed', seconds: 2000 })).toEqual({ ok: true, args: { until: 'healed', seconds: 600 } });
+    expect(wait({ seconds: 30 })).toEqual({ ok: true, args: { seconds: 30 } });
+    expect(wait({ until: 'tomorrow' })?.ok).toBe(false);
     // Asked a little past what a skill does, it does what fits rather than refusing.
     expect(getSkill('craft')?.parseArgs({ item: 'torch', qty: 70 })).toEqual({ ok: true, args: { item: 'torch', qty: 64 } });
     expect(getSkill('wander')?.parseArgs({ radius: 60 })).toMatchObject({ ok: true, args: { radius: 48 } });
@@ -211,26 +224,15 @@ describe('never standing frozen', () => {
   });
 });
 
-describe('hiding is for one badly scared, alone and far from anyone', () => {
+describe('fear, alone and hurt', () => {
   const person = (name: string, distance: number) => ({ id: 1, kind: 'player' as const, name, pos: { x: distance, y: 64, z: 0 }, distance, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false });
   const zombie = (distance: number) => ({ id: 2, kind: 'hostile' as const, name: 'zombie', pos: { x: distance, y: 64, z: 0 }, distance, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false });
 
-  it('the gate: not with people near or in sight, not close to home, not without real fear', () => {
-    const base = createInitialState({ persona, username: 'Pip', now: 0 });
-    const far = { ...base, self: { ...base.self, pos: { x: 200, y: 64, z: 0 } }, village: { ...base.village, home: { x: 0, y: 64, z: 0 } } };
-    const scared = { ...far, emotions: { ...far.emotions, fear: HIGH_FEAR + 0.1 } };
-    expect(whyNotHide(scared)).toBeNull();
-    expect(whyNotHide(far)).toMatch(/not scared enough/);
-    expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 10)] } })).toMatch(/not alone/);
-    expect(whyNotHide({ ...scared, perception: { ...scared.perception, nearbyEntities: [person('Bram', 30)] } })).toMatch(/people in sight/);
-    // Badly hurt, one stays afraid: the wounds keep fear up (3.6 of 20 is well past scared enough).
+  it('badly hurt, one stays afraid: the wounds keep fear up', () => {
+    // 3.6 of 20 is well past scared.
     expect(hurtFear(3.6)).toBeGreaterThan(HIGH_FEAR);
     expect(hurtFear(8)).toBeCloseTo(0.3);
     expect(hurtFear(12)).toBe(0);
-    // Close to home: back there, once there is a hut to shelter in; an empty field is no refuge.
-    const near = { ...scared, self: { ...scared.self, pos: { x: 20, y: 64, z: 0 } } };
-    expect(whyNotHide(near)).toBeNull();
-    expect(whyNotHide({ ...near, village: { ...near.village, huts: [{ x: 4, y: 64, z: 4 }] } })).toMatch(/close to home/);
   });
 
   it('alone in the dark with monsters about, fear creeps up; with company it does not', async () => {

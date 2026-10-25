@@ -8,6 +8,7 @@ import { gather, mine, pickup } from './gathering';
 import { place, shelter } from './building';
 import { obtain } from './planner';
 import { prospect } from './prospecting';
+import { tunnel } from './digging';
 import { explore, flee, follow, goTo, look, lookAround, wait, wander } from './movement';
 import { give, say } from './social';
 import { eat, equip, sleep } from './survival';
@@ -32,6 +33,7 @@ export const SKILLS: readonly AnySkill[] = [
   mine,
   pickup,
   prospect,
+  tunnel,
   craft,
   smelt,
   obtain,
@@ -96,15 +98,14 @@ const ALIASES: Readonly<Record<string, string>> = {
   drop: 'give',
   talk: 'say',
   speak: 'say',
-  build_shelter: 'shelter',
-  hide: 'shelter',
   cook: 'smelt',
   wear: 'equip',
   hold: 'equip',
   run: 'flee',
   prospecting: 'prospect',
-  tunnel: 'prospect',
   search_ore: 'prospect',
+  dig_tunnel: 'tunnel',
+  staircase: 'tunnel',
   post: 'sign',
   write_sign: 'sign',
   notice: 'sign',
@@ -130,11 +131,11 @@ export function getSkill(name: string): AnySkill | null {
   return BY_NAME.get(key) ?? BY_NAME.get((ALIASES[key] ?? '').toLowerCase()) ?? null;
 }
 
-/** Skill list for the CC prompt (§4.3 "available options (enum) and skill names"). */
+/** Skill list for the CC prompt (§4.3 "available options (enum) and skill names"): the mind's hands, not the code's routines. */
 export function skillCatalog(extra: readonly AnySkill[] = []): string {
-  return [...SKILLS, ...extra].map((s) => `- ${s.description}`).join('\n');
+  return [...SKILLS, ...extra].filter((s) => !s.codeOnly).map((s) => `- ${s.description}`).join('\n');
 }
 
 export function skillNames(extra: readonly AnySkill[] = []): string[] {
-  return [...SKILLS, ...extra].map((s) => s.name);
+  return [...SKILLS, ...extra].filter((s) => !s.codeOnly).map((s) => s.name);
 }

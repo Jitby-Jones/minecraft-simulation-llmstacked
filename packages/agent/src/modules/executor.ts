@@ -346,7 +346,8 @@ export class SkillExecutor {
 
 /**
  * How long a walk takes at the least, so the time given for it doesn't cut it off halfway (a long way over hills
- * takes its time): 20 s and 1.5 s a block, up to 4 min. Zero for anything that isn't a walk somewhere.
+ * takes its time): 20 s and 1.5 s a block, up to 4 min; a dig, 4 s a step; a wait for something, ten minutes. Zero
+ * for anything else.
  */
 export function walkSeconds(opt: ActiveOption, s: AgentState): number {
   const a = opt.args ?? {};
@@ -354,5 +355,9 @@ export function walkSeconds(opt: ActiveOption, s: AgentState): number {
   let far = 0;
   if (opt.skill === 'goTo' && Number.isFinite(n(a.x)) && Number.isFinite(n(a.z))) far = Math.hypot(n(a.x) - s.self.pos.x, n(a.z) - s.self.pos.z);
   else if (opt.skill === 'explore' && Number.isFinite(n(a.distance))) far = n(a.distance);
+  // A stair dug up out of the deep is minutes of digging, three blocks a step.
+  else if (opt.skill === 'tunnel') return Math.min(480, 20 + (Number.isFinite(n(a.blocks)) ? n(a.blocks) : a.direction === 'up' ? 96 : 8) * 4);
+  // Waiting for the day is waiting for it.
+  else if (opt.skill === 'wait' && typeof a.until === 'string') return 600;
   return far > 0 ? Math.min(240, 20 + far * 1.5) : 0;
 }

@@ -40,6 +40,15 @@ export const THINKING = `Think it through as yourself, briefly, the way anyone d
 7. Choose. Know how you will tell it worked, and what would make you stop and think again.
 When something has failed, work out why before you try again: the same thing done the same way fails the same way. There is nearly always another way (another method, what was missing got first, another place, another source, another person), or it can wait for a better moment, or be let go if it isn't worth it or can't be done. Learn from what happens, above all from what surprises you.`;
 
+/**
+ * Thinking in a danger: no time to think it all through, as anyone in a fight knows; the seven steps above took a mind
+ * twelve seconds, and five zombies took a body from 7 health to none in less.
+ */
+export const UNDER_FIRE_THINKING = `You are in danger, and there is no time to think it all through. Take it in at a glance, the way anyone does in a fight: what is coming at you and how close, how much more your body can take, what you have on you that could help, and which way is open. Then choose what gets you through alive, and do it now.`;
+
+/** The thought a danger leaves time for. */
+export const UNDER_FIRE_FORMAT = `In a danger your "thought" is one or two short sentences, no more.`;
+
 /** How the agent's choices are carried out here: the interface, not what to choose. */
 export const CHOICES = `How your choices are carried out:
 - Your hands are the skills below (option work with a task); the other options are talk, move, follow, explore, rest, flee, help, trade, fight and court.

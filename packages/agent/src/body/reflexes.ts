@@ -30,6 +30,9 @@ const RUN_CHOSEN_MS = 12_000;
 /** Caught out at night, a hut of one's own this near (blocks) is run to rather than just away from what chases. */
 const SHELTER_RUN = 48;
 
+/** Health lost while about what the mind chose in a danger (two zombie blows on easy) before the body turns on what hurts it. */
+const PAIN_TAKES_BACK = 4;
+
 export type ReflexMode = 'idle' | 'fight' | 'flee' | 'escape' | 'swim' | 'led';
 
 /** One fight, as it goes (ReflexController.bout). */
@@ -163,10 +166,10 @@ export interface ReflexHooks {
   rooms?: () => readonly Vec3[];
   /**
    * What the mind chose in the danger is under way: 'body' (it holds the body: the reflexes stand by, hazards and what
-   * no thought is quick enough for aside) or 'hands' (it holds only the hands, as eating on the run: the legs may still
-   * run, no fight is started). Null: the reflexes have the body.
+   * no thought is quick enough for aside), 'legs' (a run of its own choosing: somewhere, or away) or 'hands' (it holds
+   * only the hands, as eating on the run: the legs may still run, no fight is started). Null: the reflexes have the body.
    */
-  mindLed?: () => 'body' | 'hands' | null;
+  mindLed?: () => 'body' | 'legs' | 'hands' | null;
   /** What no thought is quick enough for came (a creeper about to go off beside us): the mind's choice gives way. */
   takeBack?: (why: string) => void;
   /** Someone else hit a mob that was after us. */
@@ -258,6 +261,8 @@ export class ReflexController {
   private standUntil = 0;
   /** Until when we run because the mind chose to get away. */
   private runUntil = 0;
+  /** Our best health since what the mind chose in the danger took the body (null while the reflexes have it). */
+  private ledFrom: number | null = null;
   /** Where we stood lately, on the ground, a couple of blocks apart. */
   private trail: Vec3[] = [];
   /** The fight under way, for the record: whom, from what health, the swings made and the blows that landed. */
@@ -814,6 +819,7 @@ export class ReflexController {
     this.fleeStillSince = null;
     this.standUntil = 0;
     this.runUntil = 0;
+    this.ledFrom = null;
     this.hooks.onDangerCleared(summary);
   }
 
@@ -1288,6 +1294,15 @@ export class ReflexController {
         this.hooks.takeBack?.('a creeper about to go off');
         return;
       }
+      // Hurt again and again at what was chosen (a hut begun with a zombie at one's back, 12 health to none while the
+      // next thought came): nobody goes on laying blocks under the blows; the body turns on them, and the mind thinks
+      // again. A run of its own choosing goes on (one gets hit running away), and so does eating on the run.
+      this.ledFrom = Math.max(this.ledFrom ?? bot.health, bot.health);
+      if (led === 'body' && bot.health <= this.ledFrom - PAIN_TAKES_BACK) {
+        this.ledFrom = null;
+        this.hooks.takeBack?.('hurt again and again while about what was chosen');
+        return;
+      }
       if (this.mode === 'fight') {
         try {
           pvp(bot).forceStop();
@@ -1299,11 +1314,12 @@ export class ReflexController {
       }
       // Eating on the run: the legs go on running while the hands eat.
       if (led === 'hands' && this.mode === 'flee' && t.length > 0) this.flee(t);
-      else if (led === 'body' && this.mode === 'flee') this.mode = 'led';
+      else if (led !== 'hands' && this.mode === 'flee') this.mode = 'led';
       if (now - this.lastThreatAt > 3000 && this.mode !== 'idle') this.letGo('got away');
       return;
     }
     if (this.mode === 'led') this.mode = 'idle';
+    this.ledFrom = null;
     if (this.hooks.deliberateFight()) {
       if (bot.health <= (this.hooks.fightFloor?.() ?? this.fleeThreshold())) {
         const t = this.threats();

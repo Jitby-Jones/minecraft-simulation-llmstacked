@@ -160,7 +160,12 @@ describe('skill registry', () => {
     expect(getSkill('goto')?.name).toBe('goTo');
     expect(getSkill('nope')).toBeNull();
     const catalog = skillCatalog();
-    for (const n of names) expect(catalog).toContain(n);
+    for (const s of SKILLS.filter((x) => !x.codeOnly)) expect(catalog).toContain(`- ${s.name} `);
+    // The mind's hands, not the code's routines: the night's hole is the code-only brain's, and "hide" names nothing.
+    expect(catalog).not.toContain('- shelter ');
+    expect(catalog).toContain('- tunnel {');
+    expect(getSkill('hide')).toBeNull();
+    expect(getSkill('tunnel')?.name).toBe('tunnel');
   });
 
   it('validates arguments', () => {

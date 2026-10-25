@@ -22,7 +22,7 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
   /** The rooms of huts Pip built (as the agent remembers them). */
   const rooms: Vec3[] = [];
   /** What the mind chose in a danger holds the body (as the agent's executor says), and what took it back. */
-  let led: 'body' | 'hands' | null = null;
+  let led: 'body' | 'legs' | 'hands' | null = null;
   const tookBack: string[] = [];
   let zoneIndex = 0;
 
@@ -448,6 +448,26 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
         await server.cmd('kill @e[type=minecraft:creeper]');
         await server.cmd('kill @e[type=minecraft:zombie]');
         await server.cmd('effect clear Pip minecraft:resistance');
+      }
+      await waitFor(() => pip.reflexes.mode === 'idle', 10000, 'at rest');
+    });
+
+    it('while what the mind chose holds the body, hurt again and again by a zombie at hand, the body takes it back', async () => {
+      // A hut begun under fire with a zombie at her back: 12 health to none while the next thought came.
+      const o = await zone();
+      dangers.length = 0;
+      tookBack.length = 0;
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await sleep(1000);
+      led = 'body';
+      try {
+        await server.cmd(`summon minecraft:zombie ${o.x + 2} ${Y} ${o.z} {PersistenceRequired:1b}`);
+        await waitFor(() => tookBack.length > 0, 20_000, 'took back');
+        expect(tookBack[0]).toMatch(/hurt again/);
+        expect(pip.bot.health).toBeGreaterThan(12);
+      } finally {
+        led = null;
+        await server.cmd('kill @e[type=minecraft:zombie]');
       }
       await waitFor(() => pip.reflexes.mode === 'idle', 10000, 'at rest');
     });

@@ -108,7 +108,7 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
   },
   {
     about: /\b(diamonds?|iron|ore|ores|mine|mining|cave|caves|underground|dig|digging)\b/i,
-    text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
+    text: 'Underground: it is dark down there at any hour, and monsters spawn in the dark (zombies, skeletons, spiders, creepers), so a cave is no safer at night than the open, and no sun reaches down there, so what is about in a cave does not burn by day; torches as you go (a coal or charcoal and a stick make 4) stop them spawning near you and mark the way back; a block put in a tunnel behind you stops what follows; a spider is faster than you and climbs walls, so running from one rarely gets you away.',
   },
   {
     about: /\bdripstone\b/i,

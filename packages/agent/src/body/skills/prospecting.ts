@@ -26,16 +26,17 @@ const ORE_DEPTH: readonly [RegExp, number][] = [
   [/diamond/, -56],
   [/emerald/, 60],
 ];
-const DIRS: Readonly<Record<string, Vec3>> = {
+export const DIRS: Readonly<Record<string, Vec3>> = {
   east: new Vec3(1, 0, 0),
   west: new Vec3(-1, 0, 0),
   south: new Vec3(0, 0, 1),
   north: new Vec3(0, 0, -1),
 };
 const FACES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, -1, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
-const BRIDGE_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff'];
+export const BRIDGE_BLOCKS = ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff'];
 
-class Blocked extends Error {}
+/** The way ahead can't be dug (bedrock, water or lava that won't be walled off, nothing to stand on): turn or stop. */
+export class Blocked extends Error {}
 
 /** Rock that ore forms in; tunneling through dirt finds nothing. */
 const HOST_ROCK = new Set(['stone', 'deepslate', 'tuff', 'andesite', 'diorite', 'granite', 'calcite', 'netherrack', 'blackstone', 'basalt']);
@@ -102,7 +103,7 @@ function comingDown(bot: Bot, p: Vec3): boolean {
  * read as air a moment after the dig, gravel on its way down was not yet a block, and an agent stepped in under the
  * column and suffocated. Returns what was there first (null: nothing).
  */
-async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
+export async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
   const { bot } = ctx;
   let first: string | null = null;
   let plugs = 0;
@@ -159,13 +160,13 @@ async function mineTheVein(ctx: SkillContext, name: string, ids: number[]): Prom
 }
 
 /** Walks onto the cleared step (the cheapest path there is the one we just dug). */
-async function stepTo(ctx: SkillContext, p: Vec3): Promise<void> {
+export async function stepTo(ctx: SkillContext, p: Vec3): Promise<void> {
   const { bot } = ctx;
   bot.pathfinder.setMovements(ctx.movements());
   await abortable(ctx.signal, bot.pathfinder.goto(new goals.GoalBlock(p.x, p.y, p.z)), () => stopMotion(bot));
 }
 
-async function bridge(ctx: SkillContext, p: Vec3): Promise<void> {
+export async function bridge(ctx: SkillContext, p: Vec3): Promise<void> {
   const { bot } = ctx;
   if (isSolid(bot.blockAt(p))) return;
   const item = bot.inventory.items().find((i) => BRIDGE_BLOCKS.includes(i.name));

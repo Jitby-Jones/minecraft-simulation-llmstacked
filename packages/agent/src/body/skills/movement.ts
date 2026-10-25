@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import { Vec3 } from 'vec3';
-import { findEntity, isAirLike, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
+import { audibleHostiles, findEntity, isAirLike, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
 import { isCover, referenceFor } from './building';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, upTo, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
@@ -479,19 +479,52 @@ export const look = defineSkill({
   },
 });
 
+/** What one waits for, as a player says it. */
+function untilWord(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const w = v.trim().toLowerCase();
+  if (/^(day|daylight|dawn|morning|sunrise|the morning|it is day|it's day)$/.test(w)) return 'day';
+  if (/^(healed|heal|health|full health|better|well)$/.test(w)) return 'healed';
+  if (/^(quiet|safe|clear|the monsters go|they go|gone)$/.test(w)) return 'quiet';
+  return v;
+}
+
+/** Waiting for something comes to an end by this in any case. */
+const WAIT_MOST_S = 600;
+
 export const wait = defineSkill({
   name: 'wait',
-  description: 'wait {seconds} — stand still (also "stay")',
-  argsSchema: z.object({ seconds: z.coerce.number().min(1).max(600).default(10) }),
+  description:
+    'wait {seconds?, until?} — stand still (also "stay"); until: day (the sun up), healed (health full again: it only comes back with food at 18 or more), quiet (no monster to be heard nearby); ten minutes at most',
+  argsSchema: z.object({ seconds: upTo(1, WAIT_MOST_S).optional(), until: z.preprocess(untilWord, z.enum(['day', 'healed', 'quiet']).optional()) }),
   talkOverable: true,
   slipKinds: [],
   expect: () => ({ kind: 'none' }),
   async run(ctx, args) {
+    const { bot } = ctx;
+    const seconds = args.seconds ?? (args.until ? WAIT_MOST_S : 10);
+    const began = Date.now();
+    const end = began + seconds * 1000;
+    const waited = () => `${Math.round((Date.now() - began) / 1000)}s`;
+    const came = (): string | null => {
+      // The sun up: from sunrise to dusk (waited for at dusk, it is night coming, not day).
+      if (args.until === 'day') return bot.time.timeOfDay < 12000 ? 'it is day' : null;
+      if (args.until === 'healed') return bot.health >= 20 ? `health full (${Math.round(bot.health)})` : null;
+      if (args.until === 'quiet') return audibleHostiles(bot, 16).length === 0 ? 'no monster to be heard nearby' : null;
+      return null;
+    };
     try {
-      await waitMs(ctx, args.seconds * 1000);
+      while (Date.now() < end) {
+        const now = came();
+        if (now) return { ok: true, observed: `waited ${waited()}: ${now}` };
+        // Healing stops once hunger comes down past 18: waiting longer does nothing for it.
+        if (args.until === 'healed' && bot.food < 18) return { ok: false, observed: `waited ${waited()}, health ${Math.round(bot.health)}`, error: `food down to ${bot.food}: no health comes back below 18 until you eat` };
+        await waitMs(ctx, Math.min(1000, end - Date.now()));
+      }
     } catch {
-      return { ok: true, observed: 'stopped waiting early' };
+      return { ok: true, observed: `stopped waiting early, after ${waited()}` };
     }
-    return { ok: true, observed: `waited ${args.seconds}s` };
+    if (args.until) return { ok: false, observed: `waited ${waited()}`, error: `not ${args.until} yet after ${waited()}` };
+    return { ok: true, observed: `waited ${seconds}s` };
   },
 });

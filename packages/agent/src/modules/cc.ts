@@ -40,7 +40,7 @@ import { buildPacket } from './bottleneck';
 import { evalCondition, held } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
-import { CHOICES, DEATH_RULE, DECISION_FORMAT, EXPERIENCE, THINKING, personaCore } from './prompts';
+import { CHOICES, DEATH_RULE, DECISION_FORMAT, EXPERIENCE, THINKING, UNDER_FIRE_FORMAT, UNDER_FIRE_THINKING, personaCore } from './prompts';
 import { URGENT_STRENGTH } from '../mind/expectations';
 import { cueFrom } from '../mind/later';
 import { addLesson, matchTask } from '../mind/learning';
@@ -49,7 +49,6 @@ import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
 import { villageWorkOf, whyNoChest } from '../social/village';
 import { deathNoticeMove, foodMove, hungerMove, hurtMove, villageMove } from './villageMove';
-import { whyNotHide } from './hiding';
 import { isOff } from '../state/switches';
 import { planFinished } from './plan';
 import { type PowerMoveCtx, type PowerView, escortMove, gossipMove, rallyMove, uprisingMove } from './powerMove';
@@ -88,13 +87,16 @@ export interface ValidationEnv {
   mayCourt?: (name: AgentName) => string | null;
   /** §19.3: null when we may ask them to start a family (our partner, and all else in place), else why not. */
   mayStartFamily?: (name: AgentName) => string | null;
-  /** Null when digging in to hide may be chosen now (badly scared, alone, far from anyone), else why not. */
-  mayHide?: () => string | null;
+  /** The code-only brain decides (no model, §22.4): its own routines (the night's hole) may be used. */
+  codeOnly?: boolean;
   /** Null when a move there makes sense (near, or somewhere the agent knows), else why not (a made-up far place). */
   mayGo?: (pos: { x: number; y: number; z: number }) => string | null;
   /** Null when a chest is known at that spot, else why not (a made-up chest). */
   chestThere?: (pos: { x: number; y: number; z: number }) => string | null;
 }
+
+/** How long a try at a thought under fire may take before the next model is tried. */
+const UNDER_FIRE_TIMEOUT_MS = 7000;
 
 /** A move farther than this goes only to somewhere the agent knows (home, the chest, a hut, a find). */
 export const FAR_MOVE = 160;
@@ -124,12 +126,11 @@ export function validateDecision(d: DecisionOutput, env: ValidationEnv): string 
   if (d.option === 'fight' && !victim) return 'option fight needs fight.target';
   if (d.task) {
     const skill = getSkill(d.task.skill) ?? env.learnedSkill?.(d.task.skill) ?? null;
-    if (!skill) return `there is no skill "${d.task.skill}"`;
+    // A routine of the code's own is no hand of a mind's: as if there were none (the skill writer may write one).
+    if (!skill || (skill.codeOnly && !env.codeOnly)) return `there is no skill "${d.task.skill}"`;
     const parsed = skill.parseArgs(d.task.args);
     if (!parsed.ok) return `bad arguments for ${skill.name}: ${parsed.error}`;
     if (env.isStuck(skill.name, d.task.args)) return `you are stuck on ${skill.name} ${JSON.stringify(d.task.args)}; choose something else`;
-    const hiding = skill.name === 'shelter' ? (env.mayHide?.() ?? null) : null;
-    if (hiding) return `you can't dig in to hide now: ${hiding}`;
     // A chest is a thing in the world: one named by its position must be there.
     const a = d.task.args;
     if ((skill.name === 'deposit' || skill.name === 'withdraw') && env.chestThere && [a.x, a.y, a.z].every((n) => Number.isFinite(Number(n)) && n !== undefined && n !== null)) {
@@ -1106,6 +1107,8 @@ export class CognitiveController {
   /** When the last thought under fire was had, and the health then: thought again as things get worse. */
   private underFireAt = -Infinity;
   private underFireHealth = 20;
+  /** A thought under fire is asked for and not yet had. */
+  private underFireQueued = false;
   /** A question put to us, still to be answered: a later reason to decide doesn't push it out of the queue. */
   private asked: { reason: string; ctx: DecideContext; at: number } | null = null;
   private readonly now: () => number;
@@ -1339,8 +1342,8 @@ export class CognitiveController {
       ...(this.o.romance ? { mayCourt: (name: AgentName) => (romance ? romance.mayCourt(name) : 'courting is switched off for you') } : {}),
       ...(this.o.family ? { mayStartFamily: (name: AgentName) => (family ? family.whyNotFamily(name) : 'starting a family is switched off for you') } : {}),
       ...(this.o.learned ? { learnedSkill: (name: string) => this.o.learned?.find(name) ?? null } : {}),
-      // The gate is for a mind with a model; the code-only brain digs in at night (see codeDecision).
-      mayHide: () => (!this.o.llm || this.o.store.state.flags.codeOnly ? null : whyNotHide(this.o.store.state)),
+      // The code-only brain digs in at night (see codeDecision); a mind digs its own way.
+      codeOnly: !this.o.llm || this.o.store.state.flags.codeOnly,
       mayGo: (pos) => whyNotGo(this.o.store.state, pos),
       ...(this.o.chestAt ? { chestThere: (pos: { x: number; y: number; z: number }) => whyNoChest(this.o.store.state, pos, this.o.chestAt?.(pos) ?? null) } : {}),
     };
@@ -1397,7 +1400,11 @@ export class CognitiveController {
   /** A thought had in danger, not more often than `everyMs` (one under way is enough). */
   private thinkUnderFire(why: string, everyMs: number): void {
     const t = this.now();
-    if (t - this.underFireAt < everyMs || this.flight.inFlight('cc')) return;
+    // One thought under fire under way is enough. A decision of before the danger in flight is no reason to wait for
+    // the next blow: the danger drops it, and this thought comes next (skipped so, five zombies took a body from 7
+    // health to none before any thought came).
+    if (t - this.underFireAt < everyMs || this.underFireQueued) return;
+    this.underFireQueued = true;
     this.trigger(why, { urgent: true, emergency: true });
   }
 
@@ -1445,6 +1452,14 @@ export class CognitiveController {
   }
 
   private async decide(reason: string, ctx: DecideContext): Promise<void> {
+    try {
+      await this.decideNow(reason, ctx);
+    } finally {
+      if (ctx.emergency) this.underFireQueued = false;
+    }
+  }
+
+  private async decideNow(reason: string, ctx: DecideContext): Promise<void> {
     if (this.stopped) return;
     this.o.refreshSelf?.();
     this.checkGoal();
@@ -1469,7 +1484,10 @@ export class CognitiveController {
       // Plans are made by Goal Gen (L3); a decision is the next step, on the CC's own tier.
       const tier = L.ccTier;
       const learned = this.o.learned?.offered() ?? [];
-      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\n${EXPERIENCE}\n\n${THINKING}\n\nYou decide what ${s.self.persona.name} does next.\n${CHOICES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${DECISION_FORMAT}`;
+      // In a danger, a glance and a choice: the seven steps are for when there is time.
+      const thinking = ctx.emergency ? UNDER_FIRE_THINKING : THINKING;
+      const format = ctx.emergency ? `${DECISION_FORMAT}\n${UNDER_FIRE_FORMAT}` : DECISION_FORMAT;
+      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\n${EXPERIENCE}\n\n${thinking}\n\nYou decide what ${s.self.persona.name} does next.\n${CHOICES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${format}`;
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
       const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], knowledge: this.o.knowledge?.() ?? [], now: this.now() });
       const messages: ChatMessage[] = [
@@ -1486,7 +1504,8 @@ export class CognitiveController {
             module: 'cc',
             agent: this.o.me,
             ...(this.o.mindModels && this.o.mindModels.length > 0 ? { prefer: this.o.mindModels } : {}),
-            ...(this.o.mindTimeoutMs ? { timeoutMs: this.o.mindTimeoutMs } : {}),
+            // Under fire, a slow reply gives way to the next model sooner (one took 34 s; the danger doesn't wait).
+            ...(ctx.emergency ? { timeoutMs: Math.min(this.o.mindTimeoutMs ?? UNDER_FIRE_TIMEOUT_MS, UNDER_FIRE_TIMEOUT_MS) } : this.o.mindTimeoutMs ? { timeoutMs: this.o.mindTimeoutMs } : {}),
             messages,
             schema: DecisionOutputSchema,
             schemaName: 'decision',
