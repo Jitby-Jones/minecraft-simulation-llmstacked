@@ -3092,7 +3092,10 @@ What changed:
    live up on the surface" (at 9 health with no food, one hunted at dawn 50 blocks down, found nothing, and went off
    exploring the caves). `place {block, toward}` puts a block beside one toward a way or something in sight, at the
    feet, then at the head: a wall between (asked to "block the arrows" with no spot, one went down anywhere).
-5. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
+5. **Someone one has never met stands out.** A person come into view whom one has not met is noticed ("Someone you
+   haven't met: Bram, 11 m east") strongly enough to think about at once, as anyone looks up at a stranger: two put
+   down together each built a hut twenty blocks from the other and never said a word in twenty minutes.
+6. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
    attack hand goes in for one blow and backs off out of its reach while it hisses, then in again (one that stood and
    swung, as at a zombie, was blown from 20 health to 7). Whether to fight one stays the mind's call.
 
@@ -3100,6 +3103,7 @@ Live:
 
 - `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
 - `hands` (2 more): a wall put up toward the east, feet then head; a hunt 30 down says how far up the sky is.
+- `thinking`: Kelby, whom Ada has not met, noticed as he comes into view (and his flying still seen).
 - `hands` (4 new): from a pocket 30 down, a stair up to the grass in 75 s; two blocks into a cave wall, the way in
   closed with stone at the feet and the head; a stair up out of a cave room, closed behind; a stair down six steps.
 - `m1-skills`: while what the mind chose holds the body, hurt again and again by a zombie at hand, the body takes it back.

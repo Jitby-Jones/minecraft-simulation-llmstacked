@@ -122,7 +122,10 @@ describe.skipIf(!liveJavaPath())('live: a thinking agent', () => {
     if (rt) ada.start();
     else ada.perception.start();
     try {
-      await sleep(10_000);
+      // Someone she has never met, come into view, stands out (two put down together never spoke in twenty minutes).
+      await waitFor(() => ada.store.state.scene.notices.some((n) => n.about === 'Kelby' && n.key === 'met'), 20_000, 'Ada noticed Kelby, whom she has not met', 250);
+      expect(ada.store.state.scene.notices.find((n) => n.key === 'met')?.text).toMatch(/^Someone you haven't met: Kelby, \d+ m /);
+      await sleep(8000);
       // Kelby goes creative and flies up, and hangs there.
       await server.cmd('gamemode creative Kelby');
       await sleep(1000);
@@ -132,7 +135,7 @@ describe.skipIf(!liveJavaPath())('live: a thinking agent', () => {
       await k.creative.flyTo(up);
       const noticedAt = Date.now();
       await waitFor(() => ada.store.state.scene.notices.some((n) => n.about === 'Kelby' && (n.key === 'hover' || n.key === 'rise')), 20_000, 'Ada noticed Kelby in the air', 250);
-      const n = ada.store.state.scene.notices.find((x2) => x2.about === 'Kelby');
+      const n = ada.store.state.scene.notices.find((x2) => x2.about === 'Kelby' && (x2.key === 'hover' || x2.key === 'rise'));
       expect(n?.text).toMatch(/^Kelby is (\d+(\.\d)? m up in the air|up off the ground|rising straight up)/);
       expect(n?.text).toMatch(/You've never seen anyone do that\./);
       expect(ada.store.state.workmem.some((w) => w.text === n?.text)).toBe(true);

@@ -855,6 +855,15 @@ export class SceneEyes {
       f.first = true;
       this.add({ id: `n${now.toString(36)}f${Object.keys(fresh).length}`, ts: now, kind: 'novel', about: name, key: 'first', text: `The first ${nice(name.replace(/^deepslate_/, ''))} you've ever seen: ${f.what}, ${f.distance} m ${f.bearing}`, strength: 0.45, seenBefore: 0 });
     }
+    // Someone come into view whom one has never met stands out, as to anyone: two put down together each built a hut
+    // twenty blocks from the other and never said a word in twenty minutes.
+    for (const s of seen) {
+      if (!s.visible || s.kind !== 'player') continue;
+      const k = `person:${s.name}`;
+      if (first[k] || fresh[k]) continue;
+      fresh[k] = now;
+      this.add({ id: `n${now.toString(36)}p${Object.keys(fresh).length}`, ts: now, kind: 'novel', about: s.name, key: 'met', text: `Someone you haven't met: ${s.name}, ${Math.round(s.distance)} m ${bearingOf(this.o.bot.entity.position, s.e.position)}`, strength: 0.6, seenBefore: 0 });
+    }
     for (const s of seen) {
       if (!s.visible || s.kind === 'player' || s.kind === 'item' || s.kind === 'other') continue;
       const type = s.e.name ?? s.name;
