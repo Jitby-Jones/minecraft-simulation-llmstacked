@@ -2,10 +2,13 @@
 # (GET https://nano-gpt.com/api/subscription/v1/models). `auto` picks from that list (§22.3):
 # first from config/model-bench.json (written by `pnpm bench-models`), otherwise by heuristics.
 # Timeouts from live runs with five agents: replies have a long tail (L1 p90 3.8 s, some past 5 s; L2 p90 3.3 s,
-# some past 6 s), and a timed-out try costs a whole second try on the next model.
+# some past 6 s), and a timed-out try costs a whole second try on the next model. L2's tokens leave a thinking model
+# room to think before it answers (2026-10-25: glm-5.3 thinks unseen, and its thinking counts; at 900 a tangled
+# situation came back "{}" three times of three and the mind fell to the next model or the code; at 3000, four of four
+# answered, 280-430 tokens of reply seen). It is a ceiling: a model that is done stops.
 tiers:
   L1: { primary: auto, fallbacks: [auto], timeoutMs: 7000, maxTokens: 200, need: [structured_output] }
-  L2: { primary: auto, fallbacks: [auto], timeoutMs: 8000, maxTokens: 900, need: [structured_output, tool_calling] }
+  L2: { primary: auto, fallbacks: [auto], timeoutMs: 8000, maxTokens: 2500, need: [structured_output, tool_calling] }
   L3: { primary: auto, fallbacks: [auto], timeoutMs: 45000, maxTokens: 2000, need: [structured_output] }
 
 # The tier agents' lines are written with, and the models tried first for them. L1 models are quick but small ones

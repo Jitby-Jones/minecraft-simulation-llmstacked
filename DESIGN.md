@@ -3278,6 +3278,16 @@ What changed:
     boots 4), an iron sword (2 iron ingots and a stick), a shield (6 planks and an iron ingot)". It never says
     what to make. And what was eaten is said so: the count drops a moment after the bite, and looked at at once the
     rotten flesh eaten was "still on hand, something else was being eaten" (live: "ate bread, food 14").
+20. **Room to think, and a night not lost.** Many of the mind's decisions in these runs came from the code's
+    default, the mind's first model having failed: glm-5.3 thinks unseen before it answers, and its thinking counts
+    against the reply's tokens; at L2's 900 a tangled situation (night, a hut failed five times, a creeper about)
+    came back "{}" three times of three. At 3000 it answered four of four (280-430 tokens of reply seen). L2's
+    ceiling is now 2500; a model that is done stops. And the night: the knowledge had "walls and a roof, or a hole
+    sealed over, keep them off", and the duo waited out every night, one of them in a sealed hole, eight minutes of
+    every twenty. It now says what a player knows of it: a hole sealed over is for one caught out with nowhere else,
+    and under a roof, or down a mine of one's own where it is dark at any hour anyway, the work goes on through the
+    night as by day. Replayed with it (glm-5.3, at 3000): three of four put up a hut, one dug in with dawn 5 minutes
+    off.
 
 Live:
 
