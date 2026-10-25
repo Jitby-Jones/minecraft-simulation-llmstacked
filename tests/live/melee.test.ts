@@ -146,6 +146,29 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(lost.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(9);
   }, 240_000);
 
+  it('a creeper on open ground, a stone sword: hit and backed off from while it hisses, it dies without going off', async () => {
+    // Fought as a zombie is, standing and swinging, one blew up and took its fighter from 20 health to 7.
+    const x = 7800;
+    await server.cmd(`forceload add ${x - 24} -24 ${x + 24} 24`);
+    await server.cmd(`fill ${x - 12} ${Y} -12 ${x + 12} ${Y + 4} 12 air`);
+    await server.cmd(`fill ${x - 12} ${Y + 5} -12 ${x + 12} ${Y + 5} 12 glowstone`);
+    await server.cmd(`tp Ada ${x}.5 ${Y} 0.5 -90 0`);
+    await server.cmd('clear Ada');
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await server.cmd('effect give Ada minecraft:instant_health 1 3');
+    await sleep(1500);
+    const before = body.bot.health;
+    await server.cmd(`summon creeper ${x + 7}.5 ${Y} 0.5 {PersistenceRequired:1b}`);
+    await sleep(1000);
+    const r = await body.run('attack', { target: 'creeper', seconds: 60 }, { signal: new AbortController().signal });
+    logger.info({ ok: r.ok, observed: r.observed, health: body.bot.health }, 'creeper on open ground');
+    console.log(`[melee creeper] ${r.observed}, health ${before} to ${body.bot.health}`);
+    expect(r.ok).toBe(true);
+    // Killed, not blown up: a blast would have left a crater and taken most of the health.
+    expect(body.bot.health).toBeGreaterThanOrEqual(14);
+    expect(body.bot.blockAt(body.bot.entity.position.floored().offset(0, -1, 0))?.name).not.toBe('air');
+  }, 120_000);
+
   it('gravel comes down on its head in a tunnel: dug out and a step aside, and it lives', async () => {
     const x = 7200;
     const y = Y - 8;

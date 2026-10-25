@@ -26,6 +26,15 @@ export function entityHealth(bot: Bot, e: Entity): number | undefined {
   return typeof v === 'number' ? v : e.health;
 }
 
+/** A creeper hissing, its fuse burning (or lit with flint and steel): it goes off in a moment and a half. */
+export function hissing(bot: Bot, e: Entity): boolean {
+  if (e.name !== 'creeper') return false;
+  const keys = (bot.registry.entitiesByName[e.name] as unknown as { metadataKeys?: string[] } | undefined)?.metadataKeys ?? [];
+  const md = e.metadata as unknown[] | undefined;
+  const swell = md?.[keys.indexOf('swell_dir')];
+  return swell === 1 || md?.[keys.indexOf('is_ignited')] === true;
+}
+
 export function isPlayer(e: Entity): boolean {
   return e.type === 'player';
 }

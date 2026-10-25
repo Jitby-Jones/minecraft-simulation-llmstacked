@@ -3087,8 +3087,13 @@ What changed:
    two zombies "that will burn in daylight"). Death being permanent is now said "as in hardcore": the word brings
    with it how players with one life go about the game (food on them, armor before caves, no needless risks).
 
+4. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
+   attack hand goes in for one blow and backs off out of its reach while it hisses, then in again (one that stood and
+   swung, as at a zombie, was blown from 20 health to 7). Whether to fight one stays the mind's call.
+
 Live:
 
+- `melee`: a creeper on open ground with a stone sword: killed without going off, at 20 health, twice.
 - `hands` (4 new): from a pocket 30 down, a stair up to the grass in 75 s; two blocks into a cave wall, the way in
   closed with stone at the feet and the head; a stair up out of a cave room, closed behind; a stair down six steps.
 - `m1-skills`: while what the mind chose holds the body, hurt again and again by a zombie at hand, the body takes it back.
