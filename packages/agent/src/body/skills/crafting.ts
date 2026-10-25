@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { countItem } from '../inventory';
-import { CATEGORIES, normalizeItemName } from '../items';
+import { CATEGORIES, SMELTS, itemMatcher, normalizeItemName } from '../items';
 import { findKnownBlocks } from '../sightings';
 import { placeItemAt, spotOrNotch } from './building';
 import { abortable, errMsg, gotoNear, throwIfAborted, upTo, waitMs } from './util';
@@ -425,8 +425,19 @@ export const smelt = defineSkill({
   expect: () => ({ kind: 'none' }),
   async run(ctx, args) {
     const { bot } = ctx;
-    const input = normalizeItemName(args.item);
-    const inputItem = bot.inventory.items().find((i) => i.name === input);
+    let input = normalizeItemName(args.item);
+    let inputItem = bot.inventory.items().find((i) => i.name === input);
+    // Named by what comes out ("smelt charcoal", "smelt iron ingots"), as players say it: what goes in for it, from
+    // the pockets (asked three times to smelt charcoal, it said there was no charcoal to smelt).
+    const raw = SMELTS[input];
+    if (!inputItem && raw) {
+      const goesIn = itemMatcher(raw);
+      const have = bot.inventory.items().find((i) => goesIn.matches(i.name));
+      if (have) {
+        input = have.name;
+        inputItem = have;
+      } else return { ok: false, observed: 'nothing to smelt', error: `${input} is smelted from ${raw.replace(/_/g, ' ')}, and you carry none` };
+    }
     if (!inputItem) return { ok: false, observed: 'nothing to smelt', error: `no ${input} in inventory` };
     let qty = Math.min(args.qty, countItem(bot, input));
     let furnaceBlock: Block | null;
@@ -447,7 +458,10 @@ export const smelt = defineSkill({
     if (!furnaceBlock) return { ok: false, observed: 'no furnace', error: 'need a furnace' };
     // One set down here stays here: where, so it is known (a model took "-1 furnace" for one burned up).
     const placed = countItem(bot, 'furnace') < carried ? `; set the furnace down at ${furnaceBlock.position.x},${furnaceBlock.position.y},${furnaceBlock.position.z}` : '';
-    qty = Math.min(qty - (await planksForFuel(ctx, input, qty)), countItem(bot, input));
+    // Logs cut for fuel are logs not cooked: as many as are left, up to what was asked (five logs, three asked for:
+    // one burned as planks, three cooked, not two).
+    await planksForFuel(ctx, input, qty);
+    qty = Math.min(qty, countItem(bot, input));
     let furnace: FurnaceApi | null = null;
     let got = 0;
     let outputName = '';

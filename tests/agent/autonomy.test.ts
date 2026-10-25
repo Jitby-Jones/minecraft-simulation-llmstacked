@@ -413,6 +413,9 @@ describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389
     expect(packet).toContain('Home: 220,66,450, 3 m away; nothing built there yet.');
     const withHut = buildPacket({ state: { ...s, village: { ...s.village, huts: [{ x: 224, y: 66, z: 452 }] } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
     expect(withHut).toContain('huts with doors at 224,66,452.');
+    // The huts one built oneself, by their rooms, the nearest first (one without a door is in no other line).
+    const ownHuts = buildPacket({ state: { ...s, village: { ...s.village, rooms: [{ x: 300, y: 70, z: 448 }, { x: 226, y: 66, z: 448 }] } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
+    expect(ownHuts).toContain('Huts you built: one with its room inside at 226,66,448 (8 m east); one with its room inside at 300,70,448 (82 m east).');
   });
   it('the time of day as one plans by it: how long until dark, or until light', () => {
     expect(dayPart(3000, true)).toBe('daytime');

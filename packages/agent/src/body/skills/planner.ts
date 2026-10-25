@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import { countItem, wearOfEach } from '../inventory';
-import { CATEGORIES, itemMatcher, normalizeItemName } from '../items';
+import { CATEGORIES, SMELTS, itemMatcher, normalizeItemName } from '../items';
 import { findKnownBlocks, isInferable } from '../sightings';
 import { blockIdsDropping, canSee, isHostile } from '../world';
 import { craft, noSuchItem, resolveCraftTarget, smelt } from './crafting';
@@ -18,26 +18,8 @@ import { ANIMALS, hunt } from './village';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 import { throwIfAborted, waitMs } from './util';
 
-/** Furnace outputs the planner knows (mineflayer's recipe data covers crafting tables only). */
-export const SMELTS: Readonly<Record<string, string>> = {
-  iron_ingot: 'raw_iron',
-  gold_ingot: 'raw_gold',
-  copper_ingot: 'raw_copper',
-  glass: 'sand',
-  stone: 'cobblestone',
-  smooth_stone: 'stone',
-  charcoal: 'log',
-  cooked_beef: 'beef',
-  cooked_porkchop: 'porkchop',
-  cooked_chicken: 'chicken',
-  cooked_mutton: 'mutton',
-  cooked_rabbit: 'rabbit',
-  cooked_cod: 'cod',
-  cooked_salmon: 'salmon',
-  baked_potato: 'potato',
-  brick: 'clay_ball',
-  dried_kelp: 'kelp',
-};
+/** Furnace outputs the planner knows (items.ts). */
+export { SMELTS };
 
 const FUEL = ['coal', 'charcoal', 'coal_block'];
 const INF = Number.POSITIVE_INFINITY;

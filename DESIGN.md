@@ -3178,6 +3178,12 @@ What changed:
     about it", "bram said hes got iron") is said as before.
     And what one's own hands got is known by its kind: a gather of "log" cut short brought two oak logs in after
     it, and that was "2 oak_log appeared in your inventory out of nowhere".
+    The filter was not enough: the next duo's chat was full of it ("I'm Bram, starting a conversation with Ada who is
+    16m south-east", "Keep it casual, under 25 words, lowercase, friendly"). The speech bench, run again, found the
+    source: glm-5.1, first of the speech models, now writes out its working before the line, three times of three
+    ("Bram asked "so whos on wood?" I need to answer as Mira — ... at most 25 words ... yeah fine, 2 iron"), where
+    kimi-k2.6 (1.7–2.6 s) and minimax-m3 (about 1 s) write only the line. The speech models are now kimi-k2.6,
+    minimax-m3 and mimo-v2.6-pro, in that order.
 12. **Who hurt whom, by the server's word.** The duo's first minute: Ada and Bram chopped the same tree, each lost a
     heart to something that was not the other, and each, guessing from the other's swings at the log (a swing toward
     one within 400 ms), took it for a blow: a fight with planks in hand, "ok ok, I give up!", and a first impression
@@ -3197,6 +3203,22 @@ What changed:
     (its next step, wool for a bed, went out at 12 health among four monsters, the wait for the day broken off by a
     zombie at the hole). A dig for ore that never got to it says so ("could not get to the iron ore at 7,5,-27: no
     way there to stand and dig it from"), not "nothing came of digging iron_ore".
+14. **A creeper is kept away from by the body.** The seed-2 solo (20) had raw iron and 273 cobblestone in a
+    dripstone cave by day; the body's own fight took on a creeper 7 m off, swung once as it closed in, and the blast
+    took it from 20 health to none. The reflexes no longer close in on a creeper: within 8 m they back away from it
+    (5 m before), and the body's fight picks anything else first. Fighting one is the mind's choice, done the way it
+    is done (in for one blow, back out of reach while it hisses). And two smaller things from the same cave: a zombie
+    among the thin points of pointed dripstone stands in their cells, not inside anything solid (an urgent "inside
+    solid pointed dripstone, right in the block" came in the middle of the danger), and "smelt charcoal", named by
+    what comes out as players say it, cooks the logs on hand (three times it said there was no charcoal to smelt);
+    and the logs cut for fuel are taken off what is left, not off what was asked (five logs, three asked: one burned
+    as planks and three cooked, not two).
+15. **One's own huts, by their rooms.** The duo (32) had renewable food at 8 minutes (six crops sown), and both
+    died in the first night's first minute. Bram, caught out by a zombie at the chest, ran for his hut by the spot he
+    had asked for it at, eight blocks from where it went up (its room's spot was in the build's result, long since
+    out of the packet; a hut without a door is in no other line), and was killed there with a wooden axe; Ada, out
+    in the dark to hand him logs as promised, after him. The rooms of the huts one built oneself, which the body
+    already ran to, are now in the packet too: "Huts you built: one with its room inside at -49,78,65 (8 m east)".
 
 Live:
 
@@ -3218,6 +3240,8 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| duo (32) | 13 min (both) | no fight at the first meeting (the server's word on hurts); **renewable food met at 8 min**, six crops sown; the chat full of the speech model's working; at nightfall both out at chores: Bram ran for his hut by its asked-for spot, 8 blocks off, and died to a zombie with a wooden axe; Ada after him, out to hand over logs | speech models without working; one's own huts in the packet |
+| solo, seed 2 (20) | 24 min | the stair down to the iron's depth in one dig, iron found but never got to ("nothing came of digging"), the way dug to it by hand; 6 raw iron and no fuel in a dripstone cave by day; skeletons and a creeper; the body's fight closed in on the creeper: 20 to 0 | a creeper kept away from; an ore never reached is said so |
 | solo, seed 1 (25) | 37 min | stone tools and a sword by 6 min; iron at 13 and **an iron pickaxe at 15**; wheat sown by 28; into its andesite hut at dusk, the doorway filled behind it; a creeper blew out its wall, and it waited on "sealed inside" until zombies came in (19 to 0) | a shut room opened up is seen at once |
 | duo (29) | 14 min (Bram) | the first dusk: Bram's hut built, its doorway filled with dirt from outside, "the hut is sealed from inside"; a zombie in the night, 18 to 0 with a wooden axe | a door says which side one is on; a room seen from beside it |
 | solo, seed 2 (19) | 13 min | **house met at 9 min** (a starter hut from a design, with a door and lights, all but its bed); at dusk "step inside, close the door, wait": the walk stopped 2.6 blocks short on "until near", the door shut from outside, the night waited out beside the hut; a skeleton and a zombie | a walk ends by getting there |
@@ -3231,7 +3255,9 @@ Live:
 | duo (24) | 20 min (the worker ran out of memory) | **house met at 5 min**; the heap flat at 100–300 MB, then 2 GB within a minute and a half | room for the worker; the heap past 1 GB logs what each agent was doing |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
 
-Verified (11–12): 727 unit tests; live `melee` (9 of 9), `m6b` (the clash, 1 of 1), `hands`: seeds on part-sown
+Verified (13–15): 730 unit tests; live `melee` (9 of 9, with the body keeping off creepers), `hands`: "smelt
+charcoal", charcoal with only logs, six logs to charcoal, smelting with no furnace near; the speech bench (four models,
+three scenes each). Verified (11–12): 727 unit tests; live `melee` (9 of 9), `m6b` (the clash, 1 of 1), `hands`: seeds on part-sown
 farmland, the ripe field, shears, wheat on two cows. Verified (8–10): 725 unit tests; live `hands`: the dark dig, the wet prospect, the pickaxe's last uses, the dig from
 the floor of the last one, the gravel, fishing (4 casts, 4 bites), a cow's drops taken, a door from inside and from
 outside with the room seen each way, the doorway filled from inside. Verified (7): 723 unit tests; live `hands`: the doorway filled from inside, the night's hut, a bed in a nook, the

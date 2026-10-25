@@ -131,6 +131,27 @@ describe('motion, as a player sees it', () => {
     expect(m.of(9)?.jumpedM).toBe(56);
   });
 
+  it('inside a block is inside what it takes up: in a stone, yes; among the thin points of dripstone, no', () => {
+    const ground = 64;
+    // Two pointed dripstones stacked over the ground, thin in the middle of their cells; a stone pillar beside them.
+    const thin = [[0.3125, 0, 0.3125, 0.6875, 1, 0.6875]];
+    const bot = {
+      blockAt: (p: Vec3) => {
+        if (p.y < ground) return { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] };
+        if (p.x === 0 && p.y < ground + 2) return { name: 'pointed_dripstone', boundingBox: 'block', shapes: thin };
+        if (p.x === 3 && p.y < ground + 2) return { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] };
+        return { name: 'air', boundingBox: 'empty', shapes: [] };
+      },
+    };
+    const m = new MotionTracker(bot as never);
+    const zombie = { id: 7, position: new Vec3(0.1, ground, 0.1), width: 0.6, metadata: [] } as never as { id: number; position: Vec3 };
+    const stuck = { id: 8, position: new Vec3(3.5, ground, 0.5), width: 0.6, metadata: [] } as never as { id: number; position: Vec3 };
+    m.update([zombie as never, stuck as never], 0);
+    m.update([zombie as never, stuck as never], 500);
+    expect(m.of(7)?.insideBlock).toBeUndefined();
+    expect(m.of(8)?.insideBlock).toBe('stone');
+  });
+
   it('hop after hop is no time off the ground: the game shows each landing, though every look finds it in the air', () => {
     const ground = 64;
     const client = new EventEmitter();

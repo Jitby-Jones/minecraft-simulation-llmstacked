@@ -12,11 +12,14 @@ tiers:
 # cut lines short or miss the timeout. Talk drives how the agents deal with each other, so a line gets a stronger
 # model and up to 8 s a try (owner request, 2026-10-24). Measured with the real speech prompt (8 lines each, DESIGN.md
 # §24): glm-5.1 wrote the clearest lines in the most natural player style (p50 1.6 s, p90 2.1 s); kimi-k2.6 and
-# mimo-v2.6-pro were close; minimax-m3 (L2's first by heuristics) was plainer. A model not on the subscription list
-# is skipped; after these, the tier's own chain.
+# mimo-v2.6-pro were close; minimax-m3 (L2's first by heuristics) was plainer. Measured again on 2026-10-25, glm-5.1
+# now writes out its working before the line ("Bram asked "so whos on wood?" I need to answer as Mira — ... at most
+# 25 words"), three times of three, and a duo's chat filled with it; kimi-k2.6 (1.7-2.6 s) and minimax-m3 (about
+# 1 s) wrote only the line; mimo-v2.6-pro did too, once taking 20 s. A model not on the subscription list is skipped;
+# after these, the tier's own chain.
 speech:
   tier: L2
-  models: [z-ai/glm-5.1, moonshotai/kimi-k2.6, xiaomi/mimo-v2.6-pro, minimax/minimax-m3]
+  models: [moonshotai/kimi-k2.6, minimax/minimax-m3, xiaomi/mimo-v2.6-pro]
   timeoutMs: 8000
 
 # §22.5: local by default (all-MiniLM-L6-v2, served once by the Hub). nanogpt only if subscription-covered.

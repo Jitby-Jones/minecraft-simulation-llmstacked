@@ -117,6 +117,11 @@ export function buildPacket(i: PacketInput): string {
       `Home: ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}${huts.length > 0 ? `; huts with doors at ${huts.join(' and ')}` : ''}${bare}.`,
     );
   }
+  // The huts one put up oneself, by their rooms, as one knows where one's own shelter is: a builder caught out at
+  // dusk ran for his hut by the spot he had asked for it at, eight blocks from where it went up, and was killed
+  // there; a hut without a door is in no other line.
+  const rooms = world === 'overworld' ? (s.village.rooms ?? []).map((r) => ({ r, d: Math.hypot(r.x - self.pos.x, r.z - self.pos.z) })).sort((a, b) => a.d - b.d).slice(0, 2) : [];
+  if (rooms.length > 0) out.push(`Huts you built: ${rooms.map(({ r, d }) => `one with its room inside at ${r.x},${r.y},${r.z} (${d < 1 ? 'where you stand' : `${Math.round(d)} m ${bearingOf(self.pos, r)}`})`).join('; ')}.`);
   // A building begun and not finished: where, how far along, what it still lacks (build again to carry on).
   const begun = (s.village.projects ?? []).filter((p) => p.doneAt === null).slice(-2);
   const built = (s.village.projects ?? []).filter((p) => p.doneAt !== null).slice(-3);

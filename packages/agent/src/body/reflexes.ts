@@ -67,6 +67,9 @@ export function shoots(e: Entity): boolean {
 /** A weapon this good (a stone sword or axe, or better) makes a monster worth fighting rather than running from. */
 const ARMED_TIER = 2;
 
+/** A creeper this close is backed away from by the body. */
+const CREEPER_KEEP_OFF = 8;
+
 /** What no one stands and fights: a creeper about to go, a warden. */
 function mustRun(bot: Bot, threats: readonly Entity[]): boolean {
   const me = bot.entity.position;
@@ -731,7 +734,10 @@ export class ReflexController {
     const health = this.bot.health;
     const fleeAt = this.fleeThreshold(threats) + Math.max(0, ...threats.map((t) => this.hooks.fearBoost?.(entityLabel(t)) ?? 0));
     if (health <= fleeAt) return true;
-    if (threats.some((e) => e.name === 'creeper' && e.position.distanceTo(me) <= 5)) return true;
+    // A creeper is kept away from, not met: the body's own fight only closes in on it until it hisses (one with a
+    // stone sword swung once at a creeper 7 m off in a cave, and was blown from 20 health to none). The mind may still
+    // choose to fight one, the way it is done (combat.ts).
+    if (threats.some((e) => e.name === 'creeper' && e.position.distanceTo(me) <= CREEPER_KEEP_OFF)) return true;
     if (threats.some((e) => e.name === 'warden')) return true;
     // Archers shoot whoever runs across open ground: armed and well enough, close in on them instead. Not on a
     // drowned: closing in on one is going into the water after it.
@@ -783,8 +789,10 @@ export class ReflexController {
     return beaten(this.reckoned(e.id, now), d.last);
   }
 
-  private pickTarget(threats: Entity[]): Entity | undefined {
+  private pickTarget(all: Entity[]): Entity | undefined {
     const me = this.bot.entity.position;
+    // Never a creeper: the body doesn't close in on one (shouldFlee keeps it off).
+    const threats = all.filter((e) => e.name !== 'creeper');
     const nearest = threats[0];
     if (this.hooks.combat() < 0.3) return nearest;
     const preferred = threats.find((e) => this.recentAttackers.has(e.id) && e.position.distanceTo(me) <= 4) ?? nearest;

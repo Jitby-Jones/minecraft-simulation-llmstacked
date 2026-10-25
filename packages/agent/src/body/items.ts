@@ -189,3 +189,24 @@ export function itemMatcher(raw: string, isFood: (name: string) => boolean = () 
   if (cat) return { label: n, matches: cat };
   return { label: n, matches: (x) => x === n };
 }
+
+/** Furnace outputs the planner knows (mineflayer's recipe data covers crafting tables only). */
+export const SMELTS: Readonly<Record<string, string>> = {
+  iron_ingot: 'raw_iron',
+  gold_ingot: 'raw_gold',
+  copper_ingot: 'raw_copper',
+  glass: 'sand',
+  stone: 'cobblestone',
+  smooth_stone: 'stone',
+  charcoal: 'log',
+  cooked_beef: 'beef',
+  cooked_porkchop: 'porkchop',
+  cooked_chicken: 'chicken',
+  cooked_mutton: 'mutton',
+  cooked_rabbit: 'rabbit',
+  cooked_cod: 'cod',
+  cooked_salmon: 'salmon',
+  baked_potato: 'potato',
+  brick: 'clay_ball',
+  dried_kelp: 'kelp',
+};

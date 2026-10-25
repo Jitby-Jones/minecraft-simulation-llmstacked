@@ -60,7 +60,14 @@ const FLUID = /^(water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/;
 
 function solid(bot: Bot, x: number, y: number, z: number): string | null {
   const b = bot.blockAt(new Vec3(Math.floor(x), Math.floor(y), Math.floor(z)));
-  return b && b.boundingBox === 'block' ? b.name : null;
+  if (!b || b.boundingBox !== 'block') return null;
+  // Inside what the block takes up, not just its cell: a zombie among the thin points of a dripstone cave stands in
+  // their cells (one was "inside solid pointed dripstone, right in the block", an urgent surprise, in the middle of a
+  // fight).
+  const shapes = (b as unknown as { shapes?: number[][] }).shapes;
+  if (!shapes || shapes.length === 0) return b.name;
+  const [lx, ly, lz] = [x - Math.floor(x), y - Math.floor(y), z - Math.floor(z)];
+  return shapes.some((sh) => lx >= (sh[0] ?? 0) && lx <= (sh[3] ?? 1) && ly >= (sh[1] ?? 0) && ly <= (sh[4] ?? 1) && lz >= (sh[2] ?? 0) && lz <= (sh[5] ?? 1)) ? b.name : null;
 }
 
 /** Something under its feet: any block with a collision box beneath the corners of its footprint. */
