@@ -317,6 +317,18 @@ describe('how the body heals, said as a fact (a model at 1 health and food 10 wa
     expect(buildPacket({ state: at(1, 10), levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 })).toContain('only with food at 18 of 20');
   });
 
+  it('the empty hotbar: under the food that heals, with nothing to eat on one, said beside the bar', () => {
+    const packet = (health: number, food: number, inventory: { item: string; qty: number }[] = []) => {
+      const s = at(health, food);
+      return buildPacket({ state: { ...s, self: { ...s.self, inventory } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
+    };
+    expect(packet(20, 14)).toContain('food 14/20 (nothing to eat on you),');
+    expect(packet(20, 14, [{ item: 'bread', qty: 2 }])).not.toContain('nothing to eat on you');
+    expect(packet(20, 19)).not.toContain('nothing to eat on you');
+    // Hungry, the hunger line says it.
+    expect(packet(20, 6)).not.toContain('(nothing to eat on you)');
+  });
+
   it('how near death one is, as the hearts and what is about say it (a number alone said little)', () => {
     const hurt = (h: number, about: { name: string; distance: number }[], extra: Partial<AgentState['self']> = {}) => {
       const s = at(h, 12);

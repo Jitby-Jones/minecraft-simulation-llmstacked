@@ -83,7 +83,7 @@ export function buildPacket(i: PacketInput): string {
 
   const self = s.self;
   out.push(
-    `You: health ${Math.round(self.health)}/20, food ${self.food}/20, ${dayPart(self.time, self.isDay)}, at ${Math.round(self.pos.x)},${Math.round(self.pos.y)},${Math.round(self.pos.z)}${s.flags.inDanger ? ', IN DANGER' : ''}.`,
+    `You: health ${Math.round(self.health)}/20, food ${self.food}/20${foodOnHand(s)}, ${dayPart(self.time, self.isDay)}, at ${Math.round(self.pos.x)},${Math.round(self.pos.y)},${Math.round(self.pos.z)}${s.flags.inDanger ? ', IN DANGER' : ''}.`,
   );
   // Another world (owner request, 2026-10-24): where we are, and the way back.
   const world = String(self.dimension ?? 'overworld').replace(/^minecraft:/, '');
@@ -311,6 +311,15 @@ export function frailty(s: AgentState): string | null {
   const what = worst.name === 'creeper' ? "a creeper's blast up close" : `${hits === 1 ? 'one more hit' : `${hits} more hits`} from a ${worst.name.replace(/_/g, ' ')}`;
   const many = about.length > 1 ? `, and there are ${about.length} monsters about` : '';
   return `At ${hp} health, ${what} would kill you${many}.`;
+}
+
+/**
+ * The empty hotbar a player sees: under the 18 that healing needs with nothing to eat on one, said beside the food bar
+ * (two hours of mining went by with none carried; the last thing eaten was rotten flesh).
+ */
+function foodOnHand(s: AgentState): string {
+  if (s.self.food >= HEALS_FROM || s.self.food <= 8 || s.self.inventory.some((i) => EDIBLE.test(i.item))) return '';
+  return ' (nothing to eat on you)';
 }
 
 /** A line about hunger once it matters: hungry with nothing to eat, or starving (null: fed, or food at hand). */

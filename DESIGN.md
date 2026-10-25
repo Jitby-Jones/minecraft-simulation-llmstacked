@@ -3068,7 +3068,8 @@ What changed:
    would kill you, and there are 3 monsters about" (by difficulty and armor), and how health comes back ("only with food
    at 18 of 20 or more, fastest with the bar full; you carry 4 cooked beef"), at any health once a monster is close
    ("At 16 health, 7 more hits from a zombie would kill you": one at 19 with no armor mined on among skeletons for four
-   minutes, and went from 16 to nothing in seconds). The way of thinking starts with how one
+   minutes, and went from 16 to nothing in seconds), and the empty hotbar a player sees: under the 18 food that healing
+   needs with nothing edible on one, "food 14/20 (nothing to eat on you)". The way of thinking starts with how one
    is and how safe one stands (the light, what is about, the way out), and asks what one will be short of before long
    and what could go wrong that one would want to be ready for; a plan carries what one would want on one where it goes.
 3. **Hands to dig one's way, and the hole gone from the mind.** `tunnel {direction, blocks?, close?, toward?}` digs a
@@ -3102,5 +3103,5 @@ Live:
 | solo, seed 1 (20) | stopped at 16 min | started on the code before thinking under fire | (stopped, to run the new mind) |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
 
-Verified: 710 unit tests; live `hands` (the 4 digging cases and the explore case), `m1-skills` (the two cases of the
+Verified: 711 unit tests; live `hands` (the 4 digging cases and the explore case), `m1-skills` (the two cases of the
 mind holding the body), `underfire` (2 of 2).
