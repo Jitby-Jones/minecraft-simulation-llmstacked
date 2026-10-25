@@ -3080,7 +3080,8 @@ What changed:
    (§22.4) and nothing more: not in the mind's list, refused by name ("there is no skill"), and "hide" no longer an alias;
    the skill writer gets `tunnel` instead. A mind that wants a hole digs one with its own hands. And a fact a player
    knows: no sun reaches underground, so what is about in a cave does not burn by day (a mind 30 down built a hut beside
-   two zombies "that will burn in daylight").
+   two zombies "that will burn in daylight"). Death being permanent is now said "as in hardcore": the word brings
+   with it how players with one life go about the game (food on them, armor before caves, no needless risks).
 
 Live:
 

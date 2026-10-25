@@ -18,7 +18,8 @@ export function personaCore(p: Persona, traitAnnotations: readonly string[] = []
 }
 
 /** §16.3: said plainly to the modules that plan (the CC and Goal Gen). */
-export const DEATH_RULE = 'Death is permanent. If you die, you are gone forever.';
+// One life, as in hardcore: the word brings with it how players who have only one go about the game.
+export const DEATH_RULE = 'Death is permanent, as in hardcore: you have one life, and if you die, you are gone forever.';
 
 /**
  * What the agent knows of the game (owner request, 2026-10-24): "we expect them to be familiar with all minecraft
