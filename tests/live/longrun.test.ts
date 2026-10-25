@@ -17,8 +17,9 @@ import { type Logger, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, l
 import { type LlmRuntime, loadBenchFile, startLlm } from '@agora/llm';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
+import { Vec3 } from '@agora/agent/body/bot';
 import { type LiveServer, liveJavaPath, startLiveServer } from './harness';
-import { IRON_ARMOR, IRON_TOOLS, blockPositions, cowFarm, cropPositions, cropsPlanted, doorPositions, hasAll, house, isBabyAnimal, owned, placedNear } from './goals';
+import { CROPS, IRON_ARMOR, IRON_TOOLS, blockPositions, cowFarm, doorPositions, hasAll, house, isBabyAnimal, owned, placedNear } from './goals';
 
 loadEnv();
 const key = process.env.NANOGPT_API_KEY?.trim();
@@ -83,7 +84,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
       await sleep(4000);
       const first = bodies[0] as Body;
       // What was there before anyone did anything (a village's doors and fields don't count).
-      const before = { doors: doorPositions(first.bot), crops: cropPositions(first.bot), tables: blockPositions(first.bot, 'enchanting_table') };
+      const before = { doors: doorPositions(first.bot), tables: blockPositions(first.bot, 'enchanting_table') };
       for (const [i, p] of people.entries()) {
         const body = bodies[i] as Body;
         const agent = new Agent({
@@ -129,6 +130,18 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           if (isBabyAnimal(b.bot, e) && e.position.distanceTo(b.bot.entity.position) <= 24) babies.add(e.id);
         });
       }
+      // Crops sown by the agents themselves: a crop come up beside one of them while its hands were at a sowing or a
+      // harvest. Crops it only walked past (a village's fields, found after the start) were counted as sown before:
+      // a duo "met" renewable food at 8 minutes having sown nothing.
+      const sown = new Set<string>();
+      for (const [i, b] of bodies.entries()) {
+        b.bot.on('blockUpdate', (old, now) => {
+          if (!now || !CROPS.has(now.name) || (old && CROPS.has(old.name))) return;
+          const skill = agents[i]?.store.state.option?.skill;
+          if ((skill !== 'use' && skill !== 'harvest') || now.position.distanceTo(b.bot.entity.position) > 6) return;
+          sown.add(now.position.toString());
+        });
+      }
       const goalsFor = variant === 'solo' ? ['diamonds', 'nether', 'ironArmor', 'cowFarm', 'house', 'enchantingTable', 'renewableFood'] : ['house', 'romance', 'renewableFood', 'ironSets'];
       const check = () => {
         for (const [i, b] of bodies.entries()) {
@@ -147,8 +160,12 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           if (h) mark('house', `a roofed room of ${h.room} cells behind the door at ${h.door.toString()}`);
           const table = (owned(bot).get('enchanting_table') ?? 0) > 0 ? 'in hand' : placedNear(bot, 'enchanting_table', before.tables)?.toString();
           if (table) mark('enchantingTable', `${who}'s enchanting table, ${table}`);
-          const crops = cropsPlanted(bot, before.crops);
-          if (crops >= 6) mark('renewableFood', `${crops} crops planted on farmland`);
+          const crops = [...sown].filter((k) => {
+            const [x, y, z] = k.replace(/[()]/g, '').split(',').map(Number) as [number, number, number];
+            const at = bot.blockAt(new Vec3(x, y, z));
+            return at !== null && CROPS.has(at.name);
+          }).length;
+          if (crops >= 6) mark('renewableFood', `${crops} crops sown by the agents, growing`);
           if (babies.size > 0) mark('renewableFood', `animals bred (${babies.size} young)`);
         }
         if (variant === 'duo') {

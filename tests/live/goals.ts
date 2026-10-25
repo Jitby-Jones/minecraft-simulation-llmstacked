@@ -9,7 +9,8 @@ type Entity = Bot['entity'];
 
 export const IRON_ARMOR = ['iron_helmet', 'iron_chestplate', 'iron_leggings', 'iron_boots'] as const;
 export const IRON_TOOLS = ['iron_pickaxe', 'iron_axe', 'iron_shovel', 'iron_sword'] as const;
-const CROPS = ['wheat', 'carrots', 'potatoes', 'beetroots'];
+/** What sowing puts on farmland. */
+export const CROPS = new Set(['wheat', 'carrots', 'potatoes', 'beetroots']);
 const BREEDABLE = new Set(['cow', 'sheep', 'pig', 'chicken', 'rabbit', 'goat', 'mooshroom']);
 
 /** All a body has: its inventory and what it wears. */
@@ -114,17 +115,6 @@ export function house(bot: Bot, before: ReadonlySet<string>, ours: (p: Vec3) => 
     }
   }
   return null;
-}
-
-/** Crops growing on farmland that weren't there at the start, within reach of sight. */
-export function cropsPlanted(bot: Bot, before: ReadonlySet<string>): number {
-  const ids = CROPS.map((c) => bot.registry.blocksByName[c]?.id).filter((x): x is number => x !== undefined);
-  return bot.findBlocks({ matching: ids, maxDistance: 96, count: 400 }).filter((p) => !before.has(p.toString()) && bot.blockAt(p.offset(0, -1, 0))?.name === 'farmland').length;
-}
-
-export function cropPositions(bot: Bot): Set<string> {
-  const ids = CROPS.map((c) => bot.registry.blocksByName[c]?.id).filter((x): x is number => x !== undefined);
-  return new Set(bot.findBlocks({ matching: ids, maxDistance: 128, count: 4000 }).map((p) => p.toString()));
 }
 
 export function doorPositions(bot: Bot): Set<string> {

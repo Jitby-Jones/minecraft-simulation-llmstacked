@@ -2974,7 +2974,7 @@ was in) and answered with a change to the general mind or hands, never a rule fo
 | duo (6) | 13 min | Bram, by a zombie, standing still while it hit him | a fight kept on record for the post-mortem |
 | solo, seed 1 (5) | 45 min | hunting worked from what it saw ("the nearest in view is a cow 36 m west"); slain by a zombie on its staircase down | where each ore lies by height; a live test of fighting while digging (`melee`: the fight itself is sound) |
 | solo, seed 2 (3) | 14 min | its model call failed in a tunnel at dusk and the fallback sent it home across the open; a panic took it out of the hole it was digging; a spider | the night fallback moves no one under cover; after a panic, a reflex or a fallback, the steps meant follow on no more: think |
-| duo (7) | 49 min | **house and renewable food met at 27 min**; Ada, worn down by three skeletons and a spider to one heart, ate to heal and was caught by a zombie | (before the last two fixes) |
+| duo (7) | 49 min | **house met at 27 min** (renewable food was marked too, falsely: nothing was sown, and the check counted a field come upon); Ada, worn down by three skeletons and a spider to one heart, ate to heal and was caught by a zombie | (before the last two fixes) |
 | solo, seed 1 (6) | 8 min | drowned in a flooded tunnel, holding jump against the stone overhead | under water with a roof over it, swim for the nearest air (live, `m1-water`) |
 | duo (8) | 20 min (stopped) | the two had stopped talking; each took the other's sex for unknown; one dug up the other's crafting table to get one | how players are with each other, in how the mind sees play and thinks; a name counts plainly; what people made is no source to dig for |
 | solo, seed 2 (4) | 24 min | **8 diamonds by 19 min**, then its iron pickaxe broke; asked for "9 more diamonds" three times; at 8 health fell to its death crossing a dripstone cave | a tool's wear in view; the same attempt known again whatever the amount; hurt, no jumps over gaps |
@@ -2997,7 +2997,7 @@ was in) and answered with a change to the general mind or hands, never a rule fo
 | solo, seed 2 (15) | stopped at 31 min | an iron pickaxe short of one ingot: told "missing 1 iron_ingot" with two on hand, it asked obtain for one three times, was told "holding 2", and wrote itself that obtain "doesn't conjure a third ingot"; the eat reflex and its own eat bit at once, the salmon was eaten, the skill said it could not eat, and it wrote that raw salmon can't be eaten | how many in all, and what is already held; one bite at a time (live, `hands`) |
 | duo (21) | 58 min | **house met at 5 min**; inside Bram's hut, Ada went out of the door after a zombie at it, left it open, and was taken from 20 to 1 (a sword swing hit Bram; he let it go as friendly fire); at dusk Bram, 41 blocks from home, sheltered in a flooded ruin and a drowned and a skeleton killed him; Ada, alone and starving, after salmon in the water | in a hut's room, a mob outside is no fight to go out to (live, `m1-skills`); a hunt walks to animals in view farther off; huts of stone of any kind |
 | solo, seed 2 (16) | 76 min | 3 diamonds and 5 ingots; starving underground (food 0, which on easy stops at 10 health), it fought a zombie for its rotten flesh it could not reach, then set out 87 blocks for apples, and a skeleton killed it | (food is the open problem: none of the solos secured it early) |
-| duo (22) | 53 min (Ada died at 51) | **renewable food met at 22 min** (six crops on farmland); Ada dug for iron (15 raw, 11 ingots), at 1 health, unfed, for twenty minutes; her walk up 70 blocks to the surface "took too long to decide" and a zombie found her | (open: a long walk up out of the deep is planned as one search, and the search runs out; tool choice is now kept a moment per kind of block, which makes each search cheaper) |
+| duo (22) | 53 min (Ada died at 51) | renewable food marked at 22 min, falsely (nothing was sown: six crops of a field come upon); Ada dug for iron (15 raw, 11 ingots), at 1 health, unfed, for twenty minutes; her walk up 70 blocks to the surface "took too long to decide" and a zombie found her | (open: a long walk up out of the deep is planned as one search, and the search runs out; tool choice is now kept a moment per kind of block, which makes each search cheaper) |
 | solo, seed 1 (19) | 130 min | **7 diamonds by 27 min**, an iron pickaxe by 14, iron boots at 70 and a chestplate at 87 min, a diamond pickaxe; at 63 min, starving at 3 health, it tried to eat an egg (thrown), walked and hunted until a chicken fed it; walks up from the deep "took too long to decide"; at 1.5 health in a cave by day among five zombies and a skeleton, its shelter said "it is already day", twice, and it died | an egg is no food; a long walk a stretch at a time; a shelter by day with monsters about (live, `hands`, `melee`) |
 | solo, seed 2 (17) and duo (23) | stopped at 52 and 16 min, at the report | seed 2: alive, 9 ingots smelted, a stone hoe and wheat seeds gathered (the first solo to set about growing food); the duo: both alive, a chest and doors made, seeds gathered | (stopped for the report) |
 | solo, seed 1 (10) and seed 2 (7) | 14 and 50 min | a pillar on a hillside, the zombies reaching across from the slope; asked to lie low until healed, at 4 health, the shelter said "it is already day" and it went mining | a pillar wants open ground about it; `untilHealed` by day |
@@ -3015,8 +3015,8 @@ and out of their nest, bursts of speed, one's own digs (a pathfinder patch: `rem
 argument and took everyone's dig listeners with it).
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
-renewable food source, at 27 minutes (`duo (7)`) and again in `duo (18)`; the house alone by 5 minutes (`duo (21)`), and
-renewable food alone by 22 (`duo (22)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and
+renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes
+(`duo (21)`) and by 27 (`duo (7)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and
 0.71, the question due at 0.75) before both died outside a hut they could not walk into. Solo, the best is `solo, seed 1
 (19)`: 7 diamonds by 27 minutes, an iron pickaxe by 14, iron boots and a chestplate by 87, alive for 130 minutes
 (some six days of the game); earlier, 8 diamonds by 19 minutes (`solo, seed 2 (4)`). What ends the runs now is less the night and
@@ -3213,8 +3213,7 @@ What changed:
     what comes out as players say it, cooks the logs on hand (three times it said there was no charcoal to smelt);
     and the logs cut for fuel are taken off what is left, not off what was asked (five logs, three asked: one burned
     as planks and three cooked, not two).
-15. **One's own huts, by their rooms.** The duo (32) had renewable food at 8 minutes (six crops sown), and both
-    died in the first night's first minute. Bram, caught out by a zombie at the chest, ran for his hut by the spot he
+15. **One's own huts, by their rooms.** The duo (32) both died in the first night's first minute. Bram, caught out by a zombie at the chest, ran for his hut by the spot he
     had asked for it at, eight blocks from where it went up (its room's spot was in the build's result, long since
     out of the packet; a hut without a door is in no other line), and was killed there with a wooden axe; Ada, out
     in the dark to hand him logs as promised, after him. The rooms of the huts one built oneself, which the body
@@ -3222,6 +3221,10 @@ What changed:
     And a fact of this version a player has: armor and tools come in copper too, smelted from raw copper (common
     around y 48 and in dripstone caves: the seed-2 solo carried 19 of it, and no armor at all), short of iron and
     far better than none (the armor and tool facts say so; live, a copper helmet obtained from raw copper).
+16. **Crops counted when sown.** The long run's check for renewable food counted the crops on farmland that were
+    not there at the start, and fields an agent came upon were among them: `duo (7)`, `duo (22)` and `duo (32)` were
+    marked with nothing sown (only `duo (18)`'s six were sown, by Ada). It now counts a crop only when it comes up
+    beside an agent whose hands are at a sowing or a harvest, and only while it still stands.
 
 Live:
 
@@ -3243,7 +3246,7 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
-| duo (32) | 13 min (both) | no fight at the first meeting (the server's word on hurts); **renewable food met at 8 min**, six crops sown; the chat full of the speech model's working; at nightfall both out at chores: Bram ran for his hut by its asked-for spot, 8 blocks off, and died to a zombie with a wooden axe; Ada after him, out to hand over logs | speech models without working; one's own huts in the packet |
+| duo (32) | 13 min (both) | no fight at the first meeting (the server's word on hurts); renewable food marked at 8 min, falsely (nothing was sown: a village's fields); the chat full of the speech model's working; at nightfall both out at chores: Bram ran for his hut by its asked-for spot, 8 blocks off, and died to a zombie with a wooden axe; Ada after him, out to hand over logs | speech models without working; one's own huts in the packet |
 | solo, seed 2 (20) | 24 min | the stair down to the iron's depth in one dig, iron found but never got to ("nothing came of digging"), the way dug to it by hand; 6 raw iron and no fuel in a dripstone cave by day; skeletons and a creeper; the body's fight closed in on the creeper: 20 to 0 | a creeper kept away from; an ore never reached is said so |
 | solo, seed 1 (25) | 37 min | stone tools and a sword by 6 min; iron at 13 and **an iron pickaxe at 15**; wheat sown by 28; into its andesite hut at dusk, the doorway filled behind it; a creeper blew out its wall, and it waited on "sealed inside" until zombies came in (19 to 0) | a shut room opened up is seen at once |
 | duo (29) | 14 min (Bram) | the first dusk: Bram's hut built, its doorway filled with dirt from outside, "the hut is sealed from inside"; a zombie in the night, 18 to 0 with a wooden axe | a door says which side one is on; a room seen from beside it |
