@@ -203,6 +203,11 @@ describe('model list and tiers (§22.3)', () => {
     expect(extractJson('```json\n{"a":1}\n```')).toEqual({ a: 1 });
     expect(extractJson('Sure! {"a":2} hope that helps')).toEqual({ a: 2 });
     expect(() => extractJson('no json here')).toThrow();
+    // A thought with bare quotes in it, as a model asked in plain wrote one, and a line break inside a string.
+    const bare = '{"thought": "Bram said "hi" so I waved, then "kept going", fine.", "option": "work", "then": ["a"]}';
+    expect(extractJson(bare)).toEqual({ thought: 'Bram said "hi" so I waved, then "kept going", fine.', option: 'work', then: ['a'] });
+    expect(extractJson('{"thought": "one\ntwo", "option": "rest"}')).toEqual({ thought: 'one\ntwo', option: 'rest' });
+    expect(extractJson('{"a": "x \\"q\\" y", "b": [1, 2]}')).toEqual({ a: 'x "q" y', b: [1, 2] });
   });
 });
 

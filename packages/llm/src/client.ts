@@ -154,9 +154,63 @@ export function extractJson(text: string): unknown {
   } catch {
     const start = body.search(/[[{]/);
     const end = Math.max(body.lastIndexOf('}'), body.lastIndexOf(']'));
-    if (start >= 0 && end > start) return JSON.parse(body.slice(start, end + 1));
-    throw new Error('no JSON object in the reply');
+    if (start < 0 || end <= start) throw new Error('no JSON object in the reply');
+    const slice = body.slice(start, end + 1);
+    try {
+      return JSON.parse(slice);
+    } catch (err) {
+      // Quotes inside a string left bare, and line breaks: a model asked in plain wrote its thought with "so" in it.
+      try {
+        return JSON.parse(escapeStrays(slice));
+      } catch {
+        throw err;
+      }
+    }
   }
+}
+
+/**
+ * The text with quotes inside strings that do not end them escaped, and raw line breaks in strings made \\n: a quote
+ * ends a string only where what follows could follow one (a colon, a closing bracket, the end, or a comma and then
+ * what comes next where it stands: a key in an object, a value in a list).
+ */
+export function escapeStrays(json: string): string {
+  let out = '';
+  let inString = false;
+  const open: string[] = [];
+  for (let i = 0; i < json.length; i++) {
+    const c = json[i] as string;
+    if (!inString) {
+      if (c === '"') inString = true;
+      else if (c === '{' || c === '[') open.push(c);
+      else if (c === '}' || c === ']') open.pop();
+      out += c;
+      continue;
+    }
+    if (c === '\\') {
+      out += c + (json[i + 1] ?? '');
+      i++;
+      continue;
+    }
+    if (c === '\n' || c === '\r') {
+      out += c === '\n' ? '\\n' : '';
+      continue;
+    }
+    if (c !== '"') {
+      out += c;
+      continue;
+    }
+    const rest = json.slice(i + 1).trimStart();
+    const next = rest[0];
+    const after = rest.slice(1).trimStart()[0];
+    const nextUp = open.at(-1) === '[' ? /["{[\d\-tfn]/ : /"/;
+    const ends = next === undefined || next === ':' || next === '}' || next === ']' || (next === ',' && after !== undefined && nextUp.test(after));
+    if (ends) {
+      inString = false;
+      out += c;
+    } else out += '\\"';
+  }
+  return out;
 }
 
 function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
