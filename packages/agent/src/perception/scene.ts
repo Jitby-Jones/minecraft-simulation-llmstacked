@@ -20,7 +20,7 @@ import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
 import { WORN, freeSlots, toolWear } from '../body/inventory';
 import { EDIBLE } from '../body/items';
-import { besideWords, biomeAt, canSeeBlock, isEnclosed, roomAround, roomBeside, roomWords } from '../body/world';
+import { type Room, besideWords, biomeAt, canSeeBlock, isEnclosed, roomAround, roomBeside, roomWords } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -388,6 +388,17 @@ export function featuresOf(bot: Bot, hits: readonly Hit[], feet: Vec3, roofed: b
 
 // ---- Where we are --------------------------------------------------------------------------------------------------
 
+/**
+ * The ways a room one was shut in has been opened round one, where one still stands (null: it has not been): not by
+ * a door one opened, nor while one's own hands are at work (a dig of one's own way out).
+ */
+export function openedUp(wasShutAt: Vec3 | null, room: Room | null, here: Vec3, handsBusy: boolean): string[] | null {
+  if (!wasShutAt || !room || room.open.length === 0 || handsBusy || here.distanceTo(wasShutAt) > 1.5) return null;
+  const openDoors = new Set(room.doors.filter((d) => d.open).map((d) => d.way));
+  const holes = room.open.filter((way) => !openDoors.has(way));
+  return holes.length > 0 ? holes : null;
+}
+
 /** The place, as a player would put it: the world or biome, what is underfoot, the sky or a roof, the weather. */
 export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   const feet = bot.entity.position.floored();
@@ -616,6 +627,8 @@ export class SceneEyes {
   private features: SceneFeature[] = [];
   private where = '';
   private roofed = false;
+  /** Where we stood last in a room shut in on every side (null: not in one at the last look). */
+  private shutIn: Vec3 | null = null;
   private lastCreaturesAt = 0;
   private lastKey = '';
   private notices: Notice[] = [];
@@ -792,6 +805,7 @@ export class SceneEyes {
       const w = whereNow(bot);
       this.where = w.text;
       this.roofed = w.roofed;
+      this.checkRoom(now);
       const hits = [...new Map([...this.look.seen, ...this.notableInSight()].map((h) => [`${h.x},${h.y},${h.z}`, h] as const)).values()];
       this.features = featuresOf(bot, hits, bot.entity.position, this.roofed);
       this.markFirsts(seen);
@@ -980,6 +994,21 @@ export class SceneEyes {
         .map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
       if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.5));
     }
+  }
+
+  /**
+   * The room one is shut in, opened round one: seen at once, as anyone sees a wall of theirs blown out. A creeper blew
+   * a hole in one's hut at night; "inside a room, open to the north" was in the where line, and the mind went on
+   * "sealed inside" until the zombies came in. Not one's own doing (a door one opened, a dig of one's own).
+   */
+  private checkRoom(now: number): void {
+    const bot = this.o.bot;
+    const room = roomAround(bot);
+    const here = bot.entity.position;
+    const holes = openedUp(this.shutIn, room, here, this.o.handsBusy?.() ?? false);
+    this.shutIn = room !== null && room.open.length === 0 ? here.clone() : null;
+    if (!holes) return;
+    this.add({ id: `n${now.toString(36)}opened`, ts: now, kind: 'cue', about: 'the world', key: 'opened', text: `The room you are in has been opened up: it is open to the ${holes.slice(0, 2).join(' and the ')} now, where it was shut in on every side`, strength: 0.8, seenBefore: 0 });
   }
 
   private add(n: Notice | null): void {

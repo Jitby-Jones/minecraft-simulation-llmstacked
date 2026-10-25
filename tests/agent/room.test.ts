@@ -7,6 +7,7 @@ import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
 import { besideWords, daytime, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
 import { evalCondition } from '@agora/agent/modules/conditions';
+import { openedUp } from '@agora/agent/perception/scene';
 import { createInitialState } from '@agora/agent/state/initial';
 import { PersonaSchema } from '@agora/shared';
 
@@ -75,6 +76,23 @@ describe('the room one stands in', () => {
     expect(besideWords(roomBeside(open))).toBe('outside a room 2 m to the west, open to the north');
     // Out in a field, nothing.
     expect(roomBeside(world({}))).toBeNull();
+  });
+
+  it('a shut room opened up round one is seen at once; a door one opened, or a dig of one\'s own, is not that', () => {
+    const at = new Vec3(1.5, 0, 1.5);
+    const shut = roomAround(world(hut(3, null), at));
+    expect(shut?.open).toEqual([]);
+    // A creeper takes out the east wall at the feet and the head.
+    const blown = { ...hut(3, null), '3,0,1': 'air' as const, '3,1,1': 'air' as const };
+    const after = roomAround(world(blown, at));
+    expect(openedUp(at, after, at, false)).toEqual(['east']);
+    // Moved off since, or digging: not a breach seen from where one sat.
+    expect(openedUp(at, after, new Vec3(5.5, 0, 1.5), false)).toBeNull();
+    expect(openedUp(at, after, at, true)).toBeNull();
+    // The door opened (by oneself, or anyone): a door, not a hole.
+    expect(openedUp(at, roomAround(world(hut(3, 'open_door'), at)), at, false)).toBeNull();
+    // Never shut: nothing opened.
+    expect(openedUp(null, after, at, false)).toBeNull();
   });
 
   it('a cave too big to take in as a room: none', () => {

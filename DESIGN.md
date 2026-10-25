@@ -3186,6 +3186,13 @@ What changed:
     with something else dealing it (an arrow) is a shot; a player's own blow is a blow. Swings are only the guess
     where the server says nothing. And seeds go where the farmland's top is free: sown cells were picked first, and
     "nothing came of it" four times over.
+13. **A shut room opened up is seen at once.** The seed-1 solo (25) had its iron pickaxe at 15 minutes, wheat sown
+    and a hut of andesite for the second night; a creeper blew out a wall of it. The where line said "inside a room,
+    open to the north" and the change list said the andesite it had set was broken by an explosion; the mind went on
+    "sealed inside" ("it blew a hole in the ground north of my hut"), and four minutes later two zombies came in
+    through the hole. As anyone sees a wall of theirs blown out, the room one sat shut in, opened up round one, is
+    now a strong notice of its own, at once ("The room you are in has been opened up: it is open to the north now,
+    where it was shut in on every side"), not when it is a door that opened or one's own hands digging.
 
 Live:
 
@@ -3207,6 +3214,7 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| solo, seed 1 (25) | 37 min | stone tools and a sword by 6 min; iron at 13 and **an iron pickaxe at 15**; wheat sown by 28; into its andesite hut at dusk, the doorway filled behind it; a creeper blew out its wall, and it waited on "sealed inside" until zombies came in (19 to 0) | a shut room opened up is seen at once |
 | duo (29) | 14 min (Bram) | the first dusk: Bram's hut built, its doorway filled with dirt from outside, "the hut is sealed from inside"; a zombie in the night, 18 to 0 with a wooden axe | a door says which side one is on; a room seen from beside it |
 | solo, seed 2 (19) | 13 min | **house met at 9 min** (a starter hut from a design, with a door and lights, all but its bed); at dusk "step inside, close the door, wait": the walk stopped 2.6 blocks short on "until near", the door shut from outside, the night waited out beside the hut; a skeleton and a zombie | a walk ends by getting there |
 | duo (28) | 38 min (Bram) | the stranger greeted; huts; Bram's hut one across: the doorway refused twice from inside ("would place inside myself"), then a block set beside him outside it, and he waited out the night there "sealed in"; a skeleton (13 to 1), a zombie villager | a step back to fill a doorway from inside; the room seen from inside |
