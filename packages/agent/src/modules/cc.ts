@@ -1723,7 +1723,8 @@ export class CognitiveController {
     // A long wait is settled into where one stands, looked at first: one walked to his home's spot, a wall of his hut
     // by then, stopped outside it, and waited out the night there in the open until a zombie came.
     const step = meant?.steps[0];
-    const longWait = step?.skill === 'wait' && (/^(day|night|timeIs:)/.test(String(step.args?.until ?? '')) || Number(step.args?.seconds ?? 0) >= 120);
+    const waitUntil = typeof step?.args?.until === 'string' ? step.args.until : '';
+    const longWait = step?.skill === 'wait' && (/^(day|night|timeIs:)/.test(waitUntil) || Number(step.args?.seconds ?? 0) >= 120);
     const openToWait = longWait && !s.self.isDay && /under the open sky/.test(s.scene.where ?? '');
     const since = hurtSince
       ? `you have been hurt since you decided (health ${Math.round(meant?.health ?? 0)} to ${Math.round(s.self.health)})`
