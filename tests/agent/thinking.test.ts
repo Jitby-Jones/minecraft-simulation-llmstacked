@@ -573,6 +573,11 @@ describe('what it knows of the game, looked up for what matters', () => {
     const busy = { ...st, goals: { ...st.goals, current: { id: 'g', text: 'Make tools, build a house, then mine iron and diamonds', kind: 'current' as const, createdAt: 0, status: 'active' as const } } };
     const crowded = knowledgeLines(k, { ...busy, self: { ...busy.self, isDay: false, time: 14_000 }, scene: { ...busy.scene, where: 'In plains, under the open sky' } });
     expect(crowded.some((l) => l.startsWith('Night: about 8 minutes of dark'))).toBe(true);
+    // Hungry, what one knows of food comes to mind (one starving among salmon in a river never thought of cooking,
+    // fishing or going farther for animals); fed, it does not.
+    const hungry = knowledgeLines(k, { ...st, self: { ...st.self, food: 9 } });
+    expect(hungry.some((l) => l.startsWith('Food: raw meat fills little and cooked much more'))).toBe(true);
+    expect(lines.some((l) => l.startsWith('Food: raw meat'))).toBe(false);
   });
 });
 

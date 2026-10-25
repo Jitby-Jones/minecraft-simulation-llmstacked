@@ -3135,6 +3135,17 @@ What changed:
      north (the door to the north standing open)"; nothing in the open, or in a hall or cave too big to take in.
    - Long runs now keep what the mind saw at each of its own decisions, the packet and the reply
      (`data/live-test/longrun-*-packets.jsonl`), so a fatal choice can be read from inside.
+8. **Food, as a player gets it.** In ninety minutes the seed-2 solo ate one raw porkchop, a piece of rotten flesh and
+   a few salmon it chased through a river with a sword ("salmon not found", six times); its hunts found "no animal
+   within 32 m" eight times. Two things a player has were missing:
+   - A hand to fish with: `use {item: fishing_rod, on: water}` casts from the bank onto open water in sight, watches
+     the float, and pulls in when a fish bites (the bobber's `biting` flag), the catch flying to one; a cast with no
+     bite in 45 s comes back empty, and a line left out when stopped is pulled in. Live: four casts, four bites, two
+     salmon, a pufferfish and some rotten flesh in 79 s.
+   - What one knows of food coming to mind when hungry (food 14 or less, or under 18 and hurt): raw meat fills little
+     and cooked much more, animals are not replaced once killed so more are found farther off, seeds from tall grass
+     grow wheat for bread, a rod catches fish in any open water, oak leaves drop apples, rotten flesh brings on
+     hunger. Facts, as the night's are; what to do about them is the mind's.
 
 Live:
 

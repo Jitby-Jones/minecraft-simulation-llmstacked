@@ -71,6 +71,10 @@ const FACTS: readonly Fact[] = [
 /** Things about the game a player knows by heart, by what a task is about. */
 const TOPICS: readonly { about: RegExp; text: string }[] = [
   {
+    about: /\b(hungry|starving)\b/i,
+    text: 'Food: raw meat fills little and cooked much more (raw beef 3, cooked 8; a furnace and any fuel cooks it); animals live out on grassy land and are not replaced once killed, so when those about are gone more are found farther off; tall grass drops seeds now and then, and wheat from them makes bread (3 a loaf); a fishing rod (3 sticks and 2 string) catches fish in any open water; oak leaves sometimes drop apples; rotten flesh fills a little but often brings on hunger.',
+  },
+  {
     about: /\b(renewable|sustainable|steady|farm|food (source|supply)|never run out)\b/i,
     text: 'Food that keeps coming: crops planted on farmland by water grow again from their own seeds (wheat, carrots, potatoes, beetroot); animals fed their food breed (cows and sheep: wheat; pigs: carrots; chickens: seeds) and two kept fenced in give meat for good; sugar cane, melons, pumpkins and berry bushes grow back; cows give milk again and again.',
   },
@@ -321,7 +325,9 @@ export function knowledgeLines(k: GameKnowledge, s: AgentState): string[] {
   }
   // What bears on the moment first (the step at hand, the plan, where one is), then what the tasks are about.
   const hour = !s.self.isDay ? 'night' : s.self.time >= 9600 && s.self.time < 13_000 ? 'evening' : '';
-  const now = [hour, s.goals.current?.text ?? '', s.goals.plan?.aim ?? '', s.scene.where].join('. ');
+  // Hunger is on one's mind as the hour is: under the 18 that healing needs, or hurt with nothing to heal on.
+  const hungry = s.self.food <= 14 || (s.self.food < 18 && s.self.health <= 14) ? 'hungry' : '';
+  const now = [hour, hungry, s.goals.current?.text ?? '', s.goals.plan?.aim ?? '', s.scene.where].join('. ');
   const tasks = (s.goals.tasks ?? []).filter((t) => t.status === 'open').map((t) => t.text).join('. ');
   for (const t of [...new Set([...k.topics(now), ...k.topics(tasks)])].slice(0, 3)) lines.push(t);
   return lines;

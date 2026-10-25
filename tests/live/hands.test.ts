@@ -731,6 +731,22 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(whereNow(body.bot).text).toContain('walled in on every side');
   }, 180_000);
 
+  it('a rod on a pond: cast from the bank, pulled in when a fish bites, and the catch in hand', async () => {
+    const x = 6300;
+    await at(x, 0);
+    // A pond seven across and three deep, its surface level with the ground, a step east of where she stands.
+    await server.cmd(`fill ${x + 2} ${Y - 3} -3 ${x + 8} ${Y - 1} 3 water`);
+    await server.cmd('give Ada minecraft:fishing_rod 1');
+    await sleep(1500);
+    const started = Date.now();
+    const r = await run('use', { item: 'fishing_rod', on: 'water', times: 4 });
+    logger.info({ r, ms: Date.now() - started, rod: countItem(body.bot, 'fishing_rod'), bobbers: Object.values(body.bot.entities).filter((e) => e.name === 'fishing_bobber').length }, 'fishing');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/bite/);
+    // The line pulled in: no bobber left out on the water.
+    expect(Object.values(body.bot.entities).some((e) => e.name === 'fishing_bobber')).toBe(false);
+  }, 300_000);
+
   it('walks in through a door and shuts it behind (two agents sat "sealed in" outside a hut whose door was left open)', async () => {
     const x = 6700;
     await at(x, 0);

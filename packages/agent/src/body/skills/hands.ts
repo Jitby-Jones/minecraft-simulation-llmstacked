@@ -12,7 +12,7 @@ import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import { describeDiff, diffInventory, markThrown, snapshotInventory } from '../inventory';
 import { itemMatcher, normalizeBlockName, normalizeItemName } from '../items';
-import { canSee, canSeeBlock } from '../world';
+import { biting, canSee, canSeeBlock } from '../world';
 import { stopCollecting } from './gathering';
 import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
@@ -200,7 +200,7 @@ function changed(was: Block, now: Block): string {
 export const use = defineSkill({
   name: 'use',
   description:
-    'use {item?, on, times?, x?,y?,z?} — right-click with an item (or what you hold) on a creature or a block, as a player does: shears on a sheep, wheat on a cow, a bucket on a cow or on water, seeds or bone meal on farmland or a crop, a hoe on dirt, flint and steel on obsidian, a door or a gate to open it; on: what (a creature or block name; with x,y,z that block); times: that many of them, nearest first',
+    'use {item?, on, times?, x?,y?,z?} — right-click with an item (or what you hold) on a creature or a block, as a player does: shears on a sheep, wheat on a cow, a bucket on a cow or on water, seeds or bone meal on farmland or a crop, a hoe on dirt, flint and steel on obsidian, a door or a gate to open it, a fishing rod on water (cast, and pulled in when a fish bites); on: what (a creature or block name; with x,y,z that block); times: that many of them, nearest first',
   argsSchema: z.object({
     item: z.string().min(1).optional(),
     on: z.string().min(1),
@@ -218,6 +218,9 @@ export const use = defineSkill({
     if (args.item && !heldOne(bot, args.item)) return { ok: false, observed: `no ${args.item} on you`, error: `you have no ${normalizeItemName(args.item)}` };
     await stopCollecting(bot);
     const at = [args.x, args.y, args.z].every((n) => typeof n === 'number' && Number.isFinite(n)) ? new Vec3(Math.floor(args.x as number), Math.floor(args.y as number), Math.floor(args.z as number)) : null;
+    // A rod on water: cast, and pull in when a fish bites, as a player fishes.
+    const rod = args.item ? normalizeItemName(args.item) === 'fishing_rod' : bot.heldItem?.name === 'fishing_rod';
+    if (rod && normalizeBlockName(args.on) === 'water') return await fish(ctx, args.times, at);
     const kind = at ? null : entityKind(bot, args.on);
     const changes: string[] = [];
     let done = 0;
@@ -284,6 +287,83 @@ export const use = defineSkill({
     return happened ? { ok: true, observed } : { ok: false, observed, error: 'nothing came of it' };
   },
 });
+
+/** The longest a cast is left out for a bite (one comes within half a minute, as a rule). */
+const BITE_MS = 45_000;
+
+/** Water to cast onto: in sight, open to the sky over it, the nearest first (null: none). */
+function openWater(bot: Bot): Block | null {
+  const id = bot.registry.blocksByName.water?.id;
+  if (id === undefined) return null;
+  for (const p of bot.findBlocks({ matching: id, maxDistance: 16, count: 96 })) {
+    const above = bot.blockAt(p.offset(0, 1, 0));
+    if (!above || above.boundingBox !== 'empty' || above.name === 'water') continue;
+    if (bot.entity.position.distanceTo(p) < 2 || !canSeeBlock(bot, p, 17)) continue;
+    const b = bot.blockAt(p);
+    if (b) return b;
+  }
+  return null;
+}
+
+/** Our line's bobber, out on the water (null: none out). */
+function bobberOut(bot: Bot, not: ReadonlySet<number> = new Set()): Entity | null {
+  return Object.values(bot.entities).find((e) => e.name === 'fishing_bobber' && !not.has(e.id) && e.position.distanceTo(bot.entity.position) < 32) ?? null;
+}
+
+/**
+ * Fishing, as a player does it: from the bank, the rod in hand, cast onto the water; when the float is pulled under,
+ * pull in, and the catch flies to one. `times` casts; a cast with no bite in 45 s is pulled in empty.
+ */
+async function fish(ctx: SkillContext, times: number, at: Vec3 | null): Promise<{ ok: boolean; observed: string; error?: string }> {
+  const { bot } = ctx;
+  if (!heldOne(bot, 'fishing_rod')) return { ok: false, observed: 'no fishing rod on you', error: 'you have no fishing_rod (3 sticks and 2 string make one)' };
+  const water = at ? bot.blockAt(at) : openWater(bot);
+  if (water?.name !== 'water') return { ok: false, observed: 'no water to fish in', error: 'no open water in sight to cast onto' };
+  if (bot.entity.position.distanceTo(water.position) > 6) await walkNear(ctx, water.position, 4, 30_000);
+  const before = snapshotInventory(bot);
+  let casts = 0;
+  let bites = 0;
+  try {
+    for (let i = 0; i < times; i++) {
+      throwIfAborted(ctx.signal);
+      await hold(bot, 'fishing_rod');
+      const old = bobberOut(bot);
+      if (old) {
+        bot.activateItem();
+        await waitMs(ctx, 400);
+      }
+      const had = new Set(Object.values(bot.entities).filter((e) => e.name === 'fishing_bobber').map((e) => e.id));
+      await bot.lookAt(water.position.offset(0.5, 1.2, 0.5), true);
+      bot.activateItem();
+      casts++;
+      let bobber: Entity | null = null;
+      for (let k = 0; k < 20 && !bobber; k++) {
+        await waitMs(ctx, 100);
+        bobber = bobberOut(bot, had);
+      }
+      if (!bobber) continue;
+      const end = Date.now() + BITE_MS;
+      let bit = false;
+      while (!bit && Date.now() < end && bot.entities[bobber.id]) {
+        await waitMs(ctx, 50);
+        bit = biting(bot, bobber);
+      }
+      // Pulled in: on a bite the catch flies to us; otherwise only the line comes back.
+      if (bot.entities[bobber.id]) bot.activateItem();
+      if (bit) bites++;
+      await waitMs(ctx, bit ? 1500 : 400);
+    }
+  } catch (err) {
+    // Stopped with the line out: it is pulled in.
+    if (bobberOut(bot) && bot.heldItem?.name === 'fishing_rod') bot.activateItem();
+    if (err instanceof SkillAbortedError) throw err;
+    return { ok: false, observed: `cast ${casts} time(s)`, error: errMsg(err) };
+  }
+  const caught = [...diffInventory(before, snapshotInventory(bot)).values()].filter((n) => n > 0).length > 0;
+  const observed = `cast ${casts} time(s), ${bites === 0 ? 'no bite' : `${bites} bite(s)`}`;
+  if (caught) return { ok: true, observed };
+  return { ok: false, observed, error: casts === 0 ? 'could not cast' : bites === 0 ? `no fish bit in ${Math.round(BITE_MS / 1000)} s a cast` : 'pulled in, but nothing came' };
+}
 
 /** The nearest block of these kinds in sight and reach of a walk, not used yet this run. */
 function pickBlock(bot: Bot, ids: readonly number[], used: ReadonlySet<string>): Block | null {
