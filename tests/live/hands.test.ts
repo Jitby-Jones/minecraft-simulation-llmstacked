@@ -10,7 +10,8 @@ import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { countItem } from '@agora/agent/body/inventory';
 import { underTheSky } from '@agora/agent/body/skills/digging';
-import { isIndoors, isSolid } from '@agora/agent/body/world';
+import { isIndoors, isSolid, roomAround, roomWords } from '@agora/agent/body/world';
+import { whereNow } from '@agora/agent/perception/scene';
 import { DEEP_GROUND_Y, type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
 const versions = loadVersionsConfig();
@@ -702,6 +703,33 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(countItem(body.bot, 'torch')).toBe(8);
     expect(r.observed).toMatch(/crafted 8 torch; short of 4 coal for all 24/);
   }, 120_000);
+
+  it("in a hut one across, a hair over the doorway's edge: the doorway is filled from inside, and the room is walled in (one refused twice went out to wait the night beside it)", async () => {
+    const x = 6180;
+    await at(x, 0);
+    await server.cmd('give Ada minecraft:dirt 40');
+    await sleep(1500);
+    const r = await run('build', { structure: 'hut', room: 1 });
+    logger.info({ r }, 'a hut one across');
+    expect(r.ok).toBe(true);
+    const m = /its room inside at (-?\d+),(-?\d+),(-?\d+), its doorway at (-?\d+),(-?\d+),(-?\d+) open/.exec(r.observed);
+    expect(m).not.toBeNull();
+    const room = new Vec3(Number(m?.[1]), Number(m?.[2]), Number(m?.[3]));
+    const doorway = new Vec3(Number(m?.[4]), Number(m?.[5]), Number(m?.[6]));
+    await run('goTo', { x: room.x, y: room.y, z: room.z, range: 0 });
+    // Standing in the room, over the doorway's edge.
+    const d = doorway.minus(room);
+    await server.cmd(`tp Ada ${room.x + 0.5 + d.x * 0.3} ${room.y} ${room.z + 0.5 + d.z * 0.3}`);
+    await sleep(1500);
+    expect(roomWords(roomAround(body.bot))).toMatch(/^walled in but open to the/);
+    const p = await run('place', { block: 'dirt', x: doorway.x, y: doorway.y, z: doorway.z });
+    await sleep(1000);
+    logger.info({ p, at: body.bot.entity.position.toString(), where: whereNow(body.bot).text }, 'the doorway filled from inside');
+    expect(p.ok).toBe(true);
+    expect(body.bot.blockAt(doorway)?.name).toBe('dirt');
+    expect(body.bot.entity.position.floored().equals(room)).toBe(true);
+    expect(whereNow(body.bot).text).toContain('walled in on every side');
+  }, 180_000);
 
   it('walks in through a door and shuts it behind (two agents sat "sealed in" outside a hut whose door was left open)', async () => {
     const x = 6700;

@@ -664,6 +664,8 @@ export interface Intention {
   underFire?: boolean;
   /** Our health when it was meant: hurt badly since, the steps wait for a thought. */
   health?: number;
+  /** Whether it was night when it was meant: night fallen since, the steps wait for a thought. */
+  night?: boolean;
 }
 
 /** A place the agent saw something worth coming back to (a herd of sheep, ore in a cliff, a building): its map memory. */

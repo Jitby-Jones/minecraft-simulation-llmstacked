@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import { Vec3 } from 'vec3';
-import { audibleHostiles, findEntity, isAirLike, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
+import { audibleHostiles, daytime, findEntity, isAirLike, isSolid, lookAway, nearbyHostiles, wetAt } from '../world';
 import { isCover, referenceFor } from './building';
 import { abortable, errMsg, goals, gotoNear, stopMotion, throwIfAborted, upTo, waitMs, withTimeout } from './util';
 import { SkillAbortedError, type SkillContext, defineSkill } from './types';
@@ -495,7 +495,7 @@ const WAIT_MOST_S = 600;
 export const wait = defineSkill({
   name: 'wait',
   description:
-    'wait {seconds?, until?} — stand still (also "stay"); until: day (the sun up), healed (health full again: it only comes back with food at 18 or more), quiet (no monster to be heard nearby); ten minutes at most',
+    'wait {seconds?, until?} — stand still (also "stay"); until: day (daytime: in the evening, the next morning), healed (health full again: it only comes back with food at 18 or more), quiet (no monster to be heard nearby); ten minutes at most',
   argsSchema: z.object({ seconds: upTo(1, WAIT_MOST_S).optional(), until: z.preprocess(untilWord, z.enum(['day', 'healed', 'quiet']).optional()) }),
   talkOverable: true,
   slipKinds: [],
@@ -507,8 +507,9 @@ export const wait = defineSkill({
     const end = began + seconds * 1000;
     const waited = () => `${Math.round((Date.now() - began) / 1000)}s`;
     const came = (): string | null => {
-      // The sun up: from sunrise to dusk (waited for at dusk, it is night coming, not day).
-      if (args.until === 'day') return bot.time.timeOfDay < 12000 ? 'it is day' : null;
+      // Daytime as it is felt (the packet's "daytime"): first light until the evening. Waited for in the evening, it
+      // is the next morning: "it is day" at dusk sent an agent at 8 health down a mine with the night coming on.
+      if (args.until === 'day') return daytime(bot.time.timeOfDay) ? 'it is day' : null;
       if (args.until === 'healed') return bot.health >= 20 ? `health full (${Math.round(bot.health)})` : null;
       if (args.until === 'quiet') return audibleHostiles(bot, 16).length === 0 ? 'no monster to be heard nearby' : null;
       return null;

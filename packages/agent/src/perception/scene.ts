@@ -20,7 +20,7 @@ import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
 import { WORN, freeSlots, toolWear } from '../body/inventory';
 import { EDIBLE } from '../body/items';
-import { biomeAt, canSeeBlock, isEnclosed } from '../body/world';
+import { biomeAt, canSeeBlock, isEnclosed, roomAround, roomWords } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -414,7 +414,10 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   if (roof === null) parts.push(dim === 'overworld' ? 'under the open sky' : 'nothing overhead');
   else if (sky === 0 && roof > 2) parts.push(`underground, the ceiling ${roof} m up`);
   else parts.push(roof <= 4 ? 'under a roof' : `something overhead ${roof} m up`);
-  if (isEnclosed(bot)) parts.push('walled in');
+  // The room one is in, as seen from inside: shut in, or which way it opens out.
+  const room = roomWords(roomAround(bot));
+  if (room) parts.push(room);
+  else if (isEnclosed(bot)) parts.push('walled in');
   if (dim === 'overworld') {
     if ((bot as unknown as { thunderState?: number }).thunderState) parts.push('a thunderstorm');
     else if (bot.isRaining) parts.push('raining');

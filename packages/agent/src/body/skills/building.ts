@@ -6,6 +6,7 @@ import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
 import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findEntity, findPlaceableSpot, isAirLike, isNight, isSolid, nearbyHostiles, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
+import { countItem } from '../inventory';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
@@ -145,6 +146,13 @@ function bedSpot(bot: Bot): Vec3 | null {
 async function stepClear(ctx: SkillContext, cells: readonly Vec3[]): Promise<void> {
   const { bot } = ctx;
   const feet = bot.entity.position.floored();
+  // Only over its edge from a cell of one's own: back into the middle of that one, as a player steps back from a
+  // doorway to fill it. In a hut's room one across there is nowhere else to step, and a block for the doorway was
+  // refused twice before its builder went out to wait the night beside it.
+  if (!cells.some((c) => c.x === feet.x && c.z === feet.z)) {
+    await centerOnBlock(ctx);
+    if (!cells.some((c) => overlapsCell(bot.entity, c))) return;
+  }
   const from = cells[0] ?? feet;
   const spots = SIDE_CELLS.map((d) => feet.plus(d))
     .filter((p) => !cells.some((c) => c.x === p.x && c.z === p.z) && isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0))))
@@ -271,13 +279,13 @@ export const place = defineSkill({
   }),
   talkOverable: false,
   slipKinds: [],
-  // Toward something, the skill says what came of it (a lid already over one's head uses no block).
+  // Toward something, or at a spot of its own choosing, the skill says what came of it, by the block it finds there
+  // (a lid already over one's head uses no block; one set down just after a dig is made up for in the pockets by what
+  // the dig dropped, and "-0 cobblestone" read as a failure: "a glitching cobble place").
   expect: (args) =>
-    args.toward
-      ? { kind: 'none' }
-      : args.x !== undefined && args.y !== undefined && args.z !== undefined
-        ? { kind: 'blockAt', pos: new Vec3(args.x, args.y, args.z), block: blockMatcher(args.block).label }
-        : { kind: 'inventoryLoss', item: itemMatcher(args.block).label, atLeast: 1 },
+    args.x !== undefined && args.y !== undefined && args.z !== undefined && !args.toward
+      ? { kind: 'blockAt', pos: new Vec3(args.x, args.y, args.z), block: blockMatcher(args.block).label }
+      : { kind: 'none' },
   async run(ctx, args) {
     const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
     // Toward, with a spot as well: the way meant goes first (a spot worked out under fire put a wall to one side of a
@@ -289,25 +297,46 @@ export const place = defineSkill({
         return isSolid(over) ? { ok: true, observed: `there is ${over?.name.replace(/_/g, ' ') ?? 'a block'} over your head already` } : { ok: false, observed: 'nowhere to put it over your head', error: `the cell over your head is ${over?.name.replace(/_/g, ' ') ?? 'not loaded'}` };
       }
       if (!beside) return { ok: false, observed: `nowhere to put it toward ${args.toward}`, error: whyNotToward(ctx.bot, args.toward) };
+      const had = countItem(ctx.bot, itemMatcher(args.block));
       try {
         await placeItemAt(ctx, args.block, beside);
       } catch (err) {
         if (err instanceof SkillAbortedError) throw err;
         return { ok: false, observed: `could not place at ${beside.toString()}`, error: errMsg(err) };
       }
+      if (!(await setThere(ctx, beside, args.block, had))) return { ok: false, observed: `nothing came to be at ${beside.x},${beside.y},${beside.z}`, error: 'the block did not stay' };
       return { ok: true, observed: `placed ${args.block} at ${beside.x},${beside.y},${beside.z}, beside you toward ${args.toward}` };
     }
     const target = at ? new Vec3(Math.floor(args.x ?? 0), Math.floor(args.y ?? 0), Math.floor(args.z ?? 0)) : await spotOrNotch(ctx, itemMatcher(args.block).label);
     if (!target) return { ok: false, observed: 'no free spot', error: 'no free spot to place a block nearby' };
+    const had = countItem(ctx.bot, itemMatcher(args.block));
     try {
       await placeItemAt(ctx, args.block, target);
     } catch (err) {
       if (err instanceof SkillAbortedError) throw err;
       return { ok: false, observed: `could not place at ${target.toString()}`, error: errMsg(err) };
     }
+    if (!at && !(await setThere(ctx, target, args.block, had))) return { ok: false, observed: `nothing came to be at ${target.x},${target.y},${target.z}`, error: 'the block did not stay' };
     return { ok: true, observed: `placed ${args.block} at ${target.x},${target.y},${target.z}` };
   },
 });
+
+/**
+ * A block set down is there, as the world shows it within a moment (the server's word can trail the hand's); then a
+ * moment more for the rest of the server's word on it (a bed's head, the one spent from the pockets), unless a pickup
+ * in the same moment makes up for it there.
+ */
+async function setThere(ctx: SkillContext, at: Vec3, item: string, had: number): Promise<boolean> {
+  const there = () => {
+    const b = ctx.bot.blockAt(at);
+    return Boolean(b && !placeableInto(b) && b.name !== 'water' && b.name !== 'lava');
+  };
+  for (let i = 0; i < 15 && !there(); i++) await waitMs(ctx, 100);
+  if (!there()) return false;
+  const m = itemMatcher(item);
+  for (let i = 0; i < 10 && countItem(ctx.bot, m) >= had; i++) await waitMs(ctx, 100);
+  return true;
+}
 
 /** A shelter broken open while we waited in it: what the mind is told. */
 function breached(hole: string): { ok: false; observed: string; error: string } {

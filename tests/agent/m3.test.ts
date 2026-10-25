@@ -548,8 +548,9 @@ describe('a look up from long work', () => {
   }, 15_000);
 });
 
-describe('badly hurt since the steps were meant', () => {
-  it('they wait for a thought: nobody goes on to gather logs at one heart without one', async () => {
+describe('the world changed since the steps were meant', () => {
+  /** A walk away meant with wood to gather after it; `change` happens on the way. What was decided, and what asked. */
+  async function stepsAfter(change: (s: ReturnType<typeof store>) => void): Promise<{ decided: string[]; asked: string[] }> {
     const fake = new FakeNanoGpt(standardModels());
     const asked: string[] = [];
     fake.chat = ({ body }) => {
@@ -576,19 +577,35 @@ describe('badly hurt since the steps were meant', () => {
     const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
     const decided: string[] = [];
     bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
-    s.update('self', (x) => ({ ...x, health: 18 }));
+    s.update('self', (x) => ({ ...x, health: 18, isDay: true }));
     cc.start();
     cc.trigger('testing', { urgent: true });
     for (let i = 0; i < 80 && !finish.has('goTo'); i++) await wait(25);
-    // Hit on the way: 18 to 5.
-    s.update('self', (x) => ({ ...x, health: 5 }));
+    change(s);
     finish.get('goTo')?.();
     for (let i = 0; i < 80 && decided.length < 2; i++) await wait(25);
     cc.stop();
     executor.stop();
+    return { decided, asked };
+  }
+
+  it('badly hurt: the steps wait for a thought (nobody goes on to gather logs at one heart without one)', async () => {
+    const { decided, asked } = await stepsAfter((s) => s.update('self', (x) => ({ ...x, health: 5 })));
     expect(decided[1]).toBe('llm:goTo');
     expect(decided).not.toContain('intention:gather');
     expect(asked.at(-1)).toMatch(/you meant to gather next, but you have been hurt since you decided \(health 18 to 5\)/);
+  }, 15_000);
+
+  it('night come on: the steps wait for a thought', async () => {
+    const { decided, asked } = await stepsAfter((s) => s.update('self', (x) => ({ ...x, isDay: false, time: 14_000 })));
+    expect(decided[1]).toBe('llm:goTo');
+    expect(decided).not.toContain('intention:gather');
+    expect(asked.at(-1)).toMatch(/you meant to gather next, but night has fallen since you decided/);
+  }, 15_000);
+
+  it('a little hurt, still day: on to the next step', async () => {
+    const { decided } = await stepsAfter((s) => s.update('self', (x) => ({ ...x, health: 15 })));
+    expect(decided[1]).toBe('intention:gather');
   }, 15_000);
 });
 

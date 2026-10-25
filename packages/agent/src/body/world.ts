@@ -58,6 +58,13 @@ export function hissing(bot: Bot, e: Entity): boolean {
   return swell === 1 || md?.[keys.indexOf('is_ignited')] === true;
 }
 
+/** A fishing line's bobber pulled under: a fish has bitten (its `biting` flag, as the float dips for a player). */
+export function biting(bot: Bot, e: Entity): boolean {
+  const keys = (bot.registry.entitiesByName[e.name ?? ''] as unknown as { metadataKeys?: string[] } | undefined)?.metadataKeys ?? [];
+  const i = keys.indexOf('biting');
+  return i >= 0 && (e.metadata as unknown[] | undefined)?.[i] === true;
+}
+
 export function isPlayer(e: Entity): boolean {
   return e.type === 'player';
 }
@@ -336,6 +343,15 @@ export function wallsAround(bot: Bot, feet: Vec3 = bot.entity.position.floored()
   return SIDES.every((s) => isSolid(bot.blockAt(feet.plus(s))) && isSolid(bot.blockAt(feet.plus(s).offset(0, 1, 0))));
 }
 
+/**
+ * Daytime as it is felt, the packet's "daytime" (bottleneck's dayPart): from first light (23000 of the day's 24000
+ * ticks) until the evening begins (9600). Waited for in the evening, it is the next morning.
+ */
+export function daytime(timeOfDay: number): boolean {
+  const t = ((timeOfDay % 24000) + 24000) % 24000;
+  return t > 23000 || t < 9600;
+}
+
 /** Walled in and covered: nothing can walk up to us (§4.5 night shelter). */
 export function isEnclosed(bot: Bot, feet: Vec3 = bot.entity.position.floored()): boolean {
   return wallsAround(bot, feet) && isSolid(bot.blockAt(feet.offset(0, 2, 0)));
@@ -351,6 +367,86 @@ export function isIndoors(bot: Bot, feet: Vec3 = bot.entity.position.floored()):
 }
 
 const COMPASS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'] as const;
+
+/** The way from one cell to another, by the compass. */
+function wayTo(from: Vec3, to: Vec3): string {
+  return COMPASS[(Math.round(Math.atan2(to.z - from.z, to.x - from.x) / (Math.PI / 4)) + 8) % 8] ?? 'east';
+}
+
+/** A room as one standing in it sees it: how many cells across its floor, which ways it opens out, its doors. */
+export interface Room {
+  cells: number;
+  /** The ways out to the open sky, from where one stands (an open door among them). */
+  open: string[];
+  /** Doors in its walls: the way to each, and whether it stands open. */
+  doors: { way: string; open: boolean }[];
+}
+
+/** Bigger than this, or reaching farther, it is a hall or a cave: not a room around one. */
+const ROOM_MOST = 36;
+const ROOM_REACH = 5;
+
+/**
+ * The room one stands in, as a player sees it from inside: the floor at one's own level that can be walked to under a
+ * roof, its walls, where it opens out under the sky, its doors (null: under the open sky, or in a hall or a cave too
+ * big to take in as a room). A builder who could not fill his hut's doorway went out beside it and waited out the
+ * night there, believing himself sealed in.
+ */
+export function roomAround(bot: Bot, feet: Vec3 = bot.entity.position.floored()): Room | null {
+  const roofed = (c: Vec3): boolean => {
+    for (let dy = 2; dy <= 5; dy++) {
+      const b = bot.blockAt(c.offset(0, dy, 0));
+      if (!b) return false;
+      if (isSolid(b)) return true;
+    }
+    return false;
+  };
+  if (!roofed(feet)) return null;
+  const key = (c: Vec3) => `${c.x},${c.z}`;
+  const seen = new Set([key(feet)]);
+  const queue = [feet];
+  const open = new Set<string>();
+  const doors = new Map<string, { way: string; open: boolean }>();
+  let cells = 0;
+  for (let c = queue.shift(); c; c = queue.shift()) {
+    if (++cells > ROOM_MOST) return null;
+    for (const d of SIDES) {
+      const n = c.plus(d);
+      if (seen.has(key(n))) continue;
+      const lo = bot.blockAt(n);
+      const hi = bot.blockAt(n.offset(0, 1, 0));
+      if (!lo || !hi) continue;
+      if (/_door$/.test(lo.name)) {
+        seen.add(key(n));
+        const isOpen = (lo.getProperties?.() as { open?: boolean } | undefined)?.open === true;
+        doors.set(key(n), { way: wayTo(feet, n), open: isOpen });
+        if (isOpen && !roofed(n.plus(d))) open.add(wayTo(feet, n));
+        continue;
+      }
+      if (isSolid(lo) || isSolid(hi) || lo.name === 'lava') continue;
+      seen.add(key(n));
+      if (Math.max(Math.abs(n.x - feet.x), Math.abs(n.z - feet.z)) > ROOM_REACH) return null;
+      if (!roofed(n)) {
+        open.add(wayTo(feet, n));
+        continue;
+      }
+      queue.push(n);
+    }
+  }
+  return { cells, open: [...open], doors: [...doors.values()] };
+}
+
+/** A room in words, for where one is ("inside a room, open to the north"; null: not in one). */
+export function roomWords(r: Room | null): string | null {
+  if (!r) return null;
+  const small = r.cells <= 3;
+  const shut = r.doors.filter((d) => !d.open).map((d) => `a door to the ${d.way}, shut`);
+  if (r.open.length === 0) return `${small ? 'walled in on every side' : 'inside a room, shut in on every side'}${shut.length > 0 ? ` (${shut.join('; ')})` : ''}`;
+  const ways = r.open.slice(0, 3);
+  const openDoors = r.doors.filter((d) => d.open).map((d) => d.way);
+  const out = `open to the ${ways.join(' and the ')}${openDoors.length > 0 ? ` (the door to the ${openDoors.join(' and the ')} standing open)` : ''}`;
+  return `${small ? 'walled in but' : 'inside a room,'} ${out}`;
+}
 
 /** Where a block is from where one stands, in words ("beside you to the north, at head height", "3 m to the east"). */
 export function whereFrom(feet: { x: number; y: number; z: number }, p: { x: number; y: number; z: number }): string {

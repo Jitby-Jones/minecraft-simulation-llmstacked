@@ -1,0 +1,94 @@
+// The room one stands in, seen from inside (a builder who could not fill his hut's doorway waited out the night beside
+// it, believing himself sealed in), and the day as it is felt (in the evening, "until day" is the next morning). A tiny
+// voxel world stands in for the client's: ground below y = 0.
+
+import { describe, expect, it } from 'vitest';
+import type { Bot } from '@agora/agent/body/bot';
+import { Vec3 } from '@agora/agent/body/bot';
+import { daytime, roomAround, roomWords } from '@agora/agent/body/world';
+import { evalCondition } from '@agora/agent/modules/conditions';
+import { createInitialState } from '@agora/agent/state/initial';
+import { PersonaSchema } from '@agora/shared';
+
+type Cell = 'solid' | 'air' | 'door' | 'open_door';
+
+function world(cells: Record<string, Cell>, at = new Vec3(0.5, 0, 0.5)): Bot {
+  const cell = (p: Vec3): Cell => cells[`${p.x},${p.y},${p.z}`] ?? (p.y < 0 ? 'solid' : 'air');
+  const blockAt = (p: Vec3) => {
+    const f = p.floored();
+    const c = cell(f);
+    if (c === 'door' || c === 'open_door') return { position: f, name: 'oak_door', boundingBox: 'block', getProperties: () => ({ open: c === 'open_door' }) };
+    return { position: f, name: c === 'solid' ? 'cobblestone' : 'air', boundingBox: c === 'solid' ? 'block' : 'empty', getProperties: () => ({}) };
+  };
+  return { entity: { position: at }, blockAt } as unknown as Bot;
+}
+
+/** A hut: walls two high around a room `w` across (its corner at 0,0), a roof over it all, a gap or door in the north wall. */
+function hut(w: number, door: Cell | null): Record<string, Cell> {
+  const out: Record<string, Cell> = {};
+  for (let x = -1; x <= w; x++) {
+    for (let z = -1; z <= w; z++) {
+      out[`${x},2,${z}`] = 'solid';
+      const wall = x === -1 || x === w || z === -1 || z === w;
+      for (const y of [0, 1]) out[`${x},${y},${z}`] = wall ? 'solid' : 'air';
+    }
+  }
+  const mid = Math.floor((w - 1) / 2);
+  if (door === 'door' || door === 'open_door') {
+    out[`${mid},0,-1`] = door;
+    out[`${mid},1,-1`] = door;
+  } else if (door === 'air') {
+    out[`${mid},0,-1`] = 'air';
+    out[`${mid},1,-1`] = 'air';
+  }
+  return out;
+}
+
+describe('the room one stands in', () => {
+  it('a hut one across with its doorway open: walled in but open to the north', () => {
+    const r = roomAround(world(hut(1, 'air')));
+    expect(r?.open).toEqual(['north']);
+    expect(roomWords(r)).toBe('walled in but open to the north');
+  });
+
+  it('the doorway filled: walled in on every side', () => {
+    expect(roomWords(roomAround(world(hut(1, null))))).toBe('walled in on every side');
+  });
+
+  it('a room three across with its door shut, and with it open', () => {
+    const shut = roomAround(world(hut(3, 'door'), new Vec3(1.5, 0, 1.5)));
+    expect(shut?.cells).toBe(9);
+    expect(roomWords(shut)).toBe('inside a room, shut in on every side (a door to the north, shut)');
+    const open = roomAround(world(hut(3, 'open_door'), new Vec3(1.5, 0, 1.5)));
+    expect(roomWords(open)).toBe('inside a room, open to the north (the door to the north standing open)');
+  });
+
+  it('outside the hut, beside its wall: no room', () => {
+    expect(roomAround(world(hut(1, 'air'), new Vec3(3.5, 0, 0.5)))).toBeNull();
+  });
+
+  it('a cave too big to take in as a room: none', () => {
+    const cave: Record<string, Cell> = {};
+    for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) cave[`${x},4,${z}`] = 'solid';
+    expect(roomAround(world(cave))).toBeNull();
+  });
+});
+
+describe('the day as it is felt', () => {
+  it('daytime runs from first light to the evening', () => {
+    expect(daytime(1000)).toBe(true);
+    expect(daytime(9000)).toBe(true);
+    expect(daytime(10_000)).toBe(false);
+    expect(daytime(13_000)).toBe(false);
+    expect(daytime(22_000)).toBe(false);
+    expect(daytime(23_500)).toBe(true);
+    expect(daytime(24_000 * 3 + 500)).toBe(true);
+  });
+
+  it('in the evening, "until day" is the next morning', () => {
+    const s = createInitialState({ persona: PersonaSchema.parse({ name: 'Ada', sex: 'female', traits: ['practical'] }), username: 'Ada', now: 0 });
+    const evening = { ...s, self: { ...s.self, isDay: true, time: 10_500 } };
+    expect(evalCondition('timeIs:day', evening)).toBe(false);
+    expect(evalCondition('timeIs:day', { ...s, self: { ...s.self, isDay: true, time: 3000 } })).toBe(true);
+  });
+});

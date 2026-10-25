@@ -12,6 +12,7 @@
 import type { AgentState } from '@agora/shared';
 import { isVillageKind, villageWorkDone } from '../social/village';
 import { anyWood } from './itemTasks';
+import { daytime } from '../body/world';
 
 /** What can be eaten (inventoryHas:food). */
 const FOOD = /^(bread|apple|golden_apple|cooked_\w+|beef|porkchop|mutton|chicken|rabbit|cod|salmon|carrot|golden_carrot|baked_potato|potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie|pumpkin_pie|mushroom_stew|rabbit_stew|beetroot_soup|dried_kelp)$/;
@@ -55,7 +56,8 @@ export function evalCondition(cond: string, state: AgentState, speechRange = 15,
   m = /^agentLeftRange:([A-Za-z0-9_]{1,16})$/.exec(c);
   if (m?.[1]) return !inRange(state, m[1], speechRange);
   m = /^timeIs:(day|night)$/i.exec(c);
-  if (m?.[1]) return m[1].toLowerCase() === 'day' ? state.self.isDay : !state.self.isDay;
+  // Day as it is felt: in the evening, "until day" is the next morning (wait's own "day").
+  if (m?.[1]) return m[1].toLowerCase() === 'day' ? daytime(state.self.time) : !state.self.isDay;
   m = /^(healthAbove|foodAbove):(\d+(?:\.\d+)?)$/.exec(c);
   if (m?.[1] && m[2]) return (m[1] === 'healthAbove' ? state.self.health : state.self.food) > Number(m[2]);
   m = /^villageWork:([a-z]+)$/.exec(c);

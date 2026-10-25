@@ -41,6 +41,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
   let server: LiveServer | null = null;
   const name = `longrun-${variant ?? 'none'}-${seed}`;
   const outFile = path.join(repoRoot(), 'data', 'live-test', `${name}.json`);
+  const packetFile = path.join(repoRoot(), 'data', 'live-test', `${name}-packets.jsonl`);
   const logger: Logger = createLogger({ name, logDir: path.join(repoRoot(), 'data', 'live-test', `${name}-agents`), console: process.env.AGORA_DEBUG === '1' });
 
   afterAll(async () => {
@@ -72,6 +73,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
             ];
       const bodies: Body[] = [];
       const agents: Agent[] = [];
+      fs.rmSync(packetFile, { force: true });
       // Each one's lines carry its name (two in one log could not be told apart).
       const logOf = (name: string) => logger.child({ persona: name });
       for (const p of people) {
@@ -100,6 +102,14 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           ...(cfg.mind.timeoutMs ? { mindTimeoutMs: cfg.mind.timeoutMs } : {}),
         });
         agents.push(agent);
+        // What the mind saw at each of its own decisions, to read a fatal choice from the inside: the packet and the
+        // reply, one line each (beside the report; data/ is not kept in git).
+        agent.bus.on('decision', (e) => {
+          const ex = agent.cc.lastExchange;
+          if (e.decision.source !== 'llm' || !ex) return;
+          const line = { at: ex.at, who: p.name, reason: ex.reason, packet: ex.packet, reply: ex.replies.at(-1)?.text ?? '' };
+          fs.appendFile(packetFile, `${JSON.stringify(line)}\n`, () => undefined);
+        });
       }
       for (const a of agents) a.start();
       const tasks = variant === 'solo' ? SOLO_TASKS : DUO_TASKS;

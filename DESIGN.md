@@ -3115,6 +3115,26 @@ What changed:
 6. **A creeper fought as a player fights one.** The hands can tell a creeper's fuse burning (its `swell_dir`); the
    attack hand goes in for one blow and backs off out of its reach while it hisses, then in again (one that stood and
    swung, as at a zombie, was blown from 20 health to 7). Whether to fight one stays the mind's call.
+7. **The night as it is felt; a room seen from inside.** Three deaths at nightfall, read as a player would:
+   - "Wait until day" in the evening meant the next morning to the mind (the packet said "evening, dark in about 2
+     min"), but the hand's day ran to tick 12000, so it ended at once ("it is day") and the step meant for the morning,
+     iron, took one at 8 health down a mine as night came on. The day waited for is now the day as it is felt, from
+     first light to the evening (`daytime`), in `wait` and in `until: timeIs:day` alike.
+   - Steps meant by day wait for a thought once night has fallen since, as being badly hurt since does: anyone takes
+     note of the dark coming on before going on with the next thing.
+   - A builder in a hut one across could not fill its doorway from inside: his body was a hair over the doorway's edge,
+     and there was nowhere to step aside to, so "would place inside myself", twice; he went out to set the block from
+     beside the hut, set it beside himself instead, and waited out the night there believing himself sealed in, until
+     a skeleton came. A block for a cell one is only over the edge of now first takes a step back into the middle of
+     one's own cell, as a player does. And a block set at a spot of the hand's own choosing (or toward a way) is
+     judged by the block found there, not by the pockets: one set down just after a dig was made up for by what the
+     dig dropped, the count stood still, and "-0 cobblestone" was read as a failure ("a glitching cobble place").
+   - The room one is in is seen from inside (`roomAround`): the floor at one's own level that can be walked to under a
+     roof, its walls, where it opens out under the sky, and its doors. "walled in on every side", "walled in but open
+     to the north", "inside a room, shut in on every side (a door to the north, shut)", "inside a room, open to the
+     north (the door to the north standing open)"; nothing in the open, or in a hall or cave too big to take in.
+   - Long runs now keep what the mind saw at each of its own decisions, the packet and the reply
+     (`data/live-test/longrun-*-packets.jsonl`), so a fatal choice can be read from inside.
 
 Live:
 
@@ -3136,6 +3156,9 @@ Live:
 
 | Run | Length | How it ended | What changed |
 |---|---|---|---|
+| duo (28) | 38 min (Bram) | the stranger greeted; huts; Bram's hut one across: the doorway refused twice from inside ("would place inside myself"), then a block set beside him outside it, and he waited out the night there "sealed in"; a skeleton (13 to 1), a zombie villager | a step back to fill a doorway from inside; the room seen from inside |
+| solo, seed 2 (18) | 90 min | **house met at 44 min**; a quarter of the run waiting out nights; ten minutes at 8 health, food just short of healing, after salmon in a river; "wait until day" in the evening ended at once and the next step went for iron down a mine at dusk: a zombie in the dark, 8 to 0 | the day as it is felt; steps meant by day wait when night falls |
+| solo, seed 1 (24) | 20 min | prospecting at night with a wooden axe and no food; a zombie and a creeper; the walk away chosen under fire was a walk (9 to 1), then "gather oak logs" at one heart; hid underground at 1 health with nothing to eat, came up at first light among a creeper and a zombie | a run chosen under fire is a run; steps wait when badly hurt since |
 | solo, seed 1 (20) | stopped at 16 min | started on the code before thinking under fire | (stopped, to run the new mind) |
 | solo, seed 1 (23) | 37 min | **house met at 26 min**; the first night sealed in a dugout, out by a stair at dawn, fled the mobs still about and dug a closed stair down at 5 health; the second night, sealed in and waiting for day, the three-minute look up from "the work" had it tunnel up to chop a tree "instead of standing idle", and a zombie and a spider killed it | a wait for the day is no work to look up from |
 | duo (27) | 16 min (Bram) | the first meeting noticed; talk at once and like players ("kinda busy rn, need like 42 more planks for this hut"); Ada took Bram up a tree for a flyer; **house at 5 min**; out at night after logs, a skeleton shot Bram while he dug down under its arrows (17 to 3), and he died running | a climb is no flight; under fire, what takes long leaves one open |
@@ -3143,5 +3166,7 @@ Live:
 | duo (24) | 20 min (the worker ran out of memory) | **house met at 5 min**; the heap flat at 100–300 MB, then 2 GB within a minute and a half | room for the worker; the heap past 1 GB logs what each agent was doing |
 | solo, seed 1 (21) | 13 min | thinking under fire and the felt body in; at night 18 deep with a wooden axe, no armor, 3 iron ingots made into a pickaxe rather than a sword; skeletons about for four minutes while it mined on; among three zombies and three skeletons it chose the shelter, twice, and died digging in (16 to 0) | the hole no longer the mind's; hands to dig one's way; pain takes the body back |
 
-Verified: 711 unit tests; live `hands` (all 45: 43 in one full run of the suite, then the wall and the hunt underground), `m1-skills` (the two cases of the
+Verified (7): 723 unit tests; live `hands`: the doorway filled from inside, the night's hut, a bed in a nook, the
+furnace in a notch and against a block's side, the wall toward a way (the quick hut's walk to its corner failed once and
+passed on its own: a walk to a wall's own cell). Before: 711 unit tests; live `hands` (all 45: 43 in one full run of the suite, then the wall and the hunt underground), `m1-skills` (the two cases of the
 mind holding the body), `underfire` (2 of 2).
