@@ -209,7 +209,9 @@ async function collectUntil(
     const feetY = bot.entity.position.y;
     // Never one with lava against it (broken, it lets the lava in) nor one a stalactite hangs from (it falls, and
     // kills): as anyone who has played knows. Prospecting keeps the same rules.
-    const near = findKnownBlocks(bot, blockIds, maxDistance, 24).filter((b) => !skipped.has(b.position.toString()) && !lavaBeside(bot, b.position) && !holdsDripstone(bot, b.position));
+    // Enough of them to weigh: by a lake the 24 nearest stone blocks were all under water, and the dry stone a little
+    // farther off was never weighed against them (one swam for its pickaxe's stone three times running).
+    const near = findKnownBlocks(bot, blockIds, maxDistance, 96).filter((b) => !skipped.has(b.position.toString()) && !lavaBeside(bot, b.position) && !holdsDripstone(bot, b.position));
     const outside = home ? awayFromHome(near, home) : near;
     if (home && outside.length === 0 && near.length > 0 && walkedOut < 3) {
       walkedOut++;

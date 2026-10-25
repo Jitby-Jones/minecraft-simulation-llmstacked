@@ -3298,6 +3298,9 @@ What changed:
     plain, a model now and then left quotes bare in its thought ("Bram said "hi" so I waved"), and the repair wrote
     them bare again: a reply that does not parse is read once more with the quotes that end no string escaped (a
     quote ends a string only before a colon, a closing bracket, the end, or a comma and what can follow it there).
+    And a gather weighs 96 of the nearest blocks, not 24: by a lake the 24 nearest stone blocks were all under water,
+    the dry stone a little farther off was never weighed against them, and an agent swam for its pickaxe's stone
+    three times running, its swim reflex pulling it out each time.
 
 Live:
 
