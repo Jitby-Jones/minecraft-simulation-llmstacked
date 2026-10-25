@@ -127,6 +127,11 @@ export function normalizeItemName(raw: string): string {
   let n = raw.trim().toLowerCase().replace(/^minecraft:/, '').replace(/[\s-]+/g, '_');
   const direct = SYNONYMS[n];
   if (direct) return direct;
+  // Said in the singular, a thing the game only names in the plural: "an oak plank" is of oak_planks (asked to place
+  // "oak_plank" three times at 2 health, an agent was told each time it had none, 55 oak planks in its pockets).
+  if (/^plank$/.test(n)) return 'planks';
+  if (/_(plank|stair|legging|boot|bar)$/.test(n) || /_seed$/.test(n)) return `${n}s`;
+  if (/_leaf$/.test(n)) return n.replace(/_leaf$/, '_leaves');
   if (PLURAL_NAME.test(n)) return n;
   if (n.endsWith('es') && SYNONYMS[n.slice(0, -2)]) return SYNONYMS[n.slice(0, -2)] ?? n;
   // "potatoes", "tomatoes": one potato.

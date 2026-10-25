@@ -3310,6 +3310,10 @@ What changed:
     next step, at evening or night, that would begin under the open sky now waits for a thought: "you meant to wait
     next, but where you would wait is out in the dark: In forest, standing on grass block, under the open sky,
     outside a room 2 m to the north-west, open to the north".
+23. **A thing said in the singular.** The solo (31), at 2 health beside a zombie and a creeper, asked three times
+    to place "oak_plank" and was told each time it had none, 55 oak planks in its pockets: the game names some
+    things only in the plural, and a singular of those is now the plural ("oak_plank", "oak stair", "oak_leaf",
+    "wheat_seed", "iron_boot", "iron_bar"), while what is an item in the singular ("brick", "nether_brick") stays.
 
 Live:
 

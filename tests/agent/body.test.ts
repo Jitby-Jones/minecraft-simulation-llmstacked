@@ -28,6 +28,18 @@ describe('item names and tiers', () => {
     expect(normalizeItemName('glass')).toBe('glass');
     expect(normalizeItemName('oak_planks')).toBe('oak_planks');
     expect(normalizeItemName('iron')).toBe('raw_iron');
+    // In the singular, what the game only names in the plural (one asked three times for "oak_plank", 55 on hand).
+    expect(normalizeItemName('oak_plank')).toBe('oak_planks');
+    expect(normalizeItemName('oak plank')).toBe('oak_planks');
+    expect(normalizeItemName('plank')).toBe('planks');
+    expect(normalizeItemName('cobblestone_stair')).toBe('cobblestone_stairs');
+    expect(normalizeItemName('oak_leaf')).toBe('oak_leaves');
+    expect(normalizeItemName('wheat_seed')).toBe('wheat_seeds');
+    expect(normalizeItemName('iron_boot')).toBe('iron_boots');
+    expect(normalizeItemName('iron_bar')).toBe('iron_bars');
+    // What is an item in the singular stays so.
+    expect(normalizeItemName('nether_brick')).toBe('nether_brick');
+    expect(normalizeItemName('brick')).toBe('brick');
   });
 
   it('matches categories without false positives', () => {
