@@ -20,7 +20,7 @@ import { SkillExecutor, skillForOption } from '@agora/agent/modules/executor';
 import { HIGH_FEAR } from '@agora/agent/modules/hiding';
 import { hurtFear } from '@agora/agent/mind/feelings';
 import { leversFor } from '@agora/agent/modules/levers';
-import { Talking, cleanReply } from '@agora/agent/modules/talking';
+import { Talking, cleanReply, isMeta } from '@agora/agent/modules/talking';
 import { whoMakesChests, whyNoChest } from '@agora/agent/social/village';
 import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
@@ -83,6 +83,17 @@ describe('whole lines (no cut-off speech)', () => {
     expect(cleanReply('Hello Pip, working on anything\nnew today?', 'Oswin', 20)).toBe('Hello Pip, working on anything new today?');
     expect(cleanReply('Oswin: Sure thing.\nPip: great!', 'Oswin', 20)).toBe('Sure thing.');
     expect(cleanReply('"ooh, logs? why?"\nsecond line', 'Pip', 20)).toBe('ooh, logs? why?');
+  });
+
+  it("a model's working-out is not said: only the talk (a first meeting became two people discussing their chat log)", () => {
+    expect(cleanReply('Let me look at the situation.\nhey bram, im chopping oak too lol', 'Ada', 20)).toBe('hey bram, im chopping oak too lol');
+    expect(cleanReply('Bram has been sending meta-lines. I should acknowledge it lightly, stay friendly.\nyeah lets build by the river', 'Ada', 20)).toBe('yeah lets build by the river');
+    expect(cleanReply('Ada is in Minecraft, chatting with Bram.', 'Ada', 20)).toBe('');
+    expect(isMeta('I should respond in character and keep it short.', 'Ada')).toBe(true);
+    // Talk that only sounds like it: left as said.
+    for (const line of ['ok so we need like 20 more logs', 'let me think about it', 'this looks like a good spot for the house', 'bram said hes got iron', 'it seems like the cave goes deep']) {
+      expect(isMeta(line, 'Ada')).toBe(false);
+    }
   });
 
   it("a model that stalls after its first sentence went out: that sentence was the line, the next model's draft isn't tacked on", async () => {

@@ -307,9 +307,17 @@ describe('what the game does by itself is no surprise; what comes from nowhere i
     t.now = 18_000;
     eyes.tick([]);
     expect(eyes.recent().filter((n) => n.key === 'pockets')).toEqual([]);
+    // A gather of "log", cut short, its drops coming in after it: oak logs are logs.
+    s.update('actionLog', (l) => [...l, { id: 'a3', skill: 'gather', args: { item: 'log', qty: 8 }, expected: '+8 log', observed: 'interrupted; +5 log', ok: false, ts: 18_500, durationMs: 500 }], 'test');
+    t.now = 19_500;
+    eyes.tick([]);
+    w.inv.push({ name: 'oak_log', count: 2 });
+    t.now = 23_000;
+    eyes.tick([]);
+    expect(eyes.recent().filter((n) => n.key === 'pockets')).toEqual([]);
     // Later, with idle hands: diamonds from nowhere (someone ran /give).
     w.inv.push({ name: 'diamond', count: 3 });
-    t.now = 24_000;
+    t.now = 28_000;
     eyes.tick([]);
     expect(eyes.recent().filter((n) => n.key === 'pockets').map((n) => n.text)).toEqual([expect.stringMatching(/^3 diamond appeared in your inventory out of nowhere/)]);
     eyes.stop();

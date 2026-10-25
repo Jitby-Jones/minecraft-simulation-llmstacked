@@ -973,8 +973,10 @@ export class SceneEyes {
       // And what our own hands made or got lately, whenever it landed (a craft's result can reach the pockets well
       // after the window closed): what one just did, one knows.
       const ours = this.o.store.state.actionLog.filter((r) => now - (r.ts + r.durationMs) < 60_000).map((r) => `${JSON.stringify(r.args)} ${r.observed}`).join(' ');
+      // By its kind too: a gather of "log" brings oak logs, and an interrupted one's drops come in after it.
+      const named = (n: string) => ours.includes(n) || new RegExp(`\\b${n.split('_').at(-1) ?? n}s?\\b`).test(ours);
       const gained = [...items]
-        .filter(([n, c]) => c > (prev.items.get(n) ?? 0) && !ours.includes(n))
+        .filter(([n, c]) => c > (prev.items.get(n) ?? 0) && !named(n))
         .map(([n, c]) => `${c - (prev.items.get(n) ?? 0)} ${n}`);
       if (gained.length > 0) this.add(this.expectations.aboutSelf('pockets', `${gained.slice(0, 3).join(', ')} appeared in your inventory out of nowhere: you picked nothing up and made nothing`, 0.5));
     }

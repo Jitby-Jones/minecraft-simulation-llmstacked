@@ -3166,6 +3166,18 @@ What changed:
       west, shut on every side".
     - A kill's drops are taken where it fell, as a player walks over the loot, unless another monster is at hand (a
       salmon killed in a river was hunted for again and again, its drop gone downstream).
+    Replayed against the logged packet with the room seen beside, glm-5.3 walked into the room first three times out
+    of three, then filled the doorway behind it and waited (before: never, the block set from outside).
+11. **Talk is talk.** The duo's first meeting went into the chat as working-out: "Let me look at the situation.",
+    "Bram has been sending meta-lines. I should acknowledge it lightly", "Ada is in Minecraft, chatting with Bram";
+    the first sentence of a reply is sent as soon as it is complete, so a model's preamble was said aloud, and the
+    other answered it in kind. Lines about the talk instead of in it (`isMeta`: looking over "the situation" or
+    "this conversation", what one "should respond", "in character", "meta-lines", "the chat log", oneself in the
+    third person) are no longer said: a reply is taken from its first sentence that is talk, and a working-out first
+    sentence is not sent ahead. Talk that only sounds like it ("ok so we need like 20 more logs", "let me think
+    about it", "bram said hes got iron") is said as before.
+    And what one's own hands got is known by its kind: a gather of "log" cut short brought two oak logs in after
+    it, and that was "2 oak_log appeared in your inventory out of nowhere".
 
 Live:
 

@@ -88,6 +88,26 @@ export function needsDecision(text: string): boolean {
   return REQUEST_RE.test(text) || OPINION_ASK_RE.test(text) || parseTradeOffer(text) !== null || isAdvance(text) || isFamilyAsk(text);
 }
 
+/**
+ * A model's working-out rather than a line in the talk: about the talk instead of in it ("Let me look at the situation.",
+ * "I should respond in character", "Bram has been sending meta-lines", "Ada is in Minecraft, chatting with Bram"). Said
+ * aloud, such lines turned a first meeting into two people discussing their own chat log.
+ */
+export function isMeta(line: string, me: string): boolean {
+  const t = line.trim();
+  if (META_RE.test(t)) return true;
+  return new RegExp(`^${me}\\b,?\\s+(is|has|was|should|needs|wants|will|would)\\b`, 'i').test(t);
+}
+const META_RE =
+  /^(let me (look at|understand|consider|figure out|check|read|parse|work out|go over|analy[sz]e|re-?read|review) (the|this|that) (situation|conversation|chat|context|messages?|log|exchange|request)|i (should|need to|will|'ll|must|want to|am going to) (respond|reply|acknowledge|stay in character|keep it (brief|short|casual|light|friendly))|(okay|alright|hmm+),? (let me|i need to|i should) (respond|reply|think about|look at|figure out)|the (user|conversation|context|prompt)\b|looking at (this|the) (conversation|chat|situation|context|messages?)\b|[A-Z][a-z]{1,15} has been (sending|saying|asking)\b)|\b(in character|out of character|meta[- ]?(lines?|messages?|text)|filler line|the chat log|my (next )?(reply|response) (should|will|is))\b/i;
+
+/** The sentences of a reply that are said: from the first one that is not working-out ('' if none is). */
+function saidPart(text: string, me: string): string {
+  const parts = text.split(/(?<=[.!?])\s+/);
+  const from = parts.findIndex((p) => !isMeta(p, me));
+  return from < 0 ? '' : parts.slice(from).filter((p) => !isMeta(p, me)).join(' ');
+}
+
 /** A line of a reply as said: no "Name:" prefix, no quotes around it, no command slash. */
 function cleanLine(line: string, me: string): string {
   let t = line.trim().replace(new RegExp(`^(${me}|me|you)\\s*[:>»-]\\s*`, 'i'), '');
@@ -101,8 +121,12 @@ function cleanLine(line: string, me: string): string {
  * next ones when it breaks off mid-sentence (a wrapped line), but never a line that reads as someone else's turn.
  */
 export function cleanReply(raw: string, me: string, maxWords: number): string {
-  const lines = raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-  let t = cleanLine(lines[0] ?? '', me);
+  // Working-out lines are not said: the first line that is talk, with what follows it.
+  const lines = raw
+    .split('\n')
+    .map((l) => saidPart(cleanLine(l, me), me))
+    .filter((l) => l.length > 0);
+  let t = lines[0] ?? '';
   for (const next of lines.slice(1, 3)) {
     if (endsSentence(t) || /^[A-Za-z0-9_]{2,16}\s*[:>»]\s/.test(next)) break;
     t = `${t} ${cleanLine(next, me)}`;
@@ -547,7 +571,7 @@ export class Talking {
   }
 
   private passes(text: string, intent: SpeechIntent): boolean {
-    return text.length > 0 && !GIVEAWAY_RE.test(text) && !NOT_PG_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
+    return text.length > 0 && !isMeta(text, this.o.me) && !GIVEAWAY_RE.test(text) && !NOT_PG_RE.test(text) && (intent.mayCommit || !looksLikePromise(text));
   }
 
   private async send(convId: ConvId, text: string, volume: SpeechIntent['volume'] = 'normal', stillWanted?: () => boolean, urgent = false, also: readonly ConvId[] = []): Promise<boolean> {
@@ -727,6 +751,7 @@ export class Talking {
             const m = /^(.{8,}?[.!?])(\s|$)/s.exec(st.buf.trimStart());
             if (!m?.[1]) return;
             const sentence = cleanReply(m[1], persona.name, max);
+            // A first sentence of working-out is not said, nor sent ahead: the whole reply decides the line.
             st.first = this.passes(sentence, intent) ? sentence : '';
             if (st.first) st.sent = this.send(convId, sentence, intent.volume, stillWanted);
           },
