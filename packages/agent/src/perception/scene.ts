@@ -788,7 +788,10 @@ const MONSTERS_EVERY_MS = 45_000;
 /** What burns in the sun when out under the open sky by day. */
 const BURNS = /^(zombie|zombie_villager|skeleton|stray|bogged|drowned|phantom)$/;
 
-/** Whether the open sky is over a spot (nothing whole above it, leaves aside); null where the world above isn't loaded. */
+/**
+ * Whether the sun gets at a spot: nothing over it that takes the sky's light, leaves and water too (what stands under
+ * a dark forest's canopy by day doesn't burn, and more of them spawn there); null where the world above isn't loaded.
+ */
 function openSkyOver(bot: Bot, at: { x: number; y: number; z: number }): boolean | null {
   const g = bot.game as unknown as { minY?: number; height?: number };
   const top = (g.minY ?? -64) + (g.height ?? 384);
@@ -797,7 +800,7 @@ function openSkyOver(bot: Bot, at: { x: number; y: number; z: number }): boolean
   for (let y = Math.floor(at.y) + 2; y < top; y++) {
     const b = bot.blockAt(new Vec3(x, y, z));
     if (!b) return null;
-    if (b.boundingBox === 'block' && !/_leaves$/.test(b.name)) return false;
+    if (b.boundingBox === 'block' || /_leaves$|^water$/.test(b.name)) return false;
   }
   return true;
 }

@@ -1138,11 +1138,15 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     // Tossed where she was looking, one's junk lay at her feet and two seconds on came back (94 granite, four times).
     const x = 10300;
     await at(x + 0.5, 0.5);
+    await server.cmd('kill @e[type=item]');
     // A wall to the north and east: the open ways are west and south.
     await server.cmd(`fill ${x - 1} ${Y} -1 ${x + 1} ${Y + 1} -1 minecraft:stone`);
     await server.cmd(`fill ${x + 1} ${Y} -1 ${x + 1} ${Y + 1} 1 minecraft:stone`);
     await server.cmd('give Ada minecraft:granite 40');
     await sleep(1500);
+    // After pockets full of cobblestone cleared, the client's own view of them can trail the server's a while.
+    for (let i = 0; i < 30 && (countItem(body.bot, 'granite') !== 40 || body.bot.inventory.items().length !== 1); i++) await sleep(200);
+    logger.info({ items: body.bot.inventory.items().map((i) => `${i.count} ${i.name}@${i.slot}`) }, 'before the drop');
     await body.bot.look(0, -Math.PI / 2, true);
     const r = await run('drop', { item: 'granite' });
     logger.info({ r }, 'a drop');

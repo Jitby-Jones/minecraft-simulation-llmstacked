@@ -173,6 +173,9 @@ export const drop = defineSkill({
     const way = openWay(bot);
     stopMotion(bot);
     await bot.look(way.yaw, 0.35, true);
+    // The server throws the way it last heard one face: a tick or two for the turn to reach it (thrown at once, the
+    // stack went the way one had been looking, down at one's feet, and two seconds on came back).
+    await waitMs(ctx, 150);
     const before = new Set(Object.values(bot.entities).filter((e) => e.name === 'item').map((e) => e.id));
     let left = args.qty ?? Infinity;
     const out: string[] = [];
@@ -184,13 +187,21 @@ export const drop = defineSkill({
       out.push(`${n} ${t.name}`);
       left -= n;
     }
-    await waitMs(ctx, 900);
+    // What was thrown, once it has come to rest (a stack thrown onto one like it lying there joins it, and is not new).
     const me = bot.entity.position;
-    const thrown = Object.values(bot.entities).filter((e) => e.name === 'item' && !before.has(e.id) && e.position.distanceTo(me) < 8);
+    const fresh = () => Object.values(bot.entities).filter((e) => e.name === 'item' && !before.has(e.id) && e.position.distanceTo(me) < 8);
+    // Seen where it comes down only a second or so after it goes (the server tells where an item is now and then);
+    // known for thrown away the moment it shows, or the body's own tidying walks over and takes it back meanwhile.
+    const off = () => Math.min(Infinity, ...fresh().map((e) => Math.hypot(e.position.x - me.x, e.position.z - me.z)));
+    for (let t = 0; t < 25 && (fresh().length === 0 || off() < 1.5); t++) {
+      markThrown(bot, fresh().map((e) => e.id));
+      await waitMs(ctx, 100);
+    }
+    const thrown = fresh();
     markThrown(bot, thrown.map((e) => e.id));
-    const far = thrown.length > 0 ? Math.min(...thrown.map((e) => Math.hypot(e.position.x - me.x, e.position.z - me.z))) : 0;
+    const far = thrown.length > 0 ? Math.min(...thrown.map((e) => Math.hypot(e.position.x - me.x, e.position.z - me.z))) : null;
     // Where it lies, and what the game does with it: walked over, it comes back into one's pockets.
-    const lies = far >= 1.5 ? `, ${Math.round(far)} m ${way.name} of you` : ', at your feet (nowhere open to throw it)';
+    const lies = far === null ? '' : far >= 1.5 ? `, ${Math.round(far)} m ${way.name} of you` : ', at your feet (nowhere open to throw it)';
     return { ok: true, observed: `dropped ${out.join(', ')}${lies}; walk over it and it is picked up again; left there, it is gone in 5 minutes` };
   },
 });

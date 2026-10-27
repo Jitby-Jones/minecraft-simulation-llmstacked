@@ -714,7 +714,11 @@ export class Agent {
               ? `got away from ${who}${off}`
               : summary === 'closed the hole over'
                 ? `closed the hole I was in over, against ${who} at its mouth`
-                : (HAZARD_OVER[this.dangerSource] ?? `escaped ${this.dangerSource}`);
+                : summary === 'dug in and shut it'
+                  ? `dug into the wall and shut it behind me, against ${who}${off}`
+                  : summary === 'walled the way'
+                    ? `put a wall across the passage between me and ${who}${off}`
+                    : (HAZARD_OVER[this.dangerSource] ?? `escaped ${this.dangerSource}`);
         const lost = typeof bout?.health === 'string' ? /^(\d+) to (\d+)$/.exec(bout.health) : null;
         const health = lost && Number(lost[1]) > Number(lost[2]) ? ` (health ${lost[0]})` : '';
         pushWorkmem(this.store, `I ${what}${health}`, 0.6, 'self_observed', { now: now() });

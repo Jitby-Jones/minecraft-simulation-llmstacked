@@ -1,8 +1,16 @@
 diff --git a/index.js b/index.js
-index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..84bebb93f331b7940cdb9da8b6cbcbfd71f25b78 100644
+index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..6de1462dfa7a1b38d9ec83d9cbe7b1cc80aca68d 100644
 --- a/index.js
 +++ b/index.js
-@@ -116,8 +116,9 @@ function inject (bot) {
+@@ -25,6 +25,7 @@ function inject (bot) {
+   let pathUpdated = false
+   let digging = false
+   let placing = false
++  let placingSince = 0
+   let placingBlock = null
+   let lastNodeTime = performance.now()
+   let returningPos = null
+@@ -116,8 +117,9 @@ function inject (bot) {
  
    function detectDiggingStopped () {
      digging = false
@@ -14,7 +22,7 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..84bebb93f331b7940cdb9da8b6cbcbfd
    }
  
    function resetPath (reason, clearStates = true) {
-@@ -170,6 +171,14 @@ function inject (bot) {
+@@ -170,6 +172,14 @@ function inject (bot) {
        const curPoint = path[i]
        if (curPoint.toBreak.length > 0 || curPoint.toPlace.length > 0) break
        const b = bot.blockAt(new Vec3(curPoint.x, curPoint.y, curPoint.z))
@@ -29,7 +37,27 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..84bebb93f331b7940cdb9da8b6cbcbfd
        if (b && (b.type === waterType || ((b.type === ladderId || b.type === vineId) && i + 1 < path.length && path[i + 1].y < curPoint.y))) {
          curPoint.x = Math.floor(curPoint.x) + 0.5
          curPoint.y = Math.floor(curPoint.y)
-@@ -541,13 +550,18 @@ function inject (bot) {
+@@ -514,9 +524,19 @@ function inject (bot) {
+     if (placing || nextPoint.toPlace.length > 0) {
+       if (!placing) {
+         placing = true
++        placingSince = performance.now()
+         placingBlock = nextPoint.toPlace.shift()
+         fullStop()
+       }
++      // A placement that gets nowhere (a jump that can't rise, with a block come over the head since the path was
++      // planned) is futile too: the check at the end of the tick is never reached from here, and the walk stood
++      // "building" for a minute without a step. Counted from when this placement began, not from the last node: a
++      // long climb through stone spends seconds re-planning between nodes, and counted from the node it reset itself
++      // over and over.
++      if (performance.now() - placingSince > 3500) {
++        resetPath('stuck')
++        return
++      }
+ 
+       // Open gates or doors
+       if (placingBlock?.useOne) {
+@@ -541,13 +561,18 @@ function inject (bot) {
        let canPlace = true
        if (placingBlock.jump) {
          bot.setControlState('jump', true)
@@ -49,7 +77,7 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..84bebb93f331b7940cdb9da8b6cbcbfd
              const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
              if (!lockPlaceBlock.tryAcquire()) return
              if (interactableBlocks.includes(refBlock.name)) {
-@@ -568,7 +582,10 @@ function inject (bot) {
+@@ -568,7 +593,10 @@ function inject (bot) {
                  lastNodeTime = performance.now()
                })
            })

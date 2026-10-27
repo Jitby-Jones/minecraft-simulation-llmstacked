@@ -114,4 +114,90 @@ describe.skipIf(!liveJavaPath())('live: cornered', () => {
     expect(health).toBeGreaterThan(0);
     expect(up).toBeGreaterThanOrEqual(2);
   }, 120_000);
+
+  it('in a tunnel with three zombies coming down it, no room overhead, a pickaxe and blocks: into the wall, shut behind, and lives', async () => {
+    // One in a cave with five zombies coming and the ceiling 2 m up ran, the running failed, and she was killed with a
+    // pickaxe and blocks on her.
+    const cal = await Body.connect(
+      { host: server.host, port: server.port, username: 'Cal', version: versions.minecraft.version, logger },
+      { caution: () => 0.62, combat: () => 0.5, onDanger: (d) => void dangers.push(d), onDangerCleared: () => undefined, isIdle: () => true },
+    );
+    await sleep(2000);
+    dangers.length = 0;
+    const x = 6600;
+    await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+    // Rock all round, and a tunnel one wide and two high through it, lit along its floor.
+    await server.cmd(`fill ${x - 9} ${Y - 1} -3 ${x + 9} ${Y + 3} 3 stone`);
+    await server.cmd(`fill ${x - 8} ${Y} 0 ${x + 8} ${Y + 1} 0 air`);
+    await server.cmd(`fill ${x - 8} ${Y - 1} 0 ${x + 8} ${Y - 1} 0 glowstone`);
+    await server.cmd(`tp Cal ${x + 6}.5 ${Y} 0.5`);
+    await server.cmd('clear Cal');
+    await server.cmd('give Cal minecraft:stone_pickaxe 1');
+    await server.cmd('give Cal minecraft:cobblestone 8');
+    await server.cmd('effect clear Cal');
+    await sleep(1500);
+    await server.cmd('damage Cal 10 minecraft:generic');
+    await sleep(1000);
+    cal.reflexes.start();
+    for (const dx of [-6, -5, -4]) await server.cmd(`summon zombie ${x + dx}.5 ${Y} 0.5 {PersistenceRequired:1b}`);
+    const trace = await watch(cal, () => false, 30_000);
+    const at = cal.bot.entity.position.floored();
+    const whole = (p: Vec3) => cal.bot.blockAt(p)?.boundingBox === 'block' && cal.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'block';
+    // Shut in a nook of its own, or a wall across the tunnel between it and every zombie.
+    const shut = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)].every((d) => whole(at.plus(d)));
+    // The three in the tunnel (at night, others come out in the dark about the hill).
+    const zombies = Object.values(cal.bot.entities).filter((e) => e.name === 'zombie' && Math.abs(e.position.z - 0.5) <= 1 && Math.abs(e.position.y - Y) < 1 && Math.abs(e.position.x - x) <= 9);
+    const walled = zombies.every((z) => {
+      const [lo, hi] = [Math.min(Math.floor(z.position.x), at.x), Math.max(Math.floor(z.position.x), at.x)];
+      for (let wx = lo + 1; wx < hi; wx++) if (whole(new Vec3(wx, Y, 0))) return true;
+      return false;
+    });
+    const health = cal.bot.health;
+    logger.info({ health, dangers: dangers.map((d) => `${d.kind}:${d.source}`), at: at.toString(), shut, walled, trace }, 'cornered in a tunnel');
+    cal.reflexes.stop();
+    await cal.disconnect();
+    expect(health).toBeGreaterThan(0);
+    expect(shut || walled).toBe(true);
+  }, 120_000);
+
+  it('in a tunnel off a cave room, zombies spread across the room beyond its mouth: a wall across the tunnel, and lives', async () => {
+    // Five zombies across the cave room a tunnel came off: none stood in line with the tunnel, so no wall went up, and
+    // she ran to its end and was killed there.
+    const cal = await Body.connect(
+      { host: server.host, port: server.port, username: 'Cal', version: versions.minecraft.version, logger },
+      { caution: () => 0.62, combat: () => 0.5, onDanger: (d) => void dangers.push(d), onDangerCleared: () => undefined, isIdle: () => true },
+    );
+    await sleep(2000);
+    dangers.length = 0;
+    const x = 6800;
+    await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+    // Rock all round; a room seven across east of x, lit; the tunnel one wide and two high going west from it.
+    await server.cmd(`fill ${x - 11} ${Y - 1} -5 ${x + 9} ${Y + 3} 5 stone`);
+    await server.cmd(`fill ${x + 1} ${Y} -3 ${x + 7} ${Y + 1} 3 air`);
+    await server.cmd(`fill ${x - 10} ${Y} 0 ${x} ${Y + 1} 0 air`);
+    await server.cmd(`fill ${x - 10} ${Y - 1} 0 ${x + 7} ${Y - 1} 0 glowstone`);
+    await server.cmd(`tp Cal ${x - 2}.5 ${Y} 0.5`);
+    await server.cmd('clear Cal');
+    await server.cmd('give Cal minecraft:stone_pickaxe 1');
+    await server.cmd('give Cal minecraft:cobblestone 8');
+    await server.cmd('effect clear Cal');
+    await sleep(1500);
+    await server.cmd('damage Cal 10 minecraft:generic');
+    await sleep(1000);
+    cal.reflexes.start();
+    for (const dz of [-2, 0, 2]) await server.cmd(`summon zombie ${x + 4}.5 ${Y} ${dz}.5 {PersistenceRequired:1b}`);
+    const trace = await watch(cal, () => false, 30_000);
+    const at = cal.bot.entity.position.floored();
+    const whole = (p: Vec3) => cal.bot.blockAt(p)?.boundingBox === 'block' && cal.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'block';
+    const shut = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)].every((d) => whole(at.plus(d)));
+    // A wall in the tunnel between it and the room.
+    let walled = false;
+    for (let wx = at.x + 1; wx <= x; wx++) if (whole(new Vec3(wx, Y, 0))) walled = true;
+    const health = cal.bot.health;
+    logger.info({ health, dangers: dangers.map((d) => `${d.kind}:${d.source}`), at: at.toString(), shut, walled, trace }, 'cornered in a tunnel off a room');
+    cal.reflexes.stop();
+    await cal.disconnect();
+    expect(health).toBeGreaterThan(0);
+    expect(shut || walled).toBe(true);
+  }, 120_000);
 });

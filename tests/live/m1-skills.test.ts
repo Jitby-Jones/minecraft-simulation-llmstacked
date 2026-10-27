@@ -434,6 +434,16 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await server.cmd('damage Pip 15');
       await waitFor(() => pip.bot.health <= 6, 5000, 'hurt');
       await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
+      // What the run did, said if it fails.
+      const trace: string[] = [];
+      const t0 = Date.now();
+      const said = cleared.length;
+      const tracer = setInterval(() => {
+        const p = pip.bot.entity.position;
+        const zb = Object.values(pip.bot.entities).find((e) => e.name === 'zombie');
+        const shut = doorway.map((d) => pip.bot.blockAt(d)?.name ?? '?').join('/');
+        trace.push(`${((Date.now() - t0) / 1000).toFixed(1)}s ${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)} hp${Math.round(pip.bot.health)} ${pip.reflexes.mode} doorway ${shut} zombie ${zb ? `${zb.position.x.toFixed(1)},${zb.position.z.toFixed(1)} ${zb.position.distanceTo(p).toFixed(1)}` : '-'} cleared ${cleared.slice(said).join('; ')}`);
+      }, 500);
       try {
         await waitFor(() => dangers.some((d) => d.kind === 'flee'), 10000, 'flee reflex');
         const inside = () => Math.abs(pip.bot.entity.position.x - (room.x + 0.5)) <= 1.5 && Math.abs(pip.bot.entity.position.z - (room.z + 0.5)) <= 1.5;
@@ -443,6 +453,8 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
         expect(inside()).toBe(true);
         expect(pip.bot.health).toBeGreaterThan(0);
       } finally {
+        clearInterval(tracer);
+        console.log(`[doorless hut] room ${room.x},${room.z} doorway ${doorway[0]?.x},${doorway[0]?.z}\n${trace.join('\n')}`);
         rooms.length = 0;
         await server.cmd('kill @e[type=minecraft:zombie]');
         await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);
@@ -532,5 +544,6 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await server.cmd('give Pip minecraft:iron_helmet 1');
       await waitFor(() => pip.bot.inventory.slots[5]?.name === 'iron_helmet', 15000, 'helmet worn');
     });
+
   });
 });

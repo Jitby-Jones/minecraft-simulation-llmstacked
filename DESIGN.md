@@ -3309,6 +3309,38 @@ What else the benchmark showed:
   west", it mined on, "monsters burn in daylight". A creeper took it from 20 health to 11, and three zombies killed it
   at 5 minutes. Now, by day, when every monster about that burns in the sun is somewhere the sun can't reach (a whole
   block anywhere over it), the notice says so: "no sun gets at them where they are, so they will not burn".
+- **In a tunnel, a wall across it; in rock, a nook dug and shut.** In the live `underfire` case of five zombies, at
+  7 health in a cave, with a pickaxe and 32 cobblestone, the body ran down the tunnel it came by, as running was what
+  it knew under a roof too low to climb. It was cornered at the tunnel's end and killed, every time. The body's
+  instincts now go as a player's do underground:
+  - In a passage one wide with what walks coming down it (walls either side of the next cell, every one of them
+    beyond it), two blocks across the passage, feet then head. This comes before any run down it. Standing in the
+    passage oneself, walls either side here too, whatever is beyond the next cell has to come through it, however
+    spread out it is past the passage's end; at its mouth, only what is in line with it counts.
+  - In rock with no room overhead and them still 7 m off, a pocket dug into the wall away from them (feet and head,
+    with a pickaxe that takes each block in under a second, rock over, under, beside and beyond it), stepped into,
+    and the cell one stood in filled from inside.
+  The mind is told "you put a wall across the passage between me and 5 zombies". A live `cornered` case has three
+  zombies coming down a tunnel. In the next run of `underfire`, both cases lived for the first time: the five
+  zombies were walled off at 4 health. The run after, the five came across the cave room spread out, none in line
+  with the tunnel, so no wall went up; a nook two deep was dug instead, and they were at its mouth before it was
+  shut, and she ran to the tunnel's end and was killed there. So the wall now counts whatever is beyond the passage
+  when one stands in it, and the nook became the one-deep pocket, half the digging. A second `cornered` case has
+  three zombies spread across a room beyond the tunnel's mouth.
+- **A placement that gets nowhere is given up.** The pathfinder resets a walk that hasn't reached its next step in
+  3.5 s, but while placing a block it never reached that check. A jump that couldn't rise, with a block come over the
+  head since the path was planned, held a climb out of the stone in place for a minute ("building", not a step). The
+  check now runs while placing too (the pathfinder patch). It counts 3.5 s from when the placement began. Counted
+  from the last step reached, it took the seconds spent re-planning a long climb through stone for being stuck: the
+  climb from 40 deep reset itself 17 times and timed out 25 blocks up. The climb from 24 deep went 3 of 3, and the
+  one from 40 deep took its usual 54 s again.
+- **Leaves keep the sun off.** In `duo (6)`, both died building in a dark forest by day, fighting zombies for three
+  minutes. Under that canopy it is dark enough by day for monsters to spawn, and the leaves keep the sun off them.
+  The "no sun gets at them" sense now takes leaves and water over a monster for cover. What the game knows now has a
+  line on dark forests, brought up by where one is.
+- **A throw goes the way one faces once the server knows it.** The turn toward open room and the throw went out
+  together, and the server threw the way one had been looking: down, at one's feet, and two seconds on it came back.
+  Now there is a tick or two between them.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

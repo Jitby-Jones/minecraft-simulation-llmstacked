@@ -123,6 +123,12 @@ const PERCH_MS = 5000;
 const PERCH_START = 4;
 /** How high the pillar goes: out of reach with a block to spare. */
 const PERCH_HEIGHT = 3;
+/** A nook is dug into a wall only where each of its blocks comes away this fast with the tool on hand. */
+const BURROW_DIG_MS = 900;
+/** One dig into a wall at a time: after one that didn't shut us in, the next waits this long. */
+const BURROW_MS = 8000;
+/** A pocket takes a second or two to dig and get into: only with what chases this far off. */
+const BURROW_START = 7;
 /** The eight columns about one's own. */
 const AROUND = [
   [1, 0],
@@ -248,6 +254,8 @@ export class ReflexController {
   private airAt: Vec3 | null = null;
   /** The last climb up a pillar out of reach: when (the next waits PERCH_MS). */
   private perchSince = 0;
+  /** When a dig into a wall was last tried. */
+  private burrowSince = 0;
   /** Archers closed in on in vain, each until when it is run from instead (an agent "fought" one for 81 s, never
    * nearer than 9 blocks, shot from 20 health to 8). */
   private unreachable = new Map<number, number>();
@@ -1085,6 +1093,148 @@ export class ReflexController {
    * What pillarUp needs: only what can't climb nor shoot after us, and none of it above us (up out of a hole is up into
    * what waits at its mouth); a start on it; three blocks on hand, ground under and room over.
    */
+  /**
+   * A passage one wide with what walks coming down it: the cell next to us toward them, open at feet and head, walls
+   * either side of it, nobody in it, and every one of them beyond it. Two blocks there shut them out (one in a tunnel
+   * with zombies coming down it ran to its end and was cornered there).
+   */
+  private passageToWall(threats: readonly Entity[]): Vec3 | null {
+    const bot = this.bot;
+    if (threats.length === 0 || threats.some((t) => isPlayer(t) || t.name === 'creeper' || t.name === 'warden')) return null;
+    if (bot.inventory.items().filter((i) => isCover(i.name)).reduce((a, i) => a + i.count, 0) < 2) return null;
+    const me = bot.entity.position;
+    const feet = me.floored();
+    for (const d of SIDES) {
+      const c = feet.plus(d);
+      // Every one of them that way, past the cell to be filled.
+      if (!threats.every((t) => (t.position.x - (feet.x + 0.5)) * d.x + (t.position.z - (feet.z + 0.5)) * d.z >= 1.4)) continue;
+      const perp = [new Vec3(d.z, 0, d.x), new Vec3(-d.z, 0, -d.x)];
+      const walled = (cell: Vec3) => perp.every((o) => isSolid(bot.blockAt(cell.plus(o))) && isSolid(bot.blockAt(cell.plus(o).offset(0, 1, 0))));
+      // In the passage oneself, walls either side here too, whatever is beyond the next cell comes through it, however
+      // spread out in the open past its end (five zombies across the cave room it came off were walled off by none of
+      // them standing in line with it); at its mouth, only what is in line with it.
+      if (!walled(feet) && !threats.every((t) => Math.abs((t.position.x - (feet.x + 0.5)) * d.z) + Math.abs((t.position.z - (feet.z + 0.5)) * d.x) <= 1.5)) continue;
+      if (!isAirLike(bot.blockAt(c)) || !isAirLike(bot.blockAt(c.offset(0, 1, 0)))) continue;
+      if (!walled(c)) continue;
+      if (Object.values(bot.entities).some((e) => e !== bot.entity && (overlapsCell(e, c) || overlapsCell(e, c.offset(0, 1, 0))))) continue;
+      return c;
+    }
+    return null;
+  }
+
+  /** Two blocks across the passage, feet then head: true once both are in. */
+  private async wallOff(c: Vec3): Promise<boolean> {
+    const bot = this.bot;
+    this.busy = true;
+    try {
+      try {
+        pvp(bot).forceStop();
+      } catch {
+        // not fighting
+      }
+      bot.pathfinder.setGoal(null);
+      bot.clearControlStates();
+      return await this.fill([c, c.offset(0, 1, 0)]);
+    } catch (err) {
+      this.logger.debug({ module: 'reflex', err: String(err) }, 'could not wall the passage off');
+      return false;
+    } finally {
+      bot.clearControlStates();
+      this.busy = false;
+    }
+  }
+
+  /** Cells filled with what one carries to build with, in order; false at the first that can't be (taken, or nothing to set it on). */
+  private async fill(cells: readonly Vec3[]): Promise<boolean> {
+    const bot = this.bot;
+    for (const c of cells) {
+      if (!isAirLike(bot.blockAt(c))) continue;
+      if (Object.values(bot.entities).some((e) => e !== bot.entity && overlapsCell(e, c))) return false;
+      const block = bot.inventory.items().find((i) => isCover(i.name));
+      const ref = referenceFor(bot, c);
+      if (!block || !ref) return false;
+      await bot.equip(block, 'hand');
+      await bot.placeBlock(ref.ref, ref.face).catch(() => undefined);
+      if (!isSolid(bot.blockAt(c))) return false;
+    }
+    return true;
+  }
+
+  /**
+   * A pocket to dig into, out of the way of what walks: the cell in a wall beside one, two blocks high, that a tool on
+   * hand takes out fast; rock over it, under it, either side of it and beyond it, and nothing wet or burning by it; the
+   * side away from them first, with them far enough off to dig it. Blocks on hand to shut it: the cell one stood in,
+   * filled from inside. One in a cave with five zombies coming and no room overhead ran, the running failed, and she
+   * was killed with a pickaxe and blocks on her; a nook two deep, dug next, took long enough that they were at its mouth
+   * before it was shut.
+   */
+  private nookFor(threats: readonly Entity[]): { first: Vec3; from: Vec3; tool: { name: string } | null } | null {
+    const bot = this.bot;
+    if (threats.length === 0 || threats.some((t) => t.name === 'creeper' || t.name === 'warden' || isPlayer(t))) return null;
+    if (bot.inventory.items().filter((i) => isCover(i.name)).reduce((a, i) => a + i.count, 0) < 2) return null;
+    const me = bot.entity.position;
+    const from = me.floored();
+    if (threats.some((t) => t.position.distanceTo(me) < BURROW_START)) return null;
+    // Under rock, not out in the open: a nook dug into a hillside with sky over it is no shelter.
+    if (!isSolid(bot.blockAt(from.offset(0, 2, 0)))) return null;
+    const near = threats[0];
+    const away = near ? new Vec3(me.x - near.position.x, 0, me.z - near.position.z) : new Vec3(0, 0, 0);
+    const sides = [...SIDES].sort((a, b) => b.dot(away) - a.dot(away));
+    let tool: { name: string } | null = null;
+    const quick = (b: Block | null) => {
+      if (!b || !isSolid(b) || !bot.canDigBlock(b) || FALLS.test(b.name)) return false;
+      const t = (bot.pathfinder as unknown as { bestHarvestTool(b: Block): { name: string } | null }).bestHarvestTool(b);
+      if (t) tool = t;
+      return (bot as unknown as { digTime(b: Block): number }).digTime(b) <= BURROW_DIG_MS;
+    };
+    const solidAt = (c: Vec3) => isSolid(bot.blockAt(c)) && isSolid(bot.blockAt(c.offset(0, 1, 0)));
+    const wetBy = (c: Vec3) => [...SIDES, new Vec3(0, -1, 0), new Vec3(0, 2, 0)].some((o) => [0, 1].some((dy) => /^(water|lava)$/.test(bot.blockAt(c.plus(o).offset(0, dy, 0))?.name ?? '')));
+    for (const d of sides) {
+      const first = from.plus(d);
+      if (![first, first.offset(0, 1, 0)].every((c) => quick(bot.blockAt(c)))) continue;
+      if (!isSolid(bot.blockAt(first.offset(0, -1, 0))) || !isSolid(bot.blockAt(first.offset(0, 2, 0)))) continue;
+      const perp = [new Vec3(d.z, 0, d.x), new Vec3(-d.z, 0, -d.x)];
+      if (![...perp.map((o) => first.plus(o)), first.plus(d)].every(solidAt)) continue;
+      if (wetBy(first)) continue;
+      return { first, from, tool };
+    }
+    return null;
+  }
+
+  /** Into the pocket and the way in shut: its two blocks dug, a step in, the cell stood in filled, feet then head. */
+  private async burrow(nook: { first: Vec3; from: Vec3; tool: { name: string } | null }): Promise<boolean> {
+    const bot = this.bot;
+    this.busy = true;
+    this.burrowSince = Date.now();
+    try {
+      try {
+        pvp(bot).forceStop();
+      } catch {
+        // not fighting
+      }
+      bot.pathfinder.setGoal(null);
+      bot.clearControlStates();
+      const tool = nook.tool ? bot.inventory.items().find((i) => i.name === nook.tool?.name) : undefined;
+      if (tool) await bot.equip(tool, 'hand');
+      for (const c of [nook.first.offset(0, 1, 0), nook.first]) {
+        const b = bot.blockAt(c);
+        if (b && isSolid(b)) await bot.dig(b, true);
+      }
+      if (!(await this.stepInto(nook.first))) return false;
+      // In against the rock beyond: a block won't go into the cell while one still stands partly in it.
+      bot.setControlState('forward', true);
+      for (let t = 0; t < 10 && overlapsCell(bot.entity, nook.from); t++) await new Promise((r) => setTimeout(r, 50));
+      bot.clearControlStates();
+      return await this.fill([nook.from, nook.from.offset(0, 1, 0)]);
+    } catch (err) {
+      this.logger.debug({ module: 'reflex', err: String(err) }, 'could not dig into the wall');
+      return false;
+    } finally {
+      bot.clearControlStates();
+      this.busy = false;
+    }
+  }
+
   private canPillar(threats: readonly Entity[]): boolean {
     const bot = this.bot;
     if (threats.length === 0 || !threats.every((t) => GROUNDED.test(t.name ?? '') && !shoots(t))) return false;
@@ -1322,9 +1472,35 @@ export class ReflexController {
         return true;
       }
     }
+    // In a passage one wide with them coming down it: a wall put across it between us and them, as a player in a
+    // tunnel does, rather than a run down it (one ran to the end of a tunnel twelve blocks long with three zombies
+    // behind her, and was cornered there with 32 cobblestone on her).
+    if (Date.now() - this.burrowSince >= BURROW_MS) {
+      const across = this.passageToWall(threats);
+      if (across) {
+        this.burrowSince = Date.now();
+        if (await this.wallOff(across)) {
+          this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name, at: across.toString() }, 'walled the passage off between us');
+          this.clear('walled the way');
+          return true;
+        }
+      }
+    }
     // A hut of one's own within a run, the way there clear: into it, not up a pillar in the open (a pillar keeps off
     // what walks, not what shoots or climbs).
     if (!this.inOwnRoom() && this.roomToRunTo(this.inTheWay(threats))) return false;
+    // Underground with no room to climb: into the rock, and the way in shut.
+    if (!this.canPillar(threats) && Date.now() - this.burrowSince >= BURROW_MS) {
+      const nook = this.nookFor(threats);
+      if (nook) {
+        this.takeFlight(threats);
+        if (await this.burrow(nook)) {
+          this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name, at: nook.first.toString() }, 'dug into the wall and shut it behind');
+          this.clear('dug in and shut it');
+          return true;
+        }
+      }
+    }
     if (Date.now() - this.perchSince < PERCH_MS || !this.canPillar(threats)) return false;
     this.takeFlight(threats);
     if (await this.pillarUp(threats)) {

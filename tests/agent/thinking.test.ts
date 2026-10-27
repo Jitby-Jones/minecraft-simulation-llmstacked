@@ -800,6 +800,8 @@ describe('what it knows of the game, looked up for what matters', () => {
     expect(k.topics('secure a renewable source of food').join(' ')).toMatch(/Food that keeps coming/);
     // Where ores are, as anyone who has mined knows (an agent dug 48 blocks at y 29 for iron, then wrote itself that iron is at -58).
     expect(k.topics('mine iron for a full set of armor').join(' ')).toMatch(/iron in two bands, richest around y 16/);
+    // Where one is, in a dark forest: what its canopy does by day (two building there fought zombies at noon and died).
+    expect(k.topics('In dark forest, standing on grass block, under the open sky').join(' ')).toMatch(/monsters spawn under it and walk about at noon/);
   });
 
   it('what failed lately and what the tasks name come first', () => {
