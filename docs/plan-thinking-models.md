@@ -394,7 +394,8 @@ How each is judged in the runs:
 ## 9. Order of work
 
 1. §4.1, §4.3–4.5 with unit tests, and lint and typecheck passing. No quota. (Done, with §4.2, by 2026-10-27.)
-2. §4.7 and the golden sets. No quota. (Done: 12 mind cases and 12 under fire.)
+2. §4.7 and the golden sets. No quota. (Done: 26 mind cases, 12 under fire, 32 quick checks asked with the modules' own
+   prompts. Speech and slow thought are timed from the long runs' call logs until they have sets of their own.)
 3. §4.8 and the hands tests for §7. No quota. (Done: ways out, the drop the body can take, no code goals for a mind,
    a thought under way finished before the next step; taking down one's own scaffold is left for when a run needs it.)
 4. Once the owner says "Continue": §5, with §4.6 tried in it, then the models in the config with their numbers.
