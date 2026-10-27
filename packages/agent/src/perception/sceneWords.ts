@@ -14,6 +14,16 @@ export function bearingOf(from: { x: number; z: number }, to: { x: number; z: nu
   return COMPASS[(Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) + 8) % 8] ?? 'east';
 }
 
+/** Whether the scene has it that the one with this id has no way to us on foot (up a pillar, down a hole, shut out). */
+export function noWayToMe(s: Scene, id: number): boolean {
+  return s.creatures.some((c) => c.id === id && c.relations.some((r) => /^no way (up |down )?to you on foot$/.test(r)));
+}
+
+/** A monster near (16 m) that can get to one on foot, as one sees it from where one is. */
+export function threatNear(s: { perception: { nearbyEntities: readonly { id: number; kind: string; distance: number }[] }; scene: Scene }): boolean {
+  return s.perception.nearbyEntities.some((x) => x.kind === 'hostile' && x.distance <= 16 && !noWayToMe(s.scene, x.id));
+}
+
 function nice(name: string): string {
   return name.replace(/^minecraft:/, '').replace(/_/g, ' ');
 }

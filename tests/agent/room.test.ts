@@ -9,7 +9,7 @@ import { besideWords, daytime, goingFor, roomAround, roomBeside, roomWords } fro
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { SeededRandom, nullLogger } from '@agora/shared';
-import { dropTheBodyTakes, goTo } from '@agora/agent/body/skills/movement';
+import { dropTheBodyTakes, flee, goTo } from '@agora/agent/body/skills/movement';
 import { createMovements } from '@agora/agent/body/plugins';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { openedUp, waysOut, whereNow } from '@agora/agent/perception/scene';
@@ -173,6 +173,20 @@ describe('the ways out, as a player sees them in a fight', () => {
     expect(whereNow(bot(2.5, 64)).text).not.toContain('above the ground');
   });
 
+  it('no way out between two blocks that meet at a corner: walled on four sides is walled in', () => {
+    // One shut in her hut was "walled in on every side" and had a way "north-east 3 m".
+    const cells: Record<string, Cell> = {};
+    for (const [x, z] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const y of [0, 1]) cells[`${x},${y},${z}`] = 'solid';
+    cells['0,2,0'] = 'solid';
+    const w = waysOut(world(cells)) ?? '';
+    expect(w).toMatch(/^no way out on foot/);
+    expect(w).toContain('north-east (cobblestone in the way right there)');
+    // One side of the corner open: through it.
+    delete cells['1,0,0'];
+    delete cells['1,1,0'];
+    expect(waysOut(world(cells)) ?? '').toMatch(/north-east \d+/);
+  });
+
   it('says how far each way goes on foot, and what stops it: a wall to dig into, water, a drop', () => {
     const w = waysOut(field()) ?? '';
     expect(w).toContain('west 16+ m');
@@ -211,6 +225,38 @@ describe('the drop the body can take', () => {
     expect(r.ok).toBe(false);
     expect(tried).toContain(9);
     expect(shared.maxDropDown).toBe(3);
+  });
+});
+
+describe('a run is on foot', () => {
+  it('no digging through a wall to get away (one in a panic dug out of her own shut hut into the night): it is put back after', async () => {
+    const run = { canDig: true, infiniteLiquidDropdownDistance: true };
+    const during: boolean[] = [];
+    const zombie = { id: 2, type: 'hostile', name: 'zombie', position: new Vec3(3, 64, 0), height: 1.95, isValid: true };
+    const bot = Object.assign(new EventEmitter(), {
+      health: 20,
+      entity: { id: 1, position: new Vec3(0, 64, 0) },
+      entities: { 2: zombie },
+      players: {},
+      nearestEntity: (match: (e: unknown) => boolean) => (match(zombie) ? zombie : null),
+      blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
+      setControlState: () => undefined,
+      clearControlStates: () => undefined,
+      pathfinder: {
+        setMovements: (m: { canDig: boolean }) => during.push(m.canDig),
+        goto: (): Promise<unknown> => Promise.reject(new Error('No path to the goal!')),
+        stop: () => undefined,
+        setGoal: () => undefined,
+      },
+    });
+    const ctx = { bot: bot as unknown as Bot, signal: new AbortController().signal, logger: nullLogger(), rng: new SeededRandom(1), movements: () => run, slip: null, progress: () => undefined };
+    const r = await flee.run(ctx as never, { from: 'zombie', distance: 16 });
+    expect(during).toEqual([false]);
+    // No way at all: the planner's empty way is no run.
+    bot.pathfinder.goto = () => Promise.resolve();
+    expect(await flee.run(ctx as never, { from: 'zombie', distance: 16 })).toMatchObject({ ok: false, error: 'no way to run on foot from here' });
+    expect(r.ok).toBe(false);
+    expect(run.canDig).toBe(true);
   });
 });
 

@@ -43,7 +43,7 @@ import type { MindLevers } from './levers';
 import { mindSystemPrompt } from './prompts';
 import { URGENT_STRENGTH } from '../mind/expectations';
 import { cueFrom } from '../mind/later';
-import { addLesson, doneAsItSetsOut, matchTask, saysUnfinished, taskNo } from '../mind/learning';
+import { addLesson, doneAsItSetsOut, matchTask, saysUnfinished, speaksOf, taskNo } from '../mind/learning';
 import { tidyDecision } from './decisionTidy';
 import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
@@ -1896,8 +1896,10 @@ export class CognitiveController {
       // a later thought finds it done (one about to swim down to a cod put "Catch a fish" behind her as "killed a cod
       // and picked it up", and never had a fish). Said again in a later thought, it is taken.
       const hoped = !unfinished && status === 'done' && !t.note?.startsWith(MEANT_DONE) && doneAsItSetsOut(text, [...(out.task ? [out.task] : []), ...(out.then ?? [])]);
-      const note = unfinished ? `${status === 'done' ? UNDER_WAY_NOTE : PUT_OFF_NOTE} "${text}"` : hoped ? `${MEANT_DONE} "${text}"` : null;
-      store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : note ? { ...x, note } : { ...x, status, note: text })) }), unfinished ? 'task under way' : hoped ? 'task meant done' : `task ${status}`);
+      // Done is said of the task itself, not of what goes into it.
+      const notOfIt = !unfinished && !hoped && status === 'done' && !speaksOf(t, text);
+      const note = unfinished ? `${status === 'done' ? UNDER_WAY_NOTE : PUT_OFF_NOTE} "${text}"` : hoped ? `${MEANT_DONE} "${text}"` : notOfIt ? `${NOT_OF_IT} "${text}"` : null;
+      store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : note ? { ...x, note } : { ...x, status, note: text })) }), unfinished ? 'task under way' : hoped ? 'task meant done' : notOfIt ? 'task not said of' : `task ${status}`);
     }
   }
 
@@ -1920,5 +1922,7 @@ const MEANT_DONE = 'you said it was done as you set out to do it:';
 /** The notes on a task said to be done while still under way, and on one said to be given up while only put off. */
 const UNDER_WAY_NOTE = 'still yours, under way as you said:';
 const PUT_OFF_NOTE = 'still yours, put off as you said:';
+/** The note on a task said to be done in words that were not of it. */
+const NOT_OF_IT = 'still yours: you said it was done, but not of the task itself:';
 /** What could not be done is kept in mind this long. */
 export const RULED_OUT_MS = 10 * 60_000;

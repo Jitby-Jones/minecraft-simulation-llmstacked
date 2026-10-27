@@ -9,6 +9,7 @@ import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
 import { type AppraisalEvent, appraise, contagion, decayEmotions, updateMood } from './emotions';
 import { ALONE_RANGE } from '../modules/hiding';
+import { noWayToMe } from '../perception/sceneWords';
 
 export interface FeelingsOptions {
   store: AgentStateStore;
@@ -251,7 +252,8 @@ export class Feelings {
     // Night, nobody of ours in sight and monsters close: it gets frightening (every ten seconds of it).
     if (!s.self.isDay && t - this.lastDark >= DARK_EVERY_MS) {
       const near = s.perception.nearbyEntities;
-      const hostiles = near.filter((x) => x.kind === 'hostile' && x.distance <= 16).length;
+      // What can't get at one (shut in one's own hut, the zombies outside) is no fright to run from.
+      const hostiles = near.filter((x) => x.kind === 'hostile' && x.distance <= 16 && !noWayToMe(s.scene, x.id)).length;
       const company = near.some((x) => x.kind === 'player' && x.distance <= ALONE_RANGE);
       if (hostiles > 0 && !company) {
         this.lastDark = t;

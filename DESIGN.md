@@ -3447,6 +3447,25 @@ What else the benchmark showed:
   world, are given with the way to them ("262 m west"). A live case puts a house 100 m east, a lake 80 m west and
   trees 116 m north of one standing on open ground; the far look names all three ("buildings east (100 m); water west
   (92 m); trees north (116 m)"), at about 1 ms of ray casting a tick while it looks.
+- **Done is said of the task itself.** Asked for "what you have or see now that shows it is done", the model in
+  `duo (9)` closed "Make a house" with "#1: I have at least 20 logs mixed between oak and spruce, ready for planks". A
+  done claim now has to speak of the task in its own words (a bare "#2: done" is taken by its number). One that
+  doesn't is noted ("still yours: you said it was done, but not of the task itself"). The reply's form gives an
+  example ("#2: the enchanting table is made and stands in my hut"), and "ready for" counts as under way. Plurals of
+  four letters ("cows", "logs") now match their singulars.
+- **A panic runs from something, and on foot.** Fifteen minutes into `solo (11)`, Ada was shut in her own hut,
+  healing after a zombie fight. Fear of the dark ran high (monsters within 16 m, nobody of hers about), and a panic
+  impulse fired: "panicked and ran". The flee skill's walk could dig, so it dug her out through the hut's wall into
+  the night, and two drowned and a spider killed her within 20 seconds. Three changes:
+  - the dark frightens only by monsters that can get to one (the reach sense);
+  - a panic run needs one of those monsters near, or the person who stirred it;
+  - the flee skill runs on foot and never digs (as the body's own flight already did).
+
+  Two senses were wrong as well. The walk planner's empty way (no way at all) ended the run as if it had arrived, so
+  it reported "fled to 6 blocks away" without a step. A flee is now judged by how far it got: "no way to run on foot
+  from here", or "it kept up". The ways out also counted a diagonal between two blocks meeting at a corner, so one
+  "walled in on every side" had a way "north-east 3 m"; a corner now takes room at one side of it. A live case shuts
+  Pip in a room with a zombie outside and a pickaxe on her: the flee digs nothing and says there is no way.
 - **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
   Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
   worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven

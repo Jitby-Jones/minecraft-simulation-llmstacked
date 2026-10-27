@@ -10,6 +10,7 @@ import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
 import { appraise, topEmotion } from './emotions';
 import { isOff } from '../state/switches';
+import { threatNear } from '../perception/sceneWords';
 
 export type Impulse = 'outburst' | 'stormOff' | 'refuseTalk' | 'flee' | 'gift' | 'punch';
 
@@ -93,8 +94,10 @@ export class Impulses {
     if (s.flags.inDanger || isOff(s, 'impulses') || this.now() - this.lastAt < COOLDOWN_MS) return;
     const imp = pickImpulse(s.emotions, s.self.persona, cause, this.rng(), Boolean(by && this.o.mayPunch?.(by)));
     if (!imp) return;
-    // Flight needs no target; the rest are aimed at whoever stirred it.
+    // The rest are aimed at whoever stirred it. Flight is from them, or from a monster near that can get at one: one
+    // shut in her own hut, healing, with the zombies outside, panicked at the dark, broke out and was killed.
     if (imp !== 'flee' && !by) return;
+    if (imp === 'flee' && !by && !threatNear(s)) return;
     this.lastAt = this.now();
     this.o.logger.info({ module: 'impulse', impulse: imp, cause, at: by, arousal: Number(s.emotions.arousal.toFixed(2)) }, 'acted on impulse');
     void this.act(imp, by).catch((err: unknown) => this.o.logger.info({ module: 'impulse', err: String(err) }, 'impulse failed'));

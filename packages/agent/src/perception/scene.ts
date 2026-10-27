@@ -725,6 +725,18 @@ export function waysOut(bot: Bot): string | null {
         break;
       }
       loaded = true;
+      // Across a corner only with room at one side of it: nobody gets out between two blocks that meet at a corner (one
+      // shut in her hut was "walled in on every side" and had a way "north-east 3 m").
+      if (dx !== 0 && dz !== 0) {
+        const px = x - dx;
+        const pz = z - dz;
+        const side = (sx: number, sz: number): boolean => wayFree(at(sx, y, sz)) && wayFree(at(sx, y + 1, sz));
+        if (!side(x, pz) && !side(px, z)) {
+          const corner = at(x, y, pz) ?? at(x, y + 1, pz);
+          stop = `${corner && corner.boundingBox === 'block' ? nice(corner.name) : 'the way'} in the way`;
+          break;
+        }
+      }
       if ([body, head, floor].some((b) => b.name === 'lava')) {
         stop = 'lava';
         break;

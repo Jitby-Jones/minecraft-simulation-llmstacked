@@ -69,7 +69,8 @@ export function addLesson(store: AgentStateStore, text: string, from: Lesson['fr
 const DOING = new Set(['make', 'made', 'obtain', 'build', 'built', 'craft', 'find', 'set', 'sets', 'full', 'secure', 'some', 'all', 'into', 'out', 'one', 'two']);
 
 function stem(w: string): string {
-  return w.length > 4 ? w.replace(/(ing|ed|s)$/, '') : w;
+  // Four letters is a plural too ("cows", "logs"), not "glass".
+  return w.length > 4 ? w.replace(/(ing|ed|s)$/, '') : w.length === 4 && /[^s]s$/.test(w) ? w.slice(0, -1) : w;
 }
 
 /** "3: why", "3. why", "task 3", "#3" or a bare "3": the task by its number; "12 diamonds" is no number of one. */
@@ -139,9 +140,20 @@ export function matchTask(tasks: readonly AssignedTask[], text: string): Assigne
  * none of them done: one of them all four of hers by 77 minutes.
  */
 const UNDER_WAY =
-  /\b(in progress|not (yet|finished|done|complete|completed|over|there)|unfinished|incomplete|ongoing|under ?way|still (need|needs|to|working|going|getting|gathering|building|making|looking|searching|short|missing|lacking|without|pursuing)|working (on|toward|towards)|actively|pursuing|about to|on my way|(i|we) ?('ll|’ll|will|shall|am going to|are going to|plan to|intend to|mean to)|almost|nearly|partly|partially|halfway|progress|for now|yet|later|tomorrow|soon|plan|planned|planning|need to|needs to|have to|has to|must)\b/i;
+  /\b(in progress|ready (for|to)|not (yet|finished|done|complete|completed|over|there)|unfinished|incomplete|ongoing|under ?way|still (need|needs|to|working|going|getting|gathering|building|making|looking|searching|short|missing|lacking|without|pursuing)|working (on|toward|towards)|actively|pursuing|about to|on my way|(i|we) ?('ll|’ll|will|shall|am going to|are going to|plan to|intend to|mean to)|almost|nearly|partly|partially|halfway|progress|for now|yet|later|tomorrow|soon|plan|planned|planning|need to|needs to|have to|has to|must)\b/i;
 /** And those with which one puts a task off, not gives it up ("I'll tackle that after the hut is built"). */
 const PUT_OFF = /\b(first|after|once|until|when|before|come back|return to|tackle|focus on)\b/i;
+
+/**
+ * Whether what was said to be done speaks of the task itself, in its own words ("#2: the enchanting table stands in my
+ * hut"), and not only of what goes into it: "#1: I have at least 20 logs mixed between oak and spruce" closed "Make a
+ * house". A bare "#2: done" is the task by its number.
+ */
+export function speaksOf(t: AssignedTask, text: string): boolean {
+  const said = [...words(text.replace(BY_NUMBER, ''))].map(stem);
+  if (said.every((w) => /^(done|finished|complete|completed|now|yes|all|it)$/.test(w))) return true;
+  return aboutWords(t.text).some((w) => said.includes(w));
+}
 
 /** Whether a task said to be done is said to be under way, or one said to be given up is put off. */
 export function saysUnfinished(text: string, status: 'done' | 'dropped'): boolean {

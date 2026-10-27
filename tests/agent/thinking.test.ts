@@ -15,7 +15,7 @@ import { AgentBus } from '@agora/agent/bus';
 import { Expectations, KNOWN_AFTER } from '@agora/agent/mind/expectations';
 import { GameKnowledge, type GameData, knowledgeLines } from '@agora/agent/mind/knowledge';
 import { LaterWatch, cueCame, cueFrom } from '@agora/agent/mind/later';
-import { Learning, addLesson, lessonsToCheck, matchTask, overlap, saysUnfinished } from '@agora/agent/mind/learning';
+import { Learning, addLesson, lessonsToCheck, matchTask, overlap, saysUnfinished, speaksOf } from '@agora/agent/mind/learning';
 import { ActionAwareness } from '@agora/agent/modules/awareness';
 import { buildPacket, placesFor, triedLately } from '@agora/agent/modules/bottleneck';
 import { CognitiveController } from '@agora/agent/modules/cc';
@@ -870,6 +870,17 @@ describe('lessons and tasks', () => {
       '#5: I stood in the Nether and came back through the portal',
     ]) expect(saysUnfinished(said, 'done'), said).toBe(false);
     expect(saysUnfinished('#2: Bram built it already; it is not mine to do', 'dropped')).toBe(false);
+    expect(saysUnfinished('#1: I have at least 20 logs mixed between oak and spruce, ready for planks and the village chest.', 'done')).toBe(true);
+  });
+
+  it('done is said of the task itself, not of what goes into it', () => {
+    const house = { id: 'h', n: 1, text: 'Make a house.', from: 'op', at: 0, status: 'open' as const };
+    expect(speaksOf(house, '#1: I have at least 20 logs mixed between oak and spruce')).toBe(false);
+    expect(speaksOf(house, '#1: sealed shelter with Ada')).toBe(false);
+    expect(speaksOf(house, '#1: the house stands, a door and a roof on it')).toBe(true);
+    expect(speaksOf(house, '#1: done')).toBe(true);
+    expect(speaksOf({ ...house, text: 'Secure a renewable source of food.' }, '#3: a renewable food source: wheat planted by the water')).toBe(true);
+    expect(speaksOf({ ...house, text: 'Make a cow farm.' }, '#2: the pen holds two cows')).toBe(true);
   });
 });
 
@@ -1112,7 +1123,7 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     const fake = new FakeNanoGpt(standardModels());
     const replies = [
       { thought: 'Down to the cod.', option: 'work', task: { skill: 'attack', args: { target: 'cod', seconds: 10 } }, then: [{ skill: 'pickup', args: {} }], terminate: { maxSeconds: 60 }, rationale: 'fish', taskDone: '#1: killed a cod and picked it up' },
-      { thought: 'Got it. Cook it.', option: 'work', task: { skill: 'smelt', args: { item: 'cod', qty: 1 } }, terminate: { maxSeconds: 60 }, rationale: 'food', taskDone: '#1: I have a cod now' },
+      { thought: 'Got it. Cook it.', option: 'work', task: { skill: 'smelt', args: { item: 'cod', qty: 1 } }, terminate: { maxSeconds: 60 }, rationale: 'food', taskDone: '#1: caught a fish, a cod, and I have it now' },
     ];
     fake.chat = ({ body }) => {
       if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
@@ -1138,7 +1149,7 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     // Said again in a later thought: done.
     bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
     for (let i = 0; i < 160 && decided.length < 2; i++) await wait(25);
-    expect(s.state.goals.tasks?.find((t) => t.id === fish.id)).toMatchObject({ status: 'done', note: '#1: I have a cod now' });
+    expect(s.state.goals.tasks?.find((t) => t.id === fish.id)).toMatchObject({ status: 'done', note: '#1: caught a fish, a cod, and I have it now' });
     cc.stop();
   });
 

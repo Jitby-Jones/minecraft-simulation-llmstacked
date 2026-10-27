@@ -271,6 +271,25 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     await server.cmd('time set 1000');
   });
 
+  it('a run is on foot: shut in a room with a zombie outside, flee digs no way out', async () => {
+    // One in a panic in her own shut hut dug out through its wall into the night, and was killed.
+    const o = await zone();
+    await server.cmd(`fill ${o.x - 1} ${Y} ${o.z - 1} ${o.x + 1} ${Y + 2} ${o.z + 1} minecraft:cobblestone`);
+    await server.cmd(`fill ${o.x} ${Y} ${o.z} ${o.x} ${Y + 1} ${o.z} minecraft:air`);
+    await server.cmd(`tp Pip ${o.x}.5 ${Y} ${o.z}.5`);
+    await server.cmd(`give Pip minecraft:stone_pickaxe 1`);
+    await server.cmd(`summon minecraft:zombie ${o.x + 6} ${Y} ${o.z} {PersistenceRequired:1b,NoAI:1b}`);
+    await sleep(800);
+    const r = await run(pip, 'flee', { from: 'zombie', distance: 16 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('no way to run on foot from here');
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      for (const dy of [0, 1]) expect(pip.bot.blockAt(new Vec3(o.x + dx, Y + dy, o.z + dz))?.name).toBe('cobblestone');
+    }
+    await server.cmd(`kill @e[type=minecraft:zombie]`);
+    await server.cmd(`fill ${o.x - 1} ${Y} ${o.z - 1} ${o.x + 1} ${Y + 2} ${o.z + 1} minecraft:air`);
+  });
+
   it('sleeps in a bed at night', async () => {
     const o = await zone();
     await server.cmd('gamerule players_sleeping_percentage 1');

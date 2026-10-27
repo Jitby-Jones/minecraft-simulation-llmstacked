@@ -135,6 +135,57 @@ describe('acting on impulse (§18.5)', () => {
   });
 });
 
+describe('a panic runs from something', () => {
+  it('afraid in the dark, shut in her own hut with the zombie outside: no run; with one that can get to her: she runs', async () => {
+    // One shut in her own hut, healing, with the zombies outside, panicked at the dark, broke out and was killed.
+    const s = new AgentStateStore(createInitialState({ persona: hothead, username: 'Kai', now: 0 }));
+    const bus = new AgentBus();
+    const impulses: DecisionOutput[] = [];
+    const imp = new Impulses({
+      store: s,
+      bus,
+      logger: nullLogger(),
+      me: 'Kai',
+      cc: { impulse: (d) => (impulses.push(d), true) },
+      talking: { blurt: async () => true, refuse: () => undefined },
+      conversations: { withPartner: () => undefined, end: () => undefined },
+      rng: () => 0,
+      now: () => 1_000_000,
+    });
+    imp.start();
+    s.update('emotions', () => ({ ...zeroEmotions(), fear: 0.9, arousal: 0.9 }));
+    const zombie = { id: 5, kind: 'hostile' as const, name: 'zombie', pos: { x: 6, y: 64, z: 0 }, distance: 6, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [zombie] }));
+    const seen = (relations: string[]) =>
+      s.update('scene', (sc) => ({ ...sc, at: 1, creatures: [{ id: 5, kind: 'hostile', name: 'zombie', pos: zombie.pos, distance: 6, bearing: 'east', dy: 0, motion: 'still', speed: 0, relations, details: [], visible: true }] }));
+    seen(['no way to you on foot']);
+    bus.emit({ type: 'felt', cause: 'aloneInDark', arousal: 0.9 });
+    await Promise.resolve();
+    expect(impulses).toEqual([]);
+    seen([]);
+    bus.emit({ type: 'felt', cause: 'aloneInDark', arousal: 0.9 });
+    await Promise.resolve();
+    expect(impulses).toEqual([expect.objectContaining({ option: 'flee', rationale: 'panicked and ran' })]);
+    imp.stop();
+  });
+
+  it('the dark frightens by the monsters that can get to one', () => {
+    const { s, f, t } = feelingsFor(hothead);
+    s.update('self', (me) => ({ ...me, isDay: false }));
+    const zombie = { id: 5, kind: 'hostile' as const, name: 'zombie', pos: { x: 6, y: 64, z: 0 }, distance: 6, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
+    s.update('perception', (p) => ({ ...p, nearbyEntities: [zombie] }));
+    s.update('scene', (sc) => ({ ...sc, at: 1, creatures: [{ id: 5, kind: 'hostile', name: 'zombie', pos: zombie.pos, distance: 6, bearing: 'east', dy: 0, motion: 'still', speed: 0, relations: ['no way to you on foot'], details: [], visible: true }] }));
+    t.now += 60_000;
+    (f as unknown as { tick(): void }).tick();
+    expect(s.state.emotions.fear).toBe(0);
+    s.update('scene', (sc) => ({ ...sc, creatures: sc.creatures.map((c) => ({ ...c, relations: [] })) }));
+    t.now += 60_000;
+    (f as unknown as { tick(): void }).tick();
+    expect(s.state.emotions.fear).toBeGreaterThan(0);
+    f.stop();
+  });
+});
+
 describe('first impressions and gut against facts (§18.3, §18.5)', () => {
   it('shiny gear impresses the vain, not the rest', () => {
     const diamond = firstImpression(0.85, hothead);

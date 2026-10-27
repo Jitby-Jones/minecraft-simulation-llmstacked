@@ -463,15 +463,19 @@ export const flee = defineSkill({
     const threat = args.from ? findEntity(bot, args.from, 48) : (nearbyHostiles(bot, 24)[0] ?? null);
     if (!threat) return { ok: true, observed: 'nothing to flee from' };
     const me = bot.entity.position;
+    const start = me.clone();
     const away = me.minus(threat.position);
     const dir = away.norm() < 0.1 ? new Vec3(1, 0, 0) : away.normalize();
     const target = me.plus(dir.scaled(args.distance));
     bot.setControlState('sprint', true);
     // A run keeps to drops it can see the bottom of: no leap into water far below, whatever is down there (the body's
-    // own running does the same).
+    // own running does the same). And it is on foot: one in a panic in her own shut hut dug out through its wall into
+    // the night, and was killed; a way out through a wall is digging, a thing of its own.
     const run = ctx.movements(true);
     const deepWater = run.infiniteLiquidDropdownDistance;
+    const dig = run.canDig;
     run.infiniteLiquidDropdownDistance = false;
+    run.canDig = false;
     bot.pathfinder.setMovements(run);
     try {
       await abortable(
@@ -487,8 +491,14 @@ export const flee = defineSkill({
     } finally {
       bot.setControlState('sprint', false);
       run.infiniteLiquidDropdownDistance = deepWater;
+      run.canDig = dig;
     }
-    return { ok: true, observed: `fled to ${bot.entity.position.distanceTo(threat.position).toFixed(0)} blocks away` };
+    // No way at all ends the walk as if it had got there (the planner's way is empty): how far one got says what came
+    // of it. Shut in a room, a run "fled to 6 blocks away" without a step.
+    const d = bot.entity.position.distanceTo(threat.position);
+    if (bot.entity.position.distanceTo(start) < 2) return { ok: false, observed: `still here, ${d.toFixed(0)} blocks away`, error: 'no way to run on foot from here' };
+    if (d < args.distance * 0.6) return { ok: false, observed: `ran ${bot.entity.position.distanceTo(start).toFixed(0)} blocks, and it is ${d.toFixed(0)} blocks away`, error: 'it kept up' };
+    return { ok: true, observed: `fled to ${d.toFixed(0)} blocks away` };
   },
 });
 
