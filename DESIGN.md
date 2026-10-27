@@ -3226,6 +3226,14 @@ What else the benchmark showed:
   thunderstorm at 10 health, hungry at food 7, and a zombie villager killed her by day. What the game knows now says,
   when the where line has a storm in it, that the sky goes dark enough for monsters to spawn and walk about as at
   night, unburnt until it passes.
+- **What hits one is at one.** `solo, seed 2 (32)`, at 114 minutes, was walled in under its dirt roof at night, and a
+  zombie took it from 13 health to none while it stood still and swung once. Walled in, the body took a monster it
+  could not see for no threat: "a mob we can't see can't reach us", here through a gap. Now whatever has hit it in
+  the last 2.5 s is a threat, sealed in or not, seen or not, below one or not.
+- **A gather given up on stops.** A gather out of time left the collect plugin's task running, and its walks took
+  over the walks that came next ("the goal was changed before it could be completed"), a furnace's work too. In a
+  loaded run of `m1-skills`, one timed-out gather took two later tests down with it. Now it is stopped, as an abort
+  stops it.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

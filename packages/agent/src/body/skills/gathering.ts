@@ -270,9 +270,14 @@ async function collectUntil(
         for (const b of batch) await breakAndCollect(ctx, b, matcher);
       } else {
         const task = withTimeout(collector(bot).collect(batch, { ignoreNoPath: true }), BATCH_MS + PER_BLOCK_MS * batch.length, `collecting ${label} took too long`);
+        // Given up on (out of time) as well as aborted, the collect is stopped: left running, its walks took over the
+        // walks of whatever came next ("the goal was changed before it could be completed"), a furnace's work too.
         await abortable(ctx.signal, task, () => {
           void collector(bot).cancelTask();
           stopMotion(bot);
+        }).catch(async (err: unknown) => {
+          if (!(err instanceof SkillAbortedError)) await stopCollecting(bot);
+          throw err;
         });
         await lightTheWay(ctx);
       }

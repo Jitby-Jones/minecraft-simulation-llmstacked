@@ -94,6 +94,8 @@ const FLEE_NOWHERE_MS = 2500;
 const BREATHABLE = /glass|_leaves$|^ice$|^packed_ice$|^blue_ice$|^frosted_ice$|^slime_block$|^honey_block$|^barrier$|^beacon$|^mangrove_roots$/;
 /** Digs at most this many blocks out of the way of one's head before giving the body back. */
 const DIG_OUT_MAX = 8;
+/** What hit us this lately is at us, whatever else says it can't be. */
+const HIT_JUST_NOW_MS = 2500;
 /** What comes down when nothing holds it up. */
 const FALLS = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|\w+_concrete_powder)$/;
 const SIDES = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
@@ -714,8 +716,10 @@ export class ReflexController {
         this.recentAttackers.delete(id);
         continue;
       }
-      if (sealed && !canSee(this.bot, cur, 17)) continue;
-      if (outOfReach(cur, me)) continue;
+      // What is hitting us gets at us, sealed in or not, seen or not: one walled in under her dirt roof was struck from
+      // a gap at its corner, the zombie unseen and so no threat, and stood there from 13 health to none.
+      if (sealed && !canSee(this.bot, cur, 17) && t - a.ts > HIT_JUST_NOW_MS) continue;
+      if (outOfReach(cur, me) && t - a.ts > HIT_JUST_NOW_MS) continue;
       if (cur.username && this.hooks.settled?.(cur.username, a.ts)) continue;
       out.set(id, cur);
     }
