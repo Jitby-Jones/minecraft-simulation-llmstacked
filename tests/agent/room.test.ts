@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
 import { besideWords, daytime, goingFor, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
-import { dropTheBodyTakes } from '@agora/agent/body/skills/movement';
+import { EventEmitter } from 'node:events';
+import { SeededRandom, nullLogger } from '@agora/shared';
+import { dropTheBodyTakes, goTo } from '@agora/agent/body/skills/movement';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { openedUp, waysOut, whereNow } from '@agora/agent/perception/scene';
 import { createInitialState } from '@agora/agent/state/initial';
@@ -163,6 +165,28 @@ describe('the drop the body can take', () => {
     expect(dropTheBodyTakes(2)).toBe(3);
     // A 9-block fall costs 6 health (3 free, then one for each block), a third of 20.
     expect(dropTheBodyTakes(20) - 3).toBeLessThanOrEqual(20 / 3);
+  });
+
+  it('is for that one way down: the walk settings every walk shares keep their usual drop after it', async () => {
+    const shared = { maxDropDown: 3 };
+    const tried: number[] = [];
+    const bot = Object.assign(new EventEmitter(), {
+      health: 20,
+      entity: { position: new Vec3(0, 70, 0) },
+      blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
+      pathfinder: {
+        setMovements: (m: { maxDropDown: number }) => tried.push(m.maxDropDown),
+        goto: () => Promise.reject(new Error('No path to the goal!')),
+        stop: () => undefined,
+        setGoal: () => undefined,
+      },
+      clearControlStates: () => undefined,
+    });
+    const ctx = { bot: bot as unknown as Bot, signal: new AbortController().signal, logger: nullLogger(), rng: new SeededRandom(1), movements: () => shared, slip: null, progress: () => undefined };
+    const r = await goTo.run(ctx as never, { x: 0, y: 64, z: 6, range: 1 });
+    expect(r.ok).toBe(false);
+    expect(tried).toContain(9);
+    expect(shared.maxDropDown).toBe(3);
   });
 });
 

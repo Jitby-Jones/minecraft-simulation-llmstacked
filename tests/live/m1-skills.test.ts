@@ -1,8 +1,9 @@
 // M1 live: every verified skill reports its postcondition on real Paper 26.1.2, and the L0 reflexes fight,
 // flee, eat, wear armor and collect tossed items without an LLM. Each case runs in its own clean zone.
 
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createLogger, loadVersionsConfig, sleep } from '@agora/shared';
+import { createLogger, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { countItem } from '@agora/agent/body/inventory';
@@ -51,7 +52,8 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     await server.cmd('gamerule advance_weather false');
     await server.cmd('weather clear');
     await server.cmd('time set 1000');
-    const logger = createLogger({ name: 'm1-live', console: false });
+    // Kept, as the other suites keep theirs, to read what a failure did.
+    const logger = createLogger({ name: 'm1-live', console: false, level: 'debug', logDir: path.join(repoRoot(), 'data', 'live-test', 'm1-agents') });
     pip = await Body.connect(
       { host: server.host, port: server.port, username: 'Pip', version: versions.minecraft.version, logger, chat: { minIntervalMs: 300 } },
       { onDanger: (d) => dangers.push(d), onDangerCleared: (s) => cleared.push(s), caution: () => 0.3, rooms: () => rooms, mindLed: () => led, takeBack: (why) => tookBack.push(why) },
@@ -384,6 +386,18 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await server.cmd('damage Pip 15');
       await waitFor(() => pip.bot.health <= 6, 5000, 'hurt');
       await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
+      // What the run did, said if it fails (the walk set a block up on the door's panel stood at its doorway to die).
+      const trace: string[] = [];
+      const t0 = Date.now();
+      const at = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+      const onUpdate = (r: { status: string; path: readonly { x: number; y: number; z: number }[] }) => trace.push(`${at()} path ${r.status}: ${r.path.map((n) => `${n.x.toFixed(1)},${n.y.toFixed(1)},${n.z.toFixed(1)}`).join(' > ')}`);
+      pip.bot.on('path_update', onUpdate);
+      const tracer = setInterval(() => {
+        const p = pip.bot.entity.position;
+        const zb = Object.values(pip.bot.entities).find((e) => e.name === 'zombie');
+        const door = pip.bot.blockAt(new Vec3(o.x, Y, c.z + 4))?.getProperties().open;
+        trace.push(`${at()} ${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)} hp${Math.round(pip.bot.health)} ${pip.reflexes.mode} forward=${pip.bot.controlState.forward} door ${door ? 'open' : 'shut'} zombie ${zb ? zb.position.distanceTo(p).toFixed(1) : '-'}`);
+      }, 500);
       try {
         await waitFor(() => dangers.some((d) => d.kind === 'flee'), 10000, 'flee reflex');
         const inside = () => Math.abs(pip.bot.entity.position.x - (room.x + 0.5)) <= 1.5 && Math.abs(pip.bot.entity.position.z - (room.z + 0.5)) <= 1.5;
@@ -393,6 +407,9 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
         await waitFor(() => pip.reflexes.mode === 'idle', 15000, 'safe inside');
         expect(inside()).toBe(true);
       } finally {
+        clearInterval(tracer);
+        pip.bot.removeListener('path_update', onUpdate);
+        console.log(`[hut] room ${room.x},${room.z}\n${trace.join('\n')}`);
         rooms.length = 0;
         await server.cmd('kill @e[type=minecraft:zombie]');
         await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);

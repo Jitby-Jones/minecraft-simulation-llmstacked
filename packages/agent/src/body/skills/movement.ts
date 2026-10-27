@@ -142,7 +142,9 @@ export const goTo = defineSkill({
       // the drop the body can take, once the ways that cost nothing are found wanting.
       const drop = dropTheBodyTakes(ctx.bot.health);
       if (NO_PATH.test(errMsg(err)) && drop > 3) {
+        // The walk's settings are the body's own, shared by every walk: the drop is for this way down only.
         const m = ctx.movements();
+        const usual = m.maxDropDown;
         m.maxDropDown = drop;
         try {
           await gotoNear(ctx, target, range, 60_000, m);
@@ -150,6 +152,8 @@ export const goTo = defineSkill({
         } catch (e) {
           if (e instanceof SkillAbortedError) throw e;
           err = e;
+        } finally {
+          m.maxDropDown = usual;
         }
       }
       // In the water with no way out found: out of it onto a block of one's own, and on from there.

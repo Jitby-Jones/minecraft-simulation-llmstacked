@@ -87,9 +87,9 @@ const SUBMERGED_MS = 6000;
 /** Running that isn't working (still being hit, or nowhere to go) with the attacker close: stand and fight this long. */
 const STAND_MS = 12_000;
 /** A flight that gets no farther than this (blocks, across or up and down: a jump is less) from where it was for
- *  FLEE_NOWHERE_MS is going nowhere. */
+ *  FLEE_NOWHERE_MS is going nowhere (a door on the way takes less). */
 const FLEE_PROGRESS = 1.5;
-const FLEE_NOWHERE_MS = 1500;
+const FLEE_NOWHERE_MS = 2500;
 /** Whole blocks one can have one's head in and still breathe: they let the light through. */
 const BREATHABLE = /glass|_leaves$|^ice$|^packed_ice$|^blue_ice$|^frosted_ice$|^slime_block$|^honey_block$|^barrier$|^beacon$|^mangrove_roots$/;
 /** Digs at most this many blocks out of the way of one's head before giving the body back. */
@@ -924,9 +924,12 @@ export class ReflexController {
     const at = this.bot.entity.position;
     const from = this.fleeFrom;
     if (!from || Math.hypot(at.x - from.pos.x, at.z - from.pos.z) > FLEE_PROGRESS || Math.abs(at.y - from.pos.y) > FLEE_PROGRESS) this.fleeFrom = { pos: at.clone(), at: now };
-    const moving = this.bot.pathfinder.isMoving() && now - (this.fleeFrom?.at ?? now) < FLEE_NOWHERE_MS;
+    const pathing = this.bot.pathfinder.isMoving();
+    const moving = pathing && now - (this.fleeFrom?.at ?? now) < FLEE_NOWHERE_MS;
     this.fleeStillSince = moving ? null : (this.fleeStillSince ?? now);
-    if (now - this.fleePlannedAt < 1500 && moving) return;
+    // The way is planned again as the chasers move, every 1.5 s while a path is walked (each new plan starts the walk
+    // over: planned at every look, a run through a door never got through it).
+    if (now - this.fleePlannedAt < 1500 && pathing) return;
     this.fleePlannedAt = now;
     const avoid = this.inTheWay(threats);
     // At night, near a hut of one's own, into it, when the way there isn't through what chases (an agent caught by the

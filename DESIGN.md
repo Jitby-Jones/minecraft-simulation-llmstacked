@@ -3089,10 +3089,28 @@ quota (`docs/plan-thinking-models.md` §4, §7):
   if it decides nothing new, comes to nothing, or chose to go on with what is done meanwhile (then it is taken in, not
   done twice). A step chosen now is taken off what is to come: 14 steps had been done twice so (rotten flesh eaten
   twice, a block placed twice).
+- **Through a door, not onto it.** The live reflex test of a hurt agent running for its hut at night failed 7 times in
+  11, with and without the day's changes. Traced, the agent stood two blocks short of its own open door, the path still
+  "moving", until the zombie killed it. The pathfinder sets each node of a path on top of what is in its cell, and a
+  door's panel counts: the door's node was a block up, on the panel. It could be reached only in a sprint-jump, and
+  from a standstill the pathfinder's own check found no way to it and stopped pressing forward. This is likely how the
+  two in `duo (12)` died outside a hut they could not walk into. The pathfinder patch now sets a door's node on the
+  floor of its cell.
+- **A flight that gets nowhere is going nowhere**, the path "moving" or not: a block and a half in two and a half
+  seconds, across or up and down. Then running that isn't working turns into standing to fight, as when cornered. The
+  way is still planned again only every 1.5 s while a path is walked; planned at every look, a run through a door never
+  got through it.
+- **The drop for one way down only.** The walk that tries a drop the body can take had left that drop on the walk
+  settings every walk shares: after one, each later walk could take a 9-block fall. It is put back after the walk.
+- **The quick checks benchmarked as the agents ask them** (`pnpm bench-thoughts --kind check`, 32 cases: meant for me,
+  settled, promised a hand-over, kept, a summary, a merged memory). The six checks' prompts now live in their modules
+  and are used by both. The mind's golden set has 26 cases. The checks' reply cap is 320 tokens: the self-summary and a
+  talk's promises come near 200, and a reply cut off is lost.
 
-Verified: lint, typecheck, the forbidden-strings check, 753 unit tests, and live `hands` (the roof). The benchmarks and
-the long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports
-that it can spend balance.
+Verified: lint, typecheck, the forbidden-strings check, 756 unit tests, and live `hands` (the roof, the 24-deep climb),
+`melee` (9), `cornered` (2), `m1-water` (4) and the `m1-skills` reflexes (the run into the hut). The benchmarks and the
+long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports that it
+can spend balance.
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes

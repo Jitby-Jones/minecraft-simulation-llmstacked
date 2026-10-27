@@ -858,16 +858,19 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     try {
       r.flee([z]);
       expect(r.fleeStillSince).toBeNull();
-      // Jumping in place: the legs going, the body no farther on.
-      t += 800;
+      // Jumping in place: the legs going, the body no farther on. A door's moment is not going nowhere.
+      t += 1200;
       r.bot.entity.position = new Vec3(0.3, 64.8, 0.2);
       r.flee([z]);
       expect(r.fleeStillSince).toBeNull();
-      t += 900;
+      t += 1400;
       r.flee([z]);
       expect(r.fleeStillSince).toBe(t);
-      // Going nowhere, the way is planned again at once.
-      expect(goals.length).toBeGreaterThanOrEqual(2);
+      // The way is planned again every 1.5 s while a path is walked, not at every look.
+      const planned = goals.length;
+      t += 200;
+      r.flee([z]);
+      expect(goals.length).toBe(planned);
       // Off again: going somewhere.
       t += 500;
       r.bot.entity.position = new Vec3(-3, 64, 0);

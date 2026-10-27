@@ -1,5 +1,5 @@
 diff --git a/index.js b/index.js
-index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..01dead239e2508833c165358cd5eb0509040ad2f 100644
+index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..84bebb93f331b7940cdb9da8b6cbcbfd71f25b78 100644
 --- a/index.js
 +++ b/index.js
 @@ -116,8 +116,9 @@ function inject (bot) {
@@ -14,7 +14,22 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..01dead239e2508833c165358cd5eb050
    }
  
    function resetPath (reason, clearStates = true) {
-@@ -541,13 +542,18 @@ function inject (bot) {
+@@ -170,6 +171,14 @@ function inject (bot) {
+       const curPoint = path[i]
+       if (curPoint.toBreak.length > 0 || curPoint.toPlace.length > 0) break
+       const b = bot.blockAt(new Vec3(curPoint.x, curPoint.y, curPoint.z))
++      // A door is walked through, not stood on: the node is the floor of its cell, not the top of its panel (set a
++      // block up, it could be reached only in a sprint-jump, and one walking up to it stood at its own door to die).
++      if (b && b.name.endsWith('_door')) {
++        curPoint.x = Math.floor(curPoint.x) + 0.5
++        curPoint.y = Math.floor(curPoint.y)
++        curPoint.z = Math.floor(curPoint.z) + 0.5
++        continue
++      }
+       if (b && (b.type === waterType || ((b.type === ladderId || b.type === vineId) && i + 1 < path.length && path[i + 1].y < curPoint.y))) {
+         curPoint.x = Math.floor(curPoint.x) + 0.5
+         curPoint.y = Math.floor(curPoint.y)
+@@ -541,13 +550,18 @@ function inject (bot) {
        let canPlace = true
        if (placingBlock.jump) {
          bot.setControlState('jump', true)
@@ -34,7 +49,7 @@ index b38bd30c0c1babb4d7d3d396067ed828d9dc9f6a..01dead239e2508833c165358cd5eb050
              const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
              if (!lockPlaceBlock.tryAcquire()) return
              if (interactableBlocks.includes(refBlock.name)) {
-@@ -568,7 +574,10 @@ function inject (bot) {
+@@ -568,7 +582,10 @@ function inject (bot) {
                  lastNodeTime = performance.now()
                })
            })
