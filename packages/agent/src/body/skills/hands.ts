@@ -13,7 +13,7 @@ import { Vec3 } from 'vec3';
 import { describeDiff, diffInventory, markThrown, snapshotInventory } from '../inventory';
 import { itemMatcher, normalizeBlockName, normalizeItemName } from '../items';
 import { biting, canSee, canSeeBlock, roomAround } from '../world';
-import { stopCollecting } from './gathering';
+import { mine, stopCollecting } from './gathering';
 import { abortable, digBlock, errMsg, goals, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, SkillAbortedError } from './types';
 
@@ -657,3 +657,73 @@ export async function shearSheep(ctx: SkillContext, colour: string | null, enoug
   if (sheared > 0) await collectAround(ctx, bot.entity.position.clone(), 10, (n) => n.endsWith('_wool'), 10);
   return sheared;
 }
+
+/** As far as a hand reaches to break a block, from the eyes. */
+const DIG_REACH = 4.4;
+
+/**
+ * The other click: break the block at a spot, as a player does with the best tool on them for it (by hand if none),
+ * and pick up what drops. A way out through a wall, a block in the way, a door. Shut in with another at dawn, one "used"
+ * an axe on the plank wall (a right click) again and again and never got out: there was no hand to break a block with.
+ */
+export const dig = defineSkill({
+  name: 'dig',
+  description:
+    'dig {x,y,z} — break the block at that spot, as a player does with a left click (the best tool you carry for it, by hand if none), and pick up what drops: a block in your way, a wall to get out through, a door; nothing drops from stone or ore broken without a pickaxe. ({block, qty} with no spot is mine)',
+  argsSchema: z.union([
+    z.object({ x: z.coerce.number(), y: z.coerce.number(), z: z.coerce.number() }),
+    z.object({ block: z.string().min(1), qty: z.coerce.number().int().min(1).max(256).default(1) }),
+  ]),
+  talkOverable: true,
+  slipKinds: [],
+  expect: () => ({ kind: 'none' }),
+  async run(ctx, args) {
+    if ('block' in args) return mine.run(ctx, { block: args.block, qty: args.qty, maxDistance: 48 });
+    const { bot } = ctx;
+    const at = new Vec3(Math.floor(args.x), Math.floor(args.y), Math.floor(args.z));
+    const b = bot.blockAt(at);
+    if (!b) return { ok: false, observed: 'too far off to see', error: `${at.x},${at.y},${at.z} is out of sight` };
+    if (/^(air|cave_air|void_air)$/.test(b.name)) return { ok: false, observed: `nothing there (${at.x},${at.y},${at.z} is empty)`, error: 'nothing there to break' };
+    if (/^(water|lava|bubble_column)$/.test(b.name)) return { ok: false, observed: `only ${b.name.replace(/_/g, ' ')} there`, error: `${b.name} can't be dug: a block put there fills it` };
+    if (b.name === 'bedrock' || b.hardness === null || b.hardness < 0) return { ok: false, observed: `the ${b.name.replace(/_/g, ' ')} can't be broken`, error: `${b.name} can't be broken` };
+    await stopCollecting(bot);
+    const eyes = () => bot.entity.position.offset(0, 1.62, 0);
+    if (eyes().distanceTo(at.offset(0.5, 0.5, 0.5)) > DIG_REACH) {
+      bot.pathfinder.setMovements(ctx.movements());
+      try {
+        await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalLookAtBlock(at, bot.world, { reach: DIG_REACH })), 30_000, 'could not get there in time'), () => stopMotion(bot));
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        stopMotion(bot);
+      }
+      if (eyes().distanceTo(at.offset(0.5, 0.5, 0.5)) > DIG_REACH + 0.5) {
+        return { ok: false, observed: `could not get within reach of the ${b.name.replace(/_/g, ' ')}`, error: 'no way to get within reach of it' };
+      }
+    }
+    const fresh = bot.blockAt(at) ?? b;
+    const tool = bot.pathfinder.bestHarvestTool(fresh);
+    if (tool) await bot.equip(tool, 'hand');
+    // Whether anything will come of it, as one knows by the tool in hand.
+    const bare = Boolean(fresh.harvestTools) && !bot.inventory.items().some((i) => fresh.canHarvest(i.type));
+    await digBlock(ctx, fresh);
+    await waitMs(ctx, 400);
+    // What dropped: picked up, as one walks over it.
+    for (let i = 0; i < 3; i++) {
+      const drop = bot.nearestEntity((e) => e.name === 'item' && e.position.distanceTo(at.offset(0.5, 0.5, 0.5)) <= 3 && canSee(bot, e, 8));
+      if (!drop) break;
+      try {
+        await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000), () => stopMotion(bot));
+      } catch (err) {
+        if (err instanceof SkillAbortedError) throw err;
+        stopMotion(bot);
+        break;
+      }
+      await waitMs(ctx, 300);
+    }
+    const now = bot.blockAt(at);
+    const gone = !now || now.name !== fresh.name;
+    const name = fresh.name.replace(/_/g, ' ');
+    if (!gone) return { ok: false, observed: `the ${name} is still there`, error: `the ${name} did not break` };
+    return { ok: true, observed: `broke the ${name} at ${at.x},${at.y},${at.z}${bare ? ` with no tool that harvests it: nothing drops from ${name} that way` : ''}` };
+  },
+});

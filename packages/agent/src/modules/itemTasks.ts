@@ -50,7 +50,8 @@ export function routeItemTask(task: Task, canonical: (skill: string) => string |
     const item = str(a.item);
     return item ? { skill: 'obtain', args: withQty(anyWood(item)) } : task;
   }
-  if (skill === 'mine') {
+  // A dig with a kind of block and no spot is a mine.
+  if (skill === 'mine' || (skill === 'dig' && a.x === undefined && (str(a.block) ?? str(a.item)))) {
     const block = str(a.block) ?? str(a.item);
     if (!block) return task;
     const ore = ORE.exec(block)?.[1];

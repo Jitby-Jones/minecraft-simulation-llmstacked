@@ -3466,6 +3466,14 @@ What else the benchmark showed:
   from here", or "it kept up". The ways out also counted a diagonal between two blocks meeting at a corner, so one
   "walled in on every side" had a way "north-east 3 m"; a corner now takes room at one side of it. A live case shuts
   Pip in a room with a zombie outside and a pickaxe on her: the flee digs nothing and says there is no way.
+- **The other click: `dig {x,y,z}`.** At dawn in `duo (9)`, Ada was shut in a plank shelter with Bram. She "used"
+  an axe on the plank wall (a right click) again and again, tried to walk out and mine stone, and never got out. The
+  hands could right-click a block (`use`) but had no left click: `mine` takes the nearest block of a kind, and
+  `tunnel` digs a way. `dig {x,y,z}` breaks the block at a spot, as a player does. It walks within reach, takes the
+  best tool carried for it (bare-handed if none), and picks up what drops. Of stone broken bare-handed it says
+  "nothing drops". A dig with a kind of block and no spot is a mine, as "dig" had always meant. A live case breaks a
+  plank out of a wall with an axe (the plank picked up), then stone 6 m off by hand (nothing drops, and it says
+  so), and finds nothing at an empty spot.
 - **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
   Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
   worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven

@@ -17,7 +17,7 @@ import { design } from './design';
 import { scout, settle } from './settle';
 import { enchant, nameItem } from './enchanting';
 import { eye, fill, portal, travel } from './expedition';
-import { drop, harvest, lead, use } from './hands';
+import { dig, drop, harvest, lead, use } from './hands';
 import type { AnySkill } from './types';
 
 export const SKILLS: readonly AnySkill[] = [
@@ -62,6 +62,7 @@ export const SKILLS: readonly AnySkill[] = [
   sign,
   patrol,
   use,
+  dig,
   lead,
   harvest,
   drop,
@@ -80,7 +81,8 @@ const ALIASES: Readonly<Record<string, string>> = {
   get: 'obtain',
   acquire: 'obtain',
   fetch: 'obtain',
-  dig: 'mine',
+  break: 'dig',
+  break_block: 'dig',
   stay: 'wait',
   rest: 'lookAround',
   idle: 'lookAround',

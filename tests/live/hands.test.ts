@@ -808,6 +808,33 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`fill ${x + 2} ${Y} -1 ${x + 4} ${Y + 1} 1 air`);
   }, 120_000);
 
+  it('dig: the block at a spot broken and what drops picked up; stone by hand breaks and drops nothing, and it says so (shut in at dawn, one "used" an axe on her plank wall again and again)', async () => {
+    const x = 10100;
+    await at(x, 0);
+    // A plank wall a step east, two high; a stone block 6 m north, on the ground.
+    await server.cmd(`fill ${x + 1} ${Y} -1 ${x + 1} ${Y + 1} 1 oak_planks`);
+    await server.cmd(`setblock ${x} ${Y} 6 stone`);
+    await server.cmd('give Ada minecraft:wooden_axe 1');
+    await sleep(1500);
+    const r = await run('dig', { x: x + 1, y: Y, z: 0 });
+    logger.info({ r, planks: countItem(body.bot, 'oak_planks') }, 'dig a plank');
+    expect(r.ok).toBe(true);
+    expect(body.bot.blockAt(new Vec3(x + 1, Y, 0))?.name).toBe('air');
+    expect(countItem(body.bot, 'oak_planks')).toBe(1);
+    // Out of reach and no pickaxe: walked to, broken by hand, nothing drops.
+    const st = await run('dig', { x, y: Y, z: 6 });
+    logger.info({ st }, 'dig stone by hand');
+    expect(st.ok).toBe(true);
+    expect(st.observed).toMatch(/nothing drops/);
+    expect(body.bot.blockAt(new Vec3(x, Y, 6))?.name).toBe('air');
+    expect(countItem(body.bot, 'cobblestone')).toBe(0);
+    // Nothing there: said so.
+    const none = await run('dig', { x, y: Y + 3, z: 0 });
+    expect(none.ok).toBe(false);
+    expect(none.error).toBe('nothing there to break');
+    await server.cmd(`fill ${x + 1} ${Y} -1 ${x + 1} ${Y + 1} 1 air`);
+  }, 120_000);
+
   it('a cow attacked and killed: what it dropped is walked over and taken (a salmon killed in a river was hunted for again and again)', async () => {
     const x = 8800;
     await at(x, 0);
