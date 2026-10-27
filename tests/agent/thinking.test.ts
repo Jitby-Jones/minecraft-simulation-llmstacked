@@ -214,6 +214,35 @@ function fakeWorld(extra: Record<string, string> = {}) {
   return { bot, inv, creature };
 }
 
+describe('whether a monster near can get to one, as one sees it from where one is', () => {
+  it('at the foot of the pillar one stands on: "no way up to you on foot"; down on the ground beside it, nothing so', () => {
+    const w = fakeWorld();
+    const base = w.bot.blockAt;
+    w.bot.blockAt = (p: Vec3) => {
+      const f = p.floored();
+      if (f.x === 0 && f.z === 0 && f.y >= 64 && f.y <= 66) return { name: 'oak_planks', type: data.blocksByName.oak_planks?.id ?? 1, boundingBox: 'block', position: f, getProperties: () => ({}) };
+      return base(p) ?? { name: 'air', type: 0, boundingBox: 'empty', position: f, getProperties: () => ({}) };
+    };
+    w.bot.entity.position = new Vec3(0.5, 67, 0.5);
+    const zombie = { id: 9, name: 'zombie', type: 'hostile', position: new Vec3(3.5, 64, 0.5), velocity: new Vec3(0, 0, 0), onGround: true, height: 1.95, width: 0.6, yaw: 0, pitch: 0, metadata: [] };
+    w.bot.entities[9] = zombie;
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    const seen: Seen[] = [{ e: zombie as never, kind: 'hostile', name: 'zombie', visible: true, distance: 4.2 }];
+    t.now = 9000;
+    eyes.tick(seen);
+    expect(describeScene(s.state.scene, t.now).join('\n')).toContain('a zombie (hostile), 4 m east, 3 m down: standing still, no way up to you on foot');
+    // Down on the ground beside it, the same zombie has its way.
+    w.bot.entity.position = new Vec3(1.5, 64, 0.5);
+    t.now = 13_000;
+    eyes.tick(seen);
+    expect(describeScene(s.state.scene, t.now).join('\n')).not.toContain('no way');
+    eyes.stop();
+  });
+});
+
 describe('what the game does by itself is no surprise; what comes from nowhere is', () => {
   it('a bee out of its nest is nothing; a cow out of thin air is', () => {
     const w = fakeWorld({ '6,66,0': 'bee_nest' });

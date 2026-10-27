@@ -3159,6 +3159,15 @@ What else the benchmark showed:
     jump). It digs only where there is no way out. Live, on a stair under six gravel: before, health 0 with the head in
     the gravel; now, back down the step at 20.
   - The where line names what is overhead: "the ceiling 2 m up (gravel)", "under a roof of oak planks".
+- **Whether a monster can get to one on foot** (`perception/reach.ts`). A player up a pillar sees that the zombie at
+  its foot can't get up; in a room shut on every side, that what is outside can't get in. For a monster within 16 m,
+  the walk is worked out back from the cells where a body two high could strike us (beside us, no more than a block up
+  or down). It goes over the cells such a body can stand in, the way one walks: a step up, a drop of up to three,
+  water, a ladder, an open door or gate. Nothing is dug, built, jumped across or opened. "No way up to you on foot" is
+  said only when our pocket is shut in and searched to its end (at most 3000 cells, 12 across and 8 up or down); out in
+  the open, or with ground not loaded, nothing is said. With it, the pillar case's model saw that "a zombie is three
+  meters below but can't reach me" three times of three. It still went for its hut 53 m off, for food, which is its
+  own judgment.
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes

@@ -25,6 +25,7 @@ import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
 import { type Motion, MotionTracker } from './motion';
+import { waysOnFoot } from './reach';
 import { bearingOf, countOf } from './sceneWords';
 
 export { bearingOf };
@@ -779,6 +780,9 @@ const CREATURES_MAX = 24;
 const PLACE_KINDS: ReadonlySet<SceneFeatureKind> = new Set(['ore', 'lava', 'portal', 'spawner', 'station', 'container', 'bed', 'built', 'crops', 'plants', 'trees', 'water', 'clay']);
 const MAX_PLACES = 80;
 const CREATURES_EVERY_MS = 1000;
+/** Monsters this near are looked at for a way to us on foot; worked out again when one moves, or after this. */
+const REACH_LOOK = 16;
+const REACH_EVERY_MS = 3000;
 /** When the sun is low enough to be noticed, with time left to get ready (dark at 13000 of the day's 24000 ticks; a minute is 1200). */
 const DUSK_AT = 10_800;
 /** Coming out into the night stands out so at most this often (in and out of a doorway is one coming out). */
@@ -797,6 +801,8 @@ export class SceneEyes {
   private lastKey = '';
   /** The ways out, worked out again only when the agent has moved or a few seconds have gone. */
   private ways: { key: string; at: number; text: string | null } = { key: '', at: 0, text: null };
+  /** The monsters near with no way to us on foot, worked out again when one of us moves or a few seconds have gone. */
+  private noWay: { key: string; at: number; ids: Set<number> } = { key: '', at: 0, ids: new Set() };
   private notices: Notice[] = [];
   /** When an animal last caught a hungry eye. */
   private foodNoticedAt = -Infinity;
@@ -1216,6 +1222,17 @@ export class SceneEyes {
     const order = (k: EntityKind) => (k === 'player' ? 0 : k === 'hostile' ? 1 : k === 'passive' ? 2 : k === 'item' ? 3 : 4);
     const shown = [...seen].sort((a, b) => order(a.kind) - order(b.kind) || a.distance - b.distance).slice(0, CREATURES_MAX);
     const creatures = shown.map((s) => creatureOf(bot, s, this.motion.of(s.e.id), seen));
+    // A monster with no way to us on foot (one up a pillar, down a hole, shut in a room), as one sees it from there:
+    // asked about one up a three-high pillar with a zombie at its foot, every model came down "if it can climb up".
+    const hostile = shown.filter((x) => x.kind === 'hostile' && x.distance <= REACH_LOOK);
+    if (hostile.length > 0) {
+      const key = [bot.entity.position.floored().toString(), ...hostile.map((x) => `${x.e.id}@${x.e.position.floored().toString()}`)].join(';');
+      if (key !== this.noWay.key || now - this.noWay.at > REACH_EVERY_MS) {
+        const ways = waysOnFoot(bot, hostile.map((x) => x.e.position));
+        this.noWay = { key, at: now, ids: new Set(hostile.filter((_, i) => ways[i] === false).map((x) => x.e.id)) };
+      }
+      for (const c of creatures) if (this.noWay.ids.has(c.id)) c.relations.push(c.dy <= -2 ? 'no way up to you on foot' : c.dy >= 2 ? 'no way down to you on foot' : 'no way to you on foot');
+    }
     this.notices = this.notices.filter((x) => now - x.ts < NOTICE_MS);
     const key = [
       this.where,
