@@ -7,7 +7,7 @@ import { createLogger, loadVersionsConfig, repoRoot, sleep } from '@agora/shared
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
 import { countItem } from '@agora/agent/body/inventory';
-import type { DangerInfo } from '@agora/agent/body/reflexes';
+import { type DangerInfo, handInUse } from '@agora/agent/body/reflexes';
 import { isEnclosed } from '@agora/agent/body/world';
 import { type LiveServer, liveJavaPath, startLiveServer, waitFor } from './harness';
 
@@ -567,6 +567,51 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await sleep(500);
       expect((pip.bot as unknown as { usingHeldItem?: boolean }).usingHeldItem).toBe(false);
       await server.cmd('clear Pip minecraft:shield');
+    });
+
+    it('a skeleton shooting at it from where it cannot get to, a shield on the arm: up toward it while it draws, the arrows blocked', async () => {
+      const o = await zone();
+      dangers.length = 0;
+      await server.cmd('give Pip minecraft:shield 1');
+      await server.cmd('give Pip minecraft:stone_sword 1');
+      await waitFor(() => pip.bot.inventory.slots[45]?.name === 'shield', 15000, 'shield on the arm');
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      // Held where it stands (it can't get to the archer, as across a ravine): what is tried is the shield alone.
+      await server.cmd('effect give Pip minecraft:slowness 30 255');
+      await sleep(1000);
+      const before = pip.bot.health;
+      let lowest = before;
+      let draws = 0;
+      let blocked = 0;
+      const look = setInterval(() => {
+        lowest = Math.min(lowest, pip.bot.health);
+        const sk = Object.values(pip.bot.entities).find((e) => e.name === 'skeleton');
+        if (!sk || !handInUse(pip.bot, sk)) return;
+        draws++;
+        if ((pip.bot as unknown as { usingHeldItem?: boolean }).usingHeldItem) blocked++;
+      }, 50);
+      // Fenced in where it stands 10 m off, shooting over the fence: it can't come nearer.
+      const sx = o.x + 10;
+      try {
+        await server.cmd(`fill ${sx - 1} ${Y} ${o.z - 1} ${sx + 1} ${Y} ${o.z + 1} minecraft:oak_fence`);
+        await server.cmd(`setblock ${sx} ${Y} ${o.z} minecraft:air`);
+        // Its bow in hand (equipment given is all it has), and a helmet on it: no burning.
+        await server.cmd(`summon minecraft:skeleton ${sx}.5 ${Y} ${o.z}.5 {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
+        await waitFor(() => dangers.some((d) => d.source === 'skeleton'), 15000, 'skeleton seen');
+        await sleep(12_000);
+      } finally {
+        clearInterval(look);
+        process.stdout.write(`SHIELD health ${before} lowest ${lowest} now ${pip.bot.health}; skeleton drawing ${draws} looks, shield up in ${blocked}\n`);
+        await server.cmd('kill @e[type=minecraft:skeleton]');
+        await server.cmd(`fill ${sx - 1} ${Y} ${o.z - 1} ${sx + 1} ${Y} ${o.z + 1} minecraft:air`);
+        await server.cmd('effect clear Pip minecraft:slowness');
+        await server.cmd('clear Pip minecraft:shield');
+        await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      }
+      expect(draws).toBeGreaterThan(0);
+      expect(blocked / draws).toBeGreaterThan(0.6);
+      // An arrow or two at most get through before the shield is up (unshielded, three in 10 s, 4 each).
+      expect(before - lowest).toBeLessThanOrEqual(5);
     });
   });
 });

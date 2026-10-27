@@ -826,7 +826,7 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
   });
 
   it("running that isn't working turns into a fight: still caught, or going nowhere, with it close", () => {
-    const r = rig('stone_sword') as unknown as { mode: string; fleeHits: number[]; fleeSince: number; fleeStillSince: number | null; cornered(now: number, t: unknown[]): boolean };
+    const r = rig('stone_sword') as unknown as { mode: string; fleeHits: number[]; fleeSince: number; fleeStillSince: number | null; cornered(now: number, t: unknown[]): string | null };
     const spider = { id: 5, type: 'hostile', name: 'spider', position: new Vec3(2, 64, 0), height: 0.9 };
     const far = { ...spider, id: 6, position: new Vec3(9, 64, 0) };
     r.mode = 'flee';
@@ -834,17 +834,18 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     // The blows of the moment one turns to run don't count: the run gets a fair start.
     r.fleeSince = now - 2000;
     r.fleeHits = [now - 1900, now - 1000];
-    expect(r.cornered(now, [spider])).toBe(false);
+    expect(r.cornered(now, [spider])).toBeNull();
     r.fleeSince = now - 8000;
     r.fleeHits = [now - 1000];
-    expect(r.cornered(now, [spider])).toBe(false);
+    expect(r.cornered(now, [spider])).toBeNull();
+    // Why, said as the mind is told it.
     r.fleeHits = [now - 4000, now - 1000];
-    expect(r.cornered(now, [spider])).toBe(true);
+    expect(r.cornered(now, [spider])).toBe('running was not working: 2 blows caught you as you ran');
     // Hit, but it has dropped back: running is working.
-    expect(r.cornered(now, [far])).toBe(false);
+    expect(r.cornered(now, [far])).toBeNull();
     r.fleeHits = [];
     r.fleeStillSince = now - 2500;
-    expect(r.cornered(now, [spider])).toBe(true);
+    expect(r.cornered(now, [spider])).toBe('running was not working: there was nowhere left to run to');
   });
 
   it('a run that gets nowhere is going nowhere, the path "moving" or not (one jumped at a tree trunk four seconds with a zombie on her)', () => {

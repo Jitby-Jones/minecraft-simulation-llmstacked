@@ -79,7 +79,10 @@ function bodyInDanger(body: Body): string {
   const where = nearest ? ` (the nearest ${Math.round(nearest.position.distanceTo(me))} m off)` : '';
   const mode = body.reflexes.mode;
   if (!what) return mode === 'flee' ? 'running' : 'on its guard';
-  return `${mode === 'flee' ? 'running from' : mode === 'fight' ? 'fighting' : mode === 'led' ? 'doing what you chose, with' : 'facing'} ${what}${where}`;
+  // Standing to fight because running wasn't working: said, so the mind weighs it rather than order the same run again
+  // (one at 6 health was sent running and stood again six times in thirty seconds, neither running nor fighting).
+  const stood = mode === 'fight' ? body.reflexes.standingBecause : null;
+  return `${mode === 'flee' ? 'running from' : mode === 'fight' ? 'fighting' : mode === 'led' ? 'doing what you chose, with' : 'facing'} ${what}${where}${stood ? `; it stood to fight because ${stood}` : ''}`;
 }
 
 export interface AgentOptions {

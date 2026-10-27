@@ -18,7 +18,7 @@ import { reflexDelta } from './quirks';
 import { bestToHitWith, bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
-import { carefulWhenHurt, createMovements, lowerShield } from './plugins';
+import { carefulWhenHurt, createMovements, lowerShield, raiseShield } from './plugins';
 import { isCover, pillarUnder, referenceFor } from './skills/building';
 import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isIndoors, isNight, isPlayer, isSolid, overlapsCell, wallsAround } from './world';
 
@@ -55,6 +55,8 @@ const ARCHER_CHASE_MS = 10_000;
 const MELEE_REACH = 3.2;
 /** One that couldn't be got at is run from, out of its sight, for this long. */
 const ARCHER_AVOID_MS = 30_000;
+/** The shield stays up this long after an archer stops drawing: the arrow is on its way. */
+const GUARD_AFTER_MS = 500;
 /** A mob that shoots is a threat this far off, once it can see us: its range, not arm's length. */
 const SHOT_RANGE = 16;
 
@@ -63,6 +65,13 @@ export function shoots(e: Entity): boolean {
   if (ARCHERS.has(e.name ?? '')) return true;
   const ent = e as unknown as { heldItem?: { name: string } | null; equipment?: ({ name: string } | null | undefined)[] };
   return e.name === 'drowned' && (ent.heldItem?.name ?? ent.equipment?.[0]?.name) === 'trident';
+}
+/** Whether a creature has its hand in use (an archer drawing its bow, one drinking), as its arm shows it. */
+export function handInUse(bot: Bot, e: Entity): boolean {
+  const keys = (bot.registry.entitiesByName[e.name ?? ''] as { metadataKeys?: string[] } | undefined)?.metadataKeys;
+  const i = keys?.indexOf('living_entity_flags') ?? -1;
+  const flags = i >= 0 ? (e.metadata as unknown[])[i] : undefined;
+  return typeof flags === 'number' && (flags & 1) === 1;
 }
 /** A weapon this good (a stone sword or axe, or better) makes a monster worth fighting rather than running from. */
 const ARMED_TIER = 2;
@@ -256,6 +265,8 @@ export class ReflexController {
   private perchSince = 0;
   /** When a dig into a wall was last tried. */
   private burrowSince = 0;
+  /** Until when the shield is held up against an archer's draw (0: not). */
+  private guardUntil = 0;
   /** Archers closed in on in vain, each until when it is run from instead (an agent "fought" one for 81 s, never
    * nearer than 9 blocks, shot from 20 health to 8). */
   private unreachable = new Map<number, number>();
@@ -278,6 +289,8 @@ export class ReflexController {
   private noRoomRun = false;
   /** Until when we stand and fight because running isn't working. */
   private standUntil = 0;
+  /** Why running wasn't working, said to the mind while we stand. */
+  private standWhy = '';
   /** Until when we run because the mind chose to get away. */
   private runUntil = 0;
   /** Our best health since what the mind chose in the danger took the body (null while the reflexes have it). */
@@ -312,6 +325,11 @@ export class ReflexController {
   /** True while a soft reflex (eat, pickup, armor, unstick) is using the body. */
   get upkeepBusy(): boolean {
     return this.busy;
+  }
+
+  /** While the body stands to fight because running wasn't working: why it wasn't, as one would say it. */
+  get standingBecause(): string | null {
+    return Date.now() < this.standUntil && this.standWhy ? this.standWhy : null;
   }
 
   private async waitIdle(maxMs: number): Promise<void> {
@@ -1008,6 +1026,25 @@ export class ReflexController {
     }, delay);
   }
 
+  /**
+   * A shield on the arm comes up toward an archer while it draws on us, and down once it has let fly, as a player
+   * blocks: closing in on one with the shield down takes every arrow on the way (arrows ended four of two dozen long
+   * runs). The fight lowers it to strike.
+   */
+  private guard(threats: readonly Entity[]): void {
+    const bot = this.bot;
+    const me = bot.entity.position;
+    const archer = threats.find((t) => shoots(t) && handInUse(bot, t) && t.position.distanceTo(me) > MELEE_REACH && canSee(bot, t, 24));
+    if (archer && raiseShield(bot)) {
+      this.guardUntil = Date.now() + GUARD_AFTER_MS;
+      // Toward it: a shield stops only what comes from the way one faces, and a walk faces the way it goes.
+      void bot.lookAt(archer.position.offset(0, (archer.height || 1.8) * 0.85, 0), true).catch(() => undefined);
+    } else if (this.guardUntil && Date.now() > this.guardUntil) {
+      this.guardUntil = 0;
+      lowerShield(bot);
+    }
+  }
+
   /** Getting away begins (a run, a hole closed over, a climb): the mode, a fresh count of hits, the alarm raised. */
   private takeFlight(threats: readonly Entity[]): void {
     const nearest = threats[0];
@@ -1083,18 +1120,16 @@ export class ReflexController {
    * Still being caught (two blows in six seconds, once the run has had a fair start) or going nowhere, with the
    * attacker close. The blows of the moment one turns to run don't say the run is failing.
    */
-  private cornered(now: number, threats: readonly Entity[]): boolean {
+  /** Running that isn't working: why not, or null while it is. */
+  private cornered(now: number, threats: readonly Entity[]): string | null {
     const me = this.bot.entity.position;
-    if (now - this.fleeSince < 2500 || !threats.some((t) => t.position.distanceTo(me) < 4)) return false;
+    if (now - this.fleeSince < 2500 || !threats.some((t) => t.position.distanceTo(me) < 4)) return null;
     const hits = this.fleeHits.filter((x) => now - x < 6000 && x - this.fleeSince > 1500).length;
-    const stuck = this.fleeStillSince !== null && now - this.fleeStillSince > 2000;
-    return hits >= 2 || stuck;
+    if (hits >= 2) return `running was not working: ${hits} blows caught you as you ran`;
+    if (this.fleeStillSince !== null && now - this.fleeStillSince > 2000) return 'running was not working: there was nowhere left to run to';
+    return null;
   }
 
-  /**
-   * What pillarUp needs: only what can't climb nor shoot after us, and none of it above us (up out of a hole is up into
-   * what waits at its mouth); a start on it; three blocks on hand, ground under and room over.
-   */
   /**
    * A passage one wide with what walks coming down it: the cell next to us toward them, open at feet and head, walls
    * either side of it, nobody in it, and every one of them beyond it. Two blocks there shut them out (one in a tunnel
@@ -1237,6 +1272,10 @@ export class ReflexController {
     }
   }
 
+  /**
+   * What pillarUp needs: only what can't climb nor shoot after us, and none of it above us (up out of a hole is up into
+   * what waits at its mouth); a start on it; three blocks on hand, ground under and room over.
+   */
   private canPillar(threats: readonly Entity[]): boolean {
     const bot = this.bot;
     if (threats.length === 0 || !threats.every((t) => GROUNDED.test(t.name ?? '') && !shoots(t))) return false;
@@ -1665,7 +1704,8 @@ export class ReflexController {
         if (await this.refuge(threats)) return;
         // Running that isn't working (it keeps catching us, or there is nowhere to go) turns into a fight, as with
         // anyone cornered: a spider outruns a player, and a tunnel ends.
-        if (!(this.mode === 'flee' && !mustRun(bot, threats) && this.cornered(Date.now(), threats))) {
+        const why = this.mode === 'flee' && !mustRun(bot, threats) ? this.cornered(Date.now(), threats) : null;
+        if (!why) {
           this.flee(threats);
           return;
         }
@@ -1681,8 +1721,9 @@ export class ReflexController {
           return;
         }
         this.standUntil = Date.now() + STAND_MS;
+        this.standWhy = why;
         this.fleeHits = [];
-        this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'running is not working: standing to fight');
+        this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name, why }, 'running is not working: standing to fight');
       }
       const target = this.pickTarget(threats);
       // Closing in on an archer that hasn't come within reach: it can't be got at from here (standing at the edge of what
@@ -1696,6 +1737,7 @@ export class ReflexController {
         return;
       }
       if (target) this.fight(target, 'fight');
+      this.guard(threats);
       const foeNow = pvp(bot).target;
       if (this.bout && foeNow?.id === this.bout.id) this.bout.closest = Math.min(this.bout.closest, foeNow.position.distanceTo(bot.entity.position));
       return;

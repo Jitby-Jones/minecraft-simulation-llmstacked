@@ -3362,6 +3362,19 @@ What else the benchmark showed:
   The fight left the shield up when it ended, and held up, a shield slows one to a walk. So the body now knows when
   its shield is up (the hand's use calls are wrapped), and lowers it when a fight turns into a run, ends, or the
   mind takes over. The mind sees "(holding stone_sword, shield in your other hand)".
+- **The shield comes up toward an archer while it draws.** The fight raised the shield only after a blow, so a
+  skeleton out of reach shot freely. The body now reads an archer's draw from its arm (the game's "hand in use" flag,
+  looked up by name from the game data). While one in sight beyond reach draws, the body raises the shield, turns to
+  face it (a shield stops only what comes from the way one faces), and lowers it half a second after the draw ends.
+  Tried by hand first: a skeleton 10 m off put three arrows of 4 each into a body standing still in 10 s with the
+  shield down, and none in 10 s with it up and facing it. In the live case (a skeleton fenced in 10 m off, the body
+  held where it stands), the shield is up for two thirds of the draw and not one arrow landed. A skeleton summoned with
+  a helmet "for the sun" had nothing in its hand, as equipment given is all a mob has, and came to punch instead.
+- **Why the body stood is said to the mind.** In `duo (7)`, Bram, at 6 health in a flooded cave among zombies, a
+  skeleton, a spider and a creeper, stood to fight six times in thirty seconds because running was not working. Each
+  time the mind, told only "your body is fighting 3 zombies", sent him running again. Neither running nor fighting
+  was ever carried through, and he died. Now the mind is told "it stood to fight because running was not working: 2
+  blows caught you as you ran" (or "there was nowhere left to run to"), so the choice is weighed, not repeated blind.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

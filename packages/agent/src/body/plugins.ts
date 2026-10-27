@@ -86,6 +86,13 @@ export function lowerShield(bot: Bot): void {
   if (SHIELD_UP.get(bot)) bot.deactivateItem();
 }
 
+/** The shield in the other hand up, if there is one there: true if it is up. */
+export function raiseShield(bot: Bot): boolean {
+  if (bot.inventory.slots[45]?.name !== 'shield') return false;
+  if (!SHIELD_UP.get(bot)) bot.activateItem(true);
+  return true;
+}
+
 /** A fighter with a target, out of reach and standing still, whose follow goal is gone (a stop wiped it) or aims
  *  where the target no longer is: aim again, at most once a second. A goal that aims right but has no way there is
  *  left alone. */
