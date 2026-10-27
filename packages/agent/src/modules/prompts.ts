@@ -86,6 +86,17 @@ Examples:
 {"thought": "<name> is right here and we both need iron. If we split it, one mines while the other smelts.", "option": "talk", "target": {"agent": "<name>"}, "speechIntent": {"stance": "ask", "gist": "ask what they are planning and whether we could split the iron work", "mayCommit": false}, "terminate": {"maxSeconds": 90}, "rationale": "Two of us get more done with a shared plan."}
 (<name> stands for someone really there; the examples are only the form, not the world.)`;
 
+/**
+ * The mind's system prompt, as each decision is asked with (and the thought benchmark asks it): who it is, how to
+ * think (in danger, at a glance), how choices are carried out, the skills, and the reply's form.
+ */
+export function mindSystemPrompt(p: Persona, o: { traitAnnotations?: readonly string[]; emergency?: boolean; skills: string; learned?: readonly string[] }): string {
+  const thinking = o.emergency ? UNDER_FIRE_THINKING : THINKING;
+  const format = o.emergency ? `${DECISION_FORMAT}\n${UNDER_FIRE_FORMAT}` : DECISION_FORMAT;
+  const learned = o.learned ?? [];
+  return `${personaCore(p, o.traitAnnotations ?? [])}\n${DEATH_RULE}\n\n${EXPERIENCE}\n\n${thinking}\n\nYou decide what ${p.name} does next.\n${CHOICES}\n\nSkills:\n${o.skills}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${format}`;
+}
+
 export function talkRules(maxWords: number): string {
   return [
     'You are chatting in Minecraft with the people near you, in the game chat.',

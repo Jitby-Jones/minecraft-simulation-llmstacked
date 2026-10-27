@@ -40,7 +40,7 @@ import { buildPacket } from './bottleneck';
 import { evalCondition, held } from './conditions';
 import { EXPLORE_ARGS, type SkillExecutor } from './executor';
 import type { MindLevers } from './levers';
-import { CHOICES, DEATH_RULE, DECISION_FORMAT, EXPERIENCE, THINKING, UNDER_FIRE_FORMAT, UNDER_FIRE_THINKING, personaCore } from './prompts';
+import { mindSystemPrompt } from './prompts';
 import { URGENT_STRENGTH } from '../mind/expectations';
 import { cueFrom } from '../mind/later';
 import { addLesson, matchTask } from '../mind/learning';
@@ -1494,9 +1494,7 @@ export class CognitiveController {
       const tier = L.ccTier;
       const learned = this.o.learned?.offered() ?? [];
       // In a danger, a glance and a choice: the seven steps are for when there is time.
-      const thinking = ctx.emergency ? UNDER_FIRE_THINKING : THINKING;
-      const format = ctx.emergency ? `${DECISION_FORMAT}\n${UNDER_FIRE_FORMAT}` : DECISION_FORMAT;
-      const system = `${personaCore(s.self.persona, s.traitAnnotations)}\n${DEATH_RULE}\n\n${EXPERIENCE}\n\n${thinking}\n\nYou decide what ${s.self.persona.name} does next.\n${CHOICES}\n\nSkills:\n${skillCatalog()}${learned.length > 0 ? `\n${learned.map((l) => `- ${l}`).join('\n')}` : ''}\n\n${format}`;
+      const system = mindSystemPrompt(s.self.persona, { traitAnnotations: s.traitAnnotations, emergency: Boolean(ctx.emergency), skills: skillCatalog(), learned });
       const memories = this.o.memories ? await this.o.memories(L.memories).catch(() => []) : [];
       const packet = buildPacket({ state: store.state, levers: L, reason, stuck: this.o.awareness.stuckList(), memories, mind: this.o.mindLines?.() ?? [], knowledge: this.o.knowledge?.() ?? [], now: this.now() });
       const messages: ChatMessage[] = [

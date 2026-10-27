@@ -24,6 +24,7 @@
     "export": "tsx scripts/export.ts",
     "import": "tsx scripts/import.ts",
     "bench-models": "tsx scripts/bench-models.ts",
+    "bench-thoughts": "tsx scripts/bench-thoughts.ts",
     "deploy:systemd": "tsx scripts/deploy-systemd.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p packages/hub/src/dashboard/client/tsconfig.json",
     "lint": "eslint . --max-warnings 0",
