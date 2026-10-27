@@ -3105,14 +3105,19 @@ quota (`docs/plan-thinking-models.md` §4, §7):
 - **Heads above water.** A walk's step with the head under water costs four blocks more (wading and swimming at the
   top cost what they did). In the runs of 2026-10-25 the swim reflex pulled agents up for air 34 times, nearly all on
   the way to cobblestone or coal by way of a pond or under a cave pond's ledge, each time breaking off the task.
+- **A torch goes where it can stick.** Asked toward a way, a torch goes on the floor or a wall that way, else on the
+  wall that way at one's side, in the cell one stands in (nothing collides with a torch). Of the runs' 85 torch
+  placements, 18 had failed: 13 for no face that way and 5 told that both cells were taken, the wall it would have
+  gone on. A live hands test lights a tunnel so.
 - **The quick checks benchmarked as the agents ask them** (`pnpm bench-thoughts --kind check`, 32 cases: meant for me,
   settled, promised a hand-over, kept, a summary, a merged memory). The six checks' prompts now live in their modules
   and are used by both. The mind's golden set has 26 cases. The checks' reply cap is 320 tokens: the self-summary and a
   talk's promises come near 200, and a reply cut off is lost.
 
 Verified: lint, typecheck, the forbidden-strings check, 757 unit tests, and live the whole of `m1-skills` (24) and
-`hands` (56: its 24-deep climb, which had stalled in full runs of the suite, too), `melee` (9), `cornered` (2) and
-`m1-water` (4). The benchmarks and the
+`hands` (57: its 24-deep climb, which had stalled in full runs of the suite, too; in one of four full runs the walk
+down off the pillar ringed with stalagmites stalled a step short of its goal, and alone it passed 3 of 3), `melee`
+(9), `cornered` (2) and `m1-water` (4). The benchmarks and the
 long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports that it
 can spend balance.
 

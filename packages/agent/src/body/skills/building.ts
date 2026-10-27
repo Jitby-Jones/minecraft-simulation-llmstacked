@@ -37,6 +37,9 @@ export function referenceFor(bot: Bot, target: Vec3, item?: string): { ref: Bloc
   return usable;
 }
 
+/** What nothing collides with once placed: it may go in the cell one stands in (a torch on the wall at one's side). */
+const PASS_THROUGH = /^(torch|soul_torch|redstone_torch|copper_torch)$/;
+
 /** Places an inventory item at `target` (walks near first). Throws with a readable message on failure. */
 export async function placeItemAt(ctx: SkillContext, itemName: string, target: Vec3): Promise<void> {
   const { bot } = ctx;
@@ -71,7 +74,7 @@ export async function placeItemAt(ctx: SkillContext, itemName: string, target: V
   if (!r) throw new Error(ATTACHED.test(item.name) ? `nothing there for a ${item.name} to go on (it needs the face of a whole block: not leaves, not a slab)` : 'nothing solid to place against');
   // Never place into our own body: a door is two high, and the server refuses one that touches us at all (at a hut's
   // doorway, a hair over its edge, it was refused). A step clear first.
-  const cells = TWO_HIGH.test(item.name) ? [target, target.offset(0, 1, 0)] : head ? [target, head] : [target];
+  const cells = PASS_THROUGH.test(item.name) ? [] : TWO_HIGH.test(item.name) ? [target, target.offset(0, 1, 0)] : head ? [target, head] : [target];
   if (cells.some((c) => overlapsCell(bot.entity, c))) await stepClear(ctx, cells);
   if (cells.some((c) => overlapsCell(bot.entity, c))) throw new Error('would place inside myself');
   await bot.equip(item, 'hand');
@@ -243,7 +246,7 @@ function whyNotToward(bot: Bot, toward: string): string {
   return inSight(bot, toward) ? `both cells beside you toward the ${toward} are taken already` : `no ${toward} in sight within 32 blocks`;
 }
 
-function besideToward(bot: Bot, toward: string): Vec3 | null {
+function besideToward(bot: Bot, toward: string, item?: string): Vec3 | null {
   const w = toward.trim().toLowerCase();
   // Up: over one's head (the lid of a hole one stands in; asked "toward up", one was told there was no up in sight).
   if (UP.test(w)) {
@@ -259,6 +262,16 @@ function besideToward(bot: Bot, toward: string): Vec3 | null {
     d = Math.abs(dx) >= Math.abs(dz) ? new Vec3(Math.sign(dx) || 1, 0, 0) : new Vec3(0, 0, Math.sign(dz) || 1);
   }
   const feet = bot.entity.position.floored();
+  // What goes on a face (a torch) goes where it can stick: the floor or a wall that way, else on the wall that way at
+  // one's side, in one's own cell (in a tunnel, a torch "toward north" was told both cells there were taken: the wall
+  // it would have gone on).
+  if (item !== undefined && ATTACHED.test(item)) {
+    const own = PASS_THROUGH.test(item) ? [feet.offset(0, 1, 0), feet] : [];
+    for (const c of [feet.plus(d), feet.plus(d).offset(0, 1, 0), ...own]) {
+      if (placeableInto(bot.blockAt(c)) && referenceFor(bot, c, item)) return c;
+    }
+    return null;
+  }
   for (const dy of [0, 1]) {
     const c = feet.plus(d).offset(0, dy, 0);
     if (placeableInto(bot.blockAt(c))) return c;
@@ -291,7 +304,7 @@ export const place = defineSkill({
     // Toward, with a spot as well: the way meant goes first (a spot worked out under fire put a wall to one side of a
     // tunnel, and five zombies came down it).
     if (args.toward) {
-      const beside = besideToward(ctx.bot, args.toward);
+      const beside = besideToward(ctx.bot, args.toward, itemMatcher(args.block).label);
       if (!beside && UP.test(args.toward.trim().toLowerCase())) {
         const over = ctx.bot.blockAt(ctx.bot.entity.position.floored().offset(0, 2, 0));
         return isSolid(over) ? { ok: true, observed: `there is ${over?.name.replace(/_/g, ' ') ?? 'a block'} over your head already` } : { ok: false, observed: 'nowhere to put it over your head', error: `the cell over your head is ${over?.name.replace(/_/g, ' ') ?? 'not loaded'}` };

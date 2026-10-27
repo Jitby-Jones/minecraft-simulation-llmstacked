@@ -1042,6 +1042,21 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.health).toBeGreaterThan(before - 8);
   }, 120_000);
 
+  it('a torch toward a wall right at its side goes on that wall, in the cell it stands in, as a player lights a tunnel', async () => {
+    // In a tunnel, "a torch toward north" was told both cells that way were taken: the wall it would have gone on.
+    const x = 9700;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 1} ${Y - 1} -1 ${x + 1} ${Y + 2} 1 minecraft:stone hollow`);
+    await server.cmd('give Ada minecraft:torch 4');
+    await sleep(1500);
+    const r = await run('place', { block: 'torch', toward: 'north' });
+    logger.info({ r }, 'torch at its side');
+    expect(r.ok).toBe(true);
+    const lit = [body.bot.blockAt(new Vec3(x, Y + 1, 0))?.name, body.bot.blockAt(new Vec3(x, Y, 0))?.name];
+    expect(lit.some((n) => n === 'wall_torch' || n === 'torch')).toBe(true);
+    await server.cmd(`fill ${x - 1} ${Y - 1} -1 ${x + 1} ${Y + 2} 1 minecraft:air`);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);
