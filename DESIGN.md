@@ -57,7 +57,7 @@
 | **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again With the key (`real-models`): glm-5.1 wrote `stock_up_logs` at the first try (a `gather` of `qty` oak logs, checked by `inventoryHas:oak_log>={qty}`). Tried at once in the world, it held (3 logs) and was kept. It ran again for 6 without being written again. Its trait annotation found a bug. The model named the experience in its own words ("robbed by Zed"), not by its key, and the note was dropped; such words now count. It had also copied the prompt's example, which was code's own words, so the prompt now gives the form only. Its notes now: "has grown more cautious since losing that fight to Vex". |
 | **Owner requests** (2026-10-23): debug controls (agents, memories, models, modules, the CC); agents that plan for themselves and talk their plans over; wandering and looking around instead of standing still, in company; hiding only when badly scared, alone and far from anyone; whole lines at L2; test mode off, with a switch; seeing what changes around them (a broken shelter) and reacting; each new person written by a master model, a child while it is carried | **done** | `pnpm run check` (576 tests) + the live regression on Paper 26.1.2 (§24 "Owner requests", item 14) + five observation runs with the key (`obs1`–`obs5`, the last two hardcore nights) + `real-models` with the key: the bias audit, a trait annotation, a skill written by L3, a broken shelter seen to and the master model's newcomers and a child, all by glm-5.1 |
 | **Owner requests** (2026-10-24): a server console with Stop and Restart; a death ends everything at once; talk like players, with a stronger model, turns, and an end once agreed; own tools, real chests, armed fights; buildings (a building language, a repertoire from photographs and the game's own files, a builder, an architect for their own designs, moving to flatter land); anvils and enchanting; expeditions to the Nether and the End; a hidden controller for what has gone wrong | **done** | `pnpm run check` + the live tests of each (§24 "Owner requests: a console, deaths, talk, building and more", item 19), the architect's own design drawn by glm-5.3 and built in the world, and the controller's prompt benched on the real models |
-| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (737 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet. The quota governor removed (owner request, 2026-10-25). Next: fixed models per kind of thought (`docs/plan-thinking-models.md`) |
+| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (751 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet. The quota governor removed (owner request, 2026-10-25); a model for each kind of thought, mended replies, call logs, a thought benchmark, ways out and a drop the body can take (2026-10-27). Next: the benchmarks and the long runs (`docs/plan-thinking-models.md`) |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -3059,6 +3059,34 @@ It simply isn't necessary as I'm not trying to save any tokens." What changed:
   and that Social Goal Gen asks its model at 97%.
 
 Verified: lint, typecheck, the forbidden-strings check, and 737 unit tests.
+
+**Fixed minds, fewer wasted requests, and what still kills the agents (2026-10-27).** The plan's work that needs no
+quota (`docs/plan-thinking-models.md` §4, §7):
+- **One model for each kind of thought** (§5, `thoughts` in `config/models.yaml`). Each kind has a model, a backup for
+  outages only, a reasoning effort, a reply cap and a time. A call names its kind, and startup stops on a model the
+  subscription lacks. This replaces the speech, mind, architect and controller model lists. The choices are
+  provisional until benchmarked.
+- **Fewer wasted requests:**
+  - A reply cut off part way is mended in code: cut back to its last whole member, never kept half written.
+  - A missing comma is added, and a trailing one dropped.
+  - A reply that ran out of length is not sent back to be cut again.
+  - A repair sends only the bad reply, the error and the schema.
+  - A thought gone stale while it waited for its turn is not sent.
+- **Long runs keep every request and every call's outcome** in `<run>-calls.jsonl`, summed by kind of thought in the
+  report. The quota is logged at the start.
+- **`pnpm bench-thoughts`** asks the candidate models to decide 24 golden cases from the long runs' packets (12 for the
+  mind, 12 under fire). Each case says what a sensible player might do and what is plainly wrong. The rubric picks
+  models only and never reaches an agent. The mind's system prompt is now built in one place (`mindSystemPrompt`).
+- **Ways out.** With danger near, the packet says how far each way goes on foot and what stops it (a wall and of what,
+  water, lava, a drop).
+- **A drop the body can take.** A walk with no path at all tries once more with a drop of 3 blocks, plus 1 for every 3
+  health on hand. Live, off a 6-high plank roof: 20 to 18 health.
+- **No code goals for a mind.** A mind whose thought did not come gets nothing from the code beyond the body's needs
+  and its own next step; otherwise a moment's pause, then it is asked again.
+
+Verified: lint, typecheck, the forbidden-strings check, 751 unit tests, and live `hands` (the roof). The benchmarks and
+the long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports
+that it can spend balance.
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes
