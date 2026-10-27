@@ -7,14 +7,15 @@
 //                       iron armor and iron tools.
 //   AGORA_LONGRUN_SEED (world seed), AGORA_LONGRUN_MIN (time limit, minutes), AGORA_LONGRUN_DIFFICULTY (easy|normal),
 //   AGORA_LONGRUN_PORT (the server's port, RCON on the next; for more than one run of a variant at once).
-// Progress goes to data/live-test/longrun-<variant>-<seed>.json as it happens. Spends real subscription quota: only with
+// Progress goes to data/live-test/longrun-<variant>-<seed>.json as it happens, every model request and every call's
+// outcome to longrun-<variant>-<seed>-calls.jsonl (no prompt text, no key). Spends real subscription quota: only with
 // NANOGPT_API_KEY set and AGORA_LIVE_LLM=1.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { type Logger, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, loadModelsConfig, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
-import { type LlmRuntime, loadBenchFile, startLlm } from '@agora/llm';
+import { type Logger, MODULE_THOUGHT, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, loadModelsConfig, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
+import { type CostRecord, type LlmRuntime, describeQuota, loadBenchFile, startLlm } from '@agora/llm';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
@@ -33,6 +34,39 @@ const versions = loadVersionsConfig();
 const SOLO_TASKS = ['Obtain 12 diamonds.', 'Go to the Nether.', 'Make a full set of iron armor.', 'Make a cow farm.', 'Make a house.', 'Make an enchanting table.', 'Secure a renewable source of food.'];
 const DUO_TASKS = ['Make a house.', 'Form a romantic relationship.', 'Secure a renewable source of food.', 'Make 2 sets of iron armor and iron tools (one for each of you).'];
 
+const pct = (xs: number[], q: number) => {
+  const a = [...xs].sort((x, y) => x - y);
+  return a.length > 0 ? Math.round(a[Math.min(a.length - 1, Math.floor(q * a.length))] ?? 0) : null;
+};
+
+/** By kind of thought: calls and how they ended, the time a used one took, and the requests and tokens behind them. */
+function thinkingSummary(outcomes: readonly { thought: string; ok: boolean; reason?: string; ms: number }[], requests: readonly CostRecord[]) {
+  const out: Record<string, unknown> = {};
+  for (const kind of [...new Set(outcomes.map((o) => o.thought))].sort()) {
+    const mine = outcomes.filter((o) => o.thought === kind);
+    const used = mine.filter((o) => o.ok);
+    const reasons: Record<string, number> = {};
+    for (const o of mine) if (!o.ok) reasons[o.reason ?? '?'] = (reasons[o.reason ?? '?'] ?? 0) + 1;
+    const reqs = requests.filter((r) => r.thought === kind);
+    const models: Record<string, number> = {};
+    for (const r of reqs) models[r.model] = (models[r.model] ?? 0) + 1;
+    out[kind] = {
+      calls: mine.length,
+      used: used.length,
+      notUsed: reasons,
+      msP50: pct(used.map((o) => o.ms), 0.5),
+      msP90: pct(used.map((o) => o.ms), 0.9),
+      requests: reqs.length,
+      failedRequests: reqs.filter((r) => !r.ok).length,
+      cutOff: reqs.filter((r) => r.truncated).length,
+      inputTokens: reqs.reduce((a, r) => a + r.inputTokens, 0),
+      outputTokens: reqs.reduce((a, r) => a + r.outputTokens, 0),
+      models,
+    };
+  }
+  return out;
+}
+
 interface Met {
   at: number;
   how: string;
@@ -43,6 +77,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
   const name = `longrun-${variant ?? 'none'}-${seed}`;
   const outFile = path.join(repoRoot(), 'data', 'live-test', `${name}.json`);
   const packetFile = path.join(repoRoot(), 'data', 'live-test', `${name}-packets.jsonl`);
+  const callFile = path.join(repoRoot(), 'data', 'live-test', `${name}-calls.jsonl`);
   const logger: Logger = createLogger({ name, logDir: path.join(repoRoot(), 'data', 'live-test', `${name}-agents`), console: process.env.AGORA_DEBUG === '1' });
 
   afterAll(async () => {
@@ -57,12 +92,34 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
       server = await startLiveServer({ name, port, rconPort: port + 1, flat: false, monsters: true, props: { 'level-seed': seed, 'spawn-protection': '0', 'view-distance': '10', 'simulation-distance': '10' } });
       const srv = server;
       await srv.cmd(`difficulty ${difficulty}`);
-      const rt: LlmRuntime = await startLlm({ apiKey: key ?? '', config: loadModelsConfig(), logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), background: false, pollUsage: false });
+      fs.rmSync(callFile, { force: true });
+      const callLog = (line: Record<string, unknown>) => fs.appendFile(callFile, `${JSON.stringify(line)}\n`, () => undefined);
+      // Every request the models were sent, with what it took (the report sums them by kind of thought and model).
+      const requests: CostRecord[] = [];
+      const rt: LlmRuntime = await startLlm({
+        apiKey: key ?? '',
+        config: loadModelsConfig(),
+        logger,
+        bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger),
+        background: false,
+        pollUsage: false,
+        onCost: (r) => {
+          requests.push(r);
+          callLog({ t: 'req', ...r });
+        },
+      });
+      logger.info({ test: name }, describeQuota(rt.quota.view));
+      // And every call's outcome: used, stale, failed, cut off, after how long.
+      const outcomes: { thought: string; ok: boolean; reason?: string; ms: number }[] = [];
       let calls = 0;
       const call = rt.client.call.bind(rt.client);
-      rt.client.call = ((o: Parameters<typeof call>[0]) => {
+      rt.client.call = (async (o: Parameters<typeof call>[0]) => {
         calls++;
-        return call(o);
+        const r = await call(o);
+        const thought = o.thought ?? MODULE_THOUGHT[o.module];
+        outcomes.push({ thought, ok: r.ok, ...(r.ok ? {} : { reason: r.reason }), ms: r.ms });
+        callLog({ t: 'call', ts: Date.now(), agent: o.agent, module: o.module, thought, ok: r.ok, ...(r.ok ? { model: r.model, ...(r.truncated ? { truncated: true } : {}) } : { reason: r.reason, error: r.error?.slice(0, 200) }), attempts: r.attempts, ms: r.ms });
+        return r;
       }) as typeof rt.client.call;
       const people =
         variant === 'solo'
@@ -99,10 +156,12 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         agents.push(agent);
         // What the mind saw at each of its own decisions, to read a fatal choice from the inside: the packet and the
         // reply, one line each (beside the report; data/ is not kept in git).
+        // A decision the model failed at is kept too, with what went wrong, for the golden sets.
         agent.bus.on('decision', (e) => {
           const ex = agent.cc.lastExchange;
-          if (e.decision.source !== 'llm' || !ex) return;
-          const line = { at: ex.at, who: p.name, reason: ex.reason, packet: ex.packet, reply: ex.replies.at(-1)?.text ?? '' };
+          if (!ex || ex.at < e.decision.createdAt - 120_000 || (e.decision.source !== 'llm' && e.decision.source !== 'default')) return;
+          const last = ex.replies.at(-1);
+          const line = { at: ex.at, who: p.name, source: e.decision.source, reason: ex.reason, packet: ex.packet, reply: last?.text ?? '', ...(last?.error ? { error: last.error } : {}) };
           fs.appendFile(packetFile, `${JSON.stringify(line)}\n`, () => undefined);
         });
       }
@@ -182,6 +241,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           final,
           elapsedMin: at,
           llmCalls: calls,
+          thinking: thinkingSummary(outcomes, requests),
           heapMB: mb,
           heap: heap.slice(-240),
           met,

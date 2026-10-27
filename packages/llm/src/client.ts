@@ -447,7 +447,7 @@ export class LlmClient {
       const started = this.now();
       try {
         const r = await this.attempt(o, model, spec);
-        this.record(o, tier, model, r.usage, this.now() - started, true);
+        this.record(o, tier, model, r.usage, this.now() - started, true, { thought: kind, ...(r.truncated ? { truncated: true } : {}) });
         this.circuit.success(model);
         if (o.signal?.aborted || o.isStale?.()) return fallback(o.isStale?.() ? 'stale' : 'aborted', 'state moved on');
         return { ok: true, source: 'llm', value: r.value, text: r.text, model, tier, usage: r.usage, ms: this.now() - t0, attempts, ...(r.truncated ? { truncated: true } : {}) };
@@ -455,7 +455,7 @@ export class LlmClient {
         if (err instanceof ForbiddenEndpointError || err instanceof ForbiddenOptionError || err instanceof ModelNotInSubscription) throw err;
         const usage = err instanceof AttemptError ? err.usage : { inputTokens: 0, outputTokens: 0 };
         const e = err instanceof AttemptError ? err.inner : this.toLlmError(err, model, o.signal);
-        this.record(o, tier, model, usage, this.now() - started, false);
+        this.record(o, tier, model, usage, this.now() - started, false, { thought: kind, failure: e.kind, ...(/cut off at/.test(e.message) ? { truncated: true } : {}) });
         lastError = `${model}: ${e.message}`;
         this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, kind: e.kind, err: e.message }, 'llm attempt failed');
         const next = await this.onFailure(e, model, tier, o.signal);
@@ -530,8 +530,8 @@ export class LlmClient {
     }
   }
 
-  private record(o: LlmCallOptions<unknown>, tier: TierName, model: string, usage: LlmUsage, ms: number, ok: boolean): void {
-    const r: CostRecord = { ts: this.now(), agent: o.agent, module: o.module, tier, model, ...usage, ms, ok };
+  private record(o: LlmCallOptions<unknown>, tier: TierName, model: string, usage: LlmUsage, ms: number, ok: boolean, more: Pick<CostRecord, 'thought' | 'failure' | 'truncated'> = {}): void {
+    const r: CostRecord = { ts: this.now(), agent: o.agent, module: o.module, tier, model, ...usage, ms, ok, ...more };
     this.deps.meter.record(r);
     this.deps.onCost?.(r);
   }

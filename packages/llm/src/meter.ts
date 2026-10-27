@@ -1,7 +1,7 @@
 // Token meter per module, tier, model and agent, in input and output tokens: for the dashboard and the run reports.
 // It rations nothing (owner request, 2026-10-25: the quota never limits thinking).
 
-import type { LlmModule } from '@agora/shared';
+import type { LlmModule, ThoughtKind } from '@agora/shared';
 import type { TierName } from './tiers';
 
 export interface CostRecord {
@@ -14,6 +14,12 @@ export interface CostRecord {
   outputTokens: number;
   ms: number;
   ok: boolean;
+  /** The kind of thought the request was for. */
+  thought?: ThoughtKind;
+  /** Why a request failed (timeout, provider, schema_invalid, …). */
+  failure?: string;
+  /** The reply stopped at its length cap. */
+  truncated?: boolean;
 }
 
 export interface MeterTotals {
