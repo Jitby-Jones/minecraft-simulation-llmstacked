@@ -785,6 +785,22 @@ const NIGHT_OUT_MS = 120_000;
 /** Monsters this near, seen or heard, are noticed as they come about; at most this often. */
 const MONSTERS_NEAR = 24;
 const MONSTERS_EVERY_MS = 45_000;
+/** What burns in the sun when out under the open sky by day. */
+const BURNS = /^(zombie|zombie_villager|skeleton|stray|bogged|drowned|phantom)$/;
+
+/** Whether the open sky is over a spot (nothing whole above it, leaves aside); null where the world above isn't loaded. */
+function openSkyOver(bot: Bot, at: { x: number; y: number; z: number }): boolean | null {
+  const g = bot.game as unknown as { minY?: number; height?: number };
+  const top = (g.minY ?? -64) + (g.height ?? 384);
+  const x = Math.floor(at.x);
+  const z = Math.floor(at.z);
+  for (let y = Math.floor(at.y) + 2; y < top; y++) {
+    const b = bot.blockAt(new Vec3(x, y, z));
+    if (!b) return null;
+    if (b.boundingBox === 'block' && !/_leaves$/.test(b.name)) return false;
+  }
+  return true;
+}
 
 export class SceneEyes {
   readonly motion: MotionTracker;
@@ -1270,7 +1286,11 @@ export class SceneEyes {
       return `${countOf(cs.length, name)} ${lo === hi ? lo : `${lo}-${hi}`} m ${ways}${cs.every((c) => !c.visible) ? ' (heard, not seen)' : ''}`;
     });
     const coming = near.filter((c) => c.heading === 'toward you').length;
-    const text = `Monsters about: ${groups.join(', ')}${coming > 0 ? `, ${coming === 1 ? 'one' : coming} of them coming your way` : ''}`;
+    // Whether the sun gets at them, as one sees where they are: down a cave by day, none of them burns (deep in a
+    // cave, told of a zombie, a skeleton and a creeper, one mined on "since monsters burn in daylight", and was killed).
+    const burners = near.filter((c) => BURNS.test(c.name));
+    const dark = this.o.store.state.self.isDay && burners.length > 0 && burners.every((c) => openSkyOver(this.o.bot, c.pos) === false);
+    const text = `Monsters about: ${groups.join(', ')}${coming > 0 ? `, ${coming === 1 ? 'one' : coming} of them coming your way` : ''}${dark ? '; no sun gets at them where they are, so they will not burn' : ''}`;
     this.add({ id: `n${now.toString(36)}monsters`, ts: now, kind: 'cue', about: 'monsters', key: 'monsters', text, strength: near.length >= 2 || coming > 0 ? 0.65 : 0.5, seenBefore: 0 });
   }
 

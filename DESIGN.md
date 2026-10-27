@@ -3296,6 +3296,19 @@ What else the benchmark showed:
   under it or beside it. A player first sets a block against the side of the one under their feet, then builds on
   that. Now placing toward a way does the same when there is nothing to set a block against. A count of blocks that
   way is a wall, at the feet and head cells, where before one block or none went in.
+- **A walk with no way is no way.** In `duo (5)`, Ada was up a 6 m pillar of her own planks in a swamp at 13
+  health, a bogged shooting at her from 15 m. Five times she chose to go down and run to her hut ("the fall damage
+  is manageable"), and five times was told "arrived within 12.2 blocks" without a step. A walk takes no drop over 3
+  blocks. When there is no way within that, a drop the body can take is tried: at 13 health, up to 7. That fallback
+  was never reached, because the pathfinder's goto resolves, with no error, when the path it finds is empty. Now a
+  walk that ends away from where it was going, after the pathfinder said there was no path, fails as no path. In
+  the live test of her case, on a pillar of her own, the old walk stood 9.6 blocks off and the new one went down
+  with "a drop of up to 9 on the way".
+- **Monsters where no sun gets at them are seen to be so.** `solo, seed 6 (1)` went 47 blocks down into a great cave
+  at 5 minutes for coal. Told "Monsters about: a skeleton 20 m north-west, a zombie 23 m north-west, a creeper 23 m
+  west", it mined on, "monsters burn in daylight". A creeper took it from 20 health to 11, and three zombies killed it
+  at 5 minutes. Now, by day, when every monster about that burns in the sun is somewhere the sun can't reach (a whole
+  block anywhere over it), the notice says so: "no sun gets at them where they are, so they will not burn".
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

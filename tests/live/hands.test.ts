@@ -1099,6 +1099,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`fill ${x + 3} ${Y} 0 ${x + 3} ${Y + 2} 0 minecraft:air`);
   }, 120_000);
 
+  it('a walk off a pillar 6 m up: no way that costs nothing, so down with the drop the body can take', async () => {
+    // Up a pillar in a swamp with a bogged shooting, one was told "arrived within 12.2 blocks" five times, never moving.
+    const x = 10500;
+    await at(x + 0.5, 0.5);
+    await server.cmd('give Ada minecraft:oak_planks 8');
+    await sleep(1500);
+    // Up a pillar of her own, as she was.
+    const up = await run('place', { block: 'oak_planks', toward: 'down', count: 6 });
+    expect(up.ok).toBe(true);
+    const r = await run('goTo', { x: x + 8, y: Y, z: 0, range: 1 });
+    logger.info({ r, at: body.bot.entity.position }, 'off a pillar');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/with a drop of up to \d+ on the way/);
+    expect(body.bot.entity.position.y).toBeLessThan(Y + 1);
+    await server.cmd(`fill ${x} ${Y} 0 ${x} ${Y + 6} 0 minecraft:air`);
+  }, 120_000);
+
   it('a wall toward a way from a perch: a footing set under it first, then the wall at her feet and head', async () => {
     // On a perch among skeletons, one was told twice "nothing solid to place against" for the wall she wanted.
     const x = 10400;

@@ -105,12 +105,14 @@ export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, time
   bot.on('path_reset', onReset);
   const from = bot.entity.position.clone();
   const began = Date.now();
+  const goal = new goals.GoalNear(pos.x, pos.y, pos.z, range);
   try {
-    await abortable(
-      ctx.signal,
-      withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), timeoutMs),
-      () => stopMotion(bot),
-    );
+    await abortable(ctx.signal, withTimeout(bot.pathfinder.goto(goal), timeoutMs), () => stopMotion(bot));
+    // An empty path is the pathfinder's arrival (its goto resolves on one): not there, and told there was no way, is
+    // no way. On a pillar 6 m up, one was told "arrived within 12.2 blocks" five times without a step, and the drop
+    // her body could have taken was never tried.
+    const at = bot.entity.position.floored();
+    if ((events['update:noPath'] ?? 0) > 0 && !goal.isEnd(at as unknown as Parameters<typeof goal.isEnd>[0])) throw Object.assign(new Error('No path to the goal!'), { name: 'NoPath' });
   } catch (err) {
     // A long walk cut short far from where it was going: what the pathfinder went through, as for one that failed (a
     // climb out of a cave to the surface ran three minutes and was still 34 blocks off).

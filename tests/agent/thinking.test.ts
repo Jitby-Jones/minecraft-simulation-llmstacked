@@ -355,6 +355,38 @@ describe('where one set things down, and what is out of sight, up and down as we
   });
 });
 
+describe('monsters about in the dark by day are seen to be where no sun gets at them', () => {
+  it('two zombies in a cave at noon: "no sun gets at them where they are, so they will not burn"', () => {
+    // Deep in a cave, told of a zombie, a skeleton and a creeper, one mined on "since monsters burn in daylight".
+    const w = fakeWorld();
+    const base = w.bot.blockAt;
+    w.bot.blockAt = (p: Vec3) => {
+      const f = p.floored();
+      if (f.y === 70) return { name: 'stone', type: data.blocksByName.stone?.id ?? 1, boundingBox: 'block', position: f, getProperties: () => ({}) };
+      return base(p) ?? { name: 'air', type: 0, boundingBox: 'empty', position: f, getProperties: () => ({}) };
+    };
+    const zombie = (id: number, x: number) => ({ id, name: 'zombie', type: 'hostile', position: new Vec3(x, 64, 0.5), velocity: new Vec3(0, 0, 0), onGround: true, height: 1.95, width: 0.6, yaw: 0, pitch: 0, metadata: [] });
+    const a = zombie(21, 15.5);
+    const b = zombie(22, 16.5);
+    w.bot.entities[21] = a;
+    w.bot.entities[22] = b;
+    const s = store();
+    s.update('self', (x) => ({ ...x, isDay: true }), 'test');
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    t.now = 9000;
+    eyes.tick([]);
+    t.now = 10_500;
+    eyes.tick([
+      { e: a as never, kind: 'hostile', name: 'zombie', visible: true, distance: 15 },
+      { e: b as never, kind: 'hostile', name: 'zombie', visible: true, distance: 16 },
+    ]);
+    expect(eyes.recent().find((x) => x.key === 'monsters')?.text).toBe('Monsters about: 2 zombies 15-16 m east; no sun gets at them where they are, so they will not burn');
+    eyes.stop();
+  });
+});
+
 describe('what the game does by itself is no surprise; what comes from nowhere is', () => {
   it('a bee out of its nest is nothing; a cow out of thin air is', () => {
     const w = fakeWorld({ '6,66,0': 'bee_nest' });
