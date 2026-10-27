@@ -3384,6 +3384,10 @@ What else the benchmark showed:
   went on into its next step the moment the wait for day ended. A step meant before a long wait (for the day, the
   night, two minutes or more) or a night's sleep now waits for a thought once the wait is over: "the wait is over
   (waited 384s: it is day): first a look about you, as things are now".
+- **No way there, said as a player says it.** The walk planner's "Took to long to decide path to goal!" came back
+  to the mind word for word, up to sixteen times in one run (`duo (5)`). An action's error now reads "could not work
+  out a way there in time (far off through rock, or no way at all)", and "No path to the goal!" reads "no way there
+  on foot from here". The walks' own code still matches the planner's words.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

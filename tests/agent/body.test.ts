@@ -10,7 +10,7 @@ import { compileCondition, pathCostRules, reflexDelta } from '@agora/agent/body/
 import { SKILLS, getSkill, skillCatalog } from '@agora/agent/body/skills/registry';
 import { describeMissing } from '@agora/agent/body/skills/crafting';
 import { eatNow } from '@agora/agent/body/skills/survival';
-import { bodyNote, checkExpectation, describeExpectation, runSkill } from '@agora/agent/body/skills/runner';
+import { bodyNote, checkExpectation, describeExpectation, plainWalkWords, runSkill } from '@agora/agent/body/skills/runner';
 import { SkillAbortedError, defineSkill } from '@agora/agent/body/skills/types';
 import { SwingTracker } from '@agora/agent/body/attribution';
 import { ReflexController, shoots } from '@agora/agent/body/reflexes';
@@ -953,6 +953,10 @@ describe('a pathfinder stuck on a dig that never ended', () => {
 describe('what the body did over an action (a model waiting at 1 health "learned" that waiting heals)', () => {
   const at = (health: number, food: number) => ({ inventory: new Map<string, number>(), pos: new Vec3(0, 64, 0), health, food, ts: 0 });
   it('health and food that changed are said; whole and unchanged, nothing', () => {
+    // The walk planner's words for no way there, as a player says them (one run had "Took to long to decide path to
+    // goal!" sixteen times, word for word).
+    expect(plainWalkWords('got 4/10 raw_iron; Took to long to decide path to goal!')).toBe('got 4/10 raw_iron; could not work out a way there in time (far off through rock, or no way at all)');
+    expect(plainWalkWords('No path to the goal!')).toBe('no way there on foot from here');
     expect(bodyNote(at(20, 20), at(20, 20), 120_000)).toBe('');
     expect(bodyNote(at(12, 18), at(8, 17), 5000)).toBe('health 12 to 8, food 18 to 17');
     expect(bodyNote(at(4, 19), at(9, 19), 40_000)).toBe('health 4 to 9');

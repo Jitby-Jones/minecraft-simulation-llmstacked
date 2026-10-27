@@ -171,6 +171,13 @@ export interface RunSkillDeps {
   portals?: SkillContext['portals'];
 }
 
+/** The walk planner's messages for no way there, in a player's words. */
+export function plainWalkWords(error: string): string {
+  return error
+    .replace(/Took to long to decide path to goal!?/g, 'could not work out a way there in time (far off through rock, or no way at all)')
+    .replace(/No path to the goal!?/g, 'no way there on foot from here');
+}
+
 export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkillDeps): Promise<SkillRunRecord> {
   const startedAt = Date.now();
   const id = randomId(deps.rng, 8);
@@ -246,6 +253,9 @@ export async function runSkill(skill: AnySkill, rawArgs: unknown, deps: RunSkill
   // Anything that came to nothing in the pockets with them full says why: an agent starving among its kills ("killed
   // but picked nothing up", the meat on the ground) had 36 stacks of stone.
   else if (!ok && freeSlots(deps.bot) === 0 && (expectation.kind === 'inventoryGain' || expectation.kind === 'inventoryHas')) error = `${error ? `${error}: ` : ''}${INVENTORY_FULL}`;
+  // The walk's own words for no way there, said as a player would (its "Took to long to decide path to goal!" came back
+  // to the mind sixteen times in one run, word for word).
+  if (error) error = plainWalkWords(error);
   // Server updates (inventory, block changes) can trail the client's view by a few hundred ms: give the
   // world time to settle before calling a result a mismatch.
   let after = snapshotBody(deps.bot);
