@@ -14,7 +14,7 @@ import { craft, noSuchItem, resolveCraftTarget, smelt } from './crafting';
 import { gather, isFoodName, pickup } from './gathering';
 import { attack } from './combat';
 import { shearSheep, woollySheep } from './hands';
-import { ANIMALS, hunt } from './village';
+import { hunt, huntable } from './village';
 import { defineSkill, type SkillContext, SkillAbortedError, type SkillResult } from './types';
 import { throwIfAborted, waitMs } from './util';
 
@@ -420,8 +420,9 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
     case 'mob': {
       const need = qty - count(bot, item);
       ctx.progress(`obtain: killing ${r.mob} for ${item}`);
-      const res = r.passive && (ANIMALS as readonly string[]).includes(r.mob) ? await hunt.run(ctx, { animal: r.mob as (typeof ANIMALS)[number], qty: Math.min(16, need) }) : await attack.run(ctx, { target: r.mob, seconds: 45 });
-      if (!r.passive || !(ANIMALS as readonly string[]).includes(r.mob)) await pickup.run(ctx, { item, radius: 8 });
+      const hunted = r.passive && huntable(bot, r.mob);
+      const res = hunted ? await hunt.run(ctx, { animal: r.mob, qty: Math.min(16, need) }) : await attack.run(ctx, { target: r.mob, seconds: 45 });
+      if (!hunted) await pickup.run(ctx, { item, radius: 8 });
       scan.forget();
       if (count(bot, item) < qty) throw new ObtainError(res.ok ? `killed ${r.mob} but still short of ${qty} ${item}` : (res.error ?? `could not kill a ${r.mob}`));
       return;

@@ -3244,6 +3244,13 @@ What else the benchmark showed:
   not show now, however near; gone is what one would see there and doesn't (the spot in view, something else in it);
   and what the body sets down itself (a station, a chest, a bed, obsidian) is remembered where it went, seen since or
   not, as "a crafting table you set down".
+- **Food from whatever drops it.** In `duo (44)`, Ada was down to 4 health with nothing to eat, no cow about, and a
+  salmon swimming 28 m off. She thought "I have no fishing rod or string, so it's just scenery": what the game knows
+  said fish come from a rod, and hunting took only cows, pigs, sheep, chickens and rabbits. Now a hunt takes any
+  creature that is no monster and drops something to eat when killed, as the game's own loot data has it (a salmon, a
+  mooshroom, and whatever a world adds), and counts whatever food it brings in. "Fish" is the fish that swim about.
+  Asked for a villager or a goat, it says the creature drops nothing to eat, and for a zombie that it is a monster to
+  fight. What the game knows of fish now leads with killing one where it swims.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

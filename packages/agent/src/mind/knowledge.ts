@@ -63,7 +63,7 @@ const FACTS: readonly Fact[] = [
   { gives: /^sugar_cane$/, how: 'grows on sand, dirt or grass right beside water; cut it above the bottom block and it grows back' },
   { gives: /^apple$/, how: 'oak and dark oak leaves now and then drop one when broken or when they decay' },
   { gives: /_sapling$/, how: 'leaves drop them; planted on dirt with room and light, they grow into trees' },
-  { gives: /^(cod|salmon|tropical_fish|pufferfish)$/, how: 'fish with a fishing rod (3 sticks and 2 string) in open water' },
+  { gives: /^(cod|salmon|tropical_fish|pufferfish)$/, how: 'kill one where it swims (in reach in the water, a blow or two; each drops one), or fish with a fishing rod (3 sticks and 2 string) in any open water, slower but never running out' },
   { gives: /^(name_tag|saddle|nautilus_shell)$/, how: 'fishing, trades with villagers and chests in structures' },
   { gives: /^(honeycomb|honey_bottle)$/, how: 'from a full bee nest or hive (shears give honeycomb, a glass bottle honey); a campfire under it keeps the bees calm' },
   { gives: /^(glowstone_dust|quartz|netherrack|soul_sand|nether_wart|magma_cream|gold_nugget|ghast_tear)$/, how: 'from the Nether' },
@@ -73,7 +73,7 @@ const FACTS: readonly Fact[] = [
 const TOPICS: readonly { about: RegExp; text: string }[] = [
   {
     about: /\b(hungry|starving)\b/i,
-    text: 'Food: health comes back by itself only while the food bar is at 18 of 20 or more, and fast while it is full just after a good meal: a steak or a cooked porkchop eaten when hurt brings back several hearts within seconds, so food carried is health in reserve; work, sprinting, fighting and healing burn the bar down. Raw meat fills little and cooked much more (raw beef 3, cooked 8; a furnace and any fuel cooks it); animals live out on grassy land and are not replaced once killed, so when those about are gone more are found farther off; tall grass drops seeds now and then, and wheat from them makes bread (3 a loaf); a fishing rod (3 sticks and 2 string) catches fish in any open water; oak leaves sometimes drop apples; rotten flesh fills a little but often brings on hunger.',
+    text: 'Food: health comes back by itself only while the food bar is at 18 of 20 or more, and fast while it is full just after a good meal: a steak or a cooked porkchop eaten when hurt brings back several hearts within seconds, so food carried is health in reserve; work, sprinting, fighting and healing burn the bar down. Raw meat fills little and cooked much more (raw beef 3, cooked 8; a furnace and any fuel cooks it); animals live out on grassy land and are not replaced once killed, so when those about are gone more are found farther off; tall grass drops seeds now and then, and wheat from them makes bread (3 a loaf); fish swim in rivers, lakes and the sea, and one killed in the water drops a raw fish (a fishing rod, 3 sticks and 2 string, catches them in any open water too); oak leaves sometimes drop apples; rotten flesh fills a little but often brings on hunger.',
   },
   {
     about: /\b(renewable|sustainable|steady|farm|food (source|supply)|never run out)\b/i,

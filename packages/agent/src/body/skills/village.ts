@@ -14,7 +14,7 @@ import { sharedRepertoire } from '../../building/repertoire';
 import { placeItemAt } from './building';
 import { bestWeapon, collectDropsAt, equipBestWeapon, pvp } from './combat';
 import { buildDesign } from './construct';
-import { stopCollecting } from './gathering';
+import { isFoodName, stopCollecting } from './gathering';
 import { ensureTool } from './tools';
 import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
 import { defineSkill, SkillAbortedError } from './types';
@@ -22,7 +22,37 @@ import { defineSkill, SkillAbortedError } from './types';
 // --- hunt ---------------------------------------------------------------------------------------------------------
 
 export const ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit'] as const;
-const MEAT = /^(beef|porkchop|mutton|chicken|rabbit)$/;
+/** Fish as players say it: the ones that swim about to be had. */
+const FISH = ['cod', 'salmon', 'tropical_fish'];
+
+/**
+ * Whether a kind of creature is game to hunt for food: no monster, and what the game says it drops when killed holds
+ * something to eat, a salmon as well as a cow, and whatever a world adds. One at 4 health with nothing to eat saw a
+ * salmon 28 m off and took it for scenery; hunting knew only cows, pigs, sheep, chickens and rabbits.
+ */
+export function huntable(bot: Bot, kind: string): boolean {
+  return whyNotHunt(bot, kind) === null;
+}
+
+/** Why a kind of creature is not hunted for food, in words (null: it is). */
+function whyNotHunt(bot: Bot, kind: string): string | null {
+  if ((ANIMALS as readonly string[]).includes(kind)) return null;
+  const mob = (bot.registry.entitiesByName as Record<string, { type?: string } | undefined>)[kind];
+  if (!mob) return `there is no creature called ${kind}`;
+  const loot = (bot.registry as unknown as { entityLoot?: Record<string, { drops: { item: string }[] } | undefined> }).entityLoot?.[kind];
+  const food = isFoodName(bot);
+  const eats = (loot?.drops ?? []).filter((d) => food(d.item)).map((d) => d.item);
+  if (mob.type === 'hostile') return `a ${kind.replace(/_/g, ' ')} is a monster: fight it (attack) rather than hunt it${eats.length > 0 ? `; it drops ${eats.join(' or ')}` : ''}`;
+  if (eats.length === 0) return `a ${kind.replace(/_/g, ' ')} drops nothing to eat when killed`;
+  return null;
+}
+
+/** The kinds of creature asked for: "cows" is cow, "fish" is the fish that swim about. */
+function huntKinds(raw: string): string[] {
+  const n = raw.trim().toLowerCase().replace(/^minecraft:/, '').replace(/[\s-]+/g, '_');
+  if (/^(raw_)?fish(es)?$/.test(n)) return FISH;
+  return [...new Set([n.endsWith('s') && !n.endsWith('ss') ? n.slice(0, -1) : n, n])];
+}
 
 function nearestAnimal(bot: Bot, kinds: readonly string[], radius: number): Entity | null {
   return bot.nearestEntity((e) => e !== bot.entity && kinds.includes(e.name ?? '') && e.position.distanceTo(bot.entity.position) <= radius && canSee(bot, e, radius + 1));
@@ -41,16 +71,23 @@ function fartherAnimal(bot: Bot, kinds: readonly string[]): string {
 
 export const hunt = defineSkill({
   name: 'hunt',
-  description: 'hunt {animal?, qty?} — kill farm animals in sight (cow, pig, sheep, chicken), walking to them, for raw meat and pick it up',
-  argsSchema: z.object({ animal: z.enum(ANIMALS).optional(), qty: z.coerce.number().int().min(1).max(16).default(3) }),
+  description:
+    'hunt {animal?, qty?} — kill creatures in sight for food, walking to them, and pick up what they drop: farm animals (cow, pig, sheep, chicken, rabbit) unless told, fish in the water, or any creature that drops food',
+  argsSchema: z.object({ animal: z.string().min(1).optional(), qty: z.coerce.number().int().min(1).max(16).default(3) }),
   talkOverable: false,
   slipKinds: ['tool'],
   expect: (args) => ({ kind: 'inventoryGain', item: 'meat', atLeast: Math.min(args.qty, 1) }),
   async run(ctx, args) {
     const { bot } = ctx;
-    const meat = () => bot.inventory.items().filter((i) => MEAT.test(i.name)).reduce((a, i) => a + i.count, 0);
+    const food = isFoodName(bot);
+    const meat = () => bot.inventory.items().filter((i) => food(i.name)).reduce((a, i) => a + i.count, 0);
     const start = meat();
-    const kinds = args.animal ? [args.animal] : [...ANIMALS];
+    let kinds: string[] = [...ANIMALS];
+    if (args.animal) {
+      const asked = huntKinds(args.animal);
+      kinds = asked.filter((k) => huntable(bot, k));
+      if (kinds.length === 0) return { ok: false, observed: 'did not try', error: whyNotHunt(bot, asked[0] ?? args.animal) ?? `no ${args.animal} to hunt` };
+    }
     const deadline = Date.now() + 120_000;
     let kills = 0;
     // Hunting with bare hands takes many blows: a sword first, made if we can (tools.ts); without one, hands.
@@ -114,7 +151,7 @@ export const hunt = defineSkill({
       // down, found nothing, and went off exploring the caves).
       return { ok: false, observed: `no ${which} within ${CREATURE_SIGHT} m${fartherAnimal(bot, kinds)}`, error: `no ${which} to hunt nearby${underTheGround(bot, 'animals live up on the surface')}`, data: { kills } };
     }
-    return { ok: got >= Math.min(args.qty, 1), observed: `hunted ${kills} animal(s), +${got} raw meat`, data: { kills, meat: got } };
+    return { ok: got >= Math.min(args.qty, 1), observed: `hunted ${kills} animal(s), +${got} food`, data: { kills, meat: got } };
   },
 });
 

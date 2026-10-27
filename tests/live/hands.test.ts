@@ -1106,6 +1106,25 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`fill ${x + 1} ${Y} 0 ${x + 4} ${Y + 1} 0 minecraft:air`);
   }, 120_000);
 
+  it('a hunt for fish: a salmon in a pond is killed in the water and the fish taken; a villager is no game', async () => {
+    // One at 4 health with nothing to eat saw a salmon 28 m off, took it for scenery, and hunting knew only farm animals.
+    const x = 10100;
+    await at(x + 0.5, 0.5);
+    await server.cmd('difficulty peaceful');
+    // A pond five across and two deep, its surface level with the ground, a step east of where she stands.
+    await server.cmd(`fill ${x + 2} ${Y - 2} -2 ${x + 6} ${Y - 1} 2 water`);
+    await server.cmd(`summon salmon ${x + 4} ${Y - 2} 0 {NoAI:1b}`);
+    await server.cmd('give Ada minecraft:stone_sword 1');
+    await sleep(2000);
+    const no = await run('hunt', { animal: 'villager', qty: 1 });
+    expect(no.ok).toBe(false);
+    expect(no.error ?? '').toMatch(/drops nothing to eat/);
+    const r = await run('hunt', { animal: 'fish', qty: 1 });
+    logger.info({ r, salmon: countItem(body.bot, 'salmon') }, 'a salmon hunted');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'salmon')).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

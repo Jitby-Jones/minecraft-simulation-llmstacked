@@ -3,6 +3,7 @@
 // and off the last five social goals; the code default turns village work into skills that end in a checkable act;
 // signs are read and written the way a player would. Live behavior is in tests/live/m8-village.test.ts.
 
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { type ActionRecord, type AgentState, ModelsConfigSchema, type ObservedAction, PersonaSchema, SeededRandom, loadPersonaPool, nullLogger } from '@agora/shared';
 import { LocalRateLimiter, startLlm } from '@agora/llm';
@@ -10,7 +11,7 @@ import { AgentBus } from '@agora/agent/bus';
 import type { Body } from '@agora/agent/body/body';
 import { readSign, wrapForSign, plainText } from '@agora/agent/body/signs';
 import { Vec3 } from '@agora/agent/body/bot';
-import { HUT_BLOCKS, HUT_BUMPS, HUT_HOLES, findHutSite, hutBlocks, hutDoor, hutPlan, hutSiteHoles, hutSiteWork, isHutMaterial } from '@agora/agent/body/skills/village';
+import { HUT_BLOCKS, HUT_BUMPS, HUT_HOLES, findHutSite, huntable, hutBlocks, hutDoor, hutPlan, hutSiteHoles, hutSiteWork, isHutMaterial } from '@agora/agent/body/skills/village';
 import { getSkill } from '@agora/agent/body/skills/registry';
 import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { codeDecision } from '@agora/agent/modules/cc';
@@ -28,6 +29,9 @@ import { createInitialState } from '@agora/agent/state/initial';
 import { newSocialProfile } from '@agora/agent/state/social';
 import { AgentStateStore } from '@agora/agent/state/store';
 import { FakeNanoGpt, standardModels } from '../llm/fakeNanoGpt';
+
+const requireHere = createRequire(import.meta.url);
+const gameData = requireHere(requireHere.resolve('minecraft-data', { paths: [requireHere.resolve('mineflayer', { paths: [`${process.cwd()}/packages/agent`] })] })) as (v: string) => unknown;
 
 const pool = loadPersonaPool();
 const persona = (id: string) => {
@@ -431,7 +435,12 @@ describe('village work as goals (§6.8)', () => {
     expect(getSkill('post')?.name).toBe('sign');
     expect(getSkill('build')?.parseArgs({}).ok).toBe(true);
     expect(getSkill('hunt')?.parseArgs({ animal: 'cow', qty: 2 }).ok).toBe(true);
-    expect(getSkill('hunt')?.parseArgs({ animal: 'villager' }).ok).toBe(false);
+    // Any creature, as the game has it: one at 4 health with nothing to eat took a salmon in the river for scenery.
+    // What it drops when killed says whether it is game: food and no monster.
+    expect(getSkill('hunt')?.parseArgs({ animal: 'salmon' }).ok).toBe(true);
+    const bot = { registry: gameData('26.1.2') } as never;
+    expect(['salmon', 'cod', 'mooshroom', 'cow'].map((k) => huntable(bot, k))).toEqual([true, true, true, true]);
+    expect(['villager', 'zombie', 'goat', 'dragon'].map((k) => huntable(bot, k))).toEqual([false, false, false, false]);
     expect(getSkill('patrol')?.parseArgs({ radius: 12 }).ok).toBe(true);
   });
 });
