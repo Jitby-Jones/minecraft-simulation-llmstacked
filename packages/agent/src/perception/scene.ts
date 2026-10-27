@@ -441,7 +441,14 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
     }
   }
   const sky = (at as unknown as { skyLight?: number } | null)?.skyLight ?? 15;
-  const parts = [`In ${place}`];
+  // Underground however low the ceiling, by how far up the open sky is: one in a notch of a cave pond, 16 blocks
+  // down with the ceiling a hand over its head, was "under a roof", and asked its hands for a hut there for 19 minutes.
+  const up = roof !== null && sky === 0 && dim === 'overworld' ? skyUp(bot) : null;
+  // Deep down, the land overhead is not where one is: one at y -45 under a flower forest, told "In flower forest",
+  // thought itself "at the surface finally" and went for an oak through the rock. A cave's own (dripstone, lush, the
+  // deep dark) is where one is.
+  const deep = up !== null && up >= 6 && biome !== null && !/(^|:)(dripstone_caves|lush_caves|deep_dark)$/.test(biome);
+  const parts = [deep ? `Deep under the ${nice(biome)}` : `In ${place}`];
   if (at?.name === 'water') parts.push('in the water');
   else if (at?.name === 'lava') parts.push('IN LAVA');
   else if (under && under.boundingBox === 'block') parts.push(`standing on ${nice(under.name)}`);
@@ -451,9 +458,6 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   // it stood up out of reach.
   const perch = under?.boundingBox === 'block' ? perchedHeight(bot, feet) : null;
   if (perch !== null) parts.push(`up ${perch} m above the ground on every side`);
-  // Underground however low the ceiling, by how far up the open sky is: one in a notch of a cave pond, 16 blocks
-  // down with the ceiling a hand over its head, was "under a roof", and asked its hands for a hut there for 19 minutes.
-  const up = roof !== null && sky === 0 && dim === 'overworld' ? skyUp(bot) : null;
   // What it is overhead, as one sees looking up: one on a stair dug up under gravel had it come down on its head, and
   // dug up into it again.
   if (roof === null) parts.push(dim === 'overworld' ? 'under the open sky' : 'nothing overhead');

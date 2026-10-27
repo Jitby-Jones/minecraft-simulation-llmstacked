@@ -110,7 +110,7 @@ function comingDown(bot: Bot, p: Vec3): boolean {
  * read as air a moment after the dig, gravel on its way down was not yet a block, and an agent stepped in under the
  * column and suffocated. Returns what was there first (null: nothing).
  */
-export async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> {
+export async function clear(ctx: SkillContext, p: Vec3, o: { byHand?: boolean } = {}): Promise<string | null> {
   const { bot } = ctx;
   let first: string | null = null;
   let plugs = 0;
@@ -140,8 +140,18 @@ export async function clear(ctx: SkillContext, p: Vec3): Promise<string | null> 
     }
     if (holdsDripstone(bot, p)) throw new Blocked('a stalactite hangs from the rock ahead');
     // Rock with no pickaxe left that can take it (the last one worn out): by hand it is seconds a block and nothing
-    // comes of it (one dug on bare-handed until its time ran out). No way round that: the dig ends.
-    if (b.harvestTools && !bot.inventory.items().some((i) => b.canHarvest(i.type))) throw new Error(`nothing left to dig the ${b.name} with: no pickaxe that can`);
+    // comes of it (one dug on bare-handed until its time ran out), so the dig ends, saying so, unless asked to go on
+    // by hand: the way out for one deep down with its last pickaxe gone and no wood (one at y -45 sat waiting there).
+    if (b.harvestTools && !bot.inventory.items().some((i) => b.canHarvest(i.type))) {
+      if (!o.byHand) {
+        const s = Math.max(1, Math.round((bot.digTime(b) || 5000) / 1000));
+        throw new Error(`nothing left to dig the ${b.name} with: no pickaxe that can; by hand a block of it takes about ${s} s and drops nothing (byHand)`);
+      }
+      if (bot.heldItem) await bot.unequip('hand').catch(() => undefined);
+      await digBlock(ctx, b);
+      await waitMs(ctx, 150);
+      continue;
+    }
     const tool = bot.pathfinder.bestHarvestTool(b);
     if (tool) await bot.equip(tool, 'hand');
     await digBlock(ctx, b);

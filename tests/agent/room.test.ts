@@ -131,6 +131,13 @@ describe('where the hands are going', () => {
   it('underground however low the ceiling, what it is, and how far up the sky is (a notch of a cave pond had been "under a roof")', () => {
     expect(whereNow(mine()).text).toContain('underground, the ceiling 2 m up (stone), the open sky some 41 blocks up');
   });
+
+  it('deep down, under the land overhead, not in it; in a cave of its own kind, in that', () => {
+    // One at y -45 told "In flower forest" thought itself at the surface.
+    const at = (biome: string) => Object.assign(mine(), { world: { getBiome: () => 7 }, registry: { biomes: { 7: { name: biome } } } }) as unknown as Bot;
+    expect(whereNow(at('flower_forest')).text).toMatch(/^Deep under the flower forest, standing on stone, underground/);
+    expect(whereNow(at('dripstone_caves')).text).toMatch(/^In dripstone caves, standing on stone, underground/);
+  });
 });
 
 describe('the ways out, as a player sees them in a fight', () => {

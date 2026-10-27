@@ -125,12 +125,13 @@ async function closeBehind(ctx: SkillContext, at: Vec3, back: Vec3): Promise<str
 export const tunnel = defineSkill({
   name: 'tunnel',
   description:
-    'tunnel {direction, blocks?, close?, toward?} — dig your way: north|south|east|west (a passage two high, 3 blocks if not said), up (a stair up, to the open sky unless blocks says how many steps), down (a stair down, 8 steps if not said); toward: the way a stair runs; close: put a block in the way behind you once you are in',
+    'tunnel {direction, blocks?, close?, toward?, byHand?} — dig your way: north|south|east|west (a passage two high, 3 blocks if not said), up (a stair up, to the open sky unless blocks says how many steps), down (a stair down, 8 steps if not said); toward: the way a stair runs; close: put a block in the way behind you once you are in; byHand: on bare-handed through rock no pickaxe of yours can take (slow, and nothing drops)',
   argsSchema: z.object({
     direction: z.preprocess(wayWord, z.enum(['north', 'south', 'east', 'west', 'up', 'down'])),
     blocks: upTo(1, MOST, true).optional(),
     close: z.coerce.boolean().default(false),
     toward: z.preprocess(wayWord, z.enum(ALONG).optional()),
+    byHand: z.coerce.boolean().optional(),
   }),
   talkOverable: false,
   slipKinds: [],
@@ -159,10 +160,11 @@ export const tunnel = defineSkill({
         const next = feet.plus(d).offset(0, rise, 0);
         try {
           // Room to rise into over our head for a step up; head room at our height for a step down.
-          if (rise > 0) await clear(ctx, feet.offset(0, 2, 0));
-          if (rise < 0) await clear(ctx, feet.plus(d).offset(0, 1, 0));
-          await clear(ctx, next.offset(0, 1, 0));
-          await clear(ctx, next);
+          const how = { byHand: args.byHand === true };
+          if (rise > 0) await clear(ctx, feet.offset(0, 2, 0), how);
+          if (rise < 0) await clear(ctx, feet.plus(d).offset(0, 1, 0), how);
+          await clear(ctx, next.offset(0, 1, 0), how);
+          await clear(ctx, next, how);
           await bridge(ctx, next.offset(0, -1, 0));
         } catch (err) {
           if (!(err instanceof Blocked)) throw err;

@@ -3198,6 +3198,15 @@ What else the benchmark showed:
     a block down is a pillar. Each block of a pillar gets a few jumps, from the ground only: in one test of four the
     first jump, off ground not yet settled after a teleport, went nowhere.
 
+- **Deep down with no pickaxe left.** `solo, seed 1 (40)` wore out its last pickaxe at y -45 with one stick and no
+  wood. Its tunnel refused to dig, and its mind, told "In flower forest", thought itself "at the surface finally" and
+  went for an oak through the rock. Now:
+  - Rock no pickaxe of one's own can take is said to take so long by hand ("by hand a block of it takes about 15 s
+    and drops nothing"), and `tunnel {byHand}` digs on bare-handed. That is the way out for one deep down with its
+    last pickaxe gone. Live: two blocks of stone by hand in 16 s.
+  - Six or more blocks under the open sky, the where line says "Deep under the flower forest". A cave's own biome
+    (dripstone caves, lush caves, the deep dark) is still "In dripstone caves".
+
 Verified: lint, typecheck, the forbidden-strings check, 770 unit tests; live, `m1-skills` (25: a first full run lost
 three to timeouts with two long runs and two other suites going, and passed 25 of 25 again alone), `melee` with
 `cornered` (12), and the new `hands` tests (a pillar of three, a torch down, a torch at one's side; twice).

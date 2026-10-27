@@ -1089,6 +1089,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`setblock ${x} ${Y} 0 minecraft:air`);
   }, 120_000);
 
+  it('no pickaxe left: a tunnel says how long rock takes by hand, and on bare-handed it digs through', async () => {
+    // One at y -45 with its last pickaxe worn out and no wood sat waiting there, its tunnel refusing to dig.
+    const x = 10000;
+    await at(x + 0.5, 0.5);
+    await server.cmd(`fill ${x + 1} ${Y} 0 ${x + 4} ${Y + 1} 0 minecraft:stone`);
+    await sleep(1500);
+    const no = await run('tunnel', { direction: 'east', blocks: 1 });
+    logger.info({ no }, 'a tunnel with no pickaxe');
+    expect(no.ok).toBe(false);
+    expect(no.error ?? '').toMatch(/by hand a block of it takes about \d+ s and drops nothing/);
+    const yes = await run('tunnel', { direction: 'east', blocks: 1, byHand: true });
+    logger.info({ yes }, 'a tunnel by hand');
+    expect(yes.ok).toBe(true);
+    expect(body.bot.blockAt(new Vec3(x + 1, Y, 0))?.name).toBe('air');
+    await server.cmd(`fill ${x + 1} ${Y} 0 ${x + 4} ${Y + 1} 0 minecraft:air`);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);
