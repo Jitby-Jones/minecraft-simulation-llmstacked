@@ -3234,6 +3234,16 @@ What else the benchmark showed:
   over the walks that came next ("the goal was changed before it could be completed"), a furnace's work too. In a
   loaded run of `m1-skills`, one timed-out gather took two later tests down with it. Now it is stopped, as an abort
   stops it.
+- **The map remembers up and down as well as across.** `solo, seed 3 (1)` set its crafting table down under its feet
+  at y 14, dug a stair on down, and broke its last stone pickaxe at y −11, 25 m below the table and 16 m off across. Its
+  thoughts went "I could use the one I placed earlier in this pocket, but it's out of sight", and the packet told it
+  only of a table 75 m up and another 70 m off. On the map, places were one per patch of ground with no height, and
+  "out of sight" meant more than 24 m off across: the table overhead was near, so taken for in view and never told.
+  A place was also forgotten as gone when one came within 10 m of it across, so a dig straight under one's surface
+  table would have wiped it. Now a place is one per patch and band of height; out of sight is what the scene does
+  not show now, however near; gone is what one would see there and doesn't (the spot in view, something else in it);
+  and what the body sets down itself (a station, a chest, a bed, obsidian) is remembered where it went, seen since or
+  not, as "a crafting table you set down".
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

@@ -2,7 +2,7 @@
 // follows the agent's intelligence (§21.1: memories, tasks, people). People nearby are always included (Sid's
 // forced social inclusion). A pure function of the state, so it is easy to test and to show on the dashboard.
 
-import type { ActionRecord, AgentState, Lesson, Place, Utterance } from '@agora/shared';
+import type { ActionRecord, AgentState, Lesson, Place, Utterance, Vec3 as Pos } from '@agora/shared';
 import type { MindLevers } from './levers';
 import { describePlan } from './plan';
 import { describeChange, recentChanges } from '../perception/surroundings';
@@ -237,20 +237,31 @@ const WORD = /[a-z][a-z_]{2,}/g;
 export function placesFor(s: AgentState, now: number, k = 6): string[] {
   const me = s.self.pos;
   const world = String(s.self.dimension ?? 'overworld');
-  const all = (s.knowledge.places ?? []).filter((p) => p.world === world && Math.hypot(p.pos.x - me.x, p.pos.z - me.z) > 24);
+  // Out of sight is what is not in view now, however near it is on the map: one 25 m under her crafting table, out
+  // of pickaxes, was told only of a table 75 m up and another 70 m off.
+  const near = (a: Pos, b: Pos, r: number) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= r;
+  const looked = Boolean(s.scene) && s.scene.at > 0;
+  const inSight = (p: Place) =>
+    p.kind === 'animals'
+      ? s.scene.creatures.some((c) => c.visible && p.names.includes(c.name) && near(c.pos, p.pos, 16))
+      : s.scene.features.some((f) => p.names.some((n) => (f.blocks[n] ?? 0) > 0) && near(f.nearest, p.pos, 8));
+  const all = (s.knowledge.places ?? []).filter((p) => p.world === world && (looked ? !inSight(p) : !near(p.pos, me, 24)));
   if (all.length === 0) return [];
   const context = [s.goals.current?.text ?? '', s.goals.current?.doneWhen ?? '', ...(s.goals.tasks ?? []).filter((t) => t.status === 'open').map((t) => t.text), ...s.mind.later.map((l) => `${l.what} ${l.cue}`), ...s.actionLog.slice(-6).filter((a) => !a.ok).map((a) => `${aimOf(a)} ${a.error ?? ''}`)]
     .join(' ')
     .toLowerCase();
   const words = new Set((context.match(WORD) ?? []).map((w) => w.replace(/s$/, '')));
   const bears = (p: Place) => p.names.some((n) => n.split('_').some((part) => part.length > 2 && words.has(part.replace(/s$/, ''))));
-  const dist = (p: Place) => Math.hypot(p.pos.x - me.x, p.pos.z - me.z);
+  const dist = (p: Place) => Math.hypot(p.pos.x - me.x, p.pos.y - me.y, p.pos.z - me.z);
   return all
     .sort((a, b) => Number(bears(b)) - Number(bears(a)) || dist(a) - dist(b))
     .slice(0, k)
     .map((p) => {
       const dy = Math.round(p.pos.y - me.y);
-      return `${p.what}: ${Math.round(dist(p))} m ${bearingOf(me, p.pos)}${dy >= 3 ? `, ${dy} m up` : dy <= -3 ? `, ${-dy} m down` : ''} (${p.pos.x},${p.pos.y},${p.pos.z}), seen ${ago(now - p.seenAt)}`;
+      const flat = Math.round(Math.hypot(p.pos.x - me.x, p.pos.z - me.z));
+      const where =
+        flat < 2 ? (Math.abs(dy) < 3 ? 'right where you are' : `${Math.abs(dy)} m straight ${dy > 0 ? 'up' : 'down'}`) : `${flat} m ${bearingOf(me, p.pos)}${dy >= 3 ? `, ${dy} m up` : dy <= -3 ? `, ${-dy} m down` : ''}`;
+      return `${p.what}: ${where} (${p.pos.x},${p.pos.y},${p.pos.z}), seen ${ago(now - p.seenAt)}`;
     });
 }
 

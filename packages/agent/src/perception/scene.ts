@@ -759,7 +759,19 @@ const LIQUID = /^(water|lava)$/;
 const CREATURES_MAX = 24;
 /** What is worth remembering where it was. */
 const PLACE_KINDS: ReadonlySet<SceneFeatureKind> = new Set(['ore', 'lava', 'portal', 'spawner', 'station', 'container', 'bed', 'built', 'crops', 'plants', 'trees', 'water', 'clay']);
+/** What one sets down oneself and knows the place of, seen since or not. */
+const PUT_KINDS: ReadonlySet<SceneFeatureKind> = new Set(['station', 'container', 'bed', 'portal']);
+const OURS = ' you set down';
 const MAX_PLACES = 80;
+
+/**
+ * One place remembered per patch of ground and band of height, by what is there: a crafting table on the surface and
+ * one set down 75 m below it are two places, not one.
+ */
+function placeKey(world: string, kind: Place['kind'], sub: string, at: { x: number; y: number; z: number }): string {
+  const cell = kind === 'trees' || kind === 'water' ? 48 : kind === 'animals' ? 32 : 24;
+  return `${world}|${kind}|${sub}|${Math.floor(at.x / cell)},${Math.floor(at.y / cell)},${Math.floor(at.z / cell)}`;
+}
 const CREATURES_EVERY_MS = 1000;
 /** Monsters this near are looked at for a way to us on foot; worked out again when one moves, or after this. */
 const REACH_LOOK = 16;
@@ -859,6 +871,12 @@ export class SceneEyes {
       const now = this.o.now();
       this.hits.set(e.id, [...(this.hits.get(e.id) ?? []).filter((t) => now - t < HITS_MS), now]);
       if (this.hits.size > 200) for (const [id, ts] of this.hits) if (ts.every((t) => now - t >= HITS_MS)) this.hits.delete(id);
+    });
+    // What one sets down oneself one knows the place of, in sight since or not: one set her crafting table down under
+    // her feet, dug on down, broke her last pickaxe 25 m below it and, the table never in view since, knew only of
+    // one 75 m up.
+    on('blockPlaced', (_old: unknown, placed: { name: string; position: Vec3 } | null) => {
+      if (placed) this.put(placed.name, placed.position);
     });
     on('playerJoined', (p: { username: string }) => void this.joined.set(p.username, this.o.now()));
     on('entityGone', (e: Entity) => this.gone(e));
@@ -1022,12 +1040,15 @@ export class SceneEyes {
     const now = this.o.now();
     const world = String(bot.game?.dimension ?? 'overworld');
     const me = bot.entity.position;
+    const old = this.o.store.state.knowledge.places ?? [];
+    // What we set down ourselves stays ours when seen again.
+    const ours = new Map(old.filter((p) => p.what.endsWith(OURS)).map((p) => [p.key, p.what] as const));
     const fresh: Place[] = [];
     for (const f of this.features) {
       if (!PLACE_KINDS.has(f.kind)) continue;
-      const cellSize = f.kind === 'trees' || f.kind === 'water' ? 48 : 24;
       const sub = f.kind === 'ore' || f.kind === 'station' || f.kind === 'container' || f.kind === 'plants' ? (Object.keys(f.blocks)[0] ?? '') : '';
-      fresh.push({ key: `${world}|${f.kind}|${sub}|${Math.floor(f.nearest.x / cellSize)},${Math.floor(f.nearest.z / cellSize)}`, kind: f.kind, what: f.what, pos: f.nearest, world, seenAt: now, names: Object.keys(f.blocks) });
+      const key = placeKey(world, f.kind, sub, f.nearest);
+      fresh.push({ key, kind: f.kind, what: ours.get(key) ?? f.what, pos: f.nearest, world, seenAt: now, names: Object.keys(f.blocks) });
     }
     const herds = new Map<string, { n: number; pos: Vec3 }>();
     for (const s of seen) {
@@ -1038,16 +1059,36 @@ export class SceneEyes {
       else herds.set(type, { n: 1, pos: s.e.position.floored() });
     }
     for (const [type, h] of herds) {
-      fresh.push({ key: `${world}|animals|${type}|${Math.floor(h.pos.x / 32)},${Math.floor(h.pos.z / 32)}`, kind: 'animals', what: countOf(h.n, type), pos: { x: h.pos.x, y: h.pos.y, z: h.pos.z }, world, seenAt: now, names: [type] });
+      fresh.push({ key: placeKey(world, 'animals', type, h.pos), kind: 'animals', what: countOf(h.n, type), pos: { x: h.pos.x, y: h.pos.y, z: h.pos.z }, world, seenAt: now, names: [type] });
     }
     const keys = new Set(fresh.map((p) => p.key));
-    const old = this.o.store.state.knowledge.places ?? [];
-    // Close by and in this world, but not seen now: gone (mined out, eaten, wandered off).
-    const gone = (p: Place) => p.world === world && !keys.has(p.key) && Math.hypot(p.pos.x - me.x, p.pos.z - me.z) < (p.kind === 'animals' ? 16 : 10);
+    // Gone is what one would see there now and doesn't (mined out, eaten, wandered off): animals not about close by;
+    // a thing that stays put, its spot in view and something else there. A table behind a wall, or 75 m overhead,
+    // is still where it was for all one knows.
+    const gone = (p: Place) => {
+      if (p.world !== world || keys.has(p.key)) return false;
+      const d = Math.hypot(p.pos.x - me.x, p.pos.y - me.y, p.pos.z - me.z);
+      if (p.kind === 'animals') return d < 16;
+      if (d >= 10) return false;
+      const at = new Vec3(p.pos.x, p.pos.y, p.pos.z);
+      const there = bot.blockAt(at);
+      return there !== null && !p.names.includes(there.name) && canSeeBlock(bot, at, 12);
+    };
     const kept = old.filter((p) => !keys.has(p.key) && !gone(p));
     if (fresh.length === 0 && kept.length === old.length) return;
     const places = [...kept, ...fresh].sort((a, b) => a.seenAt - b.seenAt).slice(-MAX_PLACES);
     this.o.store.update('knowledge', (k) => ({ ...k, places }), 'places seen');
+  }
+
+  /** A thing worth coming back to that we set down ourselves (a crafting table, a chest, a bed): where it is. */
+  private put(name: string, at: Vec3): void {
+    const kind = featureKindOf(name);
+    if (!kind || !PUT_KINDS.has(kind)) return;
+    const world = String(this.o.bot.game?.dimension ?? 'overworld');
+    const pos = { x: at.x, y: at.y, z: at.z };
+    const sub = kind === 'station' || kind === 'container' ? name : '';
+    const place: Place = { key: placeKey(world, kind, sub, pos), kind, what: `${kind === 'portal' ? '' : 'a '}${nice(name)}${OURS}`, pos, world, seenAt: this.o.now(), names: [name] };
+    this.o.store.update('knowledge', (k) => ({ ...k, places: [...(k.places ?? []).filter((p) => p.key !== place.key), place].slice(-MAX_PLACES) }), 'set down');
   }
 
   /**

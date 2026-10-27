@@ -287,6 +287,74 @@ describe('monsters coming about are noticed before they are on one', () => {
   });
 });
 
+describe('where one set things down, and what is out of sight, up and down as well as across', () => {
+  it('a table set down is ours; 25 m under it, it is told; behind a wall it stays remembered; seen gone, forgotten', () => {
+    // One set her crafting table down under her feet, dug on down, broke her last pickaxe 25 m below it, and was told
+    // only of a table 75 m up and another 70 m off: on the map, the one overhead was near, so in sight.
+    const w = fakeWorld();
+    const st = { table: true, wall: false };
+    const nameAt = (f: Vec3): string | null => {
+      if (f.x === 2 && f.y === 64 && f.z === 0) return st.table ? 'crafting_table' : null;
+      if (st.wall && f.x === 1 && (f.y === 64 || f.y === 65) && f.z >= -1 && f.z <= 1) return 'stone';
+      return f.y === 63 ? 'grass_block' : null;
+    };
+    const blockAt = (p: Vec3) => {
+      const f = p.floored();
+      const n = nameAt(f);
+      const b = n ? data.blocksByName[n] : undefined;
+      return n && b ? { name: n, type: b.id, boundingBox: 'block', position: f, shapes: [[0, 0, 0, 1, 1, 1]], getProperties: () => ({}) } : { name: 'air', type: 0, boundingBox: 'empty', position: f, shapes: [], getProperties: () => ({}) };
+    };
+    w.bot.blockAt = blockAt;
+    Object.assign(w.bot.world, {
+      getBlockStateId: (p: Vec3) => {
+        const n = nameAt(p.floored());
+        return n ? (data.blocksByName[n]?.minStateId ?? 0) : 0;
+      },
+      raycast: (from: Vec3, dir: Vec3, range: number) => {
+        for (let d = 0; d <= range; d += 0.05) {
+          const b = blockAt(from.plus(dir.scaled(d)));
+          if (b.boundingBox === 'block') return b;
+        }
+        return null;
+      },
+    });
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    const standAt = (x: number, y: number, z: number) => {
+      w.bot.entity.position = new Vec3(x, y, z);
+      s.update('self', (me) => ({ ...me, pos: { x, y, z } }), 'test');
+      // Two looks round: the first may have begun where one stood before.
+      for (let i = 0; i < 24; i++) {
+        t.now += 300;
+        eyes.tick([]);
+      }
+    };
+    const table = () => (s.state.knowledge.places ?? []).find((p) => p.names.includes('crafting_table'));
+    w.bot.emit('blockPlaced', null, { name: 'crafting_table', position: new Vec3(2, 64, 0) });
+    expect(table()?.what).toBe('a crafting table you set down');
+    // In view: seen, still ours, and not among what is out of sight.
+    standAt(0.5, 64, 0.5);
+    expect(s.state.scene.features.some((f) => f.blocks.crafting_table)).toBe(true);
+    expect(table()?.what).toBe('a crafting table you set down');
+    expect(placesFor(s.state, t.now)).toEqual([]);
+    // 25 m below it, under the ground, 15 m off across: out of sight, and told.
+    standAt(16.5, 39, 3.5);
+    expect(placesFor(s.state, t.now).join('\n')).toMatch(/^a crafting table you set down: 15 m [a-z-]+, 25 m up \(2,64,0\), seen /);
+    // Back beside it, a wall between, and the table taken away: for all one knows, it is still there.
+    st.wall = true;
+    st.table = false;
+    standAt(0.5, 64, 0.5);
+    expect(table()).toBeDefined();
+    // The wall gone, the spot in view and nothing there: forgotten.
+    st.wall = false;
+    standAt(0.5, 64, 0.5);
+    expect(table()).toBeUndefined();
+    eyes.stop();
+  });
+});
+
 describe('what the game does by itself is no surprise; what comes from nowhere is', () => {
   it('a bee out of its nest is nothing; a cow out of thin air is', () => {
     const w = fakeWorld({ '6,66,0': 'bee_nest' });
