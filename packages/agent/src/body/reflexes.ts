@@ -1715,7 +1715,13 @@ export class ReflexController {
     if (this.hooks.deliberateFight()) {
       if (bot.health <= (this.hooks.fightFloor?.() ?? this.fleeThreshold())) {
         const t = this.threats();
-        if (t.length > 0) this.flee(t);
+        if (t.length > 0) {
+          // The fight chosen is given up, not run from while still being fought: one at 15 health went for a skeleton
+          // with two zombies at her back, the run and the fight pulled the body both ways, and she fell to 3 in seven
+          // seconds and died.
+          this.hooks.takeBack?.('hurt below what the fight was worth');
+          this.flee(t);
+        }
       }
       return;
     }

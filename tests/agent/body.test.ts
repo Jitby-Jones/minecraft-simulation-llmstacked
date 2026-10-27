@@ -825,6 +825,46 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(r.threats().map((t) => t.id).sort()).toEqual([22, 23]);
   });
 
+  it('a fight the mind chose, hurt below what it is worth: the body takes itself back and runs, not both at once', async () => {
+    // One at 15 health went for a skeleton with two zombies at her back; the run and the fight pulled the body both
+    // ways, and she fell to 3 in seven seconds.
+    const took: string[] = [];
+    const zombie = { id: 4, type: 'hostile', name: 'zombie', position: new Vec3(1.5, 64, 0.5), height: 1.95 };
+    const bot = Object.assign(new EventEmitter(), {
+      entity: { id: 0, position: new Vec3(0.5, 64, 0.5), height: 1.8, onGround: true, yaw: 0, velocity: new Vec3(0, 0, 0) },
+      entities: { 4: zombie },
+      health: 4,
+      food: 20,
+      oxygenLevel: 20,
+      game: { difficulty: 'normal' },
+      time: { timeOfDay: 18_000 },
+      inventory: { items: () => [{ name: 'stone_sword', count: 1 }], slots: [] },
+      blockAt: (p: Vec3) => (p.y < 64 ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }),
+      world: { raycast: () => null },
+      setControlState: () => undefined,
+      clearControlStates: () => undefined,
+      nearestEntity: () => null,
+      lookAt: () => Promise.resolve(),
+      pathfinder: { isMoving: () => false, setGoal: () => undefined, setMovements: () => undefined, goto: () => Promise.resolve() },
+    });
+    const hooks = {
+      caution: () => 0.5,
+      quirks: () => [],
+      combat: () => 0.5,
+      mayFightBack: () => true,
+      deliberateFight: () => took.length === 0,
+      isIdle: () => false,
+      between: () => false,
+      onDanger: () => undefined,
+      onDangerCleared: () => undefined,
+      takeBack: (why: string) => took.push(why),
+    };
+    const r = new ReflexController(bot as unknown as Bot, hooks as never, nullLogger());
+    (r as unknown as { flee(t: unknown[]): void }).flee = () => undefined;
+    await (r as unknown as { tick(): Promise<void> }).tick();
+    expect(took).toEqual(['hurt below what the fight was worth']);
+  });
+
   it("up a pillar from level ground, not from a ledge's edge (a step off its top would be the pillar and the drop both)", () => {
     const pillarFrom = (ledge: boolean) => {
       // Stone below y 64; with a ledge, the ground east of x 1 drops away to y 58.

@@ -3427,6 +3427,12 @@ What else the benchmark showed:
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with
   them ("no model for check"). A merged memory goes the same way; nothing waits on either.
+- **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
+  Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
+  worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven
+  seconds, ate, went at it again and was killed. The body ran only from fights it had started itself; one the mind
+  chose went on under it. Now, hurt below that fight's floor with monsters about, the body takes the action back
+  ("hurt below what the fight was worth"), runs, and the mind hears why.
 
 Verified: lint, typecheck, the forbidden-strings check, 770 unit tests; live, `m1-skills` (25: a first full run lost
 three to timeouts with two long runs and two other suites going, and passed 25 of 25 again alone), `melee` with
@@ -3439,7 +3445,8 @@ renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at
 (19)`: 7 diamonds by 27 minutes, an iron pickaxe by 14, iron boots and a chestplate by 87, alive for 130 minutes
 (some six days of the game); earlier, 8 diamonds by 19 minutes (`solo, seed 2 (4)`). The novel test (tasks nobody
 planned the agent for: a fish, a bow and arrows, blue wool, a cake, a compass, a bed slept in, a shield) has met the
-shield, by 9 minutes in `novel (4)` and by 31 in `novel (3)`, which lived 136 minutes. What ends the runs now is the
+shield, by 9 minutes in `novel (4)` and by 31 in `novel (3)`, which lived 136 minutes; `novel (4)` met a house as
+well, at 118 minutes (a roofed room of 4 cells behind a door she placed), and lived 140. What ends the runs now is the
 fight, nearly always in a cave or the dark under trees, outnumbered, with stone tools. Of the last two dozen deaths
 read, eleven were to zombies and five to arrows; the rest were a spider, a creeper, a drowned, lava, a fall, a wall
 and a stalagmite. Each death and stall is answered as above, in the general mind, senses and hands; every death's
