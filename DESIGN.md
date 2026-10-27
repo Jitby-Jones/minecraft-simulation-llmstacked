@@ -3279,6 +3279,11 @@ What else the benchmark showed:
   was cut short, and in 60 minutes there was never a fish. Now "done" said in the thought that sets out to do it (the
   saying is about what its own steps are about) is a hope: the task stays open, noted "you said it was done as you
   set out to do it", until a later thought says so again.
+- **No way to a thing says where it comes from.** An obtain that found no way said "I don't know how to get
+  cooked_beef" (Ada at 4 health, no beef and no cow about) and "I don't know how to get cod" (one went on to use her
+  sword on the water). Both read as things one cannot learn. Now it says where the game has it come from, and what
+  of that is missing here: "cooked beef is beef cooked or smelted in a furnace, and you have no beef (beef drops from
+  cow, mooshroom when killed, and none is in sight)". It is built from the game's own smelting, loot and block data.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

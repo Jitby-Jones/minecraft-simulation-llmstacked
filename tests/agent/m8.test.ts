@@ -618,6 +618,19 @@ describe('cooking what was hunted (the obtain planner)', () => {
     expect((await planObtain(bot, 'cooked_mutton')).kind).toBe('none');
   });
 
+  it('no way to it: where the game has it come from, and what of that is missing, not "I don\'t know how to get" it', async () => {
+    // Told "I don't know how to get cooked_beef" with no beef on her and no cow about, one at 4 health took it for
+    // something she could not learn.
+    const { whyNoWayTo } = await import('@agora/agent/body/skills/planner');
+    const bot = {
+      registry: { ...(gameData('26.1.2') as object), blocksArray: [] },
+      inventory: { items: () => [], slots: [] },
+      recipesAll: () => [],
+    } as never;
+    expect(whyNoWayTo(bot, 'cooked_beef')).toBe('cooked beef is beef cooked or smelted in a furnace, and you have no beef (beef drops from cow, mooshroom when killed, and none is in sight)');
+    expect(whyNoWayTo(bot, 'cod')).toMatch(/^cod drops from .*cod.* when killed, and none is in sight$/);
+  });
+
   it('a furnace is cleared of what was left in it and given fuel enough for the batch', async () => {
     const { readyFurnace } = await import('@agora/agent/body/skills/crafting');
     const done: string[] = [];

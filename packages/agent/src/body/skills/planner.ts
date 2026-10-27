@@ -340,6 +340,38 @@ function mobDropping(bot: Bot, item: string): { name: string; passive: boolean }
   return { name: e.name, passive: !isHostile(e) };
 }
 
+/** The kinds of creature that drop `item` when killed, often enough to go for (by the game's loot data). */
+function mobsDropping(bot: Bot, item: string): string[] {
+  const loot = (bot.registry as unknown as { entityLoot?: Record<string, { drops: { item: string; dropChance: number }[] } | undefined> }).entityLoot ?? {};
+  return Object.entries(loot)
+    .filter(([m, l]) => m !== 'player' && l?.drops.some((d) => d.item === item && d.dropChance >= 0.2))
+    .map(([m]) => m);
+}
+
+/**
+ * Where the game has a thing come from, and what of that is not to be had here now: an obtain that found no way says
+ * so, not "I don't know how to get" it. Told that of cooked beef, with no beef on her and no cow about, one at 4
+ * health took it for something she could not learn; told it of cod, one tried to use her sword on the water.
+ */
+function noWayTo(bot: Bot, scan: WorldScan, item: string, depth = 0): string {
+  const parts: string[] = [];
+  const input = SMELTS[item];
+  if (input) {
+    const short = count(bot, input) > 0 ? '' : `, and you have no ${nice(input)}${depth < 1 ? ` (${noWayTo(bot, scan, input, depth + 1)})` : ''}`;
+    parts.push(`${nice(item)} is ${nice(input)} cooked or smelted in a furnace${short}`);
+  }
+  const mobs = mobsDropping(bot, item);
+  if (mobs.length > 0) parts.push(`${nice(item)} drops from ${mobs.slice(0, 3).map(nice).join(', ')} when killed, and none is in sight`);
+  const blocks = [...new Set(scan.drops(item).map((id) => bot.registry.blocks[id]?.name).filter((n): n is string => Boolean(n)))];
+  if (blocks.length > 0) parts.push(`${nice(item)} comes from breaking ${blocks.slice(0, 3).map(nice).join(', ')}, and you have seen none around here`);
+  return parts.join('; ') || `nothing you know of gives ${nice(item)}`;
+}
+
+/** Where the game has a thing come from, and what of it is missing here now (diagnostics and tests). */
+export function whyNoWayTo(bot: Bot, item: string): string {
+  return noWayTo(bot, new WorldScan(bot), item);
+}
+
 /** One planning pass from the current inventory (diagnostics and tests). */
 export async function planObtain(bot: Bot, item: string, knowsRecipe: (item: string) => boolean = () => true): Promise<{ kind: Route['kind']; cost: number; height: number; deepest?: string }> {
   const r = await route({ bot, knowsRecipe, scan: new WorldScan(bot), memo: new Map(), lastYield: Date.now() }, item, []);
@@ -362,9 +394,9 @@ async function acquire(ctx: SkillContext, scan: WorldScan, item: string, qty: nu
     case 'have':
       return;
     case 'none': {
-      if (r.why === 'unknown' && bot.registry.itemsByName[item] && !ctx.knowsRecipe(item)) throw new ObtainError(`I don't know how to make ${item}`);
+      if (r.why === 'unknown' && bot.registry.itemsByName[item] && !ctx.knowsRecipe(item) && !SMELTS[item] && mobsDropping(bot, item).length === 0) throw new ObtainError(`I don't know how to make ${item}`);
       if (!bot.registry.itemsByName[item] && !CATEGORIES[item]) throw new ObtainError(noSuchItem(bot, item));
-      throw new ObtainError(`I don't know how to get ${item}`);
+      throw new ObtainError(noWayTo(bot, scan, item));
     }
     case 'gather': {
       if (r.tool) await acquire(ctx, scan, r.tool, 1, depth + 1, next);
