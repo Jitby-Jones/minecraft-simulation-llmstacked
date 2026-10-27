@@ -84,9 +84,9 @@ export function releaseStuckDig(bot: Bot): boolean {
 }
 
 /** Pathfinds to within `range` of `pos`. Applies the 'path' slip as a detour (§21.1). */
-export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, timeoutMs = 60_000): Promise<void> {
+export async function gotoNear(ctx: SkillContext, pos: Vec3, range: number, timeoutMs = 60_000, movements = ctx.movements()): Promise<void> {
   const { bot } = ctx;
-  bot.pathfinder.setMovements(ctx.movements());
+  bot.pathfinder.setMovements(movements);
   if (ctx.slip === 'path') {
     // Inefficient path: wander via a point off to the side first.
     const side = new Vec3(pos.x + (ctx.rng.next() < 0.5 ? -6 : 6), pos.y, pos.z + (ctx.rng.next() < 0.5 ? -6 : 6));

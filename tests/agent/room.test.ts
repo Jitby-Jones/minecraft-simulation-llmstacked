@@ -6,8 +6,9 @@ import { describe, expect, it } from 'vitest';
 import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
 import { besideWords, daytime, goingFor, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
+import { dropTheBodyTakes } from '@agora/agent/body/skills/movement';
 import { evalCondition } from '@agora/agent/modules/conditions';
-import { openedUp, whereNow } from '@agora/agent/perception/scene';
+import { openedUp, waysOut, whereNow } from '@agora/agent/perception/scene';
 import { createInitialState } from '@agora/agent/state/initial';
 import { PersonaSchema } from '@agora/shared';
 
@@ -125,6 +126,43 @@ describe('where the hands are going', () => {
 
   it('underground however low the ceiling, with how far up the sky is (a notch of a cave pond had been "under a roof")', () => {
     expect(whereNow(mine()).text).toContain('underground, the ceiling 2 m up, the open sky some 41 blocks up');
+  });
+});
+
+describe('the ways out, as a player sees them in a fight', () => {
+  /**
+   * Grass at y 63 under the feet at 0,64,0: a stone wall a block east (x 1, two high), water 5 m north, the ground ends
+   * 4 m south over a 10 m drop, and open ground west.
+   */
+  function field(): Bot {
+    const blockAt = (p: Vec3) => {
+      const f = p.floored();
+      const wall = f.x === 1 && f.z >= -1 && f.z <= 1 && f.y >= 64 && f.y <= 65;
+      const water = f.z <= -5 && f.z >= -8 && f.y === 64 && Math.abs(f.x) <= 2;
+      const ground = f.y === 63 && f.z <= 4;
+      const deep = f.y === 53 && f.z > 4;
+      const solid = wall || ground || deep;
+      return { position: f, name: wall ? 'stone' : water ? 'water' : ground || deep ? 'grass_block' : 'air', boundingBox: solid ? 'block' : 'empty', getProperties: () => ({}) };
+    };
+    return { entity: { position: new Vec3(0.5, 64, 0.5) }, blockAt, game: { minY: -64, height: 384, dimension: 'overworld' } } as unknown as Bot;
+  }
+
+  it('says how far each way goes on foot, and what stops it: a wall to dig into, water, a drop', () => {
+    const w = waysOut(field()) ?? '';
+    expect(w).toContain('west 16+ m');
+    expect(w).toContain('north 4 m (then water)');
+    expect(w).toMatch(/not .*east \(stone in the way right there\)/);
+    expect(w).toContain('south 4 m (then a drop of 10 m)');
+  });
+});
+
+describe('the drop the body can take', () => {
+  it('is three blocks, and a block more for every three health on hand: a fall kept within a third of it', () => {
+    expect(dropTheBodyTakes(20)).toBe(9);
+    expect(dropTheBodyTakes(4)).toBe(4);
+    expect(dropTheBodyTakes(2)).toBe(3);
+    // A 9-block fall costs 6 health (3 free, then one for each block), a third of 20.
+    expect(dropTheBodyTakes(20) - 3).toBeLessThanOrEqual(20 / 3);
   });
 });
 

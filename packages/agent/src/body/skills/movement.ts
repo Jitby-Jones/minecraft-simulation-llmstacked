@@ -74,6 +74,15 @@ const PosArgs = z.object({ x: z.coerce.number(), y: z.coerce.number(), z: z.coer
 
 /** A walk the pathfinder could not plan in one go. */
 const TOO_FAR = /took to long to decide/i;
+const NO_PATH = /no path/i;
+
+/**
+ * The drop the body can take, felt from its health: three blocks hurt nothing, then a heart for every two more, and
+ * a fall is kept within a third of the health on hand (a 9-block drop at full health, 4 at 4).
+ */
+export function dropTheBodyTakes(health: number): number {
+  return 3 + Math.max(0, Math.floor(health / 3));
+}
 /** A stretch of a long way, and how many of them. */
 const STAGE = 10;
 const STAGES = 14;
@@ -129,6 +138,20 @@ export const goTo = defineSkill({
         }
       }
       if (err === null) return { ok: true, observed: `arrived within ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks, a stretch at a time` };
+      // No way at all within a drop that doesn't hurt (off a roof of one's own, out of a tree): as a player would,
+      // the drop the body can take, once the ways that cost nothing are found wanting.
+      const drop = dropTheBodyTakes(ctx.bot.health);
+      if (NO_PATH.test(errMsg(err)) && drop > 3) {
+        const m = ctx.movements();
+        m.maxDropDown = drop;
+        try {
+          await gotoNear(ctx, target, range, 60_000, m);
+          return { ok: true, observed: `arrived within ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks, with a drop of up to ${drop} on the way` };
+        } catch (e) {
+          if (e instanceof SkillAbortedError) throw e;
+          err = e;
+        }
+      }
       // In the water with no way out found: out of it onto a block of one's own, and on from there.
       if (!inWater(ctx) || !(await climbOutOfWater(ctx))) return { ok: false, observed: `stopped ${ctx.bot.entity.position.distanceTo(target).toFixed(1)} blocks away`, error: errMsg(err) };
       ctx.logger.info({ module: 'skill', at: ctx.bot.entity.position.floored().toString() }, 'climbed out of the water onto a block');

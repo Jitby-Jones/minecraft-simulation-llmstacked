@@ -64,6 +64,7 @@ function grouped(cs: readonly SceneCreature[]): SceneCreature[][] {
 export function describeScene(s: Scene, now: number, o: { people?: (name: string) => string; maxFeatures?: number; maxCreatures?: number } = {}): string[] {
   const out: string[] = [];
   if (s.where) out.push(`Where you are: ${s.where}.`);
+  if (s.ways) out.push(`Ways from here on foot: ${s.ways}.`);
   const feats = s.features.slice(0, o.maxFeatures ?? 10);
   if (feats.length > 0) {
     out.push(

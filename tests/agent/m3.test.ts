@@ -257,6 +257,22 @@ describe('decision checks and the code default (§4.3, §22.4)', () => {
     expect(asked?.speechIntent).toMatchObject({ mayCommit: false, stance: 'decline' });
     expect(codeDecision(goal, {}, true, never)).toBeNull();
   });
+
+  it('for a mind whose thought did not come, chooses nothing beyond the body’s needs and the mind’s own next step (owner request, 2026-10-25)', () => {
+    const goal = withState((x) => ({ ...x, goals: { ...x.goals, current: { id: 'g', text: 'iron armor', kind: 'current', createdAt: 0, status: 'active', doneWhen: 'inventoryHas:iron_chestplate>=1' } } }));
+    const never = () => false;
+    const thinking = { candidates: [], roll: 0.5, thinking: true };
+    // No goal step of the code's: a moment, and the mind is asked again.
+    expect(codeDecision(goal, {}, false, never)?.task?.skill).toBe('obtain');
+    expect(codeDecision(goal, {}, false, never, thinking)).toMatchObject({ option: 'rest', terminate: { maxSeconds: 10 } });
+    // What the mind meant to do next goes on.
+    const meant = { ...goal, taskQueue: [{ id: 't1', skill: 'smelt', args: { item: 'raw_iron', qty: 8 }, source: 'cc' as const, createdAt: 0, priority: 1 }] };
+    expect(codeDecision(meant, {}, false, never, thinking)?.task).toEqual({ skill: 'smelt', args: { item: 'raw_iron', qty: 8 } });
+    // Starving with nothing to eat, the body goes for food all the same (eating what it carries is a reflex's).
+    const cow = { id: 9, kind: 'passive' as const, name: 'cow', pos: { x: 8, y: 64, z: 0 }, distance: 8, visible: true, heldItem: null, armor: [], lastSeen: 0, hurtRecently: false };
+    const starving = { ...goal, self: { ...goal.self, food: 3, inventory: [] }, perception: { ...goal.perception, nearbyEntities: [cow] } };
+    expect(codeDecision(starving, {}, false, never, thinking)?.task?.skill).toBe('hunt');
+  });
 });
 
 describe('Talking guards (§6.2, §6.4, §13 rule 3, §16.1)', () => {

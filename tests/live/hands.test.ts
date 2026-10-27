@@ -1025,6 +1025,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     expect(body.bot.blockAt(new Vec3(x + 10, Y, 4))?.name).not.toBe('coal_ore');
   }, 120_000);
 
+  it('down off a roof of its own with no way down: the drop the body can take, as a player jumps', async () => {
+    // Planks can't be dug through (what was built is gone round), and no drop over three blocks is taken while there
+    // is another way: here there is none, six blocks up.
+    const x = 9600;
+    await at(x, 0);
+    await server.cmd(`fill ${x - 2} ${Y + 5} -2 ${x + 2} ${Y + 5} 2 minecraft:oak_planks`);
+    await server.cmd(`tp Ada ${x} ${Y + 6} 0`);
+    await sleep(1500);
+    const before = body.bot.health;
+    const r = await run('goTo', { x: x + 6, y: Y, z: 0, range: 1 });
+    logger.info({ r, health: body.bot.health }, 'off the roof');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/a drop of up to \d+/);
+    expect(body.bot.entity.position.y).toBeLessThan(Y + 1);
+    expect(body.bot.health).toBeGreaterThan(before - 8);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

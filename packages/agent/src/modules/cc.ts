@@ -193,6 +193,8 @@ export interface SocialChance {
   family?: FamilyView;
   /** The code default is the whole brain (no model, §22.4): it may hide when the gate allows (else that's the model's call). */
   codeOnly?: boolean;
+  /** A mind whose thought did not come this once: the code chooses nothing for it beyond the body's needs. */
+  thinking?: boolean;
 }
 
 export interface ConflictView {
@@ -805,6 +807,16 @@ export function codeDecision(
   // Badly hurt: food, then lie low until healed; no work, no quarrels.
   const hurt = hurtMove(s, { isStuck, mayHide });
   if (hurt) return hurt;
+  // A mind whose thought did not come this once (owner request, 2026-10-25: think, not directives): the body's needs,
+  // then what the mind itself meant to do next; anything else waits for the next thought, seconds off, rather than
+  // the code choosing a goal step, a stroll at 12 health or a quarrel for it.
+  if (social?.thinking) {
+    const fed = hungerMove(s, { isStuck });
+    if (fed) return fed;
+    const meant = s.taskQueue.find((t) => !isStuck(t.skill, t.args));
+    if (meant) return { option: 'work', task: { skill: meant.skill, args: meant.args }, terminate: { maxSeconds: 600 }, rationale: `code default: what you meant to do next (${meant.note ?? meant.skill})` };
+    return { option: 'rest', terminate: { maxSeconds: 10 }, rationale: 'code default: no thought came; a moment before thinking again' };
+  }
   // §19.5: a young child keeps to its parents, and parents to their young child; the question, when it's time.
   const kin = fam && fam.kind !== 'sleep' ? familyMove(fam, isStuck) : null;
   if (kin) return kin;
@@ -1592,6 +1604,8 @@ export class CognitiveController {
         ...(this.o.isItem ? { isItem: this.o.isItem } : {}),
         answered: this.answered,
         codeOnly: !this.o.llm,
+        // With a mind whose thought failed, the code keeps to the body's needs and the mind's own next steps.
+        ...(this.o.llm && !isOff(store.state, 'cc.llm') ? { thinking: true } : {}),
         ...(this.o.romance && !isOff(store.state, 'romance') ? { romance: this.o.romance } : {}),
         ...(this.o.family && !isOff(store.state, 'family') ? { family: this.o.family } : {}),
         ...(this.o.power && c ? { power: { ...this.o.power, saidLately: (stance: 'inform' | 'rally', to: AgentName, within = SPOKE_EVERY_MS) => t - (this.spoke.get(`${stance}:${to}`) ?? -Infinity) < within } } : {}),

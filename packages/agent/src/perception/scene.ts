@@ -464,6 +464,112 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   return { text: parts.join(', '), roofed: roof !== null && roof <= 24 && sky < 8 };
 }
 
+// ---- Ways out --------------------------------------------------------------------------------------------------------
+
+const WAY_DIRS: readonly (readonly [string, number, number])[] = [
+  ['north', 0, -1],
+  ['north-east', 1, -1],
+  ['east', 1, 0],
+  ['south-east', 1, 1],
+  ['south', 0, 1],
+  ['south-west', -1, 1],
+  ['west', -1, 0],
+  ['north-west', -1, -1],
+];
+/** As far as a run is looked at: past that, the way is simply open. */
+const WAY_RUN = 16;
+
+/** Nothing in the way of a body: air, grass, flowers, a torch (not lava, fire, cobweb or powder snow). */
+function wayFree(b: { name: string; boundingBox: string } | null): boolean {
+  return b !== null && b.boundingBox === 'empty' && !/^(lava|fire|soul_fire|cobweb|powder_snow|sweet_berry_bush|water|bubble_column)$/.test(b.name);
+}
+
+/** Ground to stand on. */
+function wayFirm(b: { name: string; boundingBox: string } | null): boolean {
+  return b !== null && b.boundingBox === 'block' && !/^(magma_block|campfire|soul_campfire|pointed_dripstone)$/.test(b.name);
+}
+
+/**
+ * Which ways are open from here and how far one could go on foot, as a player sees it in a fight (owner request,
+ * 2026-10-25: "a player when encountering 5 mobs at low health would simply run away, dig into a wall..."): each way
+ * walked on in a straight line, a block up or up to three down at a time, to what stops it: a wall (and of what, to dig
+ * into), water, lava, a drop. A sense, never which way to take. Null where the ground around isn't loaded.
+ */
+export function waysOut(bot: Bot): string | null {
+  const feet = bot.entity.position.floored();
+  const at = (x: number, y: number, z: number) => bot.blockAt(new Vec3(x, y, z)) as { name: string; boundingBox: string } | null;
+  const open: string[] = [];
+  const shut: string[] = [];
+  let loaded = false;
+  for (const [dir, dx, dz] of WAY_DIRS) {
+    let y = feet.y;
+    let stop = '';
+    let k = 1;
+    for (; k <= WAY_RUN; k++) {
+      const x = feet.x + dx * k;
+      const z = feet.z + dz * k;
+      const body = at(x, y, z);
+      const head = at(x, y + 1, z);
+      const floor = at(x, y - 1, z);
+      if (!body || !head || !floor) {
+        stop = 'unloaded';
+        break;
+      }
+      loaded = true;
+      if ([body, head, floor].some((b) => b.name === 'lava')) {
+        stop = 'lava';
+        break;
+      }
+      if (body.name === 'water' || body.name === 'bubble_column') {
+        stop = 'water';
+        break;
+      }
+      if (wayFree(body) && wayFree(head) && wayFirm(floor)) continue;
+      if (!wayFree(body) || !wayFree(head)) {
+        // A block up, if there is room over it.
+        if (wayFree(head) && wayFirm(body) && wayFree(at(x, y + 2, z)) && wayFree(at(feet.x + dx * (k - 1), y + 2, feet.z + dz * (k - 1)))) {
+          y += 1;
+          continue;
+        }
+        const wall = wayFree(body) ? head : body;
+        stop = `${wall.boundingBox === 'block' ? nice(wall.name) : 'the way'} in the way`;
+        break;
+      }
+      // Nothing underfoot there: a step or three down, or a drop.
+      let down = 0;
+      for (let d = 1; d <= 12; d++) {
+        const below = at(x, y - 1 - d, z);
+        if (!below) break;
+        if (below.name === 'lava') {
+          down = -1;
+          break;
+        }
+        if (wayFirm(below)) {
+          down = d;
+          break;
+        }
+      }
+      if (down >= 1 && down <= 3) {
+        y -= down;
+        continue;
+      }
+      stop = down === -1 ? 'lava below' : down === 0 ? 'a deep drop' : `a drop of ${down} m`;
+      break;
+    }
+    const run = k - 1;
+    if (stop === 'unloaded') {
+      if (run >= 3) open.push(`${dir} ${run}+ m`);
+      continue;
+    }
+    if (!stop) open.push(`${dir} ${WAY_RUN}+ m`);
+    else if (run >= 3) open.push(`${dir} ${run} m (then ${stop})`);
+    else shut.push(`${dir} (${stop}${run === 0 ? ' right there' : ` at ${run + 1} m`})`);
+  }
+  if (!loaded) return null;
+  if (open.length === 0) return `no way out on foot: ${shut.join(', ')}`;
+  return `${open.join(', ')}${shut.length > 0 ? `; not ${shut.join(', ')}` : ''}`;
+}
+
 // ---- Creatures and things in view ----------------------------------------------------------------------------------
 
 /** One entity's metadata value by name (the indices differ by entity type and version). */
@@ -657,6 +763,8 @@ export class SceneEyes {
   private shutIn: Vec3 | null = null;
   private lastCreaturesAt = 0;
   private lastKey = '';
+  /** The ways out, worked out again only when the agent has moved or a few seconds have gone. */
+  private ways: { key: string; at: number; text: string | null } = { key: '', at: 0, text: null };
   private notices: Notice[] = [];
   /** When an animal last caught a hungry eye. */
   private foodNoticedAt = -Infinity;
@@ -1085,7 +1193,12 @@ export class SceneEyes {
     ].join('|');
     if (key === this.lastKey && !features) return;
     this.lastKey = key;
-    const scene: Scene = { at: now, where: this.where, features: this.features, creatures, notices: this.notices };
+    // With danger near, which ways are open (only then: otherwise it is nothing to the mind).
+    const near = this.o.store.state.flags.inDanger || seen.some((x) => x.kind === 'hostile' && x.distance <= 16);
+    const feetKey = bot.entity.position.floored().toString();
+    if (near && (this.ways.key !== feetKey || now - this.ways.at > 3000)) this.ways = { key: feetKey, at: now, text: waysOut(bot) };
+    const ways = near ? this.ways.text : null;
+    const scene: Scene = { at: now, where: this.where, features: this.features, creatures, notices: this.notices, ...(ways ? { ways } : {}) };
     this.o.store.update('scene', () => scene, 'scene');
   }
 }

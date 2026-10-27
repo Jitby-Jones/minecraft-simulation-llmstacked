@@ -635,6 +635,8 @@ export interface Scene {
   creatures: SceneCreature[];
   /** What stood out lately (the last few minutes), newest last. */
   notices: Notice[];
+  /** With danger near: which ways are open and how far one could go on foot, and what stops each. */
+  ways?: string;
 }
 
 /** A train of thought, kept from one decision to the next (owner request, 2026-10-24: think, don't follow rules). */
