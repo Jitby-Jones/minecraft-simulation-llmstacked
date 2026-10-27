@@ -3083,8 +3083,14 @@ quota (`docs/plan-thinking-models.md` §4, §7):
   health on hand. Live, off a 6-high plank roof: 20 to 18 health.
 - **No code goals for a mind.** A mind whose thought did not come gets nothing from the code beyond the body's needs
   and its own next step; otherwise a moment's pause, then it is asked again.
+- **A thought under way is finished first.** Of the 205 thoughts dropped in the runs as "another decision was made",
+  197 were thrown away by the step meant next starting as the task before it ended, among them a "the sun is getting
+  low" never thought about. The step now waits for the thought. What the thought decides comes first; the step follows
+  if it decides nothing new, comes to nothing, or chose to go on with what is done meanwhile (then it is taken in, not
+  done twice). A step chosen now is taken off what is to come: 14 steps had been done twice so (rotten flesh eaten
+  twice, a block placed twice).
 
-Verified: lint, typecheck, the forbidden-strings check, 751 unit tests, and live `hands` (the roof). The benchmarks and
+Verified: lint, typecheck, the forbidden-strings check, 753 unit tests, and live `hands` (the roof). The benchmarks and
 the long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports
 that it can spend balance.
 

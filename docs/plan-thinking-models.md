@@ -359,7 +359,9 @@ directly coding the agent to do certain goals."
 
    A hands test on a plank roof checks it.
 5. **Slow fast thought.** Under fire it is the fast setup of §3, with its 90th percentile at 4 s or less.
-6. **Thoughts dropped as stale**, about 7% of decisions: only changes that matter drop a thought (§4.4).
+6. **Thoughts dropped as stale**, about 7% of decisions: only changes that matter drop a thought (§4.4). Done for the
+   main cause: 197 of the 205 dropped as "another decision was made" were thrown away by the step meant next starting;
+   the step now waits for a thought under way.
 
 How each is judged in the runs:
 - whether the agents carry cooked food;
@@ -393,8 +395,8 @@ How each is judged in the runs:
 
 1. §4.1, §4.3–4.5 with unit tests, and lint and typecheck passing. No quota. (Done, with §4.2, by 2026-10-27.)
 2. §4.7 and the golden sets. No quota. (Done: 12 mind cases and 12 under fire.)
-3. §4.8 and the hands tests for §7. No quota. (Done: ways out, the drop the body can take, no code goals for a mind;
-   taking down one's own scaffold is left for when a run needs it.)
+3. §4.8 and the hands tests for §7. No quota. (Done: ways out, the drop the body can take, no code goals for a mind,
+   a thought under way finished before the next step; taking down one's own scaffold is left for when a run needs it.)
 4. Once the owner says "Continue": §5, with §4.6 tried in it, then the models in the config with their numbers.
 5. Round 1, then rounds 2–4, with DESIGN.md §24 kept current after each.
 
