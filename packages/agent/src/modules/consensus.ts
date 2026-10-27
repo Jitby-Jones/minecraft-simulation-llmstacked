@@ -8,7 +8,7 @@
 // mind decides at once with it (cc.ts).
 
 import type { AgentName, ConvId, Logger, Utterance } from '@agora/shared';
-import type { LlmClient } from '@agora/llm';
+import type { ChatMessage, LlmClient } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { isOff } from '../state/switches';
@@ -36,11 +36,23 @@ const MAX_LINES = 10;
 /** An agreement seen to is not seen to again (the next lines about it are its tail). */
 const AGAIN_MS = 30_000;
 
-const SettledSchema = z.object({
+export const SettledSchema = z.object({
   settled: z.boolean(),
   what: z.string().max(200).default(''),
   mine: z.string().max(160).default(''),
 });
+
+/** The quick check on a talk (and the thought benchmark's): have they agreed on something to do now? `who` is "You"
+ *  for one's own lines. */
+export function settledMessages(me: string, lines: readonly { who: string; text: string }[]): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `You are ${me}. Read what was just said around you and decide whether the people talking have agreed on something to do now, with nobody still against it. Greetings, small talk and a question still open are not agreement. JSON: {"settled": true|false, "what": "what was agreed, in a few plain words", "mine": "your own part in it, if any"}`,
+    },
+    { role: 'user', content: lines.map((l) => `${l.who}: ${l.text}`).join('\n') },
+  ];
+}
 
 interface Line {
   from: AgentName;
@@ -177,13 +189,7 @@ export class Consensus {
           schema: SettledSchema,
           schemaName: 'settled',
           fallback: () => ({ settled: read !== null, what: read?.proposal ?? '', mine: '' }),
-          messages: [
-            {
-              role: 'system',
-              content: `You are ${s.self.persona.name}. Read what was just said around you and decide whether the people talking have agreed on something to do now, with nobody still against it. Greetings, small talk and a question still open are not agreement. JSON: {"settled": true|false, "what": "what was agreed, in a few plain words", "mine": "your own part in it, if any"}`,
-            },
-            { role: 'user', content: lines.map((l) => `${l.from === this.o.me ? 'You' : l.from}: ${l.text}`).join('\n') },
-          ],
+          messages: settledMessages(s.self.persona.name, lines.map((l) => ({ who: l.from === this.o.me ? 'You' : l.from, text: l.text }))),
         });
         if (!r.value.settled) return;
         what = r.value.what.trim() || read?.proposal || '';

@@ -1,9 +1,9 @@
 // Self-Monitor (§4.2 module 6): keeps a short first-person narrative (`selfSummary`, ≤ 120 words) from working
-// memory and the previous summary. L1, debounced 5–10 s after something salient; at quota level 2 at most every
-// 30 s (§22.4). Code default: a plain summary built from the state.
+// memory and the previous summary. A quick check (`thoughts.check`), debounced 5–10 s after something salient. Code
+// default: a plain summary built from the state.
 
-import type { Logger } from '@agora/shared';
-import { type LlmClient, SingleFlight } from '@agora/llm';
+import type { Logger, Persona } from '@agora/shared';
+import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { SUMMARY_POLICY } from '../state/policies';
@@ -11,7 +11,30 @@ import type { AgentStateStore } from '../state/store';
 import { personaCore } from './prompts';
 import { isOff } from '../state/switches';
 
-const SummarySchema = z.object({ summary: z.string().min(1).max(1200) });
+export const SummarySchema = z.object({ summary: z.string().min(1).max(1200) });
+
+/** The self-summary as asked (and as the thought benchmark asks it). */
+export function summaryMessages(
+  persona: Persona,
+  traitAnnotations: readonly string[],
+  o: { previous: string; goal: string; recent: readonly string[]; onMind: readonly string[] },
+): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `${personaCore(persona, traitAnnotations)}\n\nWrite your private summary of your situation and recent experiences: first person, at most 120 words. JSON: {"summary": "..."}`,
+    },
+    {
+      role: 'user',
+      content: [
+        `Previous summary: ${o.previous || '(none)'}`,
+        `Goal: ${o.goal || 'none'}`,
+        `Recent actions: ${o.recent.join('; ') || 'none'}`,
+        `On your mind:\n${o.onMind.map((w) => `- ${w}`).join('\n') || '- nothing'}`,
+      ].join('\n'),
+    },
+  ];
+}
 
 export interface SelfMonitorOptions {
   store: AgentStateStore;
@@ -93,21 +116,7 @@ export class SelfMonitor {
           fallback,
           signal: guard.signal,
           isStale: guard.isStale,
-          messages: [
-            {
-              role: 'system',
-              content: `${personaCore(s.self.persona, s.traitAnnotations)}\n\nWrite your private summary of your situation and recent experiences: first person, at most 120 words. JSON: {"summary": "..."}`,
-            },
-            {
-              role: 'user',
-              content: [
-                `Previous summary: ${s.selfSummary || '(none)'}`,
-                `Goal: ${s.goals.current?.text ?? 'none'}`,
-                `Recent actions: ${recent.join('; ') || 'none'}`,
-                `On your mind:\n${s.workmem.map((w) => `- ${w.text}`).join('\n') || '- nothing'}`,
-              ].join('\n'),
-            },
-          ],
+          messages: summaryMessages(s.self.persona, s.traitAnnotations, { previous: s.selfSummary, goal: s.goals.current?.text ?? '', recent, onMind: s.workmem.map((w) => w.text) }),
         });
         if (!r.ok && r.reason === 'stale') return;
         summary = r.value.summary;

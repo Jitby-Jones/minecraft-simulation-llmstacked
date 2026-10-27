@@ -32,7 +32,18 @@ export const GIVEAWAY_RE = /\b(as an ai|an ai\b|ai model|a bot\b|language model|
 export const REQUEST_RE =
   /\b(can|could|would|will) you\b|\b(give|bring|lend|show|teach|help) me\b(?! a (sec|second|minute|moment)\b)|\bwanna\b|\bwant to\b|\blet'?s\b|\btrade\b|\bfollow me\b|\bcome (here|with|over)\b|\bdo you have\b|\bi need (some|a|an|any)\b/i;
 
-const AddressedSchema = z.object({ addressedToMe: z.boolean() });
+export const AddressedSchema = z.object({ addressedToMe: z.boolean() });
+
+/** The quick check on an unclear line (and the thought benchmark's): meant for `me` in particular? */
+export function addressedMessages(me: string, from: string, text: string, around: readonly string[]): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `You are ${me}. Decide whether a line someone said nearby is meant for you in particular. A general question to everyone counts as false. JSON: {"addressedToMe": true|false}`,
+    },
+    { role: 'user', content: `${from} said: "${text}". People around: ${[...new Set(around)].join(', ') || 'unknown'}.` },
+  ];
+}
 
 /** Options whose speech intent is said first, once the person is in range. */
 const OPENS_WITH_A_LINE: ReadonlySet<string> = new Set(['talk', 'fight', 'demand', 'recruit', 'court']);
@@ -322,13 +333,7 @@ export class Talking {
       schema: AddressedSchema,
       schemaName: 'addressed',
       fallback: () => ({ addressedToMe: false }),
-      messages: [
-        {
-          role: 'system',
-          content: `You are ${s.self.persona.name}. Decide whether a line someone said nearby is meant for you in particular. A general question to everyone counts as false. JSON: {"addressedToMe": true|false}`,
-        },
-        { role: 'user', content: `${u.from} said: "${u.text}". People around: ${[...new Set(around)].join(', ') || 'unknown'}.` },
-      ],
+      messages: addressedMessages(s.self.persona.name, u.from, u.text, around),
     });
     return r.ok && r.value.addressedToMe;
   }

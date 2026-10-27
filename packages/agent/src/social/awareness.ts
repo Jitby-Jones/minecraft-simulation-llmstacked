@@ -15,7 +15,7 @@ import {
   type Utterance,
   withoutOpeningName,
 } from '@agora/shared';
-import { type LlmClient, SingleFlight } from '@agora/llm';
+import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { personaCore } from '../modules/prompts';
@@ -72,6 +72,18 @@ export const PromisesSchema = z.object({
     .default([]),
 });
 export type Promises = z.infer<typeof PromisesSchema>;
+
+/** The quick check on a talk (and the thought benchmark's): what `partner` promised us, from the transcript as we heard
+ *  it ("You: ..." for our own lines). */
+export function promiseMessages(partner: string, transcript: string): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `List only the promises ${partner} made to you in this conversation (things ${partner} said they would do for you). "give" only when they said they would hand something over to you ("I'll give you", "I'll bring you", "here, take"); what they said they would do as their share of the work, or for themselves ("I'll handle food", "gonna grab some chicken", "I'll get the wood") is "custom", in their words, and no promise to hand anything over. JSON: {"promises": [{"what": {"kind": "give|gather|meet|help|build|follow|fight|custom", "item": "minecraft item id", "qty": 1, "target": "for fight: whom they will fight with you", "text": "what they promised"}, "dueInSec": 600}]}`,
+    },
+    { role: 'user', content: transcript },
+  ];
+}
 
 let seq = 0;
 const newId = (p: string, now: number) => `${p}${now.toString(36)}${(seq++).toString(36)}`;
@@ -454,13 +466,7 @@ export class SocialAwareness {
         schema: PromisesSchema,
         schemaName: 'promises',
         fallback,
-        messages: [
-          {
-            role: 'system',
-            content: `List only the promises ${partner} made to you in this conversation (things ${partner} said they would do for you). "give" only when they said they would hand something over to you ("I'll give you", "I'll bring you", "here, take"); what they said they would do as their share of the work, or for themselves ("I'll handle food", "gonna grab some chicken", "I'll get the wood") is "custom", in their words, and no promise to hand anything over. JSON: {"promises": [{"what": {"kind": "give|gather|meet|help|build|follow|fight|custom", "item": "minecraft item id", "qty": 1, "target": "for fight: whom they will fight with you", "text": "what they promised"}, "dueInSec": 600}]}`,
-          },
-          { role: 'user', content: this.transcriptText(conv) },
-        ],
+        messages: promiseMessages(partner, this.transcriptText(conv)),
       });
       out = r.value;
     }

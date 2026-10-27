@@ -5,7 +5,7 @@
 // told us is hearsay (`told_by:X`, confidence = trust × 0.8) and is labeled as such in the CC packet (§6.5).
 
 import { type AgentName, type Logger, type MemorySource, type WorkItem } from '@agora/shared';
-import { type Embedder, type LlmClient, cosine } from '@agora/llm';
+import { type ChatMessage, type Embedder, type LlmClient, cosine } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import type { AgentStateStore } from '../state/store';
@@ -36,7 +36,15 @@ export interface Recalled {
   source: MemorySource;
 }
 
-const MergedSchema = z.object({ text: z.string().min(1).max(400) });
+export const MergedSchema = z.object({ text: z.string().min(1).max(400) });
+
+/** Memories merged into one as they are consolidated (and as the thought benchmark asks it). */
+export function mergeMessages(texts: readonly string[]): ChatMessage[] {
+  return [
+    { role: 'system', content: 'Combine these memories into one short sentence (at most 30 words). Keep names, places, numbers and who said what. JSON: {"text": "..."}' },
+    { role: 'user', content: texts.map((t) => `- ${t}`).join('\n') },
+  ];
+}
 
 /** Agglomerative clustering with average linkage; returns index groups. */
 export function clusterVectors(vecs: readonly Float32Array[], threshold: number): number[][] {
@@ -212,10 +220,7 @@ export class Memory {
       schema: MergedSchema,
       schemaName: 'memory',
       fallback,
-      messages: [
-        { role: 'system', content: 'Combine these memories into one short sentence (at most 30 words). Keep names, places, numbers and who said what. JSON: {"text": "..."}' },
-        { role: 'user', content: rows.map((m) => `- ${m.text}`).join('\n') },
-      ],
+      messages: mergeMessages(rows.map((m) => m.text)),
     });
     return r.value.text;
   }

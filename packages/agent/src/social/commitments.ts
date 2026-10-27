@@ -6,7 +6,7 @@
 // `fight` promises, which lapse when no moment came. Resolutions feed Social Awareness and working memory.
 
 import type { AgentName, Commitment, CommitmentStatus, Logger } from '@agora/shared';
-import type { LlmClient } from '@agora/llm';
+import type { ChatMessage, LlmClient } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { itemMatcher } from '../body/items';
@@ -14,7 +14,15 @@ import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
 import type { SocialAwareness } from './awareness';
 
-const JudgmentSchema = z.object({ kept: z.boolean(), why: z.string().max(160).default('') });
+export const JudgmentSchema = z.object({ kept: z.boolean(), why: z.string().max(160).default('') });
+
+/** The quick check at a promise's deadline (and the thought benchmark's): kept, from what was seen? */
+export function judgmentMessages(debtor: string, promised: string, seen: readonly string[]): ChatMessage[] {
+  return [
+    { role: 'system', content: 'Judge from the observations only whether the promise was kept. JSON: {"kept": true|false, "why": "..."}' },
+    { role: 'user', content: `${debtor} promised: ${promised}\nWhat you saw them do since: ${seen.join('; ') || 'nothing'}` },
+  ];
+}
 
 export interface CommitmentTrackerOptions {
   store: AgentStateStore;
@@ -230,13 +238,11 @@ export class CommitmentTracker {
       schema: JudgmentSchema,
       schemaName: 'judgment',
       fallback: () => ({ kept: false, why: 'could not tell' }),
-      messages: [
-        { role: 'system', content: 'Judge from the observations only whether the promise was kept. JSON: {"kept": true|false, "why": "..."}' },
-        {
-          role: 'user',
-          content: `${c.debtor} promised: ${c.what.text}\nWhat you saw them do since: ${seen.map((a) => `${a.kind}${a.item ? ` ${a.item}` : ''}${a.target ? ` → ${a.target}` : ''}`).join('; ') || 'nothing'}`,
-        },
-      ],
+      messages: judgmentMessages(
+        c.debtor,
+        c.what.text,
+        seen.map((a) => `${a.kind}${a.item ? ` ${a.item}` : ''}${a.target ? ` → ${a.target}` : ''}`),
+      ),
     });
     this.resolve(c, r.ok && r.value.kept ? 'fulfilled' : 'broken', 'judgment');
   }
