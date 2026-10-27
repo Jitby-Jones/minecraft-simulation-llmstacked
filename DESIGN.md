@@ -3284,6 +3284,12 @@ What else the benchmark showed:
   sword on the water). Both read as things one cannot learn. Now it says where the game has it come from, and what
   of that is missing here: "cooked beef is beef cooked or smelted in a furnace, and you have no beef (beef drops from
   cow, mooshroom when killed, and none is in sight)". It is built from the game's own smelting, loot and block data.
+- **What is thrown away goes out into the open.** In `novel (3)`, with its pockets full a hundred metres down, the
+  agent dropped the same 94 granite four times in five minutes, and 47 leaf litter twice. One drop came back as "+94
+  granite". The toss went where it was looking, down as often as not; the stack lay at its feet, and two seconds on
+  the game gave it back. Now a drop is thrown, a little up, the way with the most open room at eye level, as a
+  player throws what they don't want. It says where the stack lies ("40 granite, 3 m south of you") and what the
+  game does with it: walked over, it is picked up again; left there, it is gone in 5 minutes.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

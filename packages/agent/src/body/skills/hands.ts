@@ -167,6 +167,12 @@ export const drop = defineSkill({
       types.set(i.type, t);
     }
     if (types.size === 0) return { ok: false, observed: `no ${m.label} carried`, error: `no ${m.label} in inventory` };
+    // Thrown away from oneself, out into the open, a little up so it carries, as a player throws what they don't want:
+    // tossed where one was looking (down, as often as not), the stack lay at one's feet, and two seconds on the game
+    // gave it back (one dropped the same 94 granite four times in five minutes).
+    const way = openWay(bot);
+    stopMotion(bot);
+    await bot.look(way.yaw, 0.35, true);
     const before = new Set(Object.values(bot.entities).filter((e) => e.name === 'item').map((e) => e.id));
     let left = args.qty ?? Infinity;
     const out: string[] = [];
@@ -178,12 +184,43 @@ export const drop = defineSkill({
       out.push(`${n} ${t.name}`);
       left -= n;
     }
-    await waitMs(ctx, 500);
+    await waitMs(ctx, 900);
     const me = bot.entity.position;
-    markThrown(bot, Object.values(bot.entities).filter((e) => e.name === 'item' && !before.has(e.id) && e.position.distanceTo(me) < 6).map((e) => e.id));
-    return { ok: true, observed: `dropped ${out.join(', ')}` };
+    const thrown = Object.values(bot.entities).filter((e) => e.name === 'item' && !before.has(e.id) && e.position.distanceTo(me) < 8);
+    markThrown(bot, thrown.map((e) => e.id));
+    const far = thrown.length > 0 ? Math.min(...thrown.map((e) => Math.hypot(e.position.x - me.x, e.position.z - me.z))) : 0;
+    // Where it lies, and what the game does with it: walked over, it comes back into one's pockets.
+    const lies = far >= 1.5 ? `, ${Math.round(far)} m ${way.name} of you` : ', at your feet (nowhere open to throw it)';
+    return { ok: true, observed: `dropped ${out.join(', ')}${lies}; walk over it and it is picked up again; left there, it is gone in 5 minutes` };
   },
 });
+
+/** The way out from where one stands with the most open room at eye level, up to four blocks: where a thing thrown carries. */
+function openWay(bot: Bot): { yaw: number; name: string } {
+  const feet = bot.entity.position.floored();
+  const WAYS: [string, number, number][] = [
+    ['north', 0, -1],
+    ['north-east', 1, -1],
+    ['east', 1, 0],
+    ['south-east', 1, 1],
+    ['south', 0, 1],
+    ['south-west', -1, 1],
+    ['west', -1, 0],
+    ['north-west', -1, -1],
+  ];
+  let best = { yaw: bot.entity.yaw, name: 'in front', room: -1 };
+  for (const [name, dx, dz] of WAYS) {
+    let room = 0;
+    for (let i = 1; i <= 4; i++) {
+      const head = bot.blockAt(feet.offset(dx * i, 1, dz * i));
+      if (!head || head.boundingBox !== 'empty') break;
+      room++;
+    }
+    // mineflayer's yaw: 0 faces north (-z), and it turns toward the west as it grows.
+    if (room > best.room) best = { yaw: Math.atan2(-dx, -dz), name, room };
+  }
+  return { yaw: best.yaw, name: best.name };
+}
 
 // --- use -----------------------------------------------------------------------------------------------------------
 

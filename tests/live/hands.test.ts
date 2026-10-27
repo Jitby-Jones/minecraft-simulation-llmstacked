@@ -1099,6 +1099,26 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`fill ${x + 3} ${Y} 0 ${x + 3} ${Y + 2} 0 minecraft:air`);
   }, 120_000);
 
+  it('a drop goes out into the open, away from her, and is not picked up again where she stands', async () => {
+    // Tossed where she was looking, one's junk lay at her feet and two seconds on came back (94 granite, four times).
+    const x = 10300;
+    await at(x + 0.5, 0.5);
+    // A wall to the north and east: the open ways are west and south.
+    await server.cmd(`fill ${x - 1} ${Y} -1 ${x + 1} ${Y + 1} -1 minecraft:stone`);
+    await server.cmd(`fill ${x + 1} ${Y} -1 ${x + 1} ${Y + 1} 1 minecraft:stone`);
+    await server.cmd('give Ada minecraft:granite 40');
+    await sleep(1500);
+    await body.bot.look(0, -Math.PI / 2, true);
+    const r = await run('drop', { item: 'granite' });
+    logger.info({ r }, 'a drop');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toMatch(/dropped 40 granite, [2-9] m (south|west|south-west) of you; walk over it and it is picked up again/);
+    await sleep(3500);
+    expect(countItem(body.bot, 'granite')).toBe(0);
+    await server.cmd(`fill ${x - 1} ${Y} -1 ${x + 1} ${Y + 1} 1 minecraft:air`);
+    await server.cmd('kill @e[type=item]');
+  }, 120_000);
+
   it('a torch down goes on the floor where it stands, not up a pillar', async () => {
     // Asked so in a mine, one was told there was "no down in sight within 32 blocks".
     const x = 9900;
