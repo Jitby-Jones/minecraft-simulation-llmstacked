@@ -139,6 +139,8 @@ const BURROW_DIG_MS = 900;
 const BURROW_MS = 8000;
 /** A pocket takes a second or two to dig and get into: only with what chases this far off. */
 const BURROW_START = 7;
+/** A creeper this near can blow a pocket open: none is dug with one about. */
+const NOOK_CREEPER = 10;
 /** The eight columns about one's own. */
 const AROUND = [
   [1, 0],
@@ -1239,22 +1241,26 @@ export class ReflexController {
    */
   private nookFor(threats: readonly Entity[]): { first: Vec3; from: Vec3; tool: { name: string } | null } | null {
     const bot = this.bot;
-    if (threats.length === 0 || threats.some((t) => t.name === 'creeper' || t.name === 'warden' || isPlayer(t))) return null;
-    if (bot.inventory.items().filter((i) => isCover(i.name)).reduce((a, i) => a + i.count, 0) < 2) return null;
     const me = bot.entity.position;
+    // A creeper near enough to blow the way in open, a warden, a person: none of them is kept out by a pocket of rock.
+    if (threats.length === 0 || threats.some((t) => (t.name === 'creeper' && t.position.distanceTo(me) <= NOOK_CREEPER) || t.name === 'warden' || isPlayer(t))) return null;
+    if (bot.inventory.items().filter((i) => isCover(i.name)).reduce((a, i) => a + i.count, 0) < 2) return null;
     const from = me.floored();
     if (threats.some((t) => t.position.distanceTo(me) < BURROW_START)) return null;
-    // Under rock, not out in the open: a nook dug into a hillside with sky over it is no shelter.
-    if (!isSolid(bot.blockAt(from.offset(0, 2, 0)))) return null;
+    // The pocket has its own roof (below); the room one stands in may go up any height. A pocket was dug only with rock
+    // right over one's head, and one on a ledge in a great cave, the ceiling 30 m up, sat 40 s by bare stone with two
+    // skeletons shooting at her, and was shot dead.
     const near = threats[0];
     const away = near ? new Vec3(me.x - near.position.x, 0, me.z - near.position.z) : new Vec3(0, 0, 0);
     const sides = [...SIDES].sort((a, b) => b.dot(away) - a.dot(away));
     let tool: { name: string } | null = null;
     const quick = (b: Block | null) => {
       if (!b || !isSolid(b) || !bot.canDigBlock(b) || FALLS.test(b.name)) return false;
-      const t = (bot.pathfinder as unknown as { bestHarvestTool(b: Block): { name: string } | null }).bestHarvestTool(b);
+      const t = (bot.pathfinder as unknown as { bestHarvestTool(b: Block): { name: string; type: number } | null }).bestHarvestTool(b);
       if (t) tool = t;
-      return (bot as unknown as { digTime(b: Block): number }).digTime(b) <= BURROW_DIG_MS;
+      // Timed with the tool the dig takes up, not with what is in hand: holding an axe or a block, rock read as seven
+      // seconds a block, and one with a pickaxe on her never dug in.
+      return b.digTime(t ? t.type : null, false, false, false) <= BURROW_DIG_MS;
     };
     const solidAt = (c: Vec3) => isSolid(bot.blockAt(c)) && isSolid(bot.blockAt(c.offset(0, 1, 0)));
     const wetBy = (c: Vec3) => [...SIDES, new Vec3(0, -1, 0), new Vec3(0, 2, 0)].some((o) => [0, 1].some((dy) => /^(water|lava)$/.test(bot.blockAt(c.plus(o).offset(0, dy, 0))?.name ?? '')));

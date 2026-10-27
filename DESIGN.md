@@ -3474,6 +3474,18 @@ What else the benchmark showed:
   "nothing drops". A dig with a kind of block and no spot is a mine, as "dig" had always meant. A live case breaks a
   plank out of a wall with an axe (the plank picked up), then stone 6 m off by hand (nothing drops, and it says
   so), and finds nothing at an empty spot.
+- **Into the wall, wherever the ceiling is, and with the tool the dig takes up.** In `solo (12)`, Ada followed coal
+  down into a great cave at four minutes. On a ledge there, with two skeletons shooting up at her from the water
+  9 m below, the body sat 40 s in a "run" that had nowhere to go, bare stone beside her. Two things kept it from
+  the pocket it digs in rock:
+  - it dug one only with rock right over its own head (the ceiling was 30 m up), though the pocket has its own roof;
+  - it timed the dig with what was in hand (an axe), so rock read as seven seconds a block.
+
+  Now the pocket's own roof is what counts, and the dig is timed with the best tool carried, which the dig then takes
+  up. Only a creeper within 10 m (one that could blow the pocket open) rules a pocket out. A live `cornered` case
+  reproduces it: a room 21 across and 10 high, two skeletons across it, the body hurt to 10 by its north wall. Before
+  the change it was shot dead in 14 s; now it is in the wall and shut, alive, run after the other four cases with a
+  block left in its hand.
 - **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
   Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
   worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven

@@ -200,4 +200,45 @@ describe.skipIf(!liveJavaPath())('live: cornered', () => {
     expect(health).toBeGreaterThan(0);
     expect(shut || walled).toBe(true);
   }, 120_000);
+
+  it('in a cave room, the ceiling far up, skeletons shooting across it, a pickaxe and blocks: into the wall, shut behind, and lives', async () => {
+    // One on a ledge in a great cave, two skeletons shooting up at her from the water below, sat 40 s with "no way out
+    // on foot" and bare stone beside her, and was shot dead: a nook was dug only with rock right over one's head.
+    const cal = await Body.connect(
+      { host: server.host, port: server.port, username: 'Cal', version: versions.minecraft.version, logger },
+      { caution: () => 0.62, combat: () => 0.5, onDanger: (d) => void dangers.push(d), onDangerCleared: () => undefined, isIdle: () => true },
+    );
+    await sleep(2000);
+    dangers.length = 0;
+    const x = 7000;
+    await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+    // Rock all round; a room 21 across and 10 high in it, its floor lit.
+    await server.cmd(`fill ${x - 12} ${Y - 1} -10 ${x + 12} ${Y + 10} 10 stone`);
+    await server.cmd(`fill ${x - 10} ${Y} -8 ${x + 10} ${Y + 9} 8 air`);
+    await server.cmd(`fill ${x - 10} ${Y - 1} -8 ${x + 10} ${Y - 1} 8 glowstone`);
+    await server.cmd(`tp Cal ${x}.5 ${Y} -7.5`);
+    await server.cmd('clear Cal');
+    await server.cmd('give Cal minecraft:stone_pickaxe 1');
+    await server.cmd('give Cal minecraft:cobblestone 8');
+    await server.cmd('effect clear Cal');
+    // Whole first: what the cases before left of him carries over.
+    await server.cmd('effect give Cal minecraft:instant_health 1 5');
+    await sleep(1500);
+    await server.cmd('damage Cal 10 minecraft:generic');
+    await sleep(1000);
+    cal.reflexes.start();
+    for (const dx of [-4, 4]) await server.cmd(`summon skeleton ${x + dx}.5 ${Y} 4.5 {PersistenceRequired:1b}`);
+    const trace = await watch(cal, () => false, 30_000);
+    const at = cal.bot.entity.position.floored();
+    const whole = (p: Vec3) => cal.bot.blockAt(p)?.boundingBox === 'block' && cal.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'block';
+    const shut = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)].every((d) => whole(at.plus(d)));
+    const health = cal.bot.health;
+    logger.info({ health, dangers: dangers.map((d) => `${d.kind}:${d.source}`), at: at.toString(), shut, trace }, 'cornered in a cave room by skeletons');
+    process.stdout.write(`CAVE ${JSON.stringify({ health, at: at.toString(), shut, last: trace.slice(-3) })}\n`);
+    await server.cmd(`kill @e[type=minecraft:skeleton]`);
+    cal.reflexes.stop();
+    await cal.disconnect();
+    expect(health).toBeGreaterThan(0);
+    expect(shut).toBe(true);
+  }, 120_000);
 });
