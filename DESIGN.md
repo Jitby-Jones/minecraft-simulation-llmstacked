@@ -3102,12 +3102,15 @@ quota (`docs/plan-thinking-models.md` §4, §7):
   got through it.
 - **The drop for one way down only.** The walk that tries a drop the body can take had left that drop on the walk
   settings every walk shares: after one, each later walk could take a 9-block fall. It is put back after the walk.
+- **Heads above water.** A walk's step with the head under water costs four blocks more (wading and swimming at the
+  top cost what they did). In the runs of 2026-10-25 the swim reflex pulled agents up for air 34 times, nearly all on
+  the way to cobblestone or coal by way of a pond or under a cave pond's ledge, each time breaking off the task.
 - **The quick checks benchmarked as the agents ask them** (`pnpm bench-thoughts --kind check`, 32 cases: meant for me,
   settled, promised a hand-over, kept, a summary, a merged memory). The six checks' prompts now live in their modules
   and are used by both. The mind's golden set has 26 cases. The checks' reply cap is 320 tokens: the self-summary and a
   talk's promises come near 200, and a reply cut off is lost.
 
-Verified: lint, typecheck, the forbidden-strings check, 756 unit tests, and live the whole of `m1-skills` (24) and
+Verified: lint, typecheck, the forbidden-strings check, 757 unit tests, and live the whole of `m1-skills` (24) and
 `hands` (56: its 24-deep climb, which had stalled in full runs of the suite, too), `melee` (9), `cornered` (2) and
 `m1-water` (4). The benchmarks and the
 long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports that it

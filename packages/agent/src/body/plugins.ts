@@ -205,6 +205,9 @@ export function doorsAsPlayers(bot: Bot): void {
   bot.once('end', () => clearInterval(watch));
 }
 
+/** A step with the head under water costs as much as this many blocks more of walking. */
+const HEAD_UNDER_COST = 4;
+
 /** What each body has put down itself ("x,y,z"): a walk goes round it rather than through it. */
 const OWN = new WeakMap<Bot, ReadonlySet<string>>();
 /** Digging through a block one put down oneself, on a walk, costs as much as this many blocks more of walking. */
@@ -301,6 +304,13 @@ export function createMovements(bot: Bot, quirks: readonly Quirk[] = [], opts: {
       }
       return 0;
     });
+  }
+  // Under water is dear to anyone who needs air: a cell with the head under counts as HEAD_UNDER_COST blocks more. At
+  // one more, a walk to dry stone went under a cave pond's ledge, and the swim reflex pulled the agent up for air again
+  // and again (34 times in the runs of 2026-10-25).
+  const waterId = bot.registry.blocksByName.water?.id;
+  if (waterId !== undefined) {
+    m.exclusionAreasStep.push((block: StepBlock) => (loaded(block) && block.type === waterId && bot.blockAt(block.position.offset(0, 1, 0))?.type === waterId ? HEAD_UNDER_COST : 0));
   }
   // A cell the walk would dig through, of what we put down ourselves. Never our own door or gate: it is gone through,
   // not dug (the pathfinder charges this on every cell it passes, and an agent's own hut door, dear twice over, left

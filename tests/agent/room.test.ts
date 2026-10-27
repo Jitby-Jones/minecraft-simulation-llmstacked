@@ -7,8 +7,10 @@ import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
 import { besideWords, daytime, goingFor, roomAround, roomBeside, roomWords } from '@agora/agent/body/world';
 import { EventEmitter } from 'node:events';
+import { createRequire } from 'node:module';
 import { SeededRandom, nullLogger } from '@agora/shared';
 import { dropTheBodyTakes, goTo } from '@agora/agent/body/skills/movement';
+import { createMovements } from '@agora/agent/body/plugins';
 import { evalCondition } from '@agora/agent/modules/conditions';
 import { openedUp, waysOut, whereNow } from '@agora/agent/perception/scene';
 import { createInitialState } from '@agora/agent/state/initial';
@@ -187,6 +189,29 @@ describe('the drop the body can take', () => {
     expect(r.ok).toBe(false);
     expect(tried).toContain(9);
     expect(shared.maxDropDown).toBe(3);
+  });
+});
+
+describe('walks keep their heads above water', () => {
+  it('a step with the head under water costs more than one with the head in the air, a wade or a swim at the top', () => {
+    const require = createRequire(import.meta.url);
+    const mcData = require(require.resolve('minecraft-data', { paths: [require.resolve('mineflayer', { paths: [`${process.cwd()}/packages/agent`] })] })) as (v: string) => { blocksByName: Record<string, { id: number } | undefined> };
+    const registry = mcData('26.1.2');
+    const water = registry.blocksByName.water?.id ?? -1;
+    const air = registry.blocksByName.air?.id ?? -2;
+    // Under at x 0 (water over water); at the top at x 1 (air over the water); dry ground at x 2.
+    const world = new Map<string, number>([
+      ['0,64,0', water],
+      ['0,65,0', water],
+      ['1,64,0', water],
+    ]);
+    const blockAt = (p: Vec3) => ({ type: world.get(`${p.x},${p.y},${p.z}`) ?? air, position: p, name: world.has(`${p.x},${p.y},${p.z}`) ? 'water' : 'air', boundingBox: 'empty' });
+    const bot = { registry, blockAt, health: 20, time: { timeOfDay: 1000 }, entity: { position: new Vec3(0, 64, 0) } };
+    const m = createMovements(bot as unknown as Bot) as unknown as { exclusionStep(b: unknown): number };
+    const under = m.exclusionStep(blockAt(new Vec3(0, 64, 0)));
+    expect(under).toBeGreaterThanOrEqual(4);
+    expect(m.exclusionStep(blockAt(new Vec3(1, 64, 0)))).toBe(0);
+    expect(m.exclusionStep(blockAt(new Vec3(2, 64, 0)))).toBe(0);
   });
 });
 
