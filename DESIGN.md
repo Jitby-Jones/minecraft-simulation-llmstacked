@@ -3410,6 +3410,12 @@ What else the benchmark showed:
   the arrow landed: the draw is seen a reflex tick late, and the arrow takes a third of a second over 10 m. Now,
   while the shield is up, the walk stops and the follow waits. The body faces the archer every physics tick, and
   the shield stays up a full second after the draw. In the live case no arrow landed in five runs of nine seconds.
+- **A block is clicked on the face toward one, and on another if nothing comes of it.** In `duo (8)`, Bram set out
+  to plant cocoa for food that keeps coming. He used cocoa beans on jungle logs six times and nothing came of it,
+  then tried an axe on the cocoa. The hand always clicked a block's top face, and cocoa goes only on a log's side.
+  `use` now clicks the open face toward the eyes first and tries up to three other sides if nothing changes. It
+  says what came of it on any side ("cocoa on the jungle log"). A live hands case plants cocoa on a jungle log, and
+  the other `use` cases (seeds, doors and the rest) pass as before.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

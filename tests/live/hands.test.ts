@@ -794,6 +794,20 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     for (let dx = 1; dx <= 4; dx++) expect(body.bot.blockAt(new Vec3(x + dx, Y, 0))?.name).toBe('wheat');
   }, 120_000);
 
+  it('cocoa beans on a jungle log go on its side, the face one clicks (clicked on its top, nothing came of it six times over)', async () => {
+    const x = 8950;
+    await at(x, 0);
+    await server.cmd(`fill ${x + 3} ${Y} 0 ${x + 3} ${Y + 1} 0 jungle_log`);
+    await server.cmd('give Ada minecraft:cocoa_beans 2');
+    await sleep(1500);
+    const r = await run('use', { item: 'cocoa_beans', on: 'jungle_log' });
+    logger.info({ r, beans: countItem(body.bot, 'cocoa_beans') }, 'cocoa on a jungle log');
+    expect(r.ok).toBe(true);
+    expect(countItem(body.bot, 'cocoa_beans')).toBe(1);
+    expect(r.observed).toMatch(/cocoa on the jungle log/);
+    await server.cmd(`fill ${x + 2} ${Y} -1 ${x + 4} ${Y + 1} 1 air`);
+  }, 120_000);
+
   it('a cow attacked and killed: what it dropped is walked over and taken (a salmon killed in a river was hunted for again and again)', async () => {
     const x = 8800;
     await at(x, 0);

@@ -315,15 +315,16 @@ export const use = defineSkill({
           if (bot.entity.position.distanceTo(target.position.offset(0.5, 0.5, 0.5)) > REACH + 1.5) continue;
           if (args.item) await hold(bot, args.item);
           const was = bot.blockAt(target.position)?.stateId;
-          const above = bot.blockAt(target.position.offset(0, 1, 0))?.stateId;
+          const beside = FACES.map((f) => bot.blockAt(target.position.plus(f))?.stateId);
           await useOnBlock(bot, target);
           await waitMs(ctx, 400);
           done++;
           const now = bot.blockAt(target.position);
-          const nowAbove = bot.blockAt(target.position.offset(0, 1, 0));
+          // What came of it on any side (seeds on top, cocoa on a log's side, fire beside obsidian).
+          const grew = FACES.map((f) => bot.blockAt(target.position.plus(f))).find((n, i) => n && n.stateId !== beside[i] && n.name !== 'air');
           // A door: which side of it one is on, as one sees (one shut its hut's door from outside and waited there).
           if (now && now.stateId !== was) changes.push(`${changed(target, now)}${/_door$/.test(now.name) ? `, with you ${roomAround(bot) ? 'inside' : 'outside'}` : ''}`);
-          else if (nowAbove && nowAbove.stateId !== above) changes.push(`${nowAbove.name.replace(/_/g, ' ')} on the ${target.name.replace(/_/g, ' ')}`);
+          else if (grew) changes.push(`${grew.name.replace(/_/g, ' ')} on the ${target.name.replace(/_/g, ' ')}`);
           if (at) break;
         }
         if (done === 0) return { ok: false, observed: `no ${names[0]?.replace(/_/g, ' ')} in reach`, error: `no ${args.on} in sight to use it on` };
@@ -432,7 +433,21 @@ function pickBlock(bot: Bot, ids: readonly number[], used: ReadonlySet<string>, 
   return null;
 }
 
-/** A right-click on a block: on its top face, or on a liquid's surface with what is held (a bucket). */
+const FACES = [new Vec3(0, 1, 0), new Vec3(0, -1, 0), new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+
+/** The faces of a block a hand can click, with room beyond them: the one toward the eyes first. */
+function facesToward(bot: Bot, b: Block): Vec3[] {
+  const eye = bot.entity.position.offset(0, 1.62, 0);
+  const toEye = eye.minus(b.position.offset(0.5, 0.5, 0.5));
+  const open = FACES.filter((f) => bot.blockAt(b.position.plus(f))?.boundingBox !== 'block');
+  return (open.length > 0 ? open : [new Vec3(0, 1, 0)]).sort((x, y) => y.dot(toEye) - x.dot(toEye));
+}
+
+/**
+ * A right-click on a block, as a player clicks it: on the face toward them, and if nothing comes of that, on another
+ * side (cocoa beans go only on a jungle log's side: clicked on its top six times over, nothing came of it); or on a
+ * liquid's surface with what is held (a bucket).
+ */
 async function useOnBlock(bot: Bot, b: Block): Promise<void> {
   if (b.name === 'water' || b.name === 'lava' || b.name === 'powder_snow') {
     await bot.lookAt(b.position.offset(0.5, 0.8, 0.5), true);
@@ -441,8 +456,16 @@ async function useOnBlock(bot: Bot, b: Block): Promise<void> {
     bot.deactivateItem();
     return;
   }
-  await bot.lookAt(b.position.offset(0.5, 1, 0.5), true);
-  await bot.activateBlock(b, new Vec3(0, 1, 0));
+  const around = () => [b.position, ...FACES.map((f) => b.position.plus(f))].map((p) => bot.blockAt(p)?.stateId ?? -1).join(',');
+  const held = () => `${bot.heldItem?.name ?? ''}:${bot.heldItem?.count ?? 0}`;
+  const was = around();
+  const had = held();
+  for (const f of facesToward(bot, b).slice(0, 4)) {
+    await bot.lookAt(b.position.offset(0.5 + f.x * 0.5, 0.5 + f.y * 0.5, 0.5 + f.z * 0.5), true);
+    await bot.activateBlock(b, f);
+    await bot.waitForTicks(6);
+    if (around() !== was || held() !== had) return;
+  }
 }
 
 // --- lead -----------------------------------------------------------------------------------------------------------
