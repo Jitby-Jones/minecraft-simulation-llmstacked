@@ -586,7 +586,7 @@ export function shelterHole(bot: Bot, feet: Vec3 = bot.entity.position.floored()
  * biome id, looked up in the registry the server sent, has it. Null where nothing is loaded.
  */
 export function biomeAt(bot: Bot, pos: Vec3): string | null {
-  const id = (bot.world as unknown as { getBiome?: (p: Vec3) => number | null | undefined }).getBiome?.(pos.floored());
+  const id = (bot.world as unknown as { getBiome?: (p: Vec3) => number | null | undefined } | undefined)?.getBiome?.(pos.floored());
   const fromWorld = id === null || id === undefined ? undefined : (bot.registry.biomes as unknown as Record<number, { name?: string } | undefined> | undefined)?.[id]?.name;
   const fromBlock = (bot.blockAt(pos) as unknown as { biome?: { name?: string } } | null)?.biome?.name;
   return fromWorld || fromBlock || null;

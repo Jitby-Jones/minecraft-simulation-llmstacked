@@ -101,6 +101,31 @@ describe.skipIf(!liveJavaPath())('live: a thinking agent', () => {
     }
   }, 120_000);
 
+  it('sees what lies far off, beyond the near view: a building, a lake and trees, each which way and how far', async () => {
+    // One lost on the sea saw only "a lake or river: right here", swam on away from the land she had come from, and
+    // drowned 700 m out.
+    const x = 5600;
+    const body = await join('Ada', x, 0);
+    await sleep(3000);
+    await server.cmd(`fill ${x + 100} ${Y} -3 ${x + 106} ${Y + 4} 3 oak_planks hollow`);
+    await server.cmd(`fill ${x - 4} ${Y + 3} -124 ${x + 4} ${Y + 8} -116 oak_leaves[persistent=true]`);
+    await server.cmd(`fill ${x - 120} ${Y - 1} -15 ${x - 80} ${Y - 1} 15 water`);
+    const ada = agentFor(body, 'Ada', null);
+    ada.perception.start();
+    try {
+      await waitFor(() => /buildings east.*water west.*trees north/.test(ada.store.state.scene.far ?? ''), 40_000, 'a look into the distance', 250);
+      const far = ada.store.state.scene.far ?? '';
+      process.stdout.write(`FAR ${far}\n`);
+      expect(far).toMatch(/buildings east \(10\d m\)/);
+      expect(far).toMatch(/water west \(\d+ m\)/);
+      expect(far).toMatch(/trees north \(1[12]\d m\)/);
+    } finally {
+      ada.perception.stop();
+      await ada.stop();
+      await body.disconnect();
+    }
+  }, 120_000);
+
   it('notices someone flying, though nothing tells her to watch for it (with the model: she thinks about it)', async () => {
     const x = 4300;
     await server.cmd(`forceload add ${x - 48} -48 ${x + 48} 48`);

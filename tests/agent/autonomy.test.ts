@@ -425,7 +425,7 @@ describe('going somewhere one knows (a "head home" went to a made-up 0,64,0, 389
   });
   it('the packet says where home is', () => {
     const packet = buildPacket({ state: s, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
-    expect(packet).toContain('Home: 220,66,450, 3 m away; nothing built there yet.');
+    expect(packet).toContain('Home: 220,66,450, 3 m south-east; nothing built there yet.');
     const withHut = buildPacket({ state: { ...s, village: { ...s.village, huts: [{ x: 224, y: 66, z: 452 }] } }, levers: leversFor(0.5), reason: 'test', stuck: [], memories: [], mind: [], now: 0 });
     expect(withHut).toContain('huts with doors at 224,66,452.');
     // The huts one built oneself, by their rooms, the nearest first (one without a door is in no other line).

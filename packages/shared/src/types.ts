@@ -640,6 +640,8 @@ export interface Scene {
   notices: Notice[];
   /** With danger near: which ways are open and how far one could go on foot, and what stops each. */
   ways?: string;
+  /** What lies far off, beyond the near view, by which way: land across the water, trees, buildings, high ground. */
+  far?: string;
 }
 
 /** A train of thought, kept from one decision to the next (owner request, 2026-10-24: think, don't follow rules). */

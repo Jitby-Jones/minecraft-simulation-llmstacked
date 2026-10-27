@@ -24,7 +24,7 @@ import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
 import { nowLine, summaryMessages } from '@agora/agent/modules/selfMonitor';
 import { type Motion, MotionTracker } from '@agora/agent/perception/motion';
-import { type Seen, SceneEyes, featureKindOf, featuresOf } from '@agora/agent/perception/scene';
+import { FarLook, type Seen, SceneEyes, farWords, featureKindOf, featuresOf } from '@agora/agent/perception/scene';
 import { noSuchItem, pocketPlan, resolveCraftTarget } from '@agora/agent/body/skills/crafting';
 import { bearingOf, countOf, describeScene } from '@agora/agent/perception/sceneWords';
 import { createInitialState } from '@agora/agent/state/initial';
@@ -649,6 +649,47 @@ describe('the scene: blocks in view grouped as a player sees them', () => {
     expect(bearingOf({ x: 0, z: 0 }, { x: 0, z: -10 })).toBe('north');
     expect(countOf(3, 'sheep')).toBe('3 sheep');
     expect(countOf(1, 'iron_golem')).toBe('an iron golem');
+  });
+
+  it('far off, beyond the near view: land across the water, which way and how far, or none in sight', () => {
+    // One lost on the sea saw only "a lake or river: right here", swam on away from the land she had come from, and
+    // drowned 700 m out.
+    const at = (name: string) => data.blocksByName[name]?.minStateId ?? 0;
+    const sea = (beach: boolean) => ({
+      registry: data,
+      entity: { position: new Vec3(0.5, 62.1, 0.5), eyeHeight: 1.62 },
+      world: {
+        getBlockStateId: (p: Vec3) => {
+          if (Math.abs(p.x) > 170 || Math.abs(p.z) > 170) return null;
+          if (beach && p.x <= -100 && p.y <= 63) return at('sand');
+          if (beach && p.x <= -110 && p.y >= 66 && p.y <= 68) return at('oak_leaves');
+          return p.y <= 62 ? at('water') : at('air');
+        },
+      },
+    });
+    const look = (bot: object): FarLook => {
+      const far = new FarLook(bot as never);
+      for (let i = 0; i < 60 && !far.step(1000); i++);
+      return far;
+    };
+    const land = farWords(look(sea(true)).seen, true) ?? '';
+    expect(land).toMatch(/^land (south-west, )?west( and north-west)? \(1\d\d(-1\d\d)? m: (sand, trees|trees, sand)\)$/);
+    expect(farWords(look(sea(false)).seen, true)).toBe('no land in sight: water all round, as far as you can see');
+    // A look into the distance waits its time; one under way goes on.
+    const far = look(sea(false));
+    expect(far.step(5000)).toBe(false);
+    // On land: what stands out far off, by which way.
+    const hits = [
+      { kind: 'trees' as const, d: 120, dy: 4, octant: 6 },
+      { kind: 'trees' as const, d: 90, dy: 3, octant: 7 },
+      { kind: 'water' as const, d: 70, dy: -2, octant: 0 },
+      { kind: 'built' as const, d: 140, dy: 1, octant: 2 },
+      { kind: 'rock' as const, d: 130, dy: 30, octant: 4 },
+      { kind: 'ground' as const, d: 60, dy: 0, octant: 3 },
+    ];
+    expect(farWords(hits, false)).toBe('buildings south (140 m); water east (70 m); trees north and north-east (90-120 m); high ground west (130 m, up to 30 m up)');
+    expect(farWords([{ kind: 'ground', d: 60, dy: 0, octant: 3 }], false)).toBeNull();
+    expect(describeScene({ at: 1, where: 'In ocean, in the water, under the open sky', features: [], creatures: [], notices: [], far: land }, 2).join('\n')).toContain(`Far off: ${land}.`);
   });
 
   it('in words: where, what is in view, creatures of a kind together, what stood out', () => {

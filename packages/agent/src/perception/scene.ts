@@ -199,6 +199,194 @@ export class LookAround {
   }
 }
 
+// ---- The far look: what lies beyond the near view ------------------------------------------------------------------
+
+/**
+ * Pitches of the far rays: about the horizon, where what is far off shows (a beach 100 m off lies a third of a degree
+ * below the eyes of one swimming). Below it they are close: on level ground a ray a degree down meets the ground 90 m
+ * off, and a pond there showed to none of rays meeting it at 77 m and 185 m.
+ */
+const FAR_PITCHES = [-6, -3.5, -2.2, -1.6, -1.2, -1, -0.8, -0.65, -0.5, -0.3, -0.15, 0.4, 1.5, 4, 9, 16];
+const FAR_YAWS = 64;
+/** Nearer than this is the near look's to tell. */
+export const FAR_FROM = 48;
+/** As far as the eye goes: the edge of the world the server sends (some 160 m on the test servers), or this. */
+const FAR_RANGE = 160;
+const FAR_RAYS_PER_TICK = 48;
+/** A look into the distance this often: what lies far off changes only as one goes. */
+const FAR_EVERY_MS = 10_000;
+
+export type FarKind = 'trees' | 'water' | 'lava' | 'built' | 'rock' | 'sand' | 'snow' | 'ground';
+
+/** The first thing a far ray met, beyond the near view: what, how far (along the ground), how high, which way (0-7). */
+export interface FarHit {
+  kind: FarKind;
+  d: number;
+  dy: number;
+  octant: number;
+}
+
+/** The compass point (0 east, then clockwise as seen from above: south-east, south, ...) of a way along the ground. */
+function octantOf(dx: number, dz: number): number {
+  return (Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) + 8) % 8;
+}
+
+function farKindOf(name: string): FarKind {
+  if (/_leaves$/.test(name)) return 'trees';
+  const k = featureKindOf(name);
+  if (k === 'trees' || k === 'water' || k === 'lava' || k === 'rock' || k === 'sand' || k === 'snow') return k;
+  if (k === 'built' || k === 'station' || k === 'container' || k === 'bed') return 'built';
+  if (k === 'ore') return 'rock';
+  return 'ground';
+}
+
+/**
+ * Looks into the distance all round, a share of the rays each tick, every so often: the first thing each ray meets
+ * beyond the near view (a ray stopped nearer is the near look's), up to the edge of what the server sends. One lost on
+ * the sea saw only "a lake or river: right here", swam on away from the land she had come from, and drowned 700 m out.
+ */
+export class FarLook {
+  private readonly dirs: { d: Vec3; octant: number }[] = [];
+  private next = 0;
+  private sweep: FarHit[] = [];
+  private readonly sight = new Map<number, Sight>();
+  private readonly kinds = new Map<number, FarKind>();
+  /** What was seen far off at the last whole look. */
+  seen: FarHit[] = [];
+  /** When the last whole look was done (0: never). */
+  at = 0;
+
+  constructor(private readonly bot: Bot) {
+    for (const pitch of FAR_PITCHES) {
+      const p = (pitch * Math.PI) / 180;
+      for (let i = 0; i < FAR_YAWS; i++) {
+        const yaw = (i / FAR_YAWS) * Math.PI * 2;
+        const d = new Vec3(Math.cos(yaw) * Math.cos(p), Math.sin(p), Math.sin(yaw) * Math.cos(p));
+        this.dirs.push({ d, octant: octantOf(d.x, d.z) });
+      }
+    }
+  }
+
+  /** Casts the next share of rays when a look is due; true when a whole look is done (then `seen` is fresh). */
+  step(now: number, budget = FAR_RAYS_PER_TICK): boolean {
+    if (this.next === 0 && this.at > 0 && now - this.at < FAR_EVERY_MS) return false;
+    const bot = this.bot;
+    const eye = bot.entity.position.offset(0, (bot.entity as unknown as { eyeHeight?: number }).eyeHeight ?? 1.62, 0);
+    const world = bot.world as unknown as WorldIds;
+    const end = Math.min(this.dirs.length, this.next + budget);
+    for (; this.next < end; this.next++) {
+      const ray = this.dirs[this.next] as { d: Vec3; octant: number };
+      const hit = this.cast(world, eye, ray.d);
+      if (hit) this.sweep.push({ ...hit, octant: ray.octant });
+    }
+    if (this.next < this.dirs.length) return false;
+    this.seen = this.sweep;
+    this.sweep = [];
+    this.next = 0;
+    this.at = now;
+    return true;
+  }
+
+  /** One ray to the first thing that blocks the view or a liquid's surface; null when that is near, or nothing is met. */
+  private cast(world: WorldIds, from: Vec3, d: Vec3): Omit<FarHit, 'octant'> | null {
+    let x = Math.floor(from.x);
+    let y = Math.floor(from.y);
+    let z = Math.floor(from.z);
+    const sx = d.x > 0 ? 1 : -1;
+    const sy = d.y > 0 ? 1 : -1;
+    const sz = d.z > 0 ? 1 : -1;
+    const tdx = d.x !== 0 ? Math.abs(1 / d.x) : Infinity;
+    const tdy = d.y !== 0 ? Math.abs(1 / d.y) : Infinity;
+    const tdz = d.z !== 0 ? Math.abs(1 / d.z) : Infinity;
+    let tx = d.x !== 0 ? (d.x > 0 ? x + 1 - from.x : from.x - x) * tdx : Infinity;
+    let ty = d.y !== 0 ? (d.y > 0 ? y + 1 - from.y : from.y - y) * tdy : Infinity;
+    let tz = d.z !== 0 ? (d.z > 0 ? z + 1 - from.z : from.z - z) * tdz : Infinity;
+    const p = new Vec3(0, 0, 0);
+    for (let t = 0, steps = 0; t <= FAR_RANGE && steps < 600; steps++) {
+      if (tx < ty && tx < tz) {
+        x += sx;
+        t = tx;
+        tx += tdx;
+      } else if (ty < tz) {
+        y += sy;
+        t = ty;
+        ty += tdy;
+      } else {
+        z += sz;
+        t = tz;
+        tz += tdz;
+      }
+      if (y < -64 || y > 320) return null;
+      p.set(x, y, z);
+      const id = world.getBlockStateId(p);
+      // Not sent: as far as one sees that way.
+      if (id === null || id === undefined) return null;
+      if (sightOf(this.bot, this.sight, id) < 2) continue;
+      const along = Math.hypot(x + 0.5 - from.x, z + 0.5 - from.z);
+      if (along < FAR_FROM) return null;
+      let kind = this.kinds.get(id);
+      if (kind === undefined) {
+        const b = (this.bot.registry as unknown as { blocksByStateId: Record<number, { name: string } | undefined> }).blocksByStateId[id];
+        kind = farKindOf(b?.name ?? 'stone');
+        this.kinds.set(id, kind);
+      }
+      return { kind, d: Math.round(along), dy: Math.round(y + 1 - from.y) };
+    }
+    return null;
+  }
+}
+
+const FAR_COMPASS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'] as const;
+/** High ground: what rises this far over the eyes, far off (hills, a mountain, a cliff). */
+const HIGH = 12;
+
+function waysWords(octants: readonly number[]): string {
+  const set = [...new Set(octants)].sort((a, b) => a - b);
+  if (set.length >= 8) return 'all round';
+  const names = set.map((o) => FAR_COMPASS[o] as string);
+  return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+function spanWords(ds: readonly number[]): string {
+  const lo = Math.min(...ds);
+  const hi = Math.max(...ds);
+  return hi - lo < 10 ? `${lo} m` : `${lo}-${hi} m`;
+}
+
+/**
+ * What lies far off, in words, by which way and how far. Out on the water, what matters is land: where it is, or that
+ * there is none in sight. On land: buildings, lava, water, trees, high ground, sand and snow, the first four found.
+ */
+export function farWords(hits: readonly FarHit[], atSea: boolean): string | null {
+  if (atSea) {
+    const land = hits.filter((h) => h.kind !== 'water' && h.kind !== 'lava');
+    if (land.length === 0) return hits.length > 0 ? 'no land in sight: water all round, as far as you can see' : null;
+    const kinds = [...new Set(land.flatMap((h): string[] => (h.kind === 'ground' ? [] : [h.kind === 'built' ? 'buildings' : h.kind])))];
+    return `land ${waysWords(land.map((h) => h.octant))} (${spanWords(nearestByWay(land))}${kinds.length > 0 ? `: ${kinds.slice(0, 3).join(', ')}` : ''})`;
+  }
+  const parts: string[] = [];
+  const say = (what: string, of: readonly FarHit[], extra = ''): void => {
+    if (of.length === 0 || parts.length >= 4) return;
+    parts.push(`${what} ${waysWords(of.map((h) => h.octant))} (${spanWords(nearestByWay(of))}${extra})`);
+  };
+  say('buildings', hits.filter((h) => h.kind === 'built'));
+  say('lava', hits.filter((h) => h.kind === 'lava'));
+  say('water', hits.filter((h) => h.kind === 'water'));
+  say('trees', hits.filter((h) => h.kind === 'trees'));
+  const high = hits.filter((h) => h.dy >= HIGH && h.kind !== 'water' && h.kind !== 'lava');
+  say('high ground', high, high.length > 0 ? `, up to ${Math.max(...high.map((h) => h.dy))} m up` : '');
+  say('sand', hits.filter((h) => h.kind === 'sand'));
+  say('snow', hits.filter((h) => h.kind === 'snow'));
+  return parts.length > 0 ? parts.join('; ') : null;
+}
+
+/** The nearest of each way's hits. */
+function nearestByWay(hits: readonly FarHit[]): number[] {
+  const by = new Map<number, number>();
+  for (const h of hits) by.set(h.octant, Math.min(by.get(h.octant) ?? Infinity, h.d));
+  return [...by.values()];
+}
+
 // ---- From blocks in view to the things a player sees ---------------------------------------------------------------
 
 interface Group {
@@ -252,9 +440,16 @@ function words(kind: SceneFeatureKind, blocks: Record<string, number>, hits: rea
       const woods = [...new Set(names.map(([n]) => n.replace(/_(log|stem|wood)$/, '').replace(/^mushroom$/, 'mushroom')))].slice(0, 2);
       return `${plural(trunks, `${woods.join(' and ')} tree`)}`;
     }
-    case 'water':
+    case 'water': {
       if (roofed) return 'water';
-      return total < 8 ? 'a little water' : total < 70 ? 'a pond' : 'a lake or river';
+      if (total < 8) return 'a little water';
+      // The sea is not a lake: one lost on it was told "a lake or river: right here".
+      const h = hits[0];
+      const biome = (h ? biomeAt(bot, new Vec3(h.x, h.y, h.z)) : null) ?? '';
+      if (/ocean/.test(biome)) return 'the sea';
+      if (/river/.test(biome)) return 'a river';
+      return total < 70 ? 'a pond' : 'a lake or river';
+    }
     case 'lava':
       return total < 4 ? 'lava' : 'a pool of lava';
     case 'ore': {
@@ -809,6 +1004,9 @@ export class SceneEyes {
   readonly motion: MotionTracker;
   readonly expectations: Expectations;
   private readonly look: LookAround;
+  private readonly farLook: FarLook;
+  /** What lies far off, in words, as of the last look into the distance (null: nothing, or under a roof). */
+  private far: string | null = null;
   private features: SceneFeature[] = [];
   private where = '';
   private roofed = false;
@@ -857,6 +1055,7 @@ export class SceneEyes {
   constructor(private readonly o: SceneOptions) {
     this.motion = new MotionTracker(o.bot);
     this.look = new LookAround(o.bot);
+    this.farLook = new FarLook(o.bot);
     this.expectations = new Expectations({
       state: () => o.store.state,
       learn: (f) => o.store.update('knowledge', (k) => f(k), 'learned what to expect'),
@@ -1012,6 +1211,9 @@ export class SceneEyes {
       }
       this.checkSelf(now);
     }
+    // A look into the distance now and then, under the open sky.
+    if (this.roofed) this.far = null;
+    else if (this.farLook.step(now)) this.far = farWords(this.farLook.seen, this.atSea());
     // A share of the look around; once round, what is in view is grouped anew.
     if (this.look.step()) {
       const w = whereNow(bot);
@@ -1029,6 +1231,14 @@ export class SceneEyes {
       return;
     }
     if (now - this.lastCreaturesAt >= CREATURES_EVERY_MS) this.write(seen, now, false);
+  }
+
+  /** Out on the water: in it (or in a boat) with no land in the near view. */
+  private atSea(): boolean {
+    const bot = this.o.bot;
+    const vehicle = (bot as unknown as { vehicle?: { name?: string } | null }).vehicle;
+    const inWater = bot.blockAt(bot.entity.position.floored())?.name === 'water' || /boat|raft/.test(vehicle?.name ?? '');
+    return inWater && !this.features.some((f) => f.kind !== 'water' && f.kind !== 'lava' && f.kind !== 'other' && f.kind !== 'plants');
   }
 
   /** Small notable blocks in sight the rays may have passed between (one ore block far off). */
@@ -1333,6 +1543,7 @@ export class SceneEyes {
     this.notices = this.notices.filter((x) => now - x.ts < NOTICE_MS);
     const key = [
       this.where,
+      this.far ?? '',
       this.features.map((f) => `${f.what}@${f.distance}${f.bearing}`).join(';'),
       creatures.map((c) => `${c.id}:${Math.round(c.distance)}:${c.motion}:${c.heading ?? ''}:${c.relations.join(',')}:${c.details.join(',')}`).join(';'),
       this.notices.map((n) => n.id).join(','),
@@ -1344,7 +1555,7 @@ export class SceneEyes {
     const feetKey = bot.entity.position.floored().toString();
     if (near && (this.ways.key !== feetKey || now - this.ways.at > 3000)) this.ways = { key: feetKey, at: now, text: waysOut(bot) };
     const ways = near ? this.ways.text : null;
-    const scene: Scene = { at: now, where: this.where, features: this.features, creatures, notices: this.notices, ...(ways ? { ways } : {}) };
+    const scene: Scene = { at: now, where: this.where, features: this.features, creatures, notices: this.notices, ...(ways ? { ways } : {}), ...(this.far ? { far: this.far } : {}) };
     this.o.store.update('scene', () => scene, 'scene');
   }
 }

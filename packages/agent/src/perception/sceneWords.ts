@@ -79,6 +79,7 @@ export function describeScene(s: Scene, now: number, o: { people?: (name: string
         .join('\n')}`,
     );
   }
+  if (s.far) out.push(`Far off: ${s.far}.`);
   const cs = s.creatures.slice(0, o.maxCreatures ?? 20);
   if (cs.length > 0) {
     const lines: string[] = [];

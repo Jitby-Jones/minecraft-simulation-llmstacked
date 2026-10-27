@@ -92,7 +92,7 @@ export function buildPacket(i: PacketInput): string {
   const world = String(self.dimension ?? 'overworld').replace(/^minecraft:/, '');
   if (world !== 'overworld') {
     const back = (s.village.portals ?? []).filter((p) => p.dimension === world && p.leadsTo === 'overworld').sort((a, b) => Math.hypot(a.pos.x - self.pos.x, a.pos.z - self.pos.z) - Math.hypot(b.pos.x - self.pos.x, b.pos.z - self.pos.z))[0];
-    const backText = back ? `The portal home is at ${back.pos.x},${back.pos.y},${back.pos.z}, ${Math.round(Math.hypot(back.pos.x - self.pos.x, back.pos.z - self.pos.z))} m away (travel {to: overworld}).` : 'You know of no portal back.';
+    const backText = back ? `The portal home is at ${back.pos.x},${back.pos.y},${back.pos.z}, ${Math.round(Math.hypot(back.pos.x - self.pos.x, back.pos.z - self.pos.z))} m ${bearingOf(self.pos, back.pos)} (travel {to: overworld}).` : 'You know of no portal back.';
     out.push(`You are in ${world === 'the_nether' ? 'the Nether' : 'the End'}. ${backText}`);
   }
   const inv = self.inventory.map((st) => `${st.qty} ${st.item}${st.left !== undefined && st.left < WORN ? ` (nearly worn out: ${Math.round(st.left * 100)}% left)` : ''}`).join(', ');
@@ -123,7 +123,7 @@ export function buildPacket(i: PacketInput): string {
     const builtThere = (s.village.projects ?? []).some((p) => Math.hypot(p.origin.x - home.x, p.origin.z - home.z) <= ISOLATED_RANGE);
     const bare = huts.length === 0 && !builtThere ? '; nothing built there yet' : '';
     out.push(
-      `Home: ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m away${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}${huts.length > 0 ? `; huts with doors at ${huts.join(' and ')}` : ''}${bare}.`,
+      `Home: ${Math.round(home.x)},${Math.round(home.y)},${Math.round(home.z)}, ${far} m ${far < 1 ? 'away' : bearingOf(self.pos, home)}${chest ? `; the village chest at ${chest.x},${chest.y},${chest.z}` : ''}${huts.length > 0 ? `; huts with doors at ${huts.join(' and ')}` : ''}${bare}.`,
     );
   }
   // The huts one put up oneself, by their rooms, as one knows where one's own shelter is: a builder caught out at

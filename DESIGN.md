@@ -3436,6 +3436,17 @@ What else the benchmark showed:
   Now each task keeps its number, a claim with the words of another task follows those words, and a claim that says
   the task is under way or put off is a note on it, which stays open. The reply's form asks for what shows a task
   done, and says that how it is going belongs in the thought.
+- **What lies far off is seen, and the sea is the sea.** In `duo (8)`, Ada went east after sheep and swam out to
+  sea. The near look reaches 56 m, and all it showed was "a lake or river: right here", with every way "water right
+  there". Home was "262 m away", with no way given. For 35 minutes she tried to build, pillar and dig down in open
+  water, swam on east "to land" away from the land she had come from, and drowned at night 700 m out, worn down by
+  drowned. Now a far look, every 10 s under the open sky, casts rays round the horizon out to the edge of what the
+  server sends (some 160 m). It names what lies beyond the near view by which way and how far: on the water, land
+  or none in sight ("land west and north-west (100-140 m: sand, trees)"); on land, buildings, lava, water, trees,
+  high ground, sand and snow. The sea is called the sea, and a river a river. Home, and the portal back from another
+  world, are given with the way to them ("262 m west"). A live case puts a house 100 m east, a lake 80 m west and
+  trees 116 m north of one standing on open ground; the far look names all three ("buildings east (100 m); water west
+  (92 m); trees north (116 m)"), at about 1 ms of ray casting a tick while it looks.
 - **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
   Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
   worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven
