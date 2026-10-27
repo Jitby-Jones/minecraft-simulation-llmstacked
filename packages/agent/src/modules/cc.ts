@@ -43,7 +43,7 @@ import type { MindLevers } from './levers';
 import { mindSystemPrompt } from './prompts';
 import { URGENT_STRENGTH } from '../mind/expectations';
 import { cueFrom } from '../mind/later';
-import { addLesson, doneAsItSetsOut, matchTask } from '../mind/learning';
+import { addLesson, doneAsItSetsOut, matchTask, saysUnfinished, taskNo } from '../mind/learning';
 import { tidyDecision } from './decisionTidy';
 import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
@@ -1889,18 +1889,24 @@ export class CognitiveController {
       if (!text) continue;
       const t = matchTask(store.state.goals.tasks ?? [], text);
       if (!t) continue;
+      // Said to be under way, or put off, it is neither done nor given up: how it goes is noted on the task, which stays
+      // the agent's ("#1: Obtain 12 diamonds is still in progress, but I'm actively pursuing it now" gave the diamonds up).
+      const unfinished = saysUnfinished(text, status);
       // Done in the same thought that sets out to do it is a hope, not a fact: noted on the task, which stays open until
       // a later thought finds it done (one about to swim down to a cod put "Catch a fish" behind her as "killed a cod
       // and picked it up", and never had a fish). Said again in a later thought, it is taken.
-      const hoped = status === 'done' && !t.note?.startsWith(MEANT_DONE) && doneAsItSetsOut(text, [...(out.task ? [out.task] : []), ...(out.then ?? [])]);
-      store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : hoped ? { ...x, note: `${MEANT_DONE} "${text}"` } : { ...x, status, note: text })) }), hoped ? 'task meant done' : `task ${status}`);
+      const hoped = !unfinished && status === 'done' && !t.note?.startsWith(MEANT_DONE) && doneAsItSetsOut(text, [...(out.task ? [out.task] : []), ...(out.then ?? [])]);
+      const note = unfinished ? `${status === 'done' ? UNDER_WAY_NOTE : PUT_OFF_NOTE} "${text}"` : hoped ? `${MEANT_DONE} "${text}"` : null;
+      store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : note ? { ...x, note } : { ...x, status, note: text })) }), unfinished ? 'task under way' : hoped ? 'task meant done' : `task ${status}`);
     }
   }
 
   /** Someone gives this agent a task (owner request, 2026-10-24): it is taken on, and thought about now. */
   giveTask(text: string, from: string): AssignedTask {
     const now = this.now();
-    const task: AssignedTask = { id: newId('t', now), text: text.slice(0, 300), from, at: now, status: 'open' };
+    const all = this.o.store.state.goals.tasks ?? [];
+    const n = all.reduce((most, x) => Math.max(most, taskNo(all, x)), 0) + 1;
+    const task: AssignedTask = { id: newId('t', now), n, text: text.slice(0, 300), from, at: now, status: 'open' };
     this.o.store.update('goals', (g) => ({ ...g, tasks: [...(g.tasks ?? []), task].slice(-12) }), 'task given');
     this.o.bus.emit({ type: 'taskGiven', task });
     return task;
@@ -1911,5 +1917,8 @@ export class CognitiveController {
 const INTENTION_MS = 12 * 60_000;
 /** The note on a task said to be done in the thought that set out to do it. */
 const MEANT_DONE = 'you said it was done as you set out to do it:';
+/** The notes on a task said to be done while still under way, and on one said to be given up while only put off. */
+const UNDER_WAY_NOTE = 'still yours, under way as you said:';
+const PUT_OFF_NOTE = 'still yours, put off as you said:';
 /** What could not be done is kept in mind this long. */
 export const RULED_OUT_MS = 10 * 60_000;

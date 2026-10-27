@@ -15,7 +15,7 @@ import { AgentBus } from '@agora/agent/bus';
 import { Expectations, KNOWN_AFTER } from '@agora/agent/mind/expectations';
 import { GameKnowledge, type GameData, knowledgeLines } from '@agora/agent/mind/knowledge';
 import { LaterWatch, cueCame, cueFrom } from '@agora/agent/mind/later';
-import { Learning, addLesson, lessonsToCheck, matchTask, overlap } from '@agora/agent/mind/learning';
+import { Learning, addLesson, lessonsToCheck, matchTask, overlap, saysUnfinished } from '@agora/agent/mind/learning';
 import { ActionAwareness } from '@agora/agent/modules/awareness';
 import { buildPacket, placesFor, triedLately } from '@agora/agent/modules/bottleneck';
 import { CognitiveController } from '@agora/agent/modules/cc';
@@ -785,6 +785,51 @@ describe('lessons and tasks', () => {
     // A step of a plan that shares a word or two with a task is not that task.
     expect(matchTask(tasks, 'Craft planks and sticks, make a crafting table if needed, craft torches: I hold 16 torches')).toBeNull();
   });
+
+  it('a task keeps its number as others close; a number said with the words of another task is that other one', () => {
+    // Numbered by their place among the open ones, "#1: house task is in progress", said again once the house was
+    // behind her, closed the romance that had become #1.
+    const tasks = [
+      { id: 'h', n: 1, text: 'Make a house.', from: 'op', at: 0, status: 'done' as const },
+      { id: 'r', n: 2, text: 'Form a romantic relationship.', from: 'op', at: 0, status: 'open' as const },
+      { id: 'f', n: 3, text: 'Secure a renewable source of food.', from: 'op', at: 0, status: 'open' as const },
+    ];
+    expect(matchTask(tasks, '#1: house task is in progress')).toBeNull();
+    expect(matchTask(tasks, '#2: we are partners now')?.id).toBe('r');
+    expect(matchTask(tasks, '#3: the wheat farm is planted and grows back')?.id).toBe('f');
+    // The words of another open task, and none of the one numbered: the other.
+    expect(matchTask(tasks, '#2: a renewable food source: wheat planted by the hut')?.id).toBe('f');
+    // The words of one behind: none.
+    expect(matchTask(tasks, '#3: the house has a door and a roof')).toBeNull();
+  });
+
+  it('a task said to be done while under way, or given up while only put off, is neither', () => {
+    // Every task closed in two runs was closed so; none of them was done.
+    for (const said of [
+      '#1: making a house is in progress with Bram, but not finished yet',
+      '#1: I am actively working to secure a house spot and gather wood; the task is in progress, not yet finished.',
+      '#1: house task is in progress—wood gathering almost complete, design ready.',
+      '#1: I have mutton to eat now and will hunt for wool; food source progress continues with cocoa and wheat later.',
+      '#1: I have fish eaten and a plan for renewable food via wool and later wheat; the immediate need is shelter to survive the night.',
+      "#2: I've gathered the dirt and am about to place the sign, then I'll be inside the hut out of harm's way.",
+    ]) expect(saysUnfinished(said, 'done'), said).toBe(true);
+    for (const said of [
+      "#2: I have no iron ore yet, and making iron armor and tools requires mining it first—I'll tackle that after the hut is built.",
+      "#1: I can't make progress on the house without more wood, so I'll focus on gathering oak first.",
+      "#2: I'll secure renewable food tomorrow with fresh logs in daylight after clearing grass properly.",
+      "#2: What? Go to the Nether? I'm in no state for that — still need iron tools and armor first.",
+      "#1: Obtain 12 diamonds is still in progress, but I'm actively pursuing it now.",
+    ]) expect(saysUnfinished(said, 'dropped'), said).toBe(true);
+    // Done, said as done.
+    for (const said of [
+      '#1: I hold 12 diamonds',
+      '#2: the cow pen is built next to the house and holds 2 cows',
+      '#3: wheat planted on farmland by the water; it will keep growing back from its own seeds',
+      '#4: Bram said yes: we are partners',
+      '#5: I stood in the Nether and came back through the portal',
+    ]) expect(saysUnfinished(said, 'done'), said).toBe(false);
+    expect(saysUnfinished('#2: Bram built it already; it is not mine to do', 'dropped')).toBe(false);
+  });
 });
 
 describe('what it knows of the game, looked up for what matters', () => {
@@ -1053,6 +1098,49 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
     for (let i = 0; i < 160 && decided.length < 2; i++) await wait(25);
     expect(s.state.goals.tasks?.find((t) => t.id === fish.id)).toMatchObject({ status: 'done', note: '#1: I have a cod now' });
+    cc.stop();
+  });
+
+  it('a task said to be done while still under way stays open, noted; the numbers stay as tasks close', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const replies = [
+      { thought: 'Wood first.', option: 'work', task: { skill: 'obtain', args: { item: 'oak_log', qty: 20 } }, terminate: { maxSeconds: 60 }, rationale: 'wood', taskDone: '#1: making a house is in progress with Bram, but not finished yet' },
+      { thought: 'The cows are penned.', option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'done', taskDone: '#2: the pen is built and holds two cows' },
+      { thought: 'More wood.', option: 'work', task: { skill: 'obtain', args: { item: 'oak_log', qty: 20 } }, terminate: { maxSeconds: 60 }, rationale: 'wood', taskDropped: "#1: I'll tackle that after the hut is built" },
+    ];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      return { text: JSON.stringify(replies.shift() ?? { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'x' }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    const house = cc.giveTask('Make a house.', 'the operator');
+    const cows = cc.giveTask('Make a cow farm.', 'the operator');
+    const food = cc.giveTask('Secure a renewable source of food.', 'the operator');
+    expect([house.n, cows.n, food.n]).toEqual([1, 2, 3]);
+    cc.start();
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    // (The tasks came before it was listening: a failure has it think.)
+    bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
+    for (let i = 0; i < 160 && decided.length === 0; i++) await wait(25);
+    expect(s.state.goals.tasks?.find((t) => t.id === house.id)).toMatchObject({ status: 'open', note: 'still yours, under way as you said: "#1: making a house is in progress with Bram, but not finished yet"' });
+    bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
+    for (let i = 0; i < 160 && decided.length < 2; i++) await wait(25);
+    expect(s.state.goals.tasks?.find((t) => t.id === cows.id)?.status).toBe('done');
+    // The cow farm behind, the food is still #3, and the house #1.
+    const packet = buildPacket({ state: s.state, levers: leversFor(0.5), reason: 'x', now: Date.now() });
+    expect(packet).toContain('#1 Make a house.');
+    expect(packet).toContain('#3 Secure a renewable source of food.');
+    expect(packet).toContain('Tasks behind you: #2 Make a cow farm. (done: #2: the pen is built and holds two cows).');
+    bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'rest' });
+    for (let i = 0; i < 160 && decided.length < 3; i++) await wait(25);
+    expect(s.state.goals.tasks?.find((t) => t.id === house.id)).toMatchObject({ status: 'open', note: 'still yours, put off as you said: "#1: I\'ll tackle that after the hut is built"' });
     cc.stop();
   });
 

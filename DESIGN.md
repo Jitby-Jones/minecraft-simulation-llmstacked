@@ -311,7 +311,7 @@ A failure is to be understood before anything is tried again; then try another w
 - `then`: up to 6 more steps;
 - `later`: something to do when a cue comes;
 - `lesson`: something learned;
-- `taskDone` / `taskDropped`: a task finished, or given up as impossible or not worth it, named by its # in the packet's list ("#2"). The plan's steps are numbered 1, 2, … too: a bare "2:" is the task only if what is said bears on it ("2: stone pickaxe and stone axe crafted, tool role fulfilled" had closed "Form a romantic relationship"). Said in words instead, it is the open task whose own words (what it is about, not "make" or "build") are all there: a plan's step "make a crafting table, craft torches" had closed "Make an enchanting table" on two shared words.
+- `taskDone` / `taskDropped`: a task finished ("#2: what you have or see now that shows it is done"), or given up for good, named by its # in the packet's list. A task keeps the number it was given, in the order tasks came, and the ones behind are listed with theirs; a number said with the words of another task, and none of its own, is that other task. What says the task is still under way ("in progress", "not yet", "I'll", "later", "almost") or, of one given up, only put off ("first", "after", "once") leaves it open, noted ("still yours, under way as you said: …"). The plan's steps are numbered 1, 2, … too: a bare "2:" is the task only if what is said bears on it ("2: stone pickaxe and stone axe crafted, tool role fulfilled" had closed "Form a romantic relationship"). Said in words instead, it is the open task whose own words (what it is about, not "make" or "build") are all there: a plan's step "make a crafting table, craft torches" had closed "Make an enchanting table" on two shared words.
 
 **The packet** (`modules/bottleneck.ts`) follows the same order. It gives who you are and how you are (hunger in words: "you are starving and carry nothing to eat"; hurt to 16 or less with food under 18, that health comes back by itself only from food 18, as the body has it), what you see, what you carry, places you know, your tasks, your plan, what you tried lately and what has not been working, the lessons that bear on it, what you know of the game for the items in play, and why you are thinking now. What each action came to says what the body did meanwhile, as one notices it: health and food that changed, and after 30 s or more hurt, that none came back ("waited 120s; no inventory change; health still 1"). A model at 1 health and food 10 had waited for health that "regenerates on its own" and written itself the lesson that waiting heals, with nothing in what it saw to say otherwise.
 
@@ -3427,6 +3427,15 @@ What else the benchmark showed:
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with
   them ("no model for check"). A merged memory goes the same way; nothing waits on either.
+- **A task is closed only when it is done, or given up for good.** Every task closed in `duo (8)` and `solo (10)` was
+  closed by a word on how it was going: "#1: making a house is in progress with Bram, but not finished yet" closed
+  the house; "#1: Obtain 12 diamonds is still in progress, but I'm actively pursuing it now" gave up the diamonds at
+  15 minutes; "#2: … I'll tackle that after the hut is built" gave up the iron armor. The tasks were numbered by
+  their place among the open ones, so "#1: house task is in progress", said again once the house was behind her,
+  closed the romance that had moved up to #1. By 77 minutes Ada had closed all four of her tasks, none of them done.
+  Now each task keeps its number, a claim with the words of another task follows those words, and a claim that says
+  the task is under way or put off is a note on it, which stays open. The reply's form asks for what shows a task
+  done, and says that how it is going belongs in the thought.
 - **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
   Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
   worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven

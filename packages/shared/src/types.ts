@@ -703,6 +703,8 @@ export interface Deferred {
 /** A task someone gave this agent (the operator, or anyone), in their words; done or dropped by the agent's own judgment. */
 export interface AssignedTask {
   id: string;
+  /** Its number, as it is listed and named ("#2"): given in the order tasks came, and kept. */
+  n?: number;
   text: string;
   from: string;
   at: number;

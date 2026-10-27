@@ -80,33 +80,73 @@ function aboutWords(text: string): string[] {
 }
 
 /**
+ * A task's number, as it is listed and named: given in the order tasks came, and kept. Numbered by their place among
+ * the open ones, the numbers moved as tasks closed, and "#1: house task is in progress", said again once the house was
+ * behind her, closed the romance that had become #1.
+ */
+export function taskNo(all: readonly AssignedTask[], t: AssignedTask): number {
+  return t.n ?? all.indexOf(t) + 1;
+}
+
+/** The task whose own words (what it is about) are all in what was said; an open one before one behind. */
+function namedBy(tasks: readonly AssignedTask[], said: ReadonlySet<string>): AssignedTask | null {
+  let best: AssignedTask | null = null;
+  let most = 0;
+  for (const t of tasks) {
+    const key = aboutWords(t.text);
+    if (key.length === 0 || !key.every((w) => said.has(w))) continue;
+    if (key.length > most || (key.length === most && best?.status !== 'open' && t.status === 'open')) {
+      most = key.length;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/**
  * Which open task a "taskDone"/"taskDropped" means: by its number as listed, else the one whose own words (what it is
  * about, not "make" or "build") are all there. A plan's step "make a crafting table, craft torches" closed "Make an
- * enchanting table" when two shared words were enough.
+ * enchanting table" when two shared words were enough. A number said with the words of another task, and none of its
+ * own, is that other task (none, if that one is behind one already).
  */
 export function matchTask(tasks: readonly AssignedTask[], text: string): AssignedTask | null {
-  const open = tasks.filter((t) => t.status === 'open');
   const said = new Set([...words(text)].map(stem));
+  const numbered = (n: string): AssignedTask | undefined => tasks.find((t) => taskNo(tasks, t) === Number(n));
+  const bears = (t: AssignedTask): boolean => aboutWords(t.text).some((w) => said.has(w));
+  const named = namedBy(tasks, said);
+  const open = (t: AssignedTask | null | undefined): AssignedTask | null => (t?.status === 'open' ? t : null);
   const m = BY_NUMBER.exec(text);
   // "#2" or "task 2" is the task so numbered. A bare "2:" may be a step of the plan, numbered the same way: the task
   // only if what is said bears on it ("2: stone pickaxe and axe crafted, tool role fulfilled" closed "Form a romantic
   // relationship").
   const n = m?.[1] ?? m?.[2];
-  if (n) return open[Number(n) - 1] ?? null;
+  if (n) {
+    const t = numbered(n);
+    if (named && named !== t && !(t && bears(t))) return open(named);
+    return open(t);
+  }
   const bare = m?.[3];
   if (bare) {
-    const t = open[Number(bare) - 1];
-    if (t && aboutWords(t.text).some((w) => said.has(w))) return t;
+    const t = numbered(bare);
+    if (t?.status === 'open' && bears(t)) return t;
   }
-  let best: AssignedTask | null = null;
-  let most = 0;
-  for (const t of open) {
-    const key = aboutWords(t.text);
-    if (key.length === 0 || !key.every((w) => said.has(w)) || key.length <= most) continue;
-    most = key.length;
-    best = t;
-  }
-  return best;
+  return open(named);
+}
+
+/**
+ * Words with which one says a task is still under way, not done ("#1: making a house is in progress with Bram, but not
+ * finished yet"; "#1: I have mutton to eat now and will hunt for wool"). In two runs every task closed was closed so,
+ * none of them done: one of them all four of hers by 77 minutes.
+ */
+const UNDER_WAY =
+  /\b(in progress|not (yet|finished|done|complete|completed|over|there)|unfinished|incomplete|ongoing|under ?way|still (need|needs|to|working|going|getting|gathering|building|making|looking|searching|short|missing|lacking|without|pursuing)|working (on|toward|towards)|actively|pursuing|about to|on my way|(i|we) ?('ll|’ll|will|shall|am going to|are going to|plan to|intend to|mean to)|almost|nearly|partly|partially|halfway|progress|for now|yet|later|tomorrow|soon|plan|planned|planning|need to|needs to|have to|has to|must)\b/i;
+/** And those with which one puts a task off, not gives it up ("I'll tackle that after the hut is built"). */
+const PUT_OFF = /\b(first|after|once|until|when|before|come back|return to|tackle|focus on)\b/i;
+
+/** Whether a task said to be done is said to be under way, or one said to be given up is put off. */
+export function saysUnfinished(text: string, status: 'done' | 'dropped'): boolean {
+  const said = text.replace(BY_NUMBER, '');
+  return UNDER_WAY.test(said) || (status === 'dropped' && PUT_OFF.test(said));
 }
 
 /**
