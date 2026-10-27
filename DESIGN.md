@@ -3144,6 +3144,22 @@ What else the benchmark showed:
   4 health, a zombie below, every model left the pillar for a hut 53 m off. Its packet, from before the ways out,
   never said the agent stood up out of reach.
 
+**The first runs on the chosen models, read as a player would (2026-10-27).**
+- **Up on something, as one sees from up there.** The where line says so when a drop of two or more lies on every
+  side: "up 3 m above the ground on every side". With it, deepseek-v4-pro still left the pillar in the case above, three
+  times of three ("won't keep me safe from the zombie if it can climb up").
+- **Gravel coming down.** `solo, seed 2 (31)` died at 10 minutes, suffocated. It dug a stair up under gravel, and the
+  gravel came down on its head. The step out from under it looked only on its own level, and a one-wide stair has none
+  there, so for nine seconds it dug at the column as it came down (19 health to 3). It got out at 3, and its mind,
+  told the gravel had been "broken by an explosion", dug up into it again. Now:
+  - What falls (gravel, sand, concrete powder, an anvil) is seen falling: it leaves a cell with nothing under it, and
+    lands where nobody set it down ("gravel right over your head fell", "gravel fell and landed where you stand").
+    Our own dig under it hides nothing, and several at once are no blast.
+  - Out from under it, the body steps out first: aside, or back down the step it came up (a step up too, with room to
+    jump). It digs only where there is no way out. Live, on a stair under six gravel: before, health 0 with the head in
+    the gravel; now, back down the step at 20.
+  - The where line names what is overhead: "the ceiling 2 m up (gravel)", "under a roof of oak planks".
+
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes
 (`duo (21)`) and by 27 (`duo (7)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and

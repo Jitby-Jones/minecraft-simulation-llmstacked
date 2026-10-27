@@ -209,6 +209,37 @@ describe.skipIf(!liveJavaPath())('live: melee', () => {
     expect(head?.name).not.toBe('gravel');
   }, 120_000);
 
+  it('on a stair dug up under gravel, it comes down on its head: back down the step it came up, before the column follows', async () => {
+    // One dug at such a column for nine seconds (19 health to 3), the step it had come up from open behind it.
+    const x = 7300;
+    const y = Y - 12;
+    await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
+    await server.cmd(`fill ${x - 2} ${y - 2} -2 ${x + 6} ${y + 12} 2 stone`);
+    // Four steps up to the east, each with room to stand and to jump; a light at the bottom.
+    for (let i = 0; i < 4; i++) await server.cmd(`fill ${x + i} ${y + i} 0 ${x + i} ${y + i + 2} 0 air`);
+    await server.cmd(`setblock ${x - 1} ${y + 1} 0 glowstone`);
+    await server.cmd(`tp Ada ${x + 3}.5 ${y + 3} 0.5 -90 0`);
+    await server.cmd('clear Ada');
+    await server.cmd('effect clear Ada');
+    await server.cmd('effect give Ada minecraft:instant_health 1 3');
+    await server.cmd('give Ada minecraft:stone_pickaxe 1');
+    await sleep(1500);
+    dangers.length = 0;
+    body.reflexes.start();
+    await sleep(1000);
+    await server.cmd(`fill ${x + 3} ${y + 4} 0 ${x + 3} ${y + 9} 0 gravel`);
+    const start = Date.now();
+    while (Date.now() - start < 15_000 && body.bot.health > 0) await sleep(500);
+    const at = body.bot.entity.position;
+    const head = body.bot.blockAt(at.offset(0, 1.62, 0));
+    logger.info({ health: body.bot.health, dangers: dangers.map((d) => `${d.kind}:${d.source}`), at: at.toString(), head: head?.name }, 'gravel on the head on a stair');
+    console.log(`[stair gravel] health ${body.bot.health}, at ${at.toString()}, head in ${head?.name}`);
+    body.reflexes.stop();
+    expect(dangers.some((d) => d.source === 'suffocation')).toBe(true);
+    expect(body.bot.health).toBeGreaterThan(16);
+    expect(head?.name).not.toBe('gravel');
+  }, 120_000);
+
   it('in a flooded pit with steep walls all round: it gets out onto dry ground (one was in one six minutes, and died there)', async () => {
     const x = 7400;
     await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);

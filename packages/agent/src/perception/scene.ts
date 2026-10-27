@@ -429,11 +429,13 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   const under = bot.blockAt(feet.offset(0, -1, 0));
   const at = bot.blockAt(feet);
   let roof: number | null = null;
+  let over = '';
   for (let dy = 2; dy <= 40; dy++) {
     const b = bot.blockAt(feet.offset(0, dy, 0));
     if (!b) break;
     if (b.boundingBox === 'block' && !/_leaves$/.test(b.name)) {
       roof = dy;
+      over = nice(b.name);
       break;
     }
   }
@@ -443,12 +445,19 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   else if (at?.name === 'lava') parts.push('IN LAVA');
   else if (under && under.boundingBox === 'block') parts.push(`standing on ${nice(under.name)}`);
   else parts.push('with nothing underfoot');
+  // Up on something with a drop on every side (a pillar, a column), as one sees from up there. Asked about one so,
+  // three blocks up on planks at 4 health with a zombie below, every model left it for a hut 53 m off: nothing had said
+  // it stood up out of reach.
+  const perch = under?.boundingBox === 'block' ? perchedHeight(bot, feet) : null;
+  if (perch !== null) parts.push(`up ${perch} m above the ground on every side`);
   // Underground however low the ceiling, by how far up the open sky is: one in a notch of a cave pond, 16 blocks
   // down with the ceiling a hand over its head, was "under a roof", and asked its hands for a hut there for 19 minutes.
   const up = roof !== null && sky === 0 && dim === 'overworld' ? skyUp(bot) : null;
+  // What it is overhead, as one sees looking up: one on a stair dug up under gravel had it come down on its head, and
+  // dug up into it again.
   if (roof === null) parts.push(dim === 'overworld' ? 'under the open sky' : 'nothing overhead');
-  else if (sky === 0 && (roof > 2 || (up !== null && up >= 6))) parts.push(`underground, the ceiling ${roof} m up${up !== null && up >= 6 ? `, the open sky some ${up} blocks up` : ''}`);
-  else parts.push(roof <= 4 ? 'under a roof' : `something overhead ${roof} m up`);
+  else if (sky === 0 && (roof > 2 || (up !== null && up >= 6))) parts.push(`underground, the ceiling ${roof} m up (${over})${up !== null && up >= 6 ? `, the open sky some ${up} blocks up` : ''}`);
+  else parts.push(roof <= 4 ? `under a roof of ${over}` : `something overhead ${roof} m up (${over})`);
   // The room one is in, as seen from inside: shut in, or which way it opens out; out under the sky, one just outside.
   const room = roomWords(roomAround(bot));
   if (room) parts.push(room);
@@ -462,6 +471,29 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
     else if (bot.isRaining) parts.push('raining');
   }
   return { text: parts.join(', '), roofed: roof !== null && roof <= 24 && sky < 8 };
+}
+
+/** Up on something with a drop of two or more on every side: the least of the four drops; null if not so perched. */
+export function perchedHeight(bot: Bot, feet: Vec3): number | null {
+  let least = Infinity;
+  for (const [dx, dz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    const side = feet.offset(dx, 0, dz);
+    if (!wayFree(bot.blockAt(side)) || !wayFree(bot.blockAt(side.offset(0, 1, 0)))) return null;
+    let drop = 0;
+    for (let dy = 1; dy <= 24; dy++) {
+      const b = bot.blockAt(side.offset(0, -dy, 0));
+      if (!b) return null;
+      if (b.boundingBox === 'block' || b.name === 'water') break;
+      drop++;
+    }
+    least = Math.min(least, drop);
+  }
+  return least >= 2 && Number.isFinite(least) ? least : null;
 }
 
 // ---- Ways out --------------------------------------------------------------------------------------------------------

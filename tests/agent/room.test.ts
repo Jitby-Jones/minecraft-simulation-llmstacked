@@ -128,8 +128,8 @@ describe('where the hands are going', () => {
     expect(goingFor(mine(), new Vec3(3, 0, 0))).toBe('');
   });
 
-  it('underground however low the ceiling, with how far up the sky is (a notch of a cave pond had been "under a roof")', () => {
-    expect(whereNow(mine()).text).toContain('underground, the ceiling 2 m up, the open sky some 41 blocks up');
+  it('underground however low the ceiling, what it is, and how far up the sky is (a notch of a cave pond had been "under a roof")', () => {
+    expect(whereNow(mine()).text).toContain('underground, the ceiling 2 m up (stone), the open sky some 41 blocks up');
   });
 });
 
@@ -150,6 +150,21 @@ describe('the ways out, as a player sees them in a fight', () => {
     };
     return { entity: { position: new Vec3(0.5, 64, 0.5) }, blockAt, game: { minY: -64, height: 384, dimension: 'overworld' } } as unknown as Bot;
   }
+
+  it('up on a pillar, says so: how far above the ground it stands on every side; on the ground, nothing of the kind', () => {
+    // Three blocks of planks on grass, the feet on top of them.
+    const blockAt = (p: Vec3) => {
+      const f = p.floored();
+      const pillar = f.x === 0 && f.z === 0 && f.y >= 64 && f.y <= 66;
+      const ground = f.y === 63;
+      return { position: f, name: pillar ? 'oak_planks' : ground ? 'grass_block' : 'air', boundingBox: pillar || ground ? 'block' : 'empty', getProperties: () => ({}), skyLight: 15 };
+    };
+    const bot = (x: number, y: number) => ({ entity: { position: new Vec3(x, y, 0.5) }, blockAt, game: { minY: -64, height: 384, dimension: 'overworld' }, world: {}, time: { timeOfDay: 1000 } }) as unknown as Bot;
+    expect(whereNow(bot(0.5, 67)).text).toContain('standing on oak planks, up 3 m above the ground on every side');
+    // At its foot, on the grass beside it: nothing of the kind.
+    expect(whereNow(bot(2.5, 64)).text).toContain('standing on grass block');
+    expect(whereNow(bot(2.5, 64)).text).not.toContain('above the ground');
+  });
 
   it('says how far each way goes on foot, and what stops it: a wall to dig into, water, a drop', () => {
     const w = waysOut(field()) ?? '';

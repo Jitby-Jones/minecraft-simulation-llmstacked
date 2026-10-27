@@ -42,7 +42,8 @@ export interface BlockNote {
  */
 export interface BlockChange {
   pos: Vec3;
-  kind: 'broken' | 'placed' | 'opened' | 'closed';
+  /** fell: a block that falls (gravel, sand) came down, from there (`was` is it) or onto there (`now` is it). */
+  kind: 'broken' | 'placed' | 'opened' | 'closed' | 'fell';
   /** What was there, and what is there now. */
   was: string;
   now: string;

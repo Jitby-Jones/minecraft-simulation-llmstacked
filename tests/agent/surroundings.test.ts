@@ -122,6 +122,31 @@ describe('noticing what changes around us', () => {
     expect(x.store.state.perception.blockChanges).toEqual([]);
   });
 
+  it("gravel let down by one's own dig is seen falling, not broken nor blown up: the column over the head, and where it lands", async () => {
+    const x = watching({ sheltered: false });
+    // Our dig of the dirt over our head lets down the gravel over it, three high, onto where we stand.
+    x.bot.targetDigBlock = { position: new Vec3(0, 66, 0) };
+    x.change(0, 66, 0, 'dirt', 'air');
+    x.bot.targetDigBlock = null;
+    for (const y of [67, 68, 69]) x.change(0, y, 0, 'gravel', 'air');
+    x.change(0, 64, 0, 'air', 'gravel');
+    await wait(500);
+    x.watch.stop();
+    const kept = x.store.state.perception.blockChanges;
+    expect(kept.map((c) => c.kind)).toEqual(['fell', 'fell', 'fell', 'fell']);
+    expect(kept.some((c) => c.by !== undefined)).toBe(false);
+    const words = kept.map(describeChange);
+    expect(words.slice(0, 3).every((w) => /^gravel .+ fell$/.test(w))).toBe(true);
+    expect(words[3]).toMatch(/^gravel fell and landed /);
+    // Set down by someone at it, it is a placing still.
+    const y = watching({ sheltered: false });
+    y.store.update('perception', (p) => ({ ...p, observedActions: [{ id: 'a1', actor: 'Bram', kind: 'place', pos: { x: 1, y: 64, z: 1 }, ts: Date.now() }] }), 'test');
+    y.change(1, 64, 1, 'air', 'sand');
+    await wait(500);
+    y.watch.stop();
+    expect(y.store.state.perception.blockChanges[0]).toMatchObject({ kind: 'placed', now: 'sand', by: 'Bram' });
+  });
+
   it('a hole patched (by anyone) is no longer kept; a blast is told as one; a door is told once', async () => {
     const x = watching();
     x.change(-1, 64, 0, 'dirt', 'air');

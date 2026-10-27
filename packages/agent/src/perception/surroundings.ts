@@ -46,6 +46,8 @@ const OWN_DIG_MS = 3000;
 const NOISE =
   /^(air|cave_air|void_air|water|lava|bubble_column|fire|soul_fire|snow|light|moving_piston|short_grass|tall_grass|fern|large_fern|dead_bush|vine|glow_lichen|seagrass|tall_seagrass|kelp|kelp_plant|sugar_cane|wheat|carrots|potatoes|beetroots|sweet_berry_bush|cocoa|melon_stem|pumpkin_stem|cave_vines|cave_vines_plant|hanging_roots|moss_carpet|frogspawn|pink_petals|dandelion|poppy|blue_orchid|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|sunflower|lilac|rose_bush|peony|wither_rose|brown_mushroom|red_mushroom)$|_(leaves|sapling|tulip)$/;
 const OPENABLE = /_(door|trapdoor|fence_gate)$/;
+/** Blocks that come down when nothing holds them up. */
+const FALLS = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|dragon_egg|\w+_concrete_powder)$/;
 interface BlockState {
   name: string;
   open?: boolean;
@@ -66,9 +68,11 @@ export function classify(was: BlockState, now: BlockState): BlockChange['kind'] 
 
 /** A change as one would put it: "the dirt of your shelter beside you to the north, at head height, was broken by a zombie". */
 export function describeChange(c: BlockChange): string {
-  const thing = (c.kind === 'placed' ? c.now : c.was).replace(/_/g, ' ');
+  const landed = c.kind === 'fell' && FALLS.test(c.now);
+  const thing = (c.kind === 'placed' || landed ? c.now : c.was).replace(/_/g, ' ');
   const whose = c.ours === 'shelter' ? `the ${thing} of your shelter` : c.ours === 'hut' ? `the ${thing} of the hut` : c.ours === 'chest' ? 'the village chest' : c.ours === 'placed' ? `the ${thing} you set down` : `a ${thing}`;
   const by = c.by ? ` by ${c.by}` : '';
+  if (c.kind === 'fell') return landed ? `${thing} fell and landed ${c.where}` : `${thing} ${c.where} fell`;
   if (c.kind === 'placed') return `${c.by ? `${c.by} set down` : 'someone set down'} ${thing} ${c.where}`;
   return `${whose} ${c.where} was ${c.kind}${by}`;
 }
@@ -150,8 +154,14 @@ export class SurroundingsWatch {
     if (kept.some((c) => keyOf(c.pos) === key)) {
       this.o.store.update('perception', (p) => ({ ...p, blockChanges: p.blockChanges.filter((c) => keyOf(c.pos) !== key) }), 'block changed again');
     }
-    const kind = classify({ name: old.name, open: openOf(old) }, { name: cur.name, open: openOf(cur) });
+    let kind = classify({ name: old.name, open: openOf(old) }, { name: cur.name, open: openOf(cur) });
     if (!kind) return;
+    const t = this.now();
+    // What comes down by its own weight (gravel, sand) is seen falling, not broken: it goes from a cell with nothing
+    // under it, and lands where nobody set it down. Gravel over a stair dug up fell on an agent's head; told "broken by
+    // an explosion", its mind dug up into it again and suffocated.
+    if (kind === 'broken' && FALLS.test(old.name) && bot.blockAt(pos.offset(0, -1, 0))?.boundingBox !== 'block') kind = 'fell';
+    else if (kind === 'placed' && FALLS.test(cur.name) && !this.swungBy(pos, t)) kind = 'fell';
     // Our own doing: what we dig (checked again when told), and what we set down (checked when told).
     if (kind === 'broken' && bot.targetDigBlock?.position.equals(pos)) this.dug.set(key, this.now());
     const me = bot.entity.position;
@@ -162,9 +172,8 @@ export class SurroundingsWatch {
     const sheltered = this.sheltered();
     const touching = d <= TOUCH || (sheltered && isShelterCell(feet, pos));
     if (!touching && !canSeeBlock(bot, pos, SIGHT)) return;
-    const t = this.now();
-    const ours = this.oursOf(pos, key, feet, sheltered, kind);
-    const by = this.byWhom(pos, t);
+    const ours = kind === 'fell' ? undefined : this.oursOf(pos, key, feet, sheltered, kind);
+    const by = kind === 'fell' ? undefined : this.byWhom(pos, t);
     const change: BlockChange = { pos: { x: pos.x, y: pos.y, z: pos.z }, kind, was: old.name, now: cur.name, ...(by ? { by } : {}), ...(ours ? { ours } : {}), where: whereFrom(feet, pos), ts: t };
     this.pending.push({ change, key });
     this.flushTimer ??= setTimeout(() => this.flush(), SETTLE_MS);
@@ -181,16 +190,22 @@ export class SurroundingsWatch {
     return undefined;
   }
 
+  /** Someone else who swung or set something down within reach of it just now. */
+  private swungBy(pos: Vec3, t: number): string | undefined {
+    const c = pos.offset(0.5, 0.5, 0.5);
+    return [...this.o.store.state.perception.observedActions]
+      .reverse()
+      .find((a) => (a.kind === 'swing' || a.kind === 'place') && a.actor !== this.o.me && a.pos && t - a.ts < 1500 && Math.hypot(a.pos.x - c.x, a.pos.y - c.y, a.pos.z - c.z) <= 4.5)?.actor;
+  }
+
   /** Who was at it: a person who dug or swung there just now, else a person or a mob right beside it. */
   private byWhom(pos: Vec3, t: number): string | undefined {
     const seen = this.o.store.state.perception.observedActions;
     const dug = [...seen].reverse().find((a) => a.kind === 'dig' && a.pos && keyOf(a.pos) === keyOf(pos) && t - a.ts < 15_000);
     if (dug) return dug.actor === this.o.me ? undefined : dug.actor;
+    const swung = this.swungBy(pos, t);
+    if (swung) return swung;
     const c = pos.offset(0.5, 0.5, 0.5);
-    const swung = [...seen]
-      .reverse()
-      .find((a) => (a.kind === 'swing' || a.kind === 'place') && a.actor !== this.o.me && a.pos && t - a.ts < 1500 && Math.hypot(a.pos.x - c.x, a.pos.y - c.y, a.pos.z - c.z) <= 4.5);
-    if (swung) return swung.actor;
     const bot = this.o.bot;
     const e = bot.nearestEntity((x) => x !== bot.entity && ['player', 'hostile', 'mob'].includes(x.type) && x.position.offset(0, (x.height ?? 1.8) / 2, 0).distanceTo(c) <= 2.5);
     if (!e) return undefined;
@@ -202,7 +217,10 @@ export class SurroundingsWatch {
     // What we set down or dug ourselves is no news (noted just after the block changes).
     const t = this.now();
     for (const [k, at] of this.dug) if (t - at > OWN_DIG_MS) this.dug.delete(k);
-    const batch = this.pending.splice(0).filter((p) => !(p.change.kind === 'placed' ? this.o.placed.has(p.key) : this.dug.has(p.key)));
+    // A fall is news whoever's dig let it down; what lands where we set it down just now was ours.
+    const ownDoing = (p: Pending) =>
+      p.change.kind === 'placed' || (p.change.kind === 'fell' && FALLS.test(p.change.now)) ? this.o.placed.has(p.key) : p.change.kind !== 'fell' && this.dug.has(p.key);
+    const batch = this.pending.splice(0).filter((p) => !ownDoing(p));
     if (batch.length === 0) return;
     const changes = batch.map((p) => p.change);
     // Several blocks gone at once, nobody at them: a blast.

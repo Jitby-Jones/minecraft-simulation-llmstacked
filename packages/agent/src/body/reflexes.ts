@@ -543,9 +543,11 @@ export class ReflexController {
   }
 
   /**
-   * Out from under what came down on one's head, as a player does: dug at once (with a shovel for gravel or sand),
-   * and what is in one's feet too, then a step aside before the rest of it comes down. An agent at work in a tunnel
-   * suffocated in the gravel from 13 health, the dig going on about it.
+   * Out from under what came down on one's head, as a player does: a step out of it where there is one (aside, or back
+   * down the stair one came up), and dug only where there is none (with a shovel for gravel or sand), what is in one's
+   * feet too. An agent at work in a tunnel suffocated in the gravel from 13 health, the dig going on about it; another,
+   * on a stair dug up under gravel, dug at the column coming down for nine seconds (19 health to 3), the step it had
+   * come up from open behind it.
    */
   private async digOut(): Promise<void> {
     const bot = this.bot;
@@ -556,37 +558,44 @@ export class ReflexController {
     }
     bot.clearControlStates();
     for (let i = 0; i < DIG_OUT_MAX && bot.health > 0; i++) {
-      const head = this.smotheredBy();
-      const b = head ?? this.wholeBlockAt(0.2);
-      if (b) {
-        if (!bot.canDigBlock(b)) return;
-        const tool = bot.pathfinder.bestHarvestTool(b);
-        if (tool && bot.heldItem?.name !== tool.name) await bot.equip(tool, 'hand').catch(() => undefined);
-        await bot.dig(b, true).catch(() => undefined);
-        // More of it over us, coming down: out from under it now, before it lands (dug block by block as each came
-        // down, a column of gravel took one from 13 health to none). Else again: more may have come, and the feet.
-        if (!(head && FALLS.test(bot.blockAt(head.position.offset(0, 1, 0))?.name ?? '') && this.wholeBlockAt(0.2) === null)) continue;
-      }
-      // Head and feet clear: out from under it.
-      const aside = this.openBeside();
-      if (!aside) return;
-      await bot.lookAt(aside.offset(0.5, 1.6, 0.5), true).catch(() => undefined);
-      bot.setControlState('forward', true);
-      for (let t = 0; t < 8 && !bot.entity.position.floored().equals(aside); t++) await new Promise((r) => setTimeout(r, 100));
-      bot.setControlState('forward', false);
-      return;
+      const out = this.openBeside();
+      if (out && (await this.stepInto(out))) return;
+      const b = this.smotheredBy() ?? this.wholeBlockAt(0.2);
+      if (!b || !bot.canDigBlock(b)) return;
+      const tool = bot.pathfinder.bestHarvestTool(b);
+      if (tool && bot.heldItem?.name !== tool.name) await bot.equip(tool, 'hand').catch(() => undefined);
+      await bot.dig(b, true).catch(() => undefined);
     }
   }
 
-  /** A cell beside one's feet to step into: room to stand, ground under it, nothing over it that falls. Back the way we came first. */
+  /** A step into a cell beside, a step up or down too: true once there. One walks out of what fell on one. */
+  private async stepInto(p: Vec3): Promise<boolean> {
+    const bot = this.bot;
+    await bot.lookAt(p.offset(0.5, 1.6, 0.5), true).catch(() => undefined);
+    bot.setControlState('forward', true);
+    if (p.y > Math.floor(bot.entity.position.y)) bot.setControlState('jump', true);
+    for (let t = 0; t < 10 && !bot.entity.position.floored().equals(p); t++) await new Promise((r) => setTimeout(r, 100));
+    bot.clearControlStates();
+    return bot.entity.position.floored().equals(p);
+  }
+
+  /**
+   * A cell beside one's feet to step into: room to stand, ground under it, nothing over it that falls; a step down
+   * (room over it to step in at one's own height) or up (room over one's head to jump) too. Back the way we came first.
+   */
   private openBeside(): Vec3 | null {
     const bot = this.bot;
     const me = bot.entity.position.floored();
     const last = [...this.trail].reverse().find((p) => !p.equals(me));
-    const sides = SIDES.map((d) => me.plus(d)).sort((a, b) => (last ? a.distanceTo(last) - b.distanceTo(last) : 0));
-    for (const p of sides) {
-      const over = bot.blockAt(p.offset(0, 2, 0))?.name ?? '';
-      if (isAirLike(bot.blockAt(p)) && isAirLike(bot.blockAt(p.offset(0, 1, 0))) && isSolid(bot.blockAt(p.offset(0, -1, 0))) && !FALLS.test(over)) return p;
+    const roomUp = isAirLike(bot.blockAt(me.offset(0, 2, 0)));
+    const cells: Vec3[] = [];
+    for (const d of SIDES) for (const dy of [0, -1, 1]) if (dy < 1 || roomUp) cells.push(me.plus(d).offset(0, dy, 0));
+    cells.sort((a, b) => (last ? a.distanceTo(last) - b.distanceTo(last) : 0));
+    for (const p of cells) {
+      const over = bot.blockAt(p.offset(0, 2, 0));
+      if (!isAirLike(bot.blockAt(p)) || !isAirLike(bot.blockAt(p.offset(0, 1, 0))) || !isSolid(bot.blockAt(p.offset(0, -1, 0)))) continue;
+      if (p.y < me.y ? !isAirLike(over) : FALLS.test(over?.name ?? '')) continue;
+      return p;
     }
     return null;
   }
