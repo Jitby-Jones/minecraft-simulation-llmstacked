@@ -7,7 +7,7 @@
 // each also goes to long-term memory by way of working memory.
 
 import type { ActionRecord, AgentState, AssignedTask, Lesson, Logger } from '@agora/shared';
-import { type LlmClient, SingleFlight } from '@agora/llm';
+import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
 import { personaCore } from '../modules/prompts';
@@ -140,7 +140,7 @@ export function matchTask(tasks: readonly AssignedTask[], text: string): Assigne
  * none of them done: one of them all four of hers by 77 minutes.
  */
 const UNDER_WAY =
-  /\b(in progress|ready (for|to)|not (yet|finished|done|complete|completed|over|there)|unfinished|incomplete|ongoing|under ?way|still (need|needs|to|working|going|getting|gathering|building|making|looking|searching|short|missing|lacking|without|pursuing)|working (on|toward|towards)|actively|pursuing|about to|on my way|(i|we) ?('ll|’ll|will|shall|am going to|are going to|plan to|intend to|mean to)|almost|nearly|partly|partially|halfway|progress|for now|yet|later|tomorrow|soon|plan|planned|planning|need to|needs to|have to|has to|must)\b/i;
+  /\b(in progress|ready (for|to)|on (track|the way|my way)|not (yet|finished|done|complete|completed|over|there)|unfinished|incomplete|ongoing|under ?way|still (need|needs|to|working|going|getting|gathering|building|making|looking|searching|short|missing|lacking|without|pursuing)|working (on|toward|towards)|actively|pursuing|about to|(i|we) ?('ll|’ll|will|shall|am going to|are going to|plan to|intend to|mean to)|almost|nearly|partly|partially|halfway|progress|for now|yet|later|tomorrow|soon|plan|planned|planning|need to|needs to|have to|has to|must)\b/i;
 /** And those with which one puts a task off, not gives it up ("I'll tackle that after the hut is built"). */
 const PUT_OFF = /\b(first|after|once|until|when|before|come back|return to|tackle|focus on)\b/i;
 
@@ -153,6 +153,24 @@ export function speaksOf(t: AssignedTask, text: string): boolean {
   const said = [...words(text.replace(BY_NUMBER, ''))].map(stem);
   if (said.every((w) => /^(done|finished|complete|completed|now|yes|all|it)$/.test(w))) return true;
   return aboutWords(t.text).some((w) => said.includes(w));
+}
+
+export const SecondLookSchema = z.object({ holds: z.boolean(), why: z.string().max(200).default('') });
+
+/**
+ * The second look a player takes before ticking a task off: from what they said and what they have, is it done (or, a
+ * task given up, given up for good)? Word-checks let by "#1: I have the logs needed for tools, on track toward
+ * diamonds" (that closed "Obtain 12 diamonds") and "a bed-less shelter for this night" (that closed the bed).
+ */
+export function secondLookMessages(task: string, said: string, status: 'done' | 'dropped', facts: readonly string[]): ChatMessage[] {
+  const ask =
+    status === 'done'
+      ? 'Judge whether the task, as it was given, is wholly done now. Being on the way, having what goes into it, a plan, a step of a plan done, or something else done instead is not done.'
+      : 'Judge whether they give the task up for good (it will not be done by them). Putting it off, waiting on something first, or saying how it goes is not giving it up.';
+  return [
+    { role: 'system', content: `You are the second look a Minecraft player takes before ticking off a task they were given. ${ask} JSON: {"holds": true|false, "why": "..."}` },
+    { role: 'user', content: `The task: ${task}\nThey said: ${said}\n${facts.join('\n')}` },
+  ];
 }
 
 /** Whether a task said to be done is said to be under way, or one said to be given up is put off. */

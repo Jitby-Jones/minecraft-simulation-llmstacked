@@ -43,7 +43,7 @@ import type { MindLevers } from './levers';
 import { mindSystemPrompt } from './prompts';
 import { URGENT_STRENGTH } from '../mind/expectations';
 import { cueFrom } from '../mind/later';
-import { addLesson, doneAsItSetsOut, matchTask, saysUnfinished, speaksOf, taskNo } from '../mind/learning';
+import { SecondLookSchema, addLesson, doneAsItSetsOut, matchTask, saysUnfinished, secondLookMessages, speaksOf, taskNo } from '../mind/learning';
 import { tidyDecision } from './decisionTidy';
 import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
@@ -1113,6 +1113,8 @@ export class CognitiveController {
   private beat: NodeJS.Timeout | null = null;
   /** Decisions held back by the rate cap: cleared on stop, so none fires into a stopped agent. */
   private readonly waiting = new Set<NodeJS.Timeout>();
+  /** Second looks at tasks said to be done, called off when the mind stops. */
+  private readonly checks = new AbortController();
   private stopped = false;
   private lastDecisionAt = 0;
   /**
@@ -1276,6 +1278,7 @@ export class CognitiveController {
 
   stop(): void {
     this.stopped = true;
+    this.checks.abort();
     if (this.beat) clearInterval(this.beat);
     this.beat = null;
     for (const t of this.waiting) clearTimeout(t);
@@ -1899,8 +1902,58 @@ export class CognitiveController {
       // Done is said of the task itself, not of what goes into it.
       const notOfIt = !unfinished && !hoped && status === 'done' && !speaksOf(t, text);
       const note = unfinished ? `${status === 'done' ? UNDER_WAY_NOTE : PUT_OFF_NOTE} "${text}"` : hoped ? `${MEANT_DONE} "${text}"` : notOfIt ? `${NOT_OF_IT} "${text}"` : null;
-      store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : note ? { ...x, note } : { ...x, status, note: text })) }), unfinished ? 'task under way' : hoped ? 'task meant done' : notOfIt ? 'task not said of' : `task ${status}`);
+      if (note) {
+        store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : { ...x, note })) }), unfinished ? 'task under way' : hoped ? 'task meant done' : 'task not said of');
+        continue;
+      }
+      this.secondLook(t, text, status);
     }
+  }
+
+  /**
+   * A task ticked off only after a second look (the check's model): from what was said and what one has, is it done, or
+   * given up for good? Not so, or no answer, and it stays open with why.
+   */
+  private secondLook(t: AssignedTask, text: string, status: 'done' | 'dropped'): void {
+    const { store, logger } = this.o;
+    const apply = (holds: boolean, why: string): void => {
+      store.update(
+        'goals',
+        (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id || x.status !== 'open' ? x : holds ? { ...x, status, note: text } : { ...x, note: `${SECOND_LOOK} ${why || 'it is not so'}: "${text}"` })) }),
+        holds ? `task ${status}` : 'task not so on a second look',
+      );
+      logger.info({ module: 'cc', task: t.text, said: text, status, holds, why }, 'a task, looked at again');
+    };
+    const llm = this.o.llm;
+    if (!llm || isOff(store.state, 'cc.llm')) {
+      apply(true, '');
+      return;
+    }
+    const s = store.state;
+    const facts = [
+      `They carry: ${s.self.inventory.map((st) => `${st.qty} ${st.item}`).join(', ') || 'nothing'}; wearing ${s.self.armor.join(', ') || 'no armor'}.`,
+      `They are in ${String(s.self.dimension ?? 'overworld').replace(/^minecraft:/, '')}.`,
+      ...(s.family.partner ? [`Their partner: ${s.family.partner}.`] : []),
+      ...((s.village.rooms ?? []).length > 0 ? [`Huts of their own with a room inside: ${(s.village.rooms ?? []).length}.`] : []),
+    ];
+    void llm
+      .call<{ holds: boolean; why: string }>({
+        tier: 'L1',
+        module: 'cc',
+        thought: 'check',
+        agent: this.o.me,
+        schema: SecondLookSchema,
+        schemaName: 'secondLook',
+        fallback: () => ({ holds: false, why: 'no second look could be taken' }),
+        messages: secondLookMessages(t.text, text, status, facts),
+        signal: this.checks.signal,
+        isStale: () => (store.state.goals.tasks ?? []).find((x) => x.id === t.id)?.status !== 'open',
+      })
+      .then((r) => {
+        if (!r.ok && (r.reason === 'stale' || r.reason === 'aborted')) return;
+        apply(r.ok && r.value.holds, r.ok ? r.value.why : 'no second look could be taken');
+      })
+      .catch((err: unknown) => logger.warn({ module: 'cc', err: String(err) }, 'second look failed'));
   }
 
   /** Someone gives this agent a task (owner request, 2026-10-24): it is taken on, and thought about now. */
@@ -1924,5 +1977,7 @@ const UNDER_WAY_NOTE = 'still yours, under way as you said:';
 const PUT_OFF_NOTE = 'still yours, put off as you said:';
 /** The note on a task said to be done in words that were not of it. */
 const NOT_OF_IT = 'still yours: you said it was done, but not of the task itself:';
+/** The note on a task said to be done (or given up) that a second look found not so. */
+const SECOND_LOOK = 'still yours: on a second look,';
 /** What could not be done is kept in mind this long. */
 export const RULED_OUT_MS = 10 * 60_000;

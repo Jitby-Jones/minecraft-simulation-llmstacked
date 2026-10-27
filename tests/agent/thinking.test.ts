@@ -871,6 +871,7 @@ describe('lessons and tasks', () => {
     ]) expect(saysUnfinished(said, 'done'), said).toBe(false);
     expect(saysUnfinished('#2: Bram built it already; it is not mine to do', 'dropped')).toBe(false);
     expect(saysUnfinished('#1: I have at least 20 logs mixed between oak and spruce, ready for planks and the village chest.', 'done')).toBe(true);
+    expect(saysUnfinished('#1: I have the logs needed for tools, on track toward diamonds.', 'done')).toBe(true);
   });
 
   it('done is said of the task itself, not of what goes into it', () => {
@@ -1125,7 +1126,13 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
       { thought: 'Down to the cod.', option: 'work', task: { skill: 'attack', args: { target: 'cod', seconds: 10 } }, then: [{ skill: 'pickup', args: {} }], terminate: { maxSeconds: 60 }, rationale: 'fish', taskDone: '#1: killed a cod and picked it up' },
       { thought: 'Got it. Cook it.', option: 'work', task: { skill: 'smelt', args: { item: 'cod', qty: 1 } }, terminate: { maxSeconds: 60 }, rationale: 'food', taskDone: '#1: caught a fish, a cod, and I have it now' },
     ];
+    const looks: string[] = [];
     fake.chat = ({ body }) => {
+      if (schemaNameOf(body) === 'secondLook') {
+        const asked = String((body?.messages as { content: string }[] | undefined)?.at(-1)?.content);
+        looks.push(asked);
+        return { text: /bed-less/.test(asked) ? '{"holds": false, "why": "a hole in a cliff is no bed, and nobody slept in one"}' : '{"holds": true, "why": "it is there"}' };
+      }
       if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
       return { text: JSON.stringify(replies.shift() ?? { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'x' }) };
     };
@@ -1146,10 +1153,11 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     expect(noted?.status).toBe('open');
     expect(noted?.note).toBe('you said it was done as you set out to do it: "#1: killed a cod and picked it up"');
     expect(buildPacket({ state: s.state, levers: leversFor(0.5), reason: 'x', now: Date.now() })).toContain('#1 Catch a fish. (from the operator, 0s ago) [you said it was done as you set out to do it:');
-    // Said again in a later thought: done.
+    // Said again in a later thought, and so on a second look: done.
     bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
-    for (let i = 0; i < 160 && decided.length < 2; i++) await wait(25);
+    for (let i = 0; i < 160 && s.state.goals.tasks?.find((t) => t.id === fish.id)?.status !== 'done'; i++) await wait(25);
     expect(s.state.goals.tasks?.find((t) => t.id === fish.id)).toMatchObject({ status: 'done', note: '#1: caught a fish, a cod, and I have it now' });
+    expect(looks[0]).toMatch(/^The task: Catch a fish\.\nThey said: #1: caught a fish, a cod, and I have it now\nThey carry: /);
     cc.stop();
   });
 
@@ -1160,7 +1168,13 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
       { thought: 'The cows are penned.', option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'done', taskDone: '#2: the pen is built and holds two cows' },
       { thought: 'More wood.', option: 'work', task: { skill: 'obtain', args: { item: 'oak_log', qty: 20 } }, terminate: { maxSeconds: 60 }, rationale: 'wood', taskDropped: "#1: I'll tackle that after the hut is built" },
     ];
+    const looks: string[] = [];
     fake.chat = ({ body }) => {
+      if (schemaNameOf(body) === 'secondLook') {
+        const asked = String((body?.messages as { content: string }[] | undefined)?.at(-1)?.content);
+        looks.push(asked);
+        return { text: /bed-less/.test(asked) ? '{"holds": false, "why": "a hole in a cliff is no bed, and nobody slept in one"}' : '{"holds": true, "why": "it is there"}' };
+      }
       if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
       return { text: JSON.stringify(replies.shift() ?? { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'x' }) };
     };
@@ -1183,7 +1197,7 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     for (let i = 0; i < 160 && decided.length === 0; i++) await wait(25);
     expect(s.state.goals.tasks?.find((t) => t.id === house.id)).toMatchObject({ status: 'open', note: 'still yours, under way as you said: "#1: making a house is in progress with Bram, but not finished yet"' });
     bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
-    for (let i = 0; i < 160 && decided.length < 2; i++) await wait(25);
+    for (let i = 0; i < 160 && s.state.goals.tasks?.find((t) => t.id === cows.id)?.status !== 'done'; i++) await wait(25);
     expect(s.state.goals.tasks?.find((t) => t.id === cows.id)?.status).toBe('done');
     // The cow farm behind, the food is still #3, and the house #1.
     const packet = buildPacket({ state: s.state, levers: leversFor(0.5), reason: 'x', now: Date.now() });
@@ -1193,6 +1207,12 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'rest' });
     for (let i = 0; i < 160 && decided.length < 3; i++) await wait(25);
     expect(s.state.goals.tasks?.find((t) => t.id === house.id)).toMatchObject({ status: 'open', note: 'still yours, put off as you said: "#1: I\'ll tackle that after the hut is built"' });
+    // Words of the task itself, and still not so: the second look keeps it open ("a bed-less shelter" closed the bed).
+    const bed = cc.giveTask('Make a bed and sleep in it.', 'the operator');
+    replies.push({ thought: 'A hole for the night.', option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'night', taskDone: '#4: a new hole in the cliff serves as a bed-less shelter for this night' });
+    bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'rest' });
+    for (let i = 0; i < 200 && !s.state.goals.tasks?.find((t) => t.id === bed.id)?.note; i++) await wait(25);
+    expect(s.state.goals.tasks?.find((t) => t.id === bed.id)).toMatchObject({ status: 'open', note: 'still yours: on a second look, a hole in a cliff is no bed, and nobody slept in one: "#4: a new hole in the cliff serves as a bed-less shelter for this night"' });
     cc.stop();
   });
 

@@ -3486,6 +3486,16 @@ What else the benchmark showed:
   reproduces it: a room 21 across and 10 high, two skeletons across it, the body hurt to 10 by its north wall. Before
   the change it was shot dead in 14 s; now it is in the wall and shut, alive, run after the other four cases with a
   block left in its hand.
+- **A second look before a task is ticked off.** The word-checks let two claims through in the next runs. "#1: I
+  have the logs needed for tools, on track toward diamonds" closed "Obtain 12 diamonds" at two minutes (`solo
+  (13)`). "#6: … a new hole in the cliff serves as a bed-less shelter for this night" closed "Make a bed and sleep in
+  it" (`novel (7)`). A claim that passes the word-checks now goes to the check's model, as a player takes a second
+  look. It gets the task, what was said, and what one carries and wears, the world one is in, a partner, and huts of
+  one's own. It is asked whether the task as given is wholly done (or, given up, given up for good). Only then is it
+  ticked off. Not so, or no answer, and it stays open with why ("still yours: on a second look, a hole in a cliff is
+  no bed …"). "On track" counts as under way. The live case `second-look` puts the runs' own claims to the real check
+  model: four false, five true, given up or put off. It could not be run yet: the subscription's weekly allowance ran
+  out at 18:23 UTC on 2026-10-27, mid-run, and it resets on 2026-11-02.
 - **A fight one chose is given up when it goes badly, not run from while still fought.** At sunrise in `novel (4)`,
   Ada went for a skeleton with two zombies at her back (`attack`, the mind's choice). Hurt below what the fight was
   worth, the body ran, but the attack went on pulling it back to the skeleton: she went from 15 health to 3 in seven
