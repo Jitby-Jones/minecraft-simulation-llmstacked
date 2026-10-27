@@ -793,4 +793,99 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     expect(decided.filter((d) => d.startsWith('intention:'))).toEqual(['intention:explore']);
     cc.stop();
   });
+
+  it('a step meant next waits for a thought already under way: what it decides comes first; going on with what is done, or no thought, and the step follows', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const pending: ((r: { text: string }) => void)[] = [];
+    let calls = 0;
+    let failing = false;
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      calls++;
+      if (calls === 1) {
+        const then = [
+          { skill: 'explore', args: { direction: 'east', distance: 120 } },
+          { skill: 'obtain', args: { item: 'white_wool', qty: 3 } },
+          { skill: 'obtain', args: { item: 'oak_log', qty: 4 } },
+        ];
+        return { text: JSON.stringify({ thought: 'Shears, then east for sheep.', option: 'work', task: { skill: 'obtain', args: { item: 'shears', qty: 1 } }, terminate: { maxSeconds: 300 }, rationale: 'shears keep the sheep alive', then }) };
+      }
+      if (failing && pending.length > 0) return { text: 'no idea' };
+      return new Promise((resolve) => pending.push(resolve));
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    cc.start();
+    const decided: string[] = [];
+    bus.on('decision', (e) => {
+      const a = e.decision.task?.args ?? {};
+      const what = typeof a.item === 'string' ? a.item : typeof a.direction === 'string' ? a.direction : '';
+      decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}:${what}`);
+    });
+    const until = async (ok: () => boolean) => {
+      for (let i = 0; i < 80 && !ok(); i++) await wait(25);
+    };
+    cc.giveTask('make a bed', 'the operator');
+    await until(() => decided.length === 1);
+    expect(decided).toEqual(['llm:obtain:shears']);
+    // Something to think about while the shears are got; the shears come before the thought does: the step waits.
+    cc.giveTask('light the base', 'the operator');
+    await until(() => pending.length === 1);
+    bus.emit({ type: 'optionTerminated', reason: 'done', ok: true, option: 'work' });
+    await wait(200);
+    expect(decided).toEqual(['llm:obtain:shears']);
+    // It decides something else: that comes first, and the steps meant are still to come after it.
+    pending.shift()?.({ text: JSON.stringify({ thought: 'Torches before I go.', option: 'work', task: { skill: 'obtain', args: { item: 'torch', qty: 4 } }, terminate: { maxSeconds: 120 }, rationale: 'light the base' }) });
+    await until(() => decided.length === 2);
+    expect(decided.at(-1)).toBe('llm:obtain:torch');
+    expect(s.state.mind.intention?.steps[0]).toEqual({ skill: 'explore', args: { direction: 'east', distance: 120 } });
+    bus.emit({ type: 'optionTerminated', reason: 'done', ok: true, option: 'work' });
+    await until(() => decided.length === 3);
+    expect(decided.at(-1)).toBe('intention:explore:east');
+    // A thought had while exploring that chose to go on exploring, come after the exploring is done: the thought is
+    // kept, and the next step follows (not the exploring again).
+    cc.giveTask('find a village', 'the operator');
+    await until(() => pending.length === 1);
+    bus.emit({ type: 'optionTerminated', reason: 'done', ok: true, option: 'work' });
+    pending.shift()?.({ text: JSON.stringify({ thought: 'Keep heading east; a village may be out there too.', option: 'work', task: { skill: 'explore', args: { direction: 'east', distance: 120 } }, terminate: { maxSeconds: 300 }, rationale: 'east' }) });
+    await until(() => decided.length === 4);
+    expect(decided.at(-1)).toBe('intention:obtain:white_wool');
+    expect(s.state.mind.thoughts.at(-1)?.text).toBe('Keep heading east; a village may be out there too.');
+    // No thought comes (the model's reply unusable): the step follows, with no fallback of the code's in its place.
+    cc.giveTask('make a sign', 'the operator');
+    await until(() => pending.length === 1);
+    failing = true;
+    bus.emit({ type: 'optionTerminated', reason: 'done', ok: true, option: 'work' });
+    pending.shift()?.({ text: 'no idea' });
+    await until(() => decided.length === 5);
+    expect(decided.at(-1)).toBe('intention:obtain:oak_log');
+    expect(s.state.mind.intention).toBeNull();
+    cc.stop();
+  });
+
+  it('doing now the step meant next takes it off what is to come', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = ({ body }) =>
+      schemaNameOf(body) !== 'decision' ? { text: '{"summary":"ok"}' } : { text: JSON.stringify({ thought: 'The wool first after all.', option: 'work', task: { skill: 'obtain', args: { item: 'white_wool', qty: 3 } }, terminate: { maxSeconds: 300 }, rationale: 'wool' }) };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    s.update('mind', (m) => ({ ...m, intention: { aim: 'a bed', steps: [{ skill: 'obtain', args: { item: 'white_wool', qty: 3 } }, { skill: 'obtain', args: { item: 'oak_planks', qty: 3 } }], from: 'd0', at: Date.now() } }), 'test');
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    cc.start();
+    let n = 0;
+    bus.on('decision', () => n++);
+    cc.giveTask('make a bed', 'the operator');
+    for (let i = 0; i < 80 && n === 0; i++) await wait(25);
+    expect(s.state.mind.intention?.steps).toEqual([{ skill: 'obtain', args: { item: 'oak_planks', qty: 3 } }]);
+    cc.stop();
+  });
 });

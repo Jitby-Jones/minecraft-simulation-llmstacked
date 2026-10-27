@@ -1126,6 +1126,11 @@ export class CognitiveController {
   private underFireQueued = false;
   /** A question put to us, still to be answered: a later reason to decide doesn't push it out of the queue. */
   private asked: { reason: string; ctx: DecideContext; at: number } | null = null;
+  /**
+   * What was under way ended, with a step meant after it, while a thought was being had: the step waits for the thought
+   * (see onEnded). `task` is the one that ended, `decisionId` its decision's.
+   */
+  private held: { at: number; ok: boolean; reason: string; task: string | null; decisionId: string | undefined } | null = null;
   private readonly now: () => number;
 
   private readonly rng: () => number;
@@ -1239,6 +1244,7 @@ export class CognitiveController {
     );
     this.beat = setInterval(() => {
       const s = this.o.store.state;
+      if (this.held) this.afterThought();
       if (s.flags.inDanger || s.flags.paused || this.flight.inFlight('cc')) return;
       if (this.o.executor.busy) {
         const opt = s.option;
@@ -1461,7 +1467,17 @@ export class CognitiveController {
         await this.decide(q.reason, q.ctx);
         if (ctx.urgent) this.trigger(reason, ctx);
       })
-      .catch((err: unknown) => this.o.logger.warn({ module: 'cc', reason, err: String(err) }, 'decision failed'));
+      .catch((err: unknown) => this.o.logger.warn({ module: 'cc', reason, err: String(err) }, 'decision failed'))
+      .finally(() => this.afterThought());
+  }
+
+  /** A thought is over: a step held for it follows, unless the thought decided something else meanwhile. */
+  private afterThought(): void {
+    const h = this.held;
+    if (!h || this.stopped || this.flight.inFlight('cc')) return;
+    this.held = null;
+    if (this.lastDecisionAt > h.at) return;
+    this.onEnded(h.ok, h.reason);
   }
 
   private checkGoal(): void {
@@ -1565,6 +1581,17 @@ export class CognitiveController {
     }
     // Under fire with no thought come (the model slow or down): the body's own response goes on.
     if (!out && ctx.emergency) return;
+    // No thought came while a step meant next waited for one: the step follows (afterThought), as meant.
+    if (!out && this.held && !ctx.from) return;
+    // A thought had while the last task was still under way chose to go on with it: it is done meanwhile, so the thought
+    // is taken in and the step meant after it follows (one placing a torch thought "keep lighting this spot"; placed
+    // again, the torch would have gone twice).
+    const h = this.held;
+    if (out && source === 'llm' && h?.task && out.task && taskKey(out.task.skill, out.task.args) === h.task) {
+      logger.info({ module: 'cc', task: out.task, rationale: out.rationale }, 'decided to go on with what is done meanwhile; on to the next step');
+      this.takeIn(out, h.decisionId ?? store.state.decision?.id ?? '');
+      return;
+    }
     if (!out) {
       const candidates = this.o.socialCandidates?.() ?? [];
       const claim = this.o.claimToCheck?.();
@@ -1642,6 +1669,7 @@ export class CognitiveController {
       if (skill) decision.task = { skill: skill.name, args: decision.task.args };
     }
     this.lastDecisionAt = now;
+    this.held = null;
     this.ownOption = source === 'llm' || source === 'intention';
     store.set('decision', decision, `decision ${decision.option}`);
     // Warning someone off, or walking away from them, counts toward the next one (WARN_EVERY_MS).
@@ -1752,6 +1780,15 @@ export class CognitiveController {
       return;
     }
     if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && !s.flags.paused && this.now() - meant.at < INTENTION_MS) {
+      // A thought under way (something noticed, a reminder come) is finished first, as anyone finishes a thought before
+      // starting on the next thing: what it decides comes before the step, and the step follows if it decides nothing
+      // new. Started regardless, the step threw the thought away as stale (18 thoughts so in the runs of 2026-10-25,
+      // among them a "the sun is getting low" never thought about).
+      if (this.flight.inFlight('cc') && !s.flags.inDanger) {
+        const cur = s.option;
+        this.held = { at: this.now(), ok, reason, task: cur?.skill ? taskKey(cur.skill, cur.args ?? {}) : null, decisionId: cur?.decisionId };
+        return;
+      }
       const [step, ...rest] = meant.steps;
       this.o.store.update('mind', (m) => ({ ...m, intention: rest.length > 0 ? { ...meant, steps: rest } : null }), 'next step');
       if (step?.skill) {
@@ -1808,6 +1845,11 @@ export class CognitiveController {
         if (out.then) {
           const underFire = store.state.flags.inDanger;
           next = { ...next, intention: out.then.length > 0 ? { aim: out.rationale || out.thought || 'what I set out to do', steps: out.then.slice(0, 4), from: decisionId, at: now, health: store.state.self.health, night: !store.state.self.isDay, ...(underFire ? { underFire: true } : {}) } : null };
+        } else if (out.task && next.intention) {
+          // Doing now the step one meant next is doing it: it is no longer to come (chosen so, rotten flesh was eaten
+          // twice and a block placed twice, the step run again when the choice was done).
+          const [first, ...rest] = next.intention.steps;
+          if (first?.skill && taskKey(first.skill, first.args ?? {}) === taskKey(out.task.skill, out.task.args)) next = { ...next, intention: rest.length > 0 ? { ...next.intention, steps: rest } : null };
         }
         if (out.later) {
           const cue = cueFrom(out.later.when, now, store.state.self.isDay);
