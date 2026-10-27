@@ -730,10 +730,12 @@ export function waysOut(bot: Bot): string | null {
       if (dx !== 0 && dz !== 0) {
         const px = x - dx;
         const pz = z - dz;
-        const side = (sx: number, sz: number): boolean => wayFree(at(sx, y, sz)) && wayFree(at(sx, y + 1, sz));
+        // Water at a corner is passed through; a block, or what hurts or holds one, is not.
+        const past = (b: { name: string; boundingBox: string } | null): boolean => b !== null && (wayFree(b) || /^(water|bubble_column)$/.test(b.name));
+        const side = (sx: number, sz: number): boolean => past(at(sx, y, sz)) && past(at(sx, y + 1, sz));
         if (!side(x, pz) && !side(px, z)) {
-          const corner = at(x, y, pz) ?? at(x, y + 1, pz);
-          stop = `${corner && corner.boundingBox === 'block' ? nice(corner.name) : 'the way'} in the way`;
+          const corner = [at(x, y, pz), at(x, y + 1, pz), at(px, y, z), at(px, y + 1, z)].find((b) => b && !past(b));
+          stop = `${corner ? nice(corner.name) : 'a corner'} in the way`;
           break;
         }
       }
@@ -753,7 +755,8 @@ export function waysOut(bot: Bot): string | null {
           continue;
         }
         const wall = wayFree(body) ? head : body;
-        stop = `${wall.boundingBox === 'block' ? nice(wall.name) : 'the way'} in the way`;
+        // Named, whatever it is: "the way in the way" was said of a berry bush, a cobweb, a fence.
+        stop = `${nice(wall.name)} in the way`;
         break;
       }
       // Nothing underfoot there: a step or three down, or a drop.

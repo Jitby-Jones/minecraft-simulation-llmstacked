@@ -236,6 +236,23 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
     }
   });
 
+  it('give in a shelter one wide, no room to step back: they get them', async () => {
+    const o = await zone(true);
+    // A shelter one wide and two long, walled and roofed: Pip at one end, Bram at the other.
+    await server.cmd(`fill ${o.x - 1} ${Y} ${o.z - 1} ${o.x + 1} ${Y + 2} ${o.z + 2} minecraft:cobblestone`);
+    await server.cmd(`fill ${o.x} ${Y} ${o.z} ${o.x} ${Y + 1} ${o.z + 1} minecraft:air`);
+    await server.cmd(`tp Pip ${o.x}.5 ${Y} ${o.z}.5`);
+    await server.cmd(`tp Bram ${o.x}.5 ${Y} ${o.z + 1}.5`);
+    await server.cmd('give Pip minecraft:bread 2');
+    await sleep(1000);
+    const before = countItem(bram.bot, 'bread');
+    const g = await run(pip, 'give', { to: 'Bram', item: 'bread', qty: 2 });
+    await sleep(500);
+    await server.cmd(`fill ${o.x - 1} ${Y} ${o.z - 1} ${o.x + 1} ${Y + 2} ${o.z + 2} minecraft:air`);
+    expect(g.ok).toBe(true);
+    expect(countItem(bram.bot, 'bread')).toBeGreaterThanOrEqual(before + 2);
+  });
+
   it('follow keeps up with a moving person', async () => {
     const o = await zone(true);
     const ac = new AbortController();

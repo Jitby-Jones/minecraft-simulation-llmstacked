@@ -3464,8 +3464,10 @@ What else the benchmark showed:
   Two senses were wrong as well. The walk planner's empty way (no way at all) ended the run as if it had arrived, so
   it reported "fled to 6 blocks away" without a step. A flee is now judged by how far it got: "no way to run on foot
   from here", or "it kept up". The ways out also counted a diagonal between two blocks meeting at a corner, so one
-  "walled in on every side" had a way "north-east 3 m"; a corner now takes room at one side of it. A live case shuts
-  Pip in a room with a zombie outside and a pickaxe on her: the flee digs nothing and says there is no way.
+  "walled in on every side" had a way "north-east 3 m"; a corner now takes room at one side of it (water there is
+  passed through). Whatever stops a way is named: "the way in the way" had been said of a berry bush, a cobweb, a
+  corner. A live case shuts Pip in a room with a zombie outside and a pickaxe on her: the flee digs nothing and says
+  there is no way.
 - **The other click: `dig {x,y,z}`.** At dawn in `duo (9)`, Ada was shut in a plank shelter with Bram. She "used"
   an axe on the plank wall (a right click) again and again, tried to walk out and mine stone, and never got out. The
   hands could right-click a block (`use`) but had no left click: `mine` takes the nearest block of a kind, and
