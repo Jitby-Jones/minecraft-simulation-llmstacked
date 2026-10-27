@@ -239,6 +239,16 @@ describe('whether a monster near can get to one, as one sees it from where one i
     t.now = 13_000;
     eyes.tick(seen);
     expect(describeScene(s.state.scene, t.now).join('\n')).not.toContain('no way');
+    // Hit twice (it flashes red each time): counted, as one fighting it counts; a minute on, forgotten.
+    w.bot.emit('entityHurt', zombie);
+    t.now = 13_500;
+    w.bot.emit('entityHurt', zombie);
+    t.now = 15_000;
+    eyes.tick(seen);
+    expect(describeScene(s.state.scene, t.now).join('\n')).toContain('a zombie (hostile), 4 m east: standing still, hit 2 times lately');
+    t.now = 80_000;
+    eyes.tick(seen);
+    expect(describeScene(s.state.scene, t.now).join('\n')).not.toContain('hit 2 times');
     eyes.stop();
   });
 });

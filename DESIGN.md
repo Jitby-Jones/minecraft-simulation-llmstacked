@@ -3168,6 +3168,18 @@ What else the benchmark showed:
   the open, or with ground not loaded, nothing is said. With it, the pillar case's model saw that "a zombie is three
   meters below but can't reach me" three times of three. It still went for its hut 53 m off, for food, which is its
   own judgment.
+- **A night fight, as a player fights it.** In `duo (41)`, Bram met one zombie at night with 20 health and a wooden
+  sword. The body landed four of the five blows it takes and then ran at 10 health, its threshold. Under fire, his mind
+  chose to gather 3 dirt with 21 already in his pockets (it thought a hut needed more), was hit twice, and died. Now:
+  - The body swings once more rather than turn its back when one foe is at hand, none other near, the foe one of our
+    blows from done (its health is in the game's data, as the red flash tells a player), and what it would do to us
+    meanwhile is under half our health.
+  - Each creature's blows lately are seen, as one fighting it counts them: "a zombie (hostile), 2 m east: walking,
+    toward you, hit 4 times lately". What the game knows says a zombie takes 5 blows of a wooden sword, 4 of a stone
+    or iron one.
+  - The hands can tower up: `place {block, toward: down, count}` sets a block under one's feet at the top of a jump,
+    count times, and says how high one stands ("up 3 m above the ground on every side"). Before, only the body's
+    reflex could; a mind with 21 dirt and a zombie coming had no way to ask for it. Live: three dirt, up 3.
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes

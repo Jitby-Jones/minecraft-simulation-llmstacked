@@ -748,7 +748,7 @@ export class ReflexController {
     const me = this.bot.entity.position;
     const health = this.bot.health;
     const fleeAt = this.fleeThreshold(threats) + Math.max(0, ...threats.map((t) => this.hooks.fearBoost?.(entityLabel(t)) ?? 0));
-    if (health <= fleeAt) return true;
+    if (health <= fleeAt) return !this.oneMoreBlow(threats);
     // A creeper is kept away from, not met: the body's own fight only closes in on it until it hisses (one with a
     // stone sword swung once at a creeper 7 m off in a cave, and was blown from 20 health to none). The mind may still
     // choose to fight one, the way it is done (combat.ts).
@@ -779,6 +779,29 @@ export class ReflexController {
       difficulty: asDifficulty(this.bot.game.difficulty),
     });
     return expected > (health - fleeAt) * (1.3 - 0.6 * this.hooks.caution());
+  }
+
+  /**
+   * One foe at hand and no other near, one blow of ours from done, and what it does to us meanwhile far short of
+   * finishing us: a player swings once more rather than turn their back. One ran at 10 health from a zombie four blows
+   * down with a wooden sword, stopped to dig, and was killed.
+   */
+  private oneMoreBlow(threats: readonly Entity[]): boolean {
+    const me = this.bot.entity.position;
+    const near = threats.filter((t) => t.position.distanceTo(me) <= 8);
+    const foe = near[0];
+    if (near.length !== 1 || !foe || isPlayer(foe) || shoots(foe) || foe.name === 'creeper' || foe.name === 'warden') return false;
+    const hp = entityHealth(this.bot, foe);
+    const weapon = bestToHitWith(this.bot)?.name ?? null;
+    if (hp === undefined || hp <= 0 || hp > reckonBlow(weapon ?? undefined, [], this.hooks.combat())) return false;
+    const taken = expectedFightDamage({
+      threats: [{ name: foe.name ?? '', heldItem: null, hp }],
+      weapon,
+      armor: armorPoints(equippedArmor(this.bot)),
+      combat: this.hooks.combat(),
+      difficulty: asDifficulty(this.bot.game.difficulty),
+    });
+    return taken < this.bot.health / 2;
   }
 
   /** §21.3: novices hit whatever is nearest; trained fighters finish their target unless an attacker is closer. */

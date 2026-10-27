@@ -20,7 +20,7 @@ import { Vec3 } from 'vec3';
 import type { AgentBus } from '../bus';
 import { WORN, freeSlots, toolWear } from '../body/inventory';
 import { EDIBLE } from '../body/items';
-import { type Room, besideWords, biomeAt, canSeeBlock, isEnclosed, roomAround, roomBeside, roomWords, skyUp } from '../body/world';
+import { type Room, besideWords, biomeAt, canSeeBlock, isEnclosed, perchedHeight, roomAround, roomBeside, roomWords, skyUp } from '../body/world';
 import { Expectations, NOTICE_MS, URGENT_STRENGTH } from '../mind/expectations';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
@@ -474,29 +474,6 @@ export function whereNow(bot: Bot): { text: string; roofed: boolean } {
   return { text: parts.join(', '), roofed: roof !== null && roof <= 24 && sky < 8 };
 }
 
-/** Up on something with a drop of two or more on every side: the least of the four drops; null if not so perched. */
-export function perchedHeight(bot: Bot, feet: Vec3): number | null {
-  let least = Infinity;
-  for (const [dx, dz] of [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const) {
-    const side = feet.offset(dx, 0, dz);
-    if (!wayFree(bot.blockAt(side)) || !wayFree(bot.blockAt(side.offset(0, 1, 0)))) return null;
-    let drop = 0;
-    for (let dy = 1; dy <= 24; dy++) {
-      const b = bot.blockAt(side.offset(0, -dy, 0));
-      if (!b) return null;
-      if (b.boundingBox === 'block' || b.name === 'water') break;
-      drop++;
-    }
-    least = Math.min(least, drop);
-  }
-  return least >= 2 && Number.isFinite(least) ? least : null;
-}
-
 // ---- Ways out --------------------------------------------------------------------------------------------------------
 
 const WAY_DIRS: readonly (readonly [string, number, number])[] = [
@@ -783,6 +760,8 @@ const CREATURES_EVERY_MS = 1000;
 /** Monsters this near are looked at for a way to us on foot; worked out again when one moves, or after this. */
 const REACH_LOOK = 16;
 const REACH_EVERY_MS = 3000;
+/** The blows a creature took are kept this long (each one seen: it flashes red). */
+const HITS_MS = 60_000;
 /** When the sun is low enough to be noticed, with time left to get ready (dark at 13000 of the day's 24000 ticks; a minute is 1200). */
 const DUSK_AT = 10_800;
 /** Coming out into the night stands out so at most this often (in and out of a doorway is one coming out). */
@@ -803,6 +782,8 @@ export class SceneEyes {
   private ways: { key: string; at: number; text: string | null } = { key: '', at: 0, text: null };
   /** The monsters near with no way to us on foot, worked out again when one of us moves or a few seconds have gone. */
   private noWay: { key: string; at: number; ids: Set<number> } = { key: '', at: 0, ids: new Set() };
+  /** When each creature about was hit lately (it flashed red), by anyone. */
+  private readonly hits = new Map<number, number[]>();
   private notices: Notice[] = [];
   /** When an animal last caught a hungry eye. */
   private foodNoticedAt = -Infinity;
@@ -858,7 +839,16 @@ export class SceneEyes {
     });
     on('entityDead', (e: Entity) => {
       this.died.set(e.id, this.o.now());
+      this.hits.delete(e.id);
       this.ended(e);
+    });
+    // A creature hit flashes red, as anyone fighting one sees and counts: one fled at 10 health from a zombie four
+    // blows into the five a wooden sword takes, and was killed.
+    on('entityHurt', (e: Entity) => {
+      if (e === bot.entity) return;
+      const now = this.o.now();
+      this.hits.set(e.id, [...(this.hits.get(e.id) ?? []).filter((t) => now - t < HITS_MS), now]);
+      if (this.hits.size > 200) for (const [id, ts] of this.hits) if (ts.every((t) => now - t >= HITS_MS)) this.hits.delete(id);
     });
     on('playerJoined', (p: { username: string }) => void this.joined.set(p.username, this.o.now()));
     on('entityGone', (e: Entity) => this.gone(e));
@@ -880,6 +870,7 @@ export class SceneEyes {
     const s = this.lastSeen.get(e.id);
     this.lastSeen.delete(e.id);
     this.spawned.delete(e.id);
+    this.hits.delete(e.id);
     const now = this.o.now();
     const died = this.died.get(e.id);
     this.died.delete(e.id);
@@ -1232,6 +1223,10 @@ export class SceneEyes {
         this.noWay = { key, at: now, ids: new Set(hostile.filter((_, i) => ways[i] === false).map((x) => x.e.id)) };
       }
       for (const c of creatures) if (this.noWay.ids.has(c.id)) c.relations.push(c.dy <= -2 ? 'no way up to you on foot' : c.dy >= 2 ? 'no way down to you on foot' : 'no way to you on foot');
+    }
+    for (const c of creatures) {
+      const n = (this.hits.get(c.id) ?? []).filter((t) => now - t < HITS_MS).length;
+      if (n > 0 && c.kind !== 'item') c.details.push(n === 1 ? 'hit once lately' : `hit ${n} times lately`);
     }
     this.notices = this.notices.filter((x) => now - x.ts < NOTICE_MS);
     const key = [

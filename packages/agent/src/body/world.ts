@@ -382,6 +382,37 @@ export function daytime(timeOfDay: number): boolean {
   return t > 23000 || t < 9600;
 }
 
+/** Room for a body to pass: air, grass, flowers, a torch (not lava, fire, cobweb, powder snow, or water). */
+function roomToPass(b: Block | null): boolean {
+  return b !== null && b.boundingBox === 'empty' && !/^(lava|fire|soul_fire|cobweb|powder_snow|sweet_berry_bush|water|bubble_column)$/.test(b.name);
+}
+
+/**
+ * Up on something with a drop of two or more on every side (a pillar, a column), as one sees from up there: the least
+ * of the four drops; null if not so perched.
+ */
+export function perchedHeight(bot: Bot, feet: Vec3): number | null {
+  let least = Infinity;
+  for (const [dx, dz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    const side = feet.offset(dx, 0, dz);
+    if (!roomToPass(bot.blockAt(side)) || !roomToPass(bot.blockAt(side.offset(0, 1, 0)))) return null;
+    let drop = 0;
+    for (let dy = 1; dy <= 24; dy++) {
+      const b = bot.blockAt(side.offset(0, -dy, 0));
+      if (!b) return null;
+      if (b.boundingBox === 'block' || b.name === 'water') break;
+      drop++;
+    }
+    least = Math.min(least, drop);
+  }
+  return least >= 2 && Number.isFinite(least) ? least : null;
+}
+
 /** Walled in and covered: nothing can walk up to us (§4.5 night shelter). */
 export function isEnclosed(bot: Bot, feet: Vec3 = bot.entity.position.floored()): boolean {
   return wallsAround(bot, feet) && isSolid(bot.blockAt(feet.offset(0, 2, 0)));

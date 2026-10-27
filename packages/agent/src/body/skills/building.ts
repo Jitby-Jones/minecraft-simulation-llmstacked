@@ -5,9 +5,9 @@ import type { Bot } from 'mineflayer';
 import type { Block } from 'prismarine-block';
 import { Vec3 } from 'vec3';
 import { blockMatcher, itemMatcher } from '../items';
-import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findEntity, findPlaceableSpot, isAirLike, isNight, isSolid, nearbyHostiles, outByHand, overlapsCell, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
+import { ATTACHED, NOT_FROM_ABOVE, USABLE_BLOCK, audibleHostiles, findEntity, findPlaceableSpot, isAirLike, isNight, isSolid, nearbyHostiles, outByHand, overlapsCell, perchedHeight, placeableInto, shelterHole, sturdy, wallsAround } from '../world';
 import { countItem } from '../inventory';
-import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, waitMs, withTimeout } from './util';
+import { abortable, digBlock, errMsg, goals, gotoNear, stopMotion, throwIfAborted, upTo, waitMs, withTimeout } from './util';
 import { defineSkill, type SkillContext, type SkillResult, SkillAbortedError } from './types';
 
 const FACES = [
@@ -225,6 +225,42 @@ export async function spotOrNotch(ctx: SkillContext, item?: string): Promise<Vec
 }
 
 const UP = /^(up|above|over|overhead|over my head|the top)$/;
+const DOWN = /^(down|below|beneath|under ?me|under ?(my|your) feet|underfoot|under)$/;
+
+/**
+ * Down: a block under one's feet at the top of a jump, as a player towers up, `count` times (a pillar). One running
+ * from a zombie at night with 21 dirt on him had no way to ask his hands for it: the body did it only by reflex.
+ */
+async function towerUp(ctx: SkillContext, block: string, count: number): Promise<{ up: number; why?: string }> {
+  const { bot } = ctx;
+  const m = itemMatcher(block);
+  stopMotion(bot);
+  // A run's way on carries the jump off the block being placed: standing still first.
+  for (let t = 0; t < 16 && Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) > 0.03; t++) await waitMs(ctx, 25);
+  let up = 0;
+  for (let i = 0; i < count; i++) {
+    throwIfAborted(ctx.signal);
+    const item = bot.inventory.items().find((it) => m.matches(it.name));
+    if (!item) return { up, why: `no ${m.label} left on you` };
+    const from = bot.entity.position.floored();
+    const ground = bot.blockAt(from.offset(0, -1, 0));
+    if (!ground || !isSolid(ground)) return { up, why: 'nothing solid under your feet to build on' };
+    const over = bot.blockAt(from.offset(0, 2, 0));
+    if (!isAirLike(over)) return { up, why: `${over?.name.replace(/_/g, ' ') ?? 'something'} over your head, no room to jump` };
+    await bot.equip(item, 'hand');
+    await bot.look(bot.entity.yaw, -Math.PI / 2, true);
+    bot.setControlState('jump', true);
+    const t0 = Date.now();
+    while (bot.entity.position.y < from.y + 1.05 && Date.now() - t0 < 700) await waitMs(ctx, 25);
+    bot.setControlState('jump', false);
+    await bot.placeBlock(ground, new Vec3(0, 1, 0)).catch(() => undefined);
+    const t1 = Date.now();
+    while (!bot.entity.onGround && Date.now() - t1 < 900) await waitMs(ctx, 25);
+    if (bot.entity.position.y < from.y + 0.99) return { up, why: 'the block did not go in under you' };
+    up++;
+  }
+  return { up };
+}
 const WAYS: Readonly<Record<string, Vec3>> = { north: new Vec3(0, 0, -1), south: new Vec3(0, 0, 1), east: new Vec3(1, 0, 0), west: new Vec3(-1, 0, 0) };
 
 /**
@@ -282,13 +318,14 @@ function besideToward(bot: Bot, toward: string, item?: string): Vec3 | null {
 export const place = defineSkill({
   name: 'place',
   description:
-    'place {block, x?,y?,z?, toward?} — place a block from your inventory: at x,y,z; or beside you toward a way (north..., or up: over your head) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
+    'place {block, x?,y?,z?, toward?, count?} — place a block from your inventory: at x,y,z; or beside you toward a way (north..., or up: over your head; down: under your feet as you jump, count of them one on another, a pillar) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
   argsSchema: z.object({
     block: z.string().min(1),
     x: z.coerce.number().optional(),
     y: z.coerce.number().optional(),
     z: z.coerce.number().optional(),
     toward: z.string().min(1).optional(),
+    count: upTo(1, 8, true).optional(),
   }),
   talkOverable: false,
   slipKinds: [],
@@ -303,6 +340,14 @@ export const place = defineSkill({
     const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
     // Toward, with a spot as well: the way meant goes first (a spot worked out under fire put a wall to one side of a
     // tunnel, and five zombies came down it).
+    if (args.toward && DOWN.test(args.toward.trim().toLowerCase())) {
+      const want = args.count ?? 1;
+      const r = await towerUp(ctx, args.block, want);
+      const high = perchedHeight(ctx.bot, ctx.bot.entity.position.floored());
+      const now = high !== null ? `, up ${high} m above the ground on every side` : '';
+      if (r.up === 0) return { ok: false, observed: 'nothing placed under your feet', error: r.why ?? 'the block did not go in under you' };
+      return { ok: r.up >= want, observed: `went up ${r.up} block${r.up === 1 ? '' : 's'} on ${args.block} placed under your feet${now}`, ...(r.up < want ? { error: r.why ?? 'stopped short' } : {}) };
+    }
     if (args.toward) {
       const beside = besideToward(ctx.bot, args.toward, itemMatcher(args.block).label);
       if (!beside && UP.test(args.toward.trim().toLowerCase())) {

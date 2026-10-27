@@ -1057,6 +1057,23 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`fill ${x - 1} ${Y - 1} -1 ${x + 1} ${Y + 2} 1 minecraft:air`);
   }, 120_000);
 
+  it('a block down, three of them: up a pillar on what it carries, as a player towers up out of reach', async () => {
+    // One running from a zombie at night with 21 dirt on him had no way to ask his hands for it.
+    const x = 9800;
+    await at(x + 0.5, 0.5);
+    await server.cmd('give Ada minecraft:dirt 8');
+    await sleep(1500);
+    const from = body.bot.entity.position.y;
+    const r = await run('place', { block: 'dirt', toward: 'down', count: 3 });
+    logger.info({ r, y: body.bot.entity.position.y }, 'a pillar under the feet');
+    console.log(`[pillar] ${r.observed}`);
+    expect(r.ok).toBe(true);
+    expect(body.bot.entity.position.y - from).toBeGreaterThan(2.9);
+    expect(r.observed).toContain('up 3 m above the ground on every side');
+    await server.cmd(`fill ${x} ${Y} 0 ${x} ${Y + 4} 0 minecraft:air`);
+    await server.cmd(`tp Ada ${x + 2} ${Y} 0`);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);
