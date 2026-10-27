@@ -545,5 +545,28 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       await waitFor(() => pip.bot.inventory.slots[5]?.name === 'iron_helmet', 15000, 'helmet worn');
     });
 
+    it('a shield carried goes on the arm, comes up in a fight between blows, and comes down when the fight is over', async () => {
+      const o = await zone();
+      dangers.length = 0;
+      await server.cmd('give Pip minecraft:shield 1');
+      await waitFor(() => pip.bot.inventory.slots[45]?.name === 'shield', 15000, 'shield on the arm');
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      let raised = false;
+      const look = setInterval(() => {
+        if ((pip.bot as unknown as { usingHeldItem?: boolean }).usingHeldItem) raised = true;
+      }, 50);
+      try {
+        await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
+        await waitFor(() => dangers.some((d) => d.kind === 'fight' && d.source === 'zombie'), 10000, 'fight reflex');
+        await waitFor(() => !pip.bot.nearestEntity((e) => e.name === 'zombie' && e.position.distanceTo(pip.bot.entity.position) < 16), 30000, 'zombie dead');
+        await waitFor(() => pip.reflexes.mode === 'idle', 10000, 'danger cleared');
+      } finally {
+        clearInterval(look);
+      }
+      expect(raised).toBe(true);
+      await sleep(500);
+      expect((pip.bot as unknown as { usingHeldItem?: boolean }).usingHeldItem).toBe(false);
+      await server.cmd('clear Pip minecraft:shield');
+    });
   });
 });

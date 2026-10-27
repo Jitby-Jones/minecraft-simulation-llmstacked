@@ -293,6 +293,7 @@ export class Perception {
     const inv = inventoryStacks(bot);
     const slotsFree = freeSlots(bot);
     const armor = [5, 6, 7, 8].map((s) => bot.inventory.slots[s]?.name).filter((n): n is string => Boolean(n));
+    const offHand = bot.inventory.slots[45]?.name ?? null;
     const pos = v(bot.entity.position);
     const time = bot.time.timeOfDay;
     const isDay = !isNight(bot);
@@ -300,7 +301,7 @@ export class Perception {
     const lightLevel = Math.max(light?.light ?? 0, isDay ? (light?.skyLight ?? 15) : Math.max(0, (light?.skyLight ?? 15) - 11));
     const key = [
       Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z), bot.health.toFixed(0), bot.food, bot.oxygenLevel, inventoryDigest(inv, 40), slotsFree,
-      bot.heldItem?.name ?? '', armor.join(','), bot.game.dimension, isDay, bot.isSleeping, Math.floor(time / 600), lightLevel,
+      bot.heldItem?.name ?? '', offHand ?? '', armor.join(','), bot.game.dimension, isDay, bot.isSleeping, Math.floor(time / 600), lightLevel,
     ].join('|');
     if (key === this.lastSelfKey) return;
     this.lastSelfKey = key;
@@ -316,6 +317,7 @@ export class Perception {
         inventory: inv,
         slotsFree,
         equipped: bot.heldItem?.name ?? null,
+        offHand,
         armor,
         dimension: String(bot.game.dimension),
         time,

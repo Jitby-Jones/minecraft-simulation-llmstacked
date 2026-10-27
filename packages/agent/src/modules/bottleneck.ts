@@ -94,7 +94,8 @@ export function buildPacket(i: PacketInput): string {
     out.push(`You are in ${world === 'the_nether' ? 'the Nether' : 'the End'}. ${backText}`);
   }
   const inv = self.inventory.map((st) => `${st.qty} ${st.item}${st.left !== undefined && st.left < WORN ? ` (nearly worn out: ${Math.round(st.left * 100)}% left)` : ''}`).join(', ');
-  out.push(`Carrying: ${inv || 'nothing'}${self.equipped ? ` (holding ${self.equipped})` : ''}${self.armor.length > 0 ? `; wearing ${self.armor.join(', ')}` : '; wearing no armor'}.`);
+  const hands = [self.equipped ? `holding ${self.equipped}` : '', self.offHand ? `${self.offHand} in your other hand` : ''].filter(Boolean).join(', ');
+  out.push(`Carrying: ${inv || 'nothing'}${hands ? ` (${hands})` : ''}${self.armor.length > 0 ? `; wearing ${self.armor.join(', ')}` : '; wearing no armor'}.`);
   // What the recipe book shows from what one carries, of what keeps one alive.
   const makeable = craftableNow(s);
   if (makeable) out.push(makeable);

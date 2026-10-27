@@ -61,6 +61,29 @@ export function loadBodyPlugins(bot: Bot): void {
   pvp.followRange = 1;
   pvp.movements = createFightMovements(bot);
   keepPvpInReach(bot, pvp);
+  shieldArm(bot);
+}
+
+/** Whether each body's shield is up (raised by the fight between blows, or against a creeper about to go off). */
+const SHIELD_UP = new WeakMap<Bot, boolean>();
+
+/** The body knows when its shield is up: the fight raises it in the other hand, and a use of the hand itself lowers it. */
+function shieldArm(bot: Bot): void {
+  const activate = bot.activateItem.bind(bot);
+  const deactivate = bot.deactivateItem.bind(bot);
+  bot.activateItem = (offHand?: boolean) => {
+    SHIELD_UP.set(bot, offHand === true && bot.inventory.slots[45]?.name === 'shield');
+    return activate(offHand);
+  };
+  bot.deactivateItem = () => {
+    SHIELD_UP.set(bot, false);
+    return deactivate();
+  };
+}
+
+/** A shield up comes down when the fight does: held up, it slows one to a walk and keeps the hands from work. */
+export function lowerShield(bot: Bot): void {
+  if (SHIELD_UP.get(bot)) bot.deactivateItem();
 }
 
 /** A fighter with a target, out of reach and standing still, whose follow goal is gone (a stop wiped it) or aims

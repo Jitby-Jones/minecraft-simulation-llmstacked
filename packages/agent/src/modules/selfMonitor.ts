@@ -10,6 +10,8 @@ import { SUMMARY_POLICY } from '../state/policies';
 import type { AgentStateStore } from '../state/store';
 import { personaCore } from './prompts';
 import { isOff } from '../state/switches';
+import { countOf } from '../perception/sceneWords';
+import { dayPart } from './bottleneck';
 
 export const SummarySchema = z.object({ summary: z.string().min(1).max(1200) });
 
@@ -17,7 +19,7 @@ export const SummarySchema = z.object({ summary: z.string().min(1).max(1200) });
 export function summaryMessages(
   persona: Persona,
   traitAnnotations: readonly string[],
-  o: { previous: string; goal: string; recent: readonly string[]; onMind: readonly string[] },
+  o: { previous: string; goal: string; recent: readonly string[]; onMind: readonly string[]; now?: string },
 ): ChatMessage[] {
   return [
     {
@@ -28,6 +30,7 @@ export function summaryMessages(
       role: 'user',
       content: [
         `Previous summary: ${o.previous || '(none)'}`,
+        ...(o.now ? [`Now, as your senses have it (where the previous summary says otherwise, this is so): ${o.now}`] : []),
         `Goal: ${o.goal || 'none'}`,
         `Recent actions: ${o.recent.join('; ') || 'none'}`,
         `On your mind:\n${o.onMind.map((w) => `- ${w}`).join('\n') || '- nothing'}`,
@@ -44,6 +47,25 @@ export interface SelfMonitorOptions {
   me: string;
   rng?: () => number;
   now?: () => number;
+}
+
+/**
+ * Where one is and how, as the senses have it, for the summary to be written from: one wrote "I'm at the staircase top,
+ * y77, a safe spot" from her last summary while she stood in a cave at y34 with seven silverfish and a spider on her,
+ * and every thought in the danger began with it.
+ */
+export function nowLine(s: AgentStateStore['state']): string {
+  const self = s.self;
+  const kinds = new Map<string, number>();
+  for (const c of s.scene.creatures) if (c.kind === 'hostile' && c.distance <= 16) kinds.set(c.name, (kinds.get(c.name) ?? 0) + 1);
+  const about = [...kinds].map(([name, n]) => countOf(n, name)).join(', ');
+  const world = String(self.dimension ?? 'overworld').replace(/^minecraft:/, '');
+  return [
+    `health ${Math.round(self.health)}/20, food ${self.food}/20, ${dayPart(self.time, self.isDay)}`,
+    `at ${Math.round(self.pos.x)},${Math.round(self.pos.y)},${Math.round(self.pos.z)}${world !== 'overworld' ? ` in ${world === 'the_nether' ? 'the Nether' : 'the End'}` : ''}${s.scene.where ? ` (${s.scene.where})` : ''}`,
+    ...(s.flags.inDanger ? ['in danger'] : []),
+    ...(about ? [`monsters about: ${about}`] : []),
+  ].join('; ');
 }
 
 export function codeSummary(s: AgentStateStore['state']): string {
@@ -116,7 +138,7 @@ export class SelfMonitor {
           fallback,
           signal: guard.signal,
           isStale: guard.isStale,
-          messages: summaryMessages(s.self.persona, s.traitAnnotations, { previous: s.selfSummary, goal: s.goals.current?.text ?? '', recent, onMind: s.workmem.map((w) => w.text) }),
+          messages: summaryMessages(s.self.persona, s.traitAnnotations, { previous: s.selfSummary, goal: s.goals.current?.text ?? '', recent, onMind: s.workmem.map((w) => w.text), now: nowLine(s) }),
         });
         if (!r.ok && r.reason === 'stale') return;
         summary = r.value.summary;

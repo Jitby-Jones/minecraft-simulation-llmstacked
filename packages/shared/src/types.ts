@@ -542,6 +542,8 @@ export interface SelfState {
   /** Free slots of the 36 in the inventory and hotbar. */
   slotsFree?: number;
   equipped: string | null;
+  /** What is in the other hand (a shield on the arm, a torch). */
+  offHand?: string | null;
   armor: string[];
   dimension: string;
   /** In-game time of day in ticks (0..23999). */

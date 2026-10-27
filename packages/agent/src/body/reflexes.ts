@@ -18,7 +18,7 @@ import { reflexDelta } from './quirks';
 import { bestToHitWith, bestWeapon, equipBestWeapon, pvp } from './skills/combat';
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
-import { carefulWhenHurt, createMovements } from './plugins';
+import { carefulWhenHurt, createMovements, lowerShield } from './plugins';
 import { isCover, pillarUnder, referenceFor } from './skills/building';
 import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isIndoors, isNight, isPlayer, isSolid, overlapsCell, wallsAround } from './world';
 
@@ -969,6 +969,7 @@ export class ReflexController {
     } catch {
       // not fighting
     }
+    lowerShield(this.bot);
     try {
       this.bot.pathfinder.setGoal(null);
     } catch {
@@ -1017,6 +1018,7 @@ export class ReflexController {
     } catch {
       // not fighting
     }
+    lowerShield(this.bot);
     this.mode = 'flee';
     this.fleePlannedAt = 0;
     this.noRoomRun = false;
@@ -1617,6 +1619,7 @@ export class ReflexController {
         } catch {
           // not fighting
         }
+        lowerShield(bot);
         this.endBout('the mind took over');
         this.mode = 'led';
       }

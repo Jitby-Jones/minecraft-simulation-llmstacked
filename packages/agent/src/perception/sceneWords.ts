@@ -18,12 +18,18 @@ function nice(name: string): string {
   return name.replace(/^minecraft:/, '').replace(/_/g, ' ');
 }
 
-const SAME_PLURAL = /^(sheep|cod|salmon|tropical_fish|pufferfish|fish|squid|glow_squid|axolotl_|deer|moose)$/;
+const SAME_PLURAL = /^(sheep|cod|salmon|squid|glow_squid|axolotl_|deer|moose)$|fish$/;
+
+/** "a stone", "an infested stone". */
+export function an(name: string): string {
+  const one = nice(name);
+  return `${/^[aeiou]/.test(one) ? 'an' : 'a'} ${one}`;
+}
 
 /** "a sheep", "3 sheep", "2 wolves", "4 cows". */
 export function countOf(n: number, name: string): string {
   const one = nice(name);
-  if (n === 1) return `${/^[aeiou]/.test(one) ? 'an' : 'a'} ${one}`;
+  if (n === 1) return an(name);
   const many = SAME_PLURAL.test(name) || /s$/.test(name) ? one : /wolf$/.test(name) ? one.replace(/wolf$/, 'wolves') : /(ch|sh|x)$/.test(name) ? `${one}es` : `${one}s`;
   return `${n} ${many}`;
 }

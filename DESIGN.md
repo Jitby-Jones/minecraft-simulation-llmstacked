@@ -3341,6 +3341,27 @@ What else the benchmark showed:
 - **A throw goes the way one faces once the server knows it.** The turn toward open room and the throw went out
   together, and the server threw the way one had been looking: down, at one's feet, and two seconds on it came back.
   Now there is a tick or two between them.
+- **Seeing a creature brings to mind what one knows of it.** In `solo (7)`, Ada's stair down from a cherry grove
+  broke into a cave at y 34. Infested stone gave up seven silverfish, and three spiders, a zombie and a skeleton
+  came. The mind meant to mine the infested stone next, then pillared up away from the spiders "to get out of melee
+  reach", and she was killed in thirty seconds. What the game knows had nothing on silverfish, and "a spider climbs
+  walls" only under the underground topic. Now each creature in sight (or within 8 m unseen) brings up a line of
+  what a player knows of it, nearest first, two at most, ahead of the rest. For example, silverfish hide in stone
+  that looks like any other, and hitting one wakes the others. A spider climbs walls and pillars, but no one-wide
+  gap lets it through. A creeper hisses and goes off a second and a half later.
+- **The self-summary is written from where one is now.** In the same death, every thought began "About you: I'm at
+  the staircase top, y77. Safe spot with door, bed, furnace, table. Stay sealed at night." The summary had been
+  rewritten from the one before with nothing of the moment in it. It is now written with the senses' own line:
+  health, food, hour, place, danger, and the monsters about. Where it differs from the summary before, that line
+  wins.
+- **Words for the mind:** "an infested stone", and "3 silverfish", not "silverfishs".
+- **A shield carried is a shield on the arm.** Of two dozen long runs read, four ended to a skeleton's arrows. The
+  fight hands (mineflayer-pvp) already lower a shield in the other hand to strike and raise it again after, and
+  raise it toward a creeper about to go off. But a shield went into the off hand only if the mind thought to equip
+  it, and none ever did. Now the body puts a shield it carries into the free off hand, as it puts on better armor.
+  The fight left the shield up when it ended, and held up, a shield slows one to a walk. So the body now knows when
+  its shield is up (the hand's use calls are wrapped), and lowers it when a fight turns into a run, ends, or the
+  mind takes over. The mind sees "(holding stone_sword, shield in your other hand)".
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

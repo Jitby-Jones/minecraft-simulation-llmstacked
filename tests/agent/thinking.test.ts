@@ -22,6 +22,7 @@ import { CognitiveController } from '@agora/agent/modules/cc';
 import { tidyDecision } from '@agora/agent/modules/decisionTidy';
 import { SkillExecutor } from '@agora/agent/modules/executor';
 import { leversFor } from '@agora/agent/modules/levers';
+import { nowLine, summaryMessages } from '@agora/agent/modules/selfMonitor';
 import { type Motion, MotionTracker } from '@agora/agent/perception/motion';
 import { type Seen, SceneEyes, featureKindOf, featuresOf } from '@agora/agent/perception/scene';
 import { noSuchItem, pocketPlan, resolveCraftTarget } from '@agora/agent/body/skills/crafting';
@@ -802,6 +803,52 @@ describe('what it knows of the game, looked up for what matters', () => {
     expect(k.topics('mine iron for a full set of armor').join(' ')).toMatch(/iron in two bands, richest around y 16/);
     // Where one is, in a dark forest: what its canopy does by day (two building there fought zombies at noon and died).
     expect(k.topics('In dark forest, standing on grass block, under the open sky').join(' ')).toMatch(/monsters spawn under it and walk about at noon/);
+  });
+
+  it('what one knows of a creature comes to mind on seeing one, nearest first', () => {
+    // One broke into a cave of silverfish, spiders and a skeleton, mined the infested stone the silverfish came out of
+    // and pillared up away from the spiders.
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    const seen = (name: string, distance: number, kind: 'hostile' | 'passive' = 'hostile') => ({
+      id: distance,
+      kind,
+      name,
+      pos: { x: distance, y: 0, z: 0 },
+      distance,
+      bearing: 'east',
+      dy: 0,
+      motion: 'walking' as const,
+      speed: 1,
+      relations: [],
+      details: [],
+      visible: true,
+    });
+    const st: AgentState = { ...s, scene: { ...s.scene, creatures: [seen('spider', 6), seen('silverfish', 1), seen('silverfish', 2), seen('skeleton', 20)] } };
+    const lines = knowledgeLines(k, st);
+    expect(lines[0]).toMatch(/^Silverfish hide in stone that looks like any other.*dig no more of that rock/);
+    expect(lines[1]).toMatch(/^A spider is faster than you.*neither running nor a pillar keeps it off/);
+    expect(lines.filter((l) => /^Skeletons shoot/.test(l))).toHaveLength(0);
+    // A cow is no matter, nor one far off out of sight.
+    const calm = knowledgeLines(k, { ...s, scene: { ...s.scene, creatures: [seen('cow', 3, 'passive'), { ...seen('creeper', 20), visible: false }] } });
+    expect(calm.some((l) => /cow|creeper/i.test(l.split(':')[0] ?? ''))).toBe(false);
+    expect(calm.some((l) => /^A creeper/.test(l))).toBe(false);
+  });
+
+  it('the self-summary is written from where one is now, as the senses have it', () => {
+    // One wrote "I'm at the staircase top, y77, a safe spot" from her last summary while she stood in a cave at y34
+    // with seven silverfish and a spider on her, and every thought in the danger began with it.
+    const s = createInitialState({ persona, username: 'Pip', now: 0 });
+    const fish = (id: number, distance: number) => ({ id, kind: 'hostile' as const, name: 'silverfish', pos: { x: distance, y: 34, z: 0 }, distance, bearing: 'south', dy: 0, motion: 'walking' as const, speed: 2, relations: [], details: [], visible: true });
+    const st: AgentState = {
+      ...s,
+      self: { ...s.self, health: 14, food: 16, pos: { x: 18, y: 34, z: 41 }, time: 6000, isDay: true },
+      flags: { ...s.flags, inDanger: true },
+      scene: { ...s.scene, where: 'Deep under the cherry grove, standing on diorite, underground', creatures: [fish(1, 1), fish(2, 2), { ...fish(3, 30), name: 'spider' }] },
+    };
+    const now = nowLine(st);
+    expect(now).toMatch(/^health 14\/20, food 16\/20, .*; at 18,34,41 \(Deep under the cherry grove, standing on diorite, underground\); in danger; monsters about: 2 silverfish$/);
+    const m = summaryMessages(persona, [], { previous: "I'm at the staircase top, y77. Safe spot.", goal: '', recent: [], onMind: [], now });
+    expect(m[1]?.content).toMatch(/Now, as your senses have it \(where the previous summary says otherwise, this is so\): health 14\/20/);
   });
 
   it('what failed lately and what the tasks name come first', () => {

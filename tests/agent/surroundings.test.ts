@@ -49,6 +49,7 @@ describe('what changed, in words', () => {
     const c: BlockChange = { pos: { x: 1, y: 65, z: 0 }, kind: 'broken', was: 'dirt', now: 'air', by: 'a zombie', ours: 'shelter', where: 'beside you to the east, at head height', ts: 0 };
     expect(describeChange(c)).toBe('the dirt of your shelter beside you to the east, at head height was broken by a zombie');
     expect(describeChange({ ...c, ours: undefined, by: 'Bram', was: 'stone', where: '4 m to the south' })).toBe('a stone 4 m to the south was broken by Bram');
+    expect(describeChange({ ...c, ours: undefined, by: 'a silverfish', was: 'infested_stone', where: 'beside you to the south' })).toBe('an infested stone beside you to the south was broken by a silverfish');
     expect(describeChange({ ...c, kind: 'placed', was: 'air', now: 'cobblestone', ours: undefined, by: 'Bram', where: '2 m to the east' })).toBe('Bram set down cobblestone 2 m to the east');
     expect(describeChange({ ...c, kind: 'opened', was: 'oak_door', now: 'oak_door', ours: 'hut', where: '3 m to the west' })).toBe('the oak door of the hut 3 m to the west was opened by a zombie');
   });

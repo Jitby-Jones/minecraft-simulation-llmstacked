@@ -65,6 +65,7 @@ import { sharedRepertoire } from './building/repertoire';
 import type { DesignAsk, SkillResult } from './body/skills/types';
 import { isOff } from './state/switches';
 import { applyUrge } from './modules/urges';
+import { countOf } from './perception/sceneWords';
 
 
 /** What the body is doing by itself in a danger, for the mind ("running from 3 zombies (the nearest 2 m off) and a skeleton"). */
@@ -74,7 +75,7 @@ function bodyInDanger(body: Body): string {
   const kinds = new Map<string, number>();
   for (const e of near) kinds.set(e.name ?? 'mob', (kinds.get(e.name ?? 'mob') ?? 0) + 1);
   const nearest = near[0];
-  const what = [...kinds.entries()].map(([k, n]) => (n > 1 ? `${n} ${k}s` : `a ${k}`)).join(' and ');
+  const what = [...kinds.entries()].map(([k, n]) => countOf(n, k)).join(' and ');
   const where = nearest ? ` (the nearest ${Math.round(nearest.position.distanceTo(me))} m off)` : '';
   const mode = body.reflexes.mode;
   if (!what) return mode === 'flee' ? 'running' : 'on its guard';

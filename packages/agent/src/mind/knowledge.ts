@@ -139,6 +139,86 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
   },
 ];
 
+/**
+ * What a player knows of a creature by heart, brought up by seeing one: how it comes at you, what keeps it off, what
+ * it takes to kill. One who broke into a cave of silverfish, spiders and a skeleton mined the infested stone the
+ * silverfish came out of, and pillared up away from the spiders; she was killed in thirty seconds.
+ */
+const CREATURES: readonly { kind: RegExp; text: string }[] = [
+  {
+    kind: /^(zombie|husk|zombie_villager)$/,
+    text: 'Zombies walk at you and hit (a husk, in deserts, also makes you hungry); 4 blows of a stone or iron sword kill one, 5 of a wooden one, some 20 punches; they cannot climb, so a block in a one-wide way or a pillar 3 high keeps them off; they burn in the sun, unless in shade or water (husks never).',
+  },
+  {
+    kind: /^drowned$/,
+    text: 'A drowned is a zombie of the water: it swims after you, comes out onto land at night, and some throw tridents from afar; it does not burn while in the water.',
+  },
+  {
+    kind: /^(skeleton|stray|bogged)$/,
+    text: 'Skeletons shoot arrows from 15 m or so and keep their distance (a stray, in the snow, slows with its arrows; a bogged, in swamps, poisons); out of their sight, behind a block or round a corner, they cannot hit you, and a shield stops their arrows; closed in on, 3 or 4 sword blows kill one; they burn in the sun.',
+  },
+  {
+    kind: /^spider$/,
+    text: 'A spider is faster than you, jumps at you and climbs walls and pillars, so neither running nor a pillar keeps it off; it cannot get through a gap one block wide, nor into a one-wide hole with a roof over it; in daylight it leaves alone those who leave it alone; 3 or 4 sword blows kill one.',
+  },
+  {
+    kind: /^cave_spider$/,
+    text: 'Cave spiders live in old mineshafts, by cobwebs, where a spawner keeps making them until it is broken or lit all round with torches; small enough for a one-wide gap, and their bite poisons.',
+  },
+  {
+    kind: /^creeper$/,
+    text: 'A creeper walks up without a sound, hisses when it is close, and a second and a half later blows up, which can take most of your health and the ground under you; stepping back out of its reach while it hisses calms it, and a sword blow knocks it back; it does not burn in the sun.',
+  },
+  {
+    kind: /^enderman$/,
+    text: 'An enderman leaves you alone until you look it in the face or hit it; then it teleports at you and hits hard; it is three blocks tall, so it cannot follow you under a roof two blocks high, and water hurts it.',
+  },
+  {
+    kind: /^witch$/,
+    text: 'A witch throws potions that poison, slow and hurt, and drinks one to heal; get at her fast or from cover.',
+  },
+  {
+    kind: /^silverfish$/,
+    text: 'Silverfish hide in stone that looks like any other (in mountains and strongholds) and come out when it is broken; hitting one that lives wakes the others in the stone round about, so they come in swarms; each is weak (half a heart a bite) and dies to two sword blows; dig no more of that rock, and back off out of it to fight them where few can reach you at once, or wall them off.',
+  },
+  {
+    kind: /^(slime|magma_cube)$/,
+    text: 'A slime (a magma cube in the Nether) bounces at you and splits into smaller ones when killed, and those again; the smallest slimes do no harm.',
+  },
+  {
+    kind: /^phantom$/,
+    text: 'Phantoms swoop down from the night sky at those who have not slept for three nights or more; a night slept in a bed stops them coming; they burn in the sun.',
+  },
+  {
+    kind: /^warden$/,
+    text: 'A warden (in the deep dark, by sculk) is blind and finds you by sound and smell, and kills almost anyone in a few blows: walk away from it crouching, which makes no sound, and never fight it.',
+  },
+  {
+    kind: /^(pillager|vindicator|evoker|ravager|illusioner)$/,
+    text: 'Illagers come in patrols and raids: pillagers shoot crossbows, vindicators swing axes, evokers call up fangs from the ground and flying vexes; they are many, so cover and a door between you are worth more than a fight.',
+  },
+  {
+    kind: /^(piglin|piglin_brute|zombified_piglin)$/,
+    text: 'Piglins leave alone anyone wearing a piece of gold armor and take gold ingots in barter, but turn on one who opens a chest or mines gold near them (brutes attack anyone); zombified piglins are peaceful until one of them is hit, and then all of them come.',
+  },
+  {
+    kind: /^ghast$/,
+    text: 'A ghast floats far off over the Nether and spits fireballs that blow up where they land; a blow or an arrow sends the fireball back, and out of its sight it cannot aim at you.',
+  },
+  {
+    kind: /^blaze$/,
+    text: 'Blazes (in Nether fortresses) float and shoot volleys of fire; out of their sight round a corner they cannot, and snowballs hurt them; their rods make blaze powder.',
+  },
+  {
+    kind: /^wither_skeleton$/,
+    text: 'Wither skeletons (in Nether fortresses) are tall and hit hard, and their blows wither you (health drains for a while); a gap two blocks high is too low for them.',
+  },
+  {
+    kind: /^hoglin$/,
+    text: 'Hoglins (in crimson forests) charge and toss you into the air; they keep away from warped fungus.',
+  },
+];
+
 function nice(name: string): string {
   return name.replace(/_/g, ' ');
 }
@@ -327,9 +407,22 @@ export function itemsThatMatter(k: GameKnowledge, s: AgentState, max = 4): strin
   return out.slice(0, max);
 }
 
-/** What the agent knows that bears on now, as lines for the packet (the items that matter, and what its tasks are about). */
+/** What one knows of the creatures in sight (or close by, unseen), nearest first: at most `max` of them. */
+export function creatureLines(s: AgentState, max = 2): string[] {
+  const out: string[] = [];
+  const near = s.scene.creatures.filter((c) => c.kind !== 'player' && c.kind !== 'item' && c.distance <= 24 && (c.visible || c.distance <= 8));
+  for (const c of [...near].sort((a, b) => a.distance - b.distance)) {
+    const f = CREATURES.find((x) => x.kind.test(c.name));
+    if (f && !out.includes(f.text)) out.push(f.text);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** What the agent knows that bears on now, as lines for the packet (what is about, the items that matter, and what its tasks are about). */
 export function knowledgeLines(k: GameKnowledge, s: AgentState): string[] {
-  const lines: string[] = [];
+  // What is about comes to mind first, as seeing one does.
+  const lines: string[] = creatureLines(s);
   for (const item of itemsThatMatter(k, s)) {
     const d = k.describe(item);
     if (d) lines.push(d);

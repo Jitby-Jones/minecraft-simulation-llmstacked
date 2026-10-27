@@ -15,6 +15,7 @@ import type { AgentBus } from '../bus';
 import { canSeeBlock, isEnclosed, isShelterCell, whereFrom } from '../body/world';
 import type { AgentStateStore } from '../state/store';
 import { pushWorkmem } from '../state/workmem';
+import { an } from './sceneWords';
 
 export interface SurroundingsOptions {
   bot: Bot;
@@ -70,7 +71,7 @@ export function classify(was: BlockState, now: BlockState): BlockChange['kind'] 
 export function describeChange(c: BlockChange): string {
   const landed = c.kind === 'fell' && FALLS.test(c.now);
   const thing = (c.kind === 'placed' || landed ? c.now : c.was).replace(/_/g, ' ');
-  const whose = c.ours === 'shelter' ? `the ${thing} of your shelter` : c.ours === 'hut' ? `the ${thing} of the hut` : c.ours === 'chest' ? 'the village chest' : c.ours === 'placed' ? `the ${thing} you set down` : `a ${thing}`;
+  const whose = c.ours === 'shelter' ? `the ${thing} of your shelter` : c.ours === 'hut' ? `the ${thing} of the hut` : c.ours === 'chest' ? 'the village chest' : c.ours === 'placed' ? `the ${thing} you set down` : an(thing);
   const by = c.by ? ` by ${c.by}` : '';
   if (c.kind === 'fell') return landed ? `${thing} fell and landed ${c.where}` : `${thing} ${c.where} fell`;
   if (c.kind === 'placed') return `${c.by ? `${c.by} set down` : 'someone set down'} ${thing} ${c.where}`;
@@ -209,7 +210,7 @@ export class SurroundingsWatch {
     const bot = this.o.bot;
     const e = bot.nearestEntity((x) => x !== bot.entity && ['player', 'hostile', 'mob'].includes(x.type) && x.position.offset(0, (x.height ?? 1.8) / 2, 0).distanceTo(c) <= 2.5);
     if (!e) return undefined;
-    return e.type === 'player' ? (e.username ?? 'someone') : e.name ? `a ${e.name.replace(/_/g, ' ')}` : 'something';
+    return e.type === 'player' ? (e.username ?? 'someone') : e.name ? an(e.name) : 'something';
   }
 
   private flush(): void {

@@ -124,6 +124,13 @@ export async function equipBestArmor(bot: Bot): Promise<string[]> {
       changed.push(best.name);
     }
   }
+  // A shield carried is a shield on the arm, as a player keeps one, when that hand is free: a fight raises it between
+  // blows and against a creeper about to go off (arrows from skeletons killed four of two dozen in the long runs).
+  const shield = bot.inventory.slots[45] ? undefined : bot.inventory.items().find((i) => i.name === 'shield');
+  if (shield) {
+    await bot.equip(shield, 'off-hand');
+    changed.push(shield.name);
+  }
   return changed;
 }
 
