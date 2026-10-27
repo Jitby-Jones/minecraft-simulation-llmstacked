@@ -28,7 +28,7 @@ describe.skipIf(!liveJavaPath() || !withModel)('live: a mind under fire', () => 
   const logger = createLogger({ name: 'underfire-live', logDir: path.join(repoRoot(), 'data', 'live-test', 'underfire-agents'), console: process.env.AGORA_DEBUG === '1' });
 
   beforeAll(async () => {
-    server = await startLiveServer({ name: 'underfire', port: 25660, rconPort: 25661, deepGround: true, monsters: true });
+    server = await startLiveServer({ name: 'underfire', port: 25680, rconPort: 25681, deepGround: true, monsters: true });
     for (const c of ['gamerule advance_time false', 'gamerule advance_weather false', 'weather clear', 'time set 6000', 'difficulty easy']) await server.cmd(c);
     rt = await real(logger);
   }, 300_000);

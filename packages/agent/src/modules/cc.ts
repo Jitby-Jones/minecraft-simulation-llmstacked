@@ -944,6 +944,9 @@ export function codeDecision(
 
 /** A change around us that is no emergency wakes the CC at most this often. */
 const NOTICE_EVERY_MS = 10_000;
+/** A danger that goes on with nothing new in it is thought about again after this long; this with a choice under way. */
+const DANGER_GOES_ON_MS = 15_000;
+const DANGER_GOES_ON_CHOSEN_MS = 45_000;
 /**
  * Long at one piece of work, a look up from it now and then, as a player looks at the tools, the sky, the hunger bar
  * (one dug six minutes on end, its pickaxes wearing out under it, on into the night with nothing left to fight with).
@@ -1245,6 +1248,14 @@ export class CognitiveController {
     this.beat = setInterval(() => {
       const s = this.o.store.state;
       if (this.held) this.afterThought();
+      // A danger that goes on is thought about again now and then, as anyone in one keeps looking for the way out:
+      // one at 1 health chose to run from a creeper 12 m off, the run ended where she stood, the danger never did,
+      // and with nothing new to wake it her mind had no thought for ten minutes. What she chose, still under way,
+      // is given longer.
+      if (s.flags.inDanger && !s.flags.paused && !this.flight.inFlight('cc')) {
+        const chosen = s.option?.underFire === true && s.option.status === 'running';
+        if (this.now() - Math.max(this.underFireAt, this.lastDecisionAt) >= (chosen ? DANGER_GOES_ON_CHOSEN_MS : DANGER_GOES_ON_MS)) this.thinkUnderFire('the danger goes on', DANGER_GOES_ON_MS);
+      }
       if (s.flags.inDanger || s.flags.paused || this.flight.inFlight('cc')) return;
       if (this.o.executor.busy) {
         const opt = s.option;

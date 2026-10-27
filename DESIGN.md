@@ -3251,6 +3251,13 @@ What else the benchmark showed:
   mooshroom, and whatever a world adds), and counts whatever food it brings in. "Fish" is the fish that swim about.
   Asked for a villager or a goat, it says the creature drops nothing to eat, and for a zombie that it is a monster to
   fight. What the game knows of fish now leads with killing one where it swims.
+- **A danger that goes on is thought about again.** In `duo (44)`, Bram at 1 health chose to run from a creeper 12 m
+  off. The run ended where he stood, and the danger never did: the body's bout with the zombie before it went on for
+  889 s, he stood at one spot with 1.2 health, and a zombie killed him at nightfall. In all that time his mind had no
+  thought. Under fire, the mind thought only as a danger began or changed, after a heavy blow, and when what it chose
+  ended. A run chosen sets no option to end, and nothing new came. Now a danger that goes on is thought about again
+  15 s after the last thought ("the danger goes on; your body is ..."), or 45 s after if a choice of the mind's is
+  still under way.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

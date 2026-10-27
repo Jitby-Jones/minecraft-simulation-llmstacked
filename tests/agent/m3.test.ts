@@ -478,6 +478,43 @@ describe('thinking under fire (owner request, 2026-10-24: think, don\'t follow d
     executor.stop();
   }, 15_000);
 
+  it('a danger that goes on with nothing new in it is thought about again', async () => {
+    // One at 1 health chose to run from a creeper 12 m off; the run ended where she stood, the danger never did, and
+    // with nothing new to wake it her mind had no thought for ten minutes.
+    const fake = new FakeNanoGpt(standardModels());
+    const asked: string[] = [];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      asked.push(JSON.stringify(body?.messages ?? ''));
+      return { text: JSON.stringify({ thought: 'Away from it.', option: 'flee', terminate: { maxSeconds: 20 }, rationale: 'away' }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => ({ talkOverable: true }), run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const t = { now: Date.now() };
+    let runs = 0;
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false, bodyInDanger: () => 'running from a creeper (the nearest 12 m off)', runNow: () => runs++, now: () => t.now });
+    cc.start();
+    s.update('flags', (f) => ({ ...f, inDanger: true }), 'danger');
+    bus.emit({ type: 'danger', source: 'creeper', level: 0.6, kind: 'flee' });
+    for (let i = 0; i < 80 && runs === 0; i++) await wait(25);
+    expect(runs).toBe(1);
+    // Five seconds on, nothing new: no thought yet.
+    t.now += 5000;
+    await wait(2300);
+    expect(runs).toBe(1);
+    // Sixteen: thought about again, as it stands.
+    t.now += 11_000;
+    for (let i = 0; i < 120 && runs < 2; i++) await wait(25);
+    expect(runs).toBe(2);
+    expect(asked[1]).toMatch(/the danger goes on; your body is running from a creeper \(the nearest 12 m off\)\. You are in danger now/);
+    cc.stop();
+    executor.stop();
+  }, 15_000);
+
   it('out of danger, nothing waits on it: a thought is had as before, and what was meant before the danger is not taken for under fire', async () => {
     const s = store();
     const bus = new AgentBus();
