@@ -7,7 +7,7 @@
 // Knowledge only: what to do with it is the mind's.
 
 import type { AgentState } from '@agora/shared';
-import { EDIBLE } from '../body/items';
+import { CATEGORIES, EDIBLE } from '../body/items';
 import { SMELTS } from '../body/skills/planner';
 
 /** The parts of the game data this reads (minecraft-data, as `bot.registry`). */
@@ -353,8 +353,11 @@ export class GameKnowledge {
     const out: string[] = [];
     const add = (w: string) => {
       for (const c of [w, w.replace(/s$/, ''), w.replace(/es$/, '')]) {
-        if (this.data.itemsByName[c] && !out.includes(c)) {
-          out.push(c);
+        // The thing itself, or one of a kind named as players name it ("catch a fish", "a bed"): the novel test's "Catch
+        // a fish" named no item, and nothing of how fish are caught came to mind.
+        const item = this.data.itemsByName[c] ? c : this.oneOfKind(c);
+        if (item && !out.includes(item)) {
+          out.push(item);
           return true;
         }
       }
@@ -370,6 +373,20 @@ export class GameKnowledge {
       if (one.length >= 3 && !COMMON_WORD.has(one)) add(one);
     }
     return out;
+  }
+
+  private readonly kinds = new Map<string, string | null>();
+
+  /** One item of the kind a word names (a fish: cod), or null. */
+  private oneOfKind(word: string): string | null {
+    const kind = CATEGORIES[word];
+    if (!kind) return null;
+    let one = this.kinds.get(word);
+    if (one === undefined) {
+      one = Object.keys(this.data.itemsByName).filter(kind).sort((a, b) => a.length - b.length || a.localeCompare(b))[0] ?? null;
+      this.kinds.set(word, one);
+    }
+    return one;
   }
 
   /** What a player knows about what a task is about (a renewable food supply, the Nether, armor). */

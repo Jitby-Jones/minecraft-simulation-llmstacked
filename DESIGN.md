@@ -3388,6 +3388,11 @@ What else the benchmark showed:
   to the mind word for word, up to sixteen times in one run (`duo (5)`). An action's error now reads "could not work
   out a way there in time (far off through rock, or no way at all)", and "No path to the goal!" reads "no way there
   on foot from here". The walks' own code still matches the planner's words.
+- **A word for a kind of thing names one of its kind.** What the game knows is looked up by the items a task names,
+  and "Catch a fish." named none (there is no item "fish"), so nothing of how fish are caught came to mind; `novel
+  (4)` set out to make a rod from spiders' string. The words players use for kinds of things (a fish: cod or salmon; a
+  bed, wool, logs, planks of any colour or wood) now bring up one of the kind: "Catch a fish" brings up cod, "kill one
+  where it swims (a blow or two), or fish with a rod".
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

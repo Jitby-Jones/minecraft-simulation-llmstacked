@@ -798,6 +798,11 @@ describe('what it knows of the game, looked up for what matters', () => {
     expect(k.describe('enchanting_table')).toBe('enchanting table: craft from 1 book + 2 diamonds + 4 obsidian (at a crafting table)');
     expect(k.describe('leather')).toMatch(/cow, donkey, hoglin, horse drop it when killed/);
     expect(k.itemsIn('Obtain 12 diamonds and make an enchanting table')).toEqual(['diamond', 'enchanting_table']);
+    // A word for a kind of thing brings up one of its kind, as the novel test's tasks name them ("Catch a fish." named
+    // no item, and nothing of how fish are caught came to mind).
+    expect(k.itemsIn('Catch a fish.')).toEqual(['cod']);
+    expect(k.itemsIn('Make a bed and sleep in it.')).toEqual(['red_bed']);
+    expect(k.describe('cod')).toMatch(/kill one where it swims/);
     expect(k.topics('secure a renewable source of food').join(' ')).toMatch(/Food that keeps coming/);
     // Where ores are, as anyone who has mined knows (an agent dug 48 blocks at y 29 for iron, then wrote itself that iron is at -58).
     expect(k.topics('mine iron for a full set of armor').join(' ')).toMatch(/iron in two bands, richest around y 16/);
