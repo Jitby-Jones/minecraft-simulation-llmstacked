@@ -3402,20 +3402,19 @@ renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at
 (`duo (21)`) and by 27 (`duo (7)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and
 0.71, the question due at 0.75) before both died outside a hut they could not walk into. Solo, the best is `solo, seed 1
 (19)`: 7 diamonds by 27 minutes, an iron pickaxe by 14, iron boots and a chestplate by 87, alive for 130 minutes
-(some six days of the game); earlier, 8 diamonds by 19 minutes (`solo, seed 2 (4)`). What ends the runs now is less the night and
-the hands than food and the deep: no solo has made food come to it (a field, a pen) before it went down to mine, and
-underground, hungry and hurt, they starve below the health that heals, or die on the long walk up (one search for a
-path 70 blocks up runs out of time). Each death and stall is answered as above, in the general mind and hands; every
-death's post-mortem says how the last fight went. Verified: 706 unit tests; live, `hands` (39, all passing one by one; in the last full run of the suite, 38, the 24-deep climb stopped where it began: dyeing, the hut's corner,
-a wet tunnel, dry stone, the crafting grid, a door, a furnace over a drop, climbing out of a hollow, a night's hut for
-one, a tunnel under gravel, a meadow of tulips, a bed in a nook, a pickaxe on its last uses, digs for diamonds over the
-bedrock, off a pillar ringed with stalagmites, full pockets, a worn pickaxe spared, a hut on a slope, a hut where asked,
-up out of the stone, torches short of coal, cobblestone from stone, one ingot short, a hut of granite, a furnace made to
-smelt, a cow 45 m off, an egg is no food, 40 down and 40 across to the surface in a minute), `thinking` (the flyer still seen, hops no longer taken for floating),
-`melee` (7: an archer across a trench, zombies on open ground, gravel on the head, a flooded pit, a shelter by day with monsters about), `cornered` (2),
-`m1-water` (4), `m1-skills` (22, with into its own hut at night and a zombie at a hut's door no fight; twice in a row),
-`m1-night`, `m4` (no x-ray), `build`. The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo pnpm test:live
-longrun`), and what they show is answered the same way: in the general mind and hands, never for the case.
+(some six days of the game); earlier, 8 diamonds by 19 minutes (`solo, seed 2 (4)`). The novel test (tasks nobody
+planned the agent for: a fish, a bow and arrows, blue wool, a cake, a compass, a bed slept in, a shield) has met the
+shield, by 9 minutes in `novel (4)` and by 31 in `novel (3)`, which lived 136 minutes. What ends the runs now is the
+fight, nearly always in a cave or the dark under trees, outnumbered, with stone tools. Of the last two dozen deaths
+read, eleven were to zombies and five to arrows; the rest were a spider, a creeper, a drowned, lava, a fall, a wall
+and a stalagmite. Each death and stall is answered as above, in the general mind, senses and hands; every death's
+post-mortem says how the last fight went. Verified (2026-10-27): 781 unit tests; live, `m1-skills` (27, among them
+into its own hut and its doorway shut, a shield on the arm through a fight, and a fenced skeleton's arrows all
+blocked), `cornered` (4: a hole, the open, a tunnel, and zombies spread across a room beyond a tunnel), `underfire`
+(both cases, twice running, the five zombies walled off), and `hands` (65; in the last full run 63, and the two that
+failed, a hut's door left open and the climb from 40 deep, passed twice each after the placement timer was fixed).
+The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo|novel pnpm test:live longrun`), and what they show is
+answered the same way: in the general mind and hands, never for the case.
 
 ### Owner request: think as a player would, under fire too (2026-10-24)
 
