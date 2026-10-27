@@ -3107,8 +3107,9 @@ quota (`docs/plan-thinking-models.md` §4, §7):
   and are used by both. The mind's golden set has 26 cases. The checks' reply cap is 320 tokens: the self-summary and a
   talk's promises come near 200, and a reply cut off is lost.
 
-Verified: lint, typecheck, the forbidden-strings check, 756 unit tests, and live `hands` (the roof, the 24-deep climb),
-`melee` (9), `cornered` (2), `m1-water` (4) and the `m1-skills` reflexes (the run into the hut). The benchmarks and the
+Verified: lint, typecheck, the forbidden-strings check, 756 unit tests, and live the whole of `m1-skills` (24) and
+`hands` (56: its 24-deep climb, which had stalled in full runs of the suite, too), `melee` (9), `cornered` (2) and
+`m1-water` (4). The benchmarks and the
 long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports that it
 can spend balance.
 
