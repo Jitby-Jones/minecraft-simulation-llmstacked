@@ -19,7 +19,7 @@ import { bestToHitWith, bestWeapon, equipBestWeapon, pvp } from './skills/combat
 import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { carefulWhenHurt, createMovements } from './plugins';
-import { isCover, referenceFor } from './skills/building';
+import { isCover, pillarUnder, referenceFor } from './skills/building';
 import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isIndoors, isNight, isPlayer, isSolid, overlapsCell, wallsAround } from './world';
 
 const { goals } = pathfinderPkg;
@@ -1108,7 +1108,6 @@ export class ReflexController {
   private async pillarUp(threats: readonly Entity[]): Promise<boolean> {
     const bot = this.bot;
     if (!this.canPillar(threats)) return false;
-    const block = () => bot.inventory.items().find((i) => isCover(i.name));
     const base = bot.entity.position.floored();
     this.busy = true;
     this.perchSince = Date.now();
@@ -1119,26 +1118,11 @@ export class ReflexController {
         // not fighting
       }
       bot.pathfinder.setGoal(null);
-      bot.clearControlStates();
-      // A run's way on carries the jump off the block being placed (one sprinting climbed its pillar a block and a
-      // half from where it began, onto the hillside): standing still first.
-      for (let t = 0; t < 16 && Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) > 0.03; t++) await new Promise((r) => setTimeout(r, 25));
-      for (let tries = 0; tries < PERCH_HEIGHT + 2 && bot.entity.position.y - base.y < PERCH_HEIGHT - 0.01; tries++) {
-        const item = block();
-        if (!item) break;
-        await bot.equip(item, 'hand');
-        const from = bot.entity.position.floored();
-        const ground = bot.blockAt(from.offset(0, -1, 0));
-        if (!ground || !isSolid(ground)) break;
-        await bot.look(bot.entity.yaw, -Math.PI / 2, true);
-        bot.setControlState('jump', true);
-        const t0 = Date.now();
-        while (bot.entity.position.y < from.y + 1.05 && Date.now() - t0 < 700) await new Promise((r) => setTimeout(r, 25));
-        bot.setControlState('jump', false);
-        await bot.placeBlock(ground, new Vec3(0, 1, 0)).catch(() => undefined);
-        const t1 = Date.now();
-        while (!bot.entity.onGround && Date.now() - t1 < 700) await new Promise((r) => setTimeout(r, 25));
-      }
+      // The place skill's way up: each jump from the ground, the block put in once risen, a few tries a block (the
+      // body's own, a jump and a block at once, went nowhere twice among a zombie, a spider and a creeper, and she
+      // stood there until the creeper went off).
+      const r = await pillarUnder(bot, isCover, PERCH_HEIGHT);
+      if (r.why && bot.entity.position.y - base.y < OUT_OF_REACH) this.logger.info({ module: 'reflex', up: r.up, why: r.why }, 'the pillar stopped short');
       return bot.entity.position.y - base.y >= OUT_OF_REACH;
     } catch (err) {
       this.logger.debug({ module: 'reflex', err: String(err) }, 'could not get up a pillar');

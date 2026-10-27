@@ -1074,6 +1074,31 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`tp Ada ${x + 2} ${Y} 0`);
   }, 120_000);
 
+  it('many blocks "up" is a pillar too; under a ceiling, it says there is no room to jump', async () => {
+    // One among zombies in a cave asked for 30 cobblestone toward up, was told "there is stone over your head
+    // already", and waited there.
+    const x = 10200;
+    await at(x + 0.5, 0.5);
+    await server.cmd('give Ada minecraft:dirt 8');
+    await sleep(1500);
+    const from = body.bot.entity.position.y;
+    const r = await run('place', { block: 'dirt', toward: 'up', count: 2 });
+    logger.info({ r, y: body.bot.entity.position.y }, 'a pillar asked for as up');
+    expect(r.ok).toBe(true);
+    expect(body.bot.entity.position.y - from).toBeGreaterThan(1.9);
+    await server.cmd(`fill ${x} ${Y} 0 ${x} ${Y + 4} 0 minecraft:air`);
+    // Under a stone ceiling two blocks up: no going up, and said so.
+    await at(x + 3.5, 0.5);
+    await server.cmd('give Ada minecraft:dirt 8');
+    await server.cmd(`setblock ${x + 3} ${Y + 2} 0 minecraft:stone`);
+    await sleep(1500);
+    const low = await run('place', { block: 'dirt', toward: 'up', count: 2 });
+    logger.info({ low }, 'a pillar under a ceiling');
+    expect(low.ok).toBe(false);
+    expect(`${low.observed} ${low.error ?? ''}`).toMatch(/no room to jump/);
+    await server.cmd(`fill ${x + 3} ${Y} 0 ${x + 3} ${Y + 2} 0 minecraft:air`);
+  }, 120_000);
+
   it('a torch down goes on the floor where it stands, not up a pillar', async () => {
     // Asked so in a mine, one was told there was "no down in sight within 32 blocks".
     const x = 9900;

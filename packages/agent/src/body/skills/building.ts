@@ -232,17 +232,28 @@ const DOWN = /^(down|below|beneath|under ?me|under ?(my|your) feet|underfoot|und
  * from a zombie at night with 21 dirt on him had no way to ask his hands for it: the body did it only by reflex.
  */
 async function towerUp(ctx: SkillContext, block: string, count: number): Promise<{ up: number; why?: string }> {
-  const { bot } = ctx;
   const m = itemMatcher(block);
+  return pillarUnder(ctx.bot, (n) => m.matches(n), count, { label: m.label, check: () => throwIfAborted(ctx.signal) });
+}
+
+/**
+ * Up a pillar of what one carries, a block under one's feet each jump, as a player towers up: standing still first,
+ * each jump from the ground, the block put in only once risen, a few jumps a block (one off a ground not yet settled
+ * under one goes nowhere). How many blocks up, and why it stopped short. The place skill's and the body's own.
+ */
+export async function pillarUnder(bot: Bot, isBlock: (name: string) => boolean, count: number, o: { label?: string; check?: () => void } = {}): Promise<{ up: number; why?: string }> {
+  const tick = async () => {
+    await new Promise((r) => setTimeout(r, 25));
+    o.check?.();
+  };
   stopMotion(bot);
   // A run's way on carries the jump off the block being placed: standing still first.
-  for (let t = 0; t < 16 && Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) > 0.03; t++) await waitMs(ctx, 25);
+  for (let t = 0; t < 16 && Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z) > 0.03; t++) await tick();
   let up = 0;
-  // Each block up gets a few jumps: one off a ground not yet settled under one goes nowhere.
   for (let i = 0, misses = 0; i < count; ) {
-    throwIfAborted(ctx.signal);
-    const item = bot.inventory.items().find((it) => m.matches(it.name));
-    if (!item) return { up, why: `no ${m.label} left on you` };
+    o.check?.();
+    const item = bot.inventory.items().find((it) => isBlock(it.name));
+    if (!item) return { up, why: `no ${o.label ?? 'block'} left on you` };
     const from = bot.entity.position.floored();
     const ground = bot.blockAt(from.offset(0, -1, 0));
     if (!ground || !isSolid(ground)) return { up, why: 'nothing solid under your feet to build on' };
@@ -251,14 +262,14 @@ async function towerUp(ctx: SkillContext, block: string, count: number): Promise
     await bot.equip(item, 'hand');
     await bot.look(bot.entity.yaw, -Math.PI / 2, true);
     // A jump goes only from the ground.
-    for (let t = 0; t < 24 && !bot.entity.onGround; t++) await waitMs(ctx, 25);
+    for (let t = 0; t < 24 && !bot.entity.onGround; t++) await tick();
     bot.setControlState('jump', true);
     const t0 = Date.now();
-    while (bot.entity.position.y < from.y + 1.05 && Date.now() - t0 < 700) await waitMs(ctx, 25);
+    while (bot.entity.position.y < from.y + 1.05 && Date.now() - t0 < 700) await tick();
     bot.setControlState('jump', false);
     if (bot.entity.position.y >= from.y + 1.05) await bot.placeBlock(ground, new Vec3(0, 1, 0)).catch(() => undefined);
     const t1 = Date.now();
-    while (!bot.entity.onGround && Date.now() - t1 < 900) await waitMs(ctx, 25);
+    while (!bot.entity.onGround && Date.now() - t1 < 900) await tick();
     if (bot.entity.position.y >= from.y + 0.99) {
       up++;
       i++;
@@ -332,7 +343,7 @@ function besideToward(bot: Bot, toward: string, item?: string): Vec3 | null {
 export const place = defineSkill({
   name: 'place',
   description:
-    'place {block, x?,y?,z?, toward?, count?} — place a block from your inventory: at x,y,z; or beside you toward a way (north..., or up: over your head; down: a block under your feet as you jump, count of them one on another, a pillar, or a torch on the floor where you stand) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
+    'place {block, x?,y?,z?, toward?, count?} — place a block from your inventory: at x,y,z; or beside you toward a way (north..., or up: over your head, a count of them up being a pillar; down: a block under your feet as you jump, count of them one on another, a pillar, or a torch on the floor where you stand) or something in sight (a skeleton, someone), at your feet or at your head once that is filled; next to you if neither',
   argsSchema: z.object({
     block: z.string().min(1),
     x: z.coerce.number().optional(),
@@ -354,7 +365,10 @@ export const place = defineSkill({
     const at = args.x !== undefined && args.y !== undefined && args.z !== undefined;
     // Toward, with a spot as well: the way meant goes first (a spot worked out under fire put a wall to one side of a
     // tunnel, and five zombies came down it).
-    if (args.toward && DOWN.test(args.toward.trim().toLowerCase()) && !ATTACHED.test(itemMatcher(args.block).label)) {
+    // Many of them "up" is building up, a pillar: over one's head there is room for one (one among zombies in a cave
+    // asked for 30 cobblestone toward up, was told "there is stone over your head already", and waited there).
+    const way = args.toward?.trim().toLowerCase() ?? '';
+    if (args.toward && (DOWN.test(way) || (UP.test(way) && (args.count ?? 1) > 1)) && !ATTACHED.test(itemMatcher(args.block).label)) {
       const want = args.count ?? 1;
       const r = await towerUp(ctx, args.block, want);
       const high = perchedHeight(ctx.bot, ctx.bot.entity.position.floored());

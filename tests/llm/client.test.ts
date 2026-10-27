@@ -441,6 +441,39 @@ describe('one model for each kind of thought (owner request, 2026-10-25)', () =>
     expect(fake.chatRequests().slice(before).map((q) => q.body?.model)).toEqual(['p2-big', 'p2-big']);
   });
 
+  it('a thought that cannot wait asks the backup as well once it is slow, and takes the first good reply', async () => {
+    // Under fire the mind's model now and then took more than its 8 s, and the backup was asked only after it: one
+    // among five zombies died at 15 s with no thought had.
+    const fake = new FakeNanoGpt(standardModels());
+    const cfg = { ...fastTiers, thoughts: { underFire: { model: 'p2-big', backup: 'p3-mid', effort: 'none', maxTokens: 600, timeoutMs: 2000, hedgeMs: 150 } } };
+    const rt = await runtime(fake, cfg);
+    const under = { thought: 'underFire' as const };
+    // Slow: the backup, asked at 150 ms, answers first; the slow one is called off.
+    fake.chat = ({ model }) => (model === 'p2-big' ? { text: GOOD, delayMs: 1500 } : { text: GOOD, delayMs: 50 });
+    const t0 = Date.now();
+    const slow = await ask(rt, under);
+    expect(slow.ok && slow.model).toBe('p3-mid');
+    expect(Date.now() - t0).toBeLessThan(800);
+    // Quick: the backup is never asked.
+    fake.chat = () => ({ text: GOOD, delayMs: 20 });
+    let before = fake.chatRequests().length;
+    const quick = await ask(rt, under);
+    expect(quick.ok && quick.model).toBe('p2-big');
+    expect(fake.chatRequests().slice(before).map((q) => q.body?.model)).toEqual(['p2-big']);
+    // Slow, and the backup no quicker: whichever answers first.
+    fake.chat = ({ model }) => (model === 'p2-big' ? { text: GOOD, delayMs: 300 } : { text: GOOD, delayMs: 900 });
+    const both = await ask(rt, under);
+    expect(both.ok && both.model).toBe('p2-big');
+    // Down before the hedge: the backup, as for any call; a malformed reply: the code default, never the backup.
+    fake.chat = ({ model }) => (model === 'p2-big' ? { status: 503, json: { error: { message: 'overloaded' } } } : { text: GOOD });
+    const down = await ask(rt, under);
+    expect(down.ok && down.model).toBe('p3-mid');
+    fake.chat = ({ model }) => (model === 'p2-big' ? { text: 'not json at all' } : { text: GOOD });
+    before = fake.chatRequests().length;
+    expect(await ask(rt, under)).toMatchObject({ ok: false, value: DEFAULT });
+    expect(fake.chatRequests().slice(before).map((q) => q.body?.model)).toEqual(['p2-big', 'p2-big']);
+  });
+
   it("still puts the operator's model for the tier first", async () => {
     const fake = new FakeNanoGpt(standardModels());
     fake.chat = () => ({ text: GOOD });

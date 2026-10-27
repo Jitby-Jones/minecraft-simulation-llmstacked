@@ -429,6 +429,9 @@ export class LlmClient {
       ...(effort ? { effort } : {}),
     };
 
+    // A thought that cannot wait races its backup once it is slow.
+    if (thought?.hedgeMs !== undefined && o.model === undefined && chain.length >= 2) return this.hedged(o, chain, spec, thought.hedgeMs, { tier, kind, t0 });
+
     let lastError = '';
     for (const model of chain) {
       if (attempts >= ATTEMPTS) break;
@@ -468,6 +471,77 @@ export class LlmClient {
       }
     }
     return fallback('failed', lastError || 'no model left to try');
+  }
+
+  /**
+   * A thought that cannot wait (`thoughts.<kind>.hedgeMs`): not answered by then, the backup is asked as well, the
+   * first good reply is taken and the other called off. Under fire the mind's model now and then took more than its
+   * 8 s, with four runs going, and the backup was asked only after it: one among five zombies died at 15 s with no
+   * thought had. Before the hedge time, a failure goes to the backup as any call's does, and a malformed reply to the
+   * code default.
+   */
+  private async hedged<T>(o: LlmCallOptions<T>, chain: readonly string[], spec: CallSpec, hedgeMs: number, at: { tier: TierName; kind: ThoughtKind; t0: number }): Promise<LlmResult<T>> {
+    const { tier, kind, t0 } = at;
+    let attempts = 0;
+    let waited = 0;
+    let lastError = '';
+    let stopped = false;
+    const fallback = (reason: FallbackReason, error?: string): LlmResult<T> => ({ ok: false, source: 'fallback', value: o.fallback(), reason, error, ms: this.now() - t0, waitMs: waited, attempts });
+    const live = new Set<AbortController>();
+    type Won = { model: string; value: T; text: string; usage: LlmUsage; truncated?: boolean };
+    /** One model's try: its reply, or null (failed, called off, or the state moved on). */
+    const one = async (model: string): Promise<Won | null> => {
+      const ac = new AbortController();
+      live.add(ac);
+      const signal = o.signal ? AbortSignal.any([o.signal, ac.signal]) : ac.signal;
+      try {
+        const w0 = this.now();
+        try {
+          await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], signal, o.module);
+          waited += this.now() - w0;
+        } catch {
+          return null;
+        }
+        if (signal.aborted || o.isStale?.()) return null;
+        if (attempts > 0) o.onRetry?.();
+        attempts++;
+        const started = this.now();
+        try {
+          const r = await this.attempt({ ...o, signal }, model, spec);
+          this.record(o, tier, model, r.usage, this.now() - started, true, { thought: kind, ...(r.truncated ? { truncated: true } : {}) });
+          this.circuit.success(model);
+          return { model, ...r };
+        } catch (err) {
+          if (err instanceof ForbiddenEndpointError || err instanceof ForbiddenOptionError || err instanceof ModelNotInSubscription) throw err;
+          const usage = err instanceof AttemptError ? err.usage : { inputTokens: 0, outputTokens: 0 };
+          const e = err instanceof AttemptError ? err.inner : this.toLlmError(err, model, signal);
+          this.record(o, tier, model, usage, this.now() - started, false, { thought: kind, failure: e.kind, ...(/cut off at/.test(e.message) ? { truncated: true } : {}) });
+          // Called off, the other having answered: no failure of this model's.
+          if (e.kind === 'aborted') return null;
+          lastError = `${model}: ${e.message}`;
+          this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, kind: e.kind, err: e.message, hedged: true }, 'llm attempt failed');
+          if ((await this.onFailure(e, model, tier, signal)) === 'stop') stopped = true;
+          return null;
+        }
+      } finally {
+        live.delete(ac);
+      }
+    };
+    const done = (w: Won | null): LlmResult<T> => {
+      for (const ac of live) ac.abort();
+      if (o.signal?.aborted || o.isStale?.()) return fallback(o.isStale?.() ? 'stale' : 'aborted', 'state moved on');
+      if (!w) return fallback('failed', lastError || 'no model left to try');
+      return { ok: true, source: 'llm', value: w.value, text: w.text, model: w.model, tier, usage: w.usage, ms: this.now() - t0, waitMs: waited, attempts, ...(w.truncated ? { truncated: true } : {}) };
+    };
+    const [primary, backup] = chain as [string, string];
+    const first = one(primary);
+    // Given up on below (the caller gone), it may still end in an error: nobody waits for it then.
+    first.catch(() => undefined);
+    const early = await Promise.race([first, abortableSleep(hedgeMs, o.signal).then(() => 'late' as const, () => 'gone' as const)]);
+    if (early === 'gone') return done(null);
+    if (early === 'late') return done(await firstOf([first, one(backup)]));
+    if (early !== null || stopped) return done(early);
+    return done(await one(backup));
   }
 
   /** §22.6 actions. 'next' tries the next model in the chain; 'stop' goes to the code default. */
@@ -709,6 +783,19 @@ export class LlmClient {
 function msUntilUtcMidnight(now: number): number {
   const d = new Date(now);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1) - now;
+}
+
+/** The first of these to come back with something; null once all came back with nothing. */
+function firstOf<T>(tries: readonly Promise<T | null>[]): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    let left = tries.length;
+    for (const t of tries) {
+      t.then((v) => {
+        if (v !== null) resolve(v);
+        else if (--left === 0) resolve(null);
+      }, reject);
+    }
+  });
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {

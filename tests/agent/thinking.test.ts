@@ -935,6 +935,41 @@ describe('the decision as thought out: tidied, taken in, and the next steps take
     cc.stop();
   });
 
+  it('a task said to be done in the thought that sets out to do it stays open, noted; said again later, or of what is not being set out to do, it is done', async () => {
+    // One about to swim down to a cod put "Catch a fish" behind her as "killed a cod and picked it up", and never had a fish.
+    const fake = new FakeNanoGpt(standardModels());
+    const replies = [
+      { thought: 'Down to the cod.', option: 'work', task: { skill: 'attack', args: { target: 'cod', seconds: 10 } }, then: [{ skill: 'pickup', args: {} }], terminate: { maxSeconds: 60 }, rationale: 'fish', taskDone: '#1: killed a cod and picked it up' },
+      { thought: 'Got it. Cook it.', option: 'work', task: { skill: 'smelt', args: { item: 'cod', qty: 1 } }, terminate: { maxSeconds: 60 }, rationale: 'food', taskDone: '#1: I have a cod now' },
+    ];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      return { text: JSON.stringify(replies.shift() ?? { option: 'rest', terminate: { maxSeconds: 20 }, rationale: 'x' }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const body = { skill: () => null, run: () => new Promise(() => undefined) } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    cc.start();
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    const fish = cc.giveTask('Catch a fish.', 'the operator');
+    for (let i = 0; i < 60 && decided.length === 0; i++) await wait(25);
+    expect(decided).toEqual(['llm:attack']);
+    const noted = s.state.goals.tasks?.find((t) => t.id === fish.id);
+    expect(noted?.status).toBe('open');
+    expect(noted?.note).toBe('you said it was done as you set out to do it: "#1: killed a cod and picked it up"');
+    expect(buildPacket({ state: s.state, levers: leversFor(0.5), reason: 'x', now: Date.now() })).toContain('#1 Catch a fish. (from the operator, 0s ago) [you said it was done as you set out to do it:');
+    // Said again in a later thought: done.
+    bus.emit({ type: 'optionTerminated', reason: 'aborted', ok: false, option: 'work' });
+    for (let i = 0; i < 160 && decided.length < 2; i++) await wait(25);
+    expect(s.state.goals.tasks?.find((t) => t.id === fish.id)).toMatchObject({ status: 'done', note: '#1: I have a cod now' });
+    cc.stop();
+  });
+
   it('a step meant next waits for a thought already under way: what it decides comes first; going on with what is done, or no thought, and the step follows', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const pending: ((r: { text: string }) => void)[] = [];

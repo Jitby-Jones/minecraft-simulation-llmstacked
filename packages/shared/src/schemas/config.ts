@@ -28,6 +28,8 @@ export const ThoughtConfigSchema = z.object({
   /** The reply's length cap: set to keep the thought fast, not to save tokens. */
   maxTokens: z.number().int().positive(),
   timeoutMs: z.number().int().min(100).max(300_000),
+  /** For a thought that cannot wait: not answered in this long, the backup is asked as well and the first good reply taken. */
+  hedgeMs: z.number().int().min(100).max(300_000).optional(),
 });
 export type ThoughtConfig = z.infer<typeof ThoughtConfigSchema>;
 

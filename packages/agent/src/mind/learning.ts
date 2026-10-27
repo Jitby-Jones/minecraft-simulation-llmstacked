@@ -109,6 +109,16 @@ export function matchTask(tasks: readonly AssignedTask[], text: string): Assigne
   return best;
 }
 
+/**
+ * Whether a task said to be done is said so of what the same thought only now sets out to do: what the saying is
+ * about is in the steps it takes (one about to swim down to a cod put "Catch a fish" behind her as "killed a cod and
+ * picked it up", and never had a fish).
+ */
+export function doneAsItSetsOut(said: string, steps: readonly { skill: string; args?: Record<string, unknown> }[]): boolean {
+  const about = new Set([...words(said.replace(BY_NUMBER, ''))].filter((w) => !DOING.has(w)).map(stem));
+  return steps.some((st) => Object.values(st.args ?? {}).some((v) => typeof v === 'string' && v.toLowerCase().split(/[^a-z]+/).some((w) => w.length >= 3 && about.has(stem(w)))));
+}
+
 export const ReviewSchema = z.object({
   lessons: z.array(z.string().min(8).max(300)).max(3).default([]),
   /** Lessons it already had, by their number in the list shown, that what happened showed to be wrong. */

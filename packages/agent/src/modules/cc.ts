@@ -43,7 +43,7 @@ import type { MindLevers } from './levers';
 import { mindSystemPrompt } from './prompts';
 import { URGENT_STRENGTH } from '../mind/expectations';
 import { cueFrom } from '../mind/later';
-import { addLesson, matchTask } from '../mind/learning';
+import { addLesson, doneAsItSetsOut, matchTask } from '../mind/learning';
 import { tidyDecision } from './decisionTidy';
 import { CHANGE_MS, describeChange } from '../perception/surroundings';
 import { routeItemTask } from './itemTasks';
@@ -1882,7 +1882,12 @@ export class CognitiveController {
     ] as const) {
       if (!text) continue;
       const t = matchTask(store.state.goals.tasks ?? [], text);
-      if (t) store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id === t.id ? { ...x, status, note: text } : x)) }), `task ${status}`);
+      if (!t) continue;
+      // Done in the same thought that sets out to do it is a hope, not a fact: noted on the task, which stays open until
+      // a later thought finds it done (one about to swim down to a cod put "Catch a fish" behind her as "killed a cod
+      // and picked it up", and never had a fish). Said again in a later thought, it is taken.
+      const hoped = status === 'done' && !t.note?.startsWith(MEANT_DONE) && doneAsItSetsOut(text, [...(out.task ? [out.task] : []), ...(out.then ?? [])]);
+      store.update('goals', (g) => ({ ...g, tasks: (g.tasks ?? []).map((x) => (x.id !== t.id ? x : hoped ? { ...x, note: `${MEANT_DONE} "${text}"` } : { ...x, status, note: text })) }), hoped ? 'task meant done' : `task ${status}`);
     }
   }
 
@@ -1898,5 +1903,7 @@ export class CognitiveController {
 
 /** Steps meant this long ago are no longer carried on without a thought. */
 const INTENTION_MS = 12 * 60_000;
+/** The note on a task said to be done in the thought that set out to do it. */
+const MEANT_DONE = 'you said it was done as you set out to do it:';
 /** What could not be done is kept in mind this long. */
 export const RULED_OUT_MS = 10 * 60_000;

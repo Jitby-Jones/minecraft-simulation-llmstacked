@@ -3258,6 +3258,27 @@ What else the benchmark showed:
   ended. A run chosen sets no option to end, and nothing new came. Now a danger that goes on is thought about again
   15 s after the last thought ("the danger goes on; your body is ..."), or 45 s after if a choice of the mind's is
   still under way.
+- **A thought under fire doesn't wait out a slow model** (`thoughts.underFire.hedgeMs`, 3.5 s). In the live
+  `underfire` case of five zombies, the first thought under fire went to the mind's model at 4.2 s and timed out at
+  12.3 s, and the backup was asked only then; she died at 15 s with no thought had. With four long runs going, half of
+  the under-fire requests in `duo (44)` failed this way, or were dropped as stale. Now a thought that cannot wait,
+  not answered by its hedge time, asks the backup as well, and the first good reply is taken and the other called
+  off. Before the hedge time, a failure goes to the backup as any call's does, and a malformed reply to the code
+  default, as before. In the next live run the first thought under fire came 3.2 s after the danger began.
+- **Many blocks "up" is a pillar.** In that run's three-zombie case the mind asked for 30 cobblestone toward up, the
+  way one says "build up". Up was one block over one's head, so it was told "there is stone over your head already",
+  taken for done, and the next step it meant, a 10 s wait, ran while the zombies came at her. Now a count of blocks
+  up is a pillar, as down was, and under a ceiling it says "stone over your head, no room to jump".
+- **The body's pillar is the hands' pillar.** `solo, seed 3 (1)` came up at night for wood and met a zombie, a spider
+  and a creeper. The body went "up a pillar out of reach" twice and never left the ground, stood 19 s at one spot, and
+  the creeper went off. Its pillar still jumped and placed at once, giving up at the first jump that didn't rise,
+  the way the place skill did before it was mended. Both now go up the same way: each jump from the ground, the
+  block put in once risen, a few jumps a block.
+- **A task said to be done as it is set out stays open.** In `novel (3)`, the first thought on "Catch a fish" chose to
+  swim down and hit a cod, and in the same reply put the task behind it: "killed a cod and picked it up". The attack
+  was cut short, and in 60 minutes there was never a fish. Now "done" said in the thought that sets out to do it (the
+  saying is about what its own steps are about) is a hope: the task stays open, noted "you said it was done as you
+  set out to do it", until a later thought says so again.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

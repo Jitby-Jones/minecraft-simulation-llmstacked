@@ -26,7 +26,9 @@ tiers:
 #   deepseek-v4-pro 21/24, score 0.81 with none plainly wrong, 4.9 s median, 6.5 s p90; mimo-v2.6-flash 24/24, 0.73,
 #   4.5 s and 5.8 s, but four deadly choices (a fight at 2 and at 4 health); deepseek-v4-flash 22/24, 0.63. At 5 s
 #   most timed out. The same mind as the mind's, as a person's under fire is their own; the reflexes hold the body
-#   while it thinks. Backup: mimo-v2.6-flash, the fastest.
+#   while it thinks. Backup: mimo-v2.6-flash, the fastest. Not answered in 3.5 s, the backup is asked as well and the
+#   first good reply taken (hedgeMs): with four runs going it now and then took past its 8 s, the backup was asked only
+#   then, and one among five zombies died at 15 s with no thought had (2026-10-27).
 # - social: reading others, unbenchmarked: the mind's model, its backup.
 # - speech: kimi-k2.6 wrote only the line, in a player's way, in 1.7-2.6 s (2026-10-25); glm-5.1 wrote out its working
 #   before the line three times of three; minimax-m3 (about 1 s) wrote only the line, plainer.
@@ -48,7 +50,7 @@ tiers:
 # - persona: kimi-k2.6, the agents' voice.
 thoughts:
   mind:      { model: deepseek/deepseek-v4-pro, backup: minimax/minimax-m3, effort: none, maxTokens: 1200, timeoutMs: 12000 }
-  underFire: { model: deepseek/deepseek-v4-pro, backup: xiaomi/mimo-v2.6-flash, effort: none, maxTokens: 600, timeoutMs: 8000 }
+  underFire: { model: deepseek/deepseek-v4-pro, backup: xiaomi/mimo-v2.6-flash, effort: none, maxTokens: 600, timeoutMs: 8000, hedgeMs: 3500 }
   speech:    { model: moonshotai/kimi-k2.6, backup: minimax/minimax-m3, maxTokens: 300, timeoutMs: 8000 }
   social:    { model: deepseek/deepseek-v4-pro, backup: minimax/minimax-m3, effort: none, maxTokens: 800, timeoutMs: 10000 }
   check:     { model: xiaomi/mimo-v2.6-flash, backup: qwen/qwen3.8-flash, effort: none, maxTokens: 320, timeoutMs: 4000 }
