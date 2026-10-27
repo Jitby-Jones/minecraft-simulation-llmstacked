@@ -3375,6 +3375,15 @@ What else the benchmark showed:
   time the mind, told only "your body is fighting 3 zombies", sent him running again. Neither running nor fighting
   was ever carried through, and he died. Now the mind is told "it stood to fight because running was not working: 2
   blows caught you as you ran" (or "there was nowhere left to run to"), so the choice is weighed, not repeated blind.
+- **A run keeps to drops it can see the bottom of.** Ada, in the same run, waited out the night sealed in and went
+  straight out for logs at sunrise into a spruce wood. Two zombies, a skeleton and two creepers were still about
+  under the trees. Running from them, she went off a drop of 29 blocks into water, into a dark cave with more of
+  them, and was killed in six seconds. A walk may drop any depth into water, and a run did the same. Running away
+  (the body's, and the mind's `flee`) now keeps to drops of 3; what is down a ravine is not seen from its top.
+- **A long wait over, a look about before going on.** The night's plan ("stay sealed until sunrise, then chop logs")
+  went on into its next step the moment the wait for day ended. A step meant before a long wait (for the day, the
+  night, two minutes or more) or a night's sleep now waits for a thought once the wait is over: "the wait is over
+  (waited 384s: it is day): first a look about you, as things are now".
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

@@ -699,6 +699,45 @@ describe('the world changed since the steps were meant', () => {
     expect(asked.at(-1)).toMatch(/you meant to obtain next, but the wait for day was cut short before it came \(stopped waiting early, after 2s\)/);
   }, 15_000);
 
+  it('a wait for the day that came: a look about before what was meant for the morning (one went out at sunrise among the monsters)', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const asked: string[] = [];
+    fake.chat = ({ body }) => {
+      if (schemaNameOf(body) !== 'decision') return { text: '{"summary":"ok"}' };
+      asked.push(JSON.stringify(body?.messages ?? ''));
+      return { text: JSON.stringify({ thought: 'Sit tight till morning, then logs.', option: 'rest', task: { skill: 'wait', args: { until: 'day' } }, terminate: { maxSeconds: 600 }, rationale: 'night', then: [{ skill: 'gather', args: { item: 'spruce_log', qty: 12 } }] }) };
+    };
+    const rt = await startLlm({ apiKey: 'k', config: ModelsConfigSchema.parse({}), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: new LocalRateLimiter({ rps: 10_000 }) });
+    const s = store();
+    const bus = new AgentBus();
+    const finish = new Map<string, (observed: string) => void>();
+    const body = {
+      skill: () => ({ talkOverable: true }),
+      run: (skill: string, args: Record<string, unknown>, opts: { signal: AbortSignal }) =>
+        new Promise<SkillRunRecord>((resolve) => {
+          finish.set(skill, (observed) => resolve({ id: 'r', skill, args, expected: 'x', observed, ok: true, mismatch: false, aborted: false, slip: null, startedAt: 0, durationMs: 1 }));
+          opts.signal.addEventListener('abort', () => resolve({ id: 'r', skill, args, expected: 'x', observed: 'interrupted', ok: false, mismatch: false, aborted: true, slip: null, startedAt: 0, durationMs: 1, error: 'aborted' }), { once: true });
+        }),
+    } as unknown as Body;
+    const executor = new SkillExecutor({ store: s, bus, body, logger: nullLogger(), levers: () => leversFor(0.5) });
+    executor.start();
+    const awareness = new ActionAwareness({ store: s, bus, logger: nullLogger() });
+    const cc = new CognitiveController({ store: s, bus, logger: nullLogger(), llm: rt.client, me: 'Pip', levers: () => leversFor(0.5), awareness, executor, canPerceive: () => false });
+    const decided: string[] = [];
+    bus.on('decision', (e) => decided.push(`${e.decision.source}:${e.decision.task?.skill ?? e.decision.option}`));
+    s.update('self', (x) => ({ ...x, isDay: false, time: 15_000 }));
+    cc.start();
+    cc.trigger('testing', { urgent: true });
+    for (let i = 0; i < 80 && !finish.has('wait'); i++) await wait(25);
+    s.update('self', (x) => ({ ...x, isDay: true, time: 100 }));
+    finish.get('wait')?.('waited 384s: it is day');
+    for (let i = 0; i < 80 && decided.length < 2; i++) await wait(25);
+    cc.stop();
+    executor.stop();
+    expect(decided).not.toContain('intention:gather');
+    expect(asked.at(-1)).toMatch(/you meant to gather next, but the wait is over \(waited 384s: it is day\): first a look about you, as things are now/);
+  }, 15_000);
+
   it('a long wait meant for the night, come to under the open sky: a look round first (one waited it out beside his hut)', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const asked: string[] = [];

@@ -1769,6 +1769,10 @@ export class CognitiveController {
     const last = s.actionLog.at(-1);
     const until = last?.skill === 'wait' && typeof last.args?.until === 'string' ? last.args.until : null;
     const cutShort = until !== null && /stopped waiting early/.test(last?.observed ?? '');
+    // A long wait or a night's sleep over: a look about before going on, as anyone looks out at dawn before stepping out
+    // (one sealed in for the night went straight out for logs at sunrise among the monsters still under the trees, and
+    // was killed in twelve seconds).
+    const waited = last?.ok === true && ((last.skill === 'wait' && (until !== null || Number(last.args?.seconds ?? 0) >= 120)) || last.skill === 'sleep');
     // A long wait is settled into where one stands, looked at first, by day or night: one walked to his home's spot, a
     // wall of his hut by then, stopped outside it, and waited out the night there in the open until a zombie came;
     // another built a hut at dusk, came out of the build outside it with its doorway open, and waited for the day right
@@ -1785,9 +1789,11 @@ export class CognitiveController {
           ? 'night has fallen since you decided'
           : openToWait
             ? `first you look at where you would wait it out: ${s.scene.where}`
-            : null;
+            : waited
+              ? `the ${last?.skill === 'sleep' ? 'night is slept through' : 'wait is over'} (${last?.observed ?? ''}): first a look about you, as things are now`
+              : null;
     if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && since) {
-      this.o.store.update('mind', (m) => ({ ...m, intention: null }), hurtSince ? 'hurt since' : cutShort ? 'wait cut short' : openToWait ? 'open to wait in' : 'night since');
+      this.o.store.update('mind', (m) => ({ ...m, intention: null }), hurtSince ? 'hurt since' : cutShort ? 'wait cut short' : openToWait ? 'open to wait in' : waited ? 'wait over' : 'night since');
       const next = meant.steps[0];
       this.trigger(`you meant to ${next?.skill ?? next?.text ?? 'go on'} next, but ${since}`, s.flags.inDanger ? { urgent: true, emergency: true } : { urgent: true });
       return;

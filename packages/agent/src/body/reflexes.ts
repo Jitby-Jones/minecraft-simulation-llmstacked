@@ -1068,6 +1068,9 @@ export class ReflexController {
     if (!this.running) {
       this.running = createMovements(this.bot, this.hooks.quirks(), { sprint: true });
       this.running.canDig = false;
+      // Nor a leap into water far below: what is down there is not seen from here (one running from a zombie at dawn
+      // went off a drop of 29 blocks into water, in a dark cave full of them, and was killed in six seconds).
+      this.running.infiniteLiquidDropdownDistance = false;
     }
     this.bot.pathfinder.setMovements(carefulWhenHurt(this.bot, this.running));
     this.announce('flee', nearest.name === 'player' ? 'attacker' : (nearest.name ?? 'mob'), nearest);

@@ -467,7 +467,12 @@ export const flee = defineSkill({
     const dir = away.norm() < 0.1 ? new Vec3(1, 0, 0) : away.normalize();
     const target = me.plus(dir.scaled(args.distance));
     bot.setControlState('sprint', true);
-    bot.pathfinder.setMovements(ctx.movements(true));
+    // A run keeps to drops it can see the bottom of: no leap into water far below, whatever is down there (the body's
+    // own running does the same).
+    const run = ctx.movements(true);
+    const deepWater = run.infiniteLiquidDropdownDistance;
+    run.infiniteLiquidDropdownDistance = false;
+    bot.pathfinder.setMovements(run);
     try {
       await abortable(
         ctx.signal,
@@ -481,6 +486,7 @@ export const flee = defineSkill({
         : { ok: false, observed: `only ${d.toFixed(0)} blocks away`, error: errMsg(err) };
     } finally {
       bot.setControlState('sprint', false);
+      run.infiniteLiquidDropdownDistance = deepWater;
     }
     return { ok: true, observed: `fled to ${bot.entity.position.distanceTo(threat.position).toFixed(0)} blocks away` };
   },
