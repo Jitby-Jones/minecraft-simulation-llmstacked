@@ -3207,6 +3207,14 @@ What else the benchmark showed:
   - Six or more blocks under the open sky, the where line says "Deep under the flower forest". A cave's own biome
     (dripstone caves, lush caves, the deep dark) is still "In dripstone caves".
 
+- **A gather walks with the body's own care.** `novel (1)` walked into lava at 7 minutes, going down a hillside to a
+  tree for logs: 20 health to none in two seconds. The collect plugin, which every gather and mine walks with, set the
+  pathfinder's movements to plain defaults of its own at each collect. So every gather and mine walked without the
+  body's care: a step away from lava, nothing built broken through, no jump over a deep gap, no stalagmite underfoot,
+  the head above water. Left with no movements of its own, it walks with what the skill set. It also judges what is
+  safe to break by them, so a block built by someone, one under gravel or one against water is passed over as a
+  target, as on any walk.
+
 Verified: lint, typecheck, the forbidden-strings check, 770 unit tests; live, `m1-skills` (25: a first full run lost
 three to timeouts with two long runs and two other suites going, and passed 25 of 25 again alone), `melee` with
 `cornered` (12), and the new `hands` tests (a pillar of three, a torch down, a torch at one's side; twice).

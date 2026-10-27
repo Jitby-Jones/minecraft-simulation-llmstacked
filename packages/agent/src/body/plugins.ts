@@ -29,6 +29,12 @@ export function loadBodyPlugins(bot: Bot): void {
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvpPlugin);
   bot.loadPlugin(collectBlockPlugin);
+  // The collect plugin's walks are the body's own walks: it set the pathfinder's movements to plain defaults of its own
+  // at every collect, so every gather and mine walked with none of the body's care (a step away from lava, nothing
+  // built broken through, no jump over a deep gap, no stalagmite underfoot, the head above water). One walking down a
+  // hillside to a tree for logs went into lava from 20 health. Left null, it walks with what the skill set.
+  const collect = (bot as unknown as { collectBlock?: { movements: unknown } }).collectBlock;
+  if (collect) collect.movements = null;
   // The tool a player takes to a block, for the walk's digging and the collect plugin's alike (toolChoice.ts).
   (bot.pathfinder as unknown as { bestHarvestTool(b: Block): Item | null }).bestHarvestTool = (b) => toolFor(bot, b);
   // The collect plugin loads its tool plugin a tick later: wrapped once it is there.
