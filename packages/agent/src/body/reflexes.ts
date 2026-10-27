@@ -55,8 +55,9 @@ const ARCHER_CHASE_MS = 10_000;
 const MELEE_REACH = 3.2;
 /** One that couldn't be got at is run from, out of its sight, for this long. */
 const ARCHER_AVOID_MS = 30_000;
-/** The shield stays up this long after an archer stops drawing: the arrow is on its way. */
-const GUARD_AFTER_MS = 500;
+/** The shield stays up this long after an archer is last seen drawing: the draw is seen a tick (250 ms) late at worst,
+ * and the arrow takes a third of a second to come 10 m. Half a second let one in. */
+const GUARD_AFTER_MS = 1000;
 /** A mob that shoots is a threat this far off, once it can see us: its range, not arm's length. */
 const SHOT_RANGE = 16;
 
@@ -265,8 +266,9 @@ export class ReflexController {
   private perchSince = 0;
   /** When a dig into a wall was last tried. */
   private burrowSince = 0;
-  /** Until when the shield is held up against an archer's draw (0: not). */
+  /** Until when the shield is held up against an archer's draw (0: not), and toward whom. */
   private guardUntil = 0;
+  private guardFrom: Entity | null = null;
   /** Archers closed in on in vain, each until when it is run from instead (an agent "fought" one for 81 s, never
    * nearer than 9 blocks, shot from 20 health to 8). */
   private unreachable = new Map<number, number>();
@@ -310,6 +312,12 @@ export class ReflexController {
     private readonly opts: ReflexOptions = {},
   ) {
     this.swings = new SwingTracker(bot);
+    // Facing the archer through every tick of the guard, the walk stopped meanwhile.
+    bot.on('physicsTick', () => {
+      const from = this.guardFrom;
+      if (!from || Date.now() > this.guardUntil || !bot.entities[from.id]) return;
+      void bot.lookAt(from.position.offset(0, (from.height || 1.8) * 0.85, 0), true).catch(() => undefined);
+    });
     this.lastHealth = bot.health;
   }
 
@@ -638,6 +646,22 @@ export class ReflexController {
     const p = this.bot.entity.position;
     for (const dy of [0, 0.5, 1]) if (this.bot.blockAt(p.offset(0, dy, 0))?.name === 'lava') return true;
     return false;
+  }
+
+  /** Lava in or beside a cell (feet or head), or under it. */
+  private lavaBy(p: Vec3): boolean {
+    const c = p.floored();
+    for (const n of [c, c.offset(0, 1, 0), c.offset(1, 0, 0), c.offset(-1, 0, 0), c.offset(0, 0, 1), c.offset(0, 0, -1), c.offset(0, -1, 0)]) {
+      if (this.bot.blockAt(n)?.name === 'lava') return true;
+    }
+    return false;
+  }
+
+  /** Lava about to be on us: beside the feet or the head (it flows in), or over the head (it pours down). */
+  private lavaComing(): boolean {
+    const p = this.bot.entity.position.floored();
+    const cells = [0, 1].flatMap((dy) => SIDES.map((d) => p.plus(d).offset(0, dy, 0)));
+    return [...cells, p.offset(0, 1, 0), p.offset(0, 2, 0)].some((c) => this.bot.blockAt(c)?.name === 'lava');
   }
 
   /** Lava next to (or under) where we stand. */
@@ -1037,10 +1061,15 @@ export class ReflexController {
     const archer = threats.find((t) => shoots(t) && handInUse(bot, t) && t.position.distanceTo(me) > MELEE_REACH && canSee(bot, t, 24));
     if (archer && raiseShield(bot)) {
       this.guardUntil = Date.now() + GUARD_AFTER_MS;
-      // Toward it: a shield stops only what comes from the way one faces, and a walk faces the way it goes.
+      // Stood still, toward it, as a player blocks: a shield stops only what comes from the way one faces, and a walk
+      // turns one along its path every tick (a shield faced along a path round a fence let two arrows of three in).
+      // The fight's follow waits while the shield is up, and takes up the walk again after (keepPvpInReach).
+      if (bot.pathfinder.isMoving()) bot.pathfinder.setGoal(null);
+      this.guardFrom = archer;
       void bot.lookAt(archer.position.offset(0, (archer.height || 1.8) * 0.85, 0), true).catch(() => undefined);
     } else if (this.guardUntil && Date.now() > this.guardUntil) {
       this.guardUntil = 0;
+      this.guardFrom = null;
       lowerShield(bot);
     }
   }
@@ -1291,6 +1320,9 @@ export class ReflexController {
     // Open ground about it: something to stand on beside the pillar's top is a way to reach across (one pillared on a
     // hillside, its top no higher than the ground a step uphill, and the zombies hit it from there).
     for (const [dx, dz] of AROUND) for (let dy = 1; dy <= PERCH_HEIGHT; dy++) if (isSolid(bot.blockAt(base.offset(dx, dy, dz)))) return false;
+    // Ground about its foot at its own level or a step below: a pillar at a ledge's edge makes a step off its top a
+    // fall of the pillar and the ledge both (one at 5 health stepped off hers on the drop's side, 9 blocks, and died).
+    for (const [dx, dz] of AROUND) if (!isSolid(bot.blockAt(base.offset(dx, -1, dz))) && !isSolid(bot.blockAt(base.offset(dx, -2, dz)))) return false;
     return isSolid(bot.blockAt(base.offset(0, -1, 0)));
   }
 
@@ -1567,11 +1599,18 @@ export class ReflexController {
       const last = this.trail.at(-1);
       if (!last || last.distanceTo(bot.entity.position) >= 2) this.trail = [...this.trail, bot.entity.position.floored()].slice(-TRAIL_MAX);
     }
-    if (lava) {
+    // In it, or about to be: lava beside the feet or the head flows in, and over the head it pours down. Once in it, a
+    // body barely moves (one at the end of a tunnel the lava came into went a metre in six seconds, and burned), so
+    // it is stepped back from the moment it is there, as anyone jerks back from it.
+    if (lava || this.lavaComing()) {
       // Straight back to where we last stood safely: the pathfinder won't plan a way through lava.
       this.mode = 'escape';
       this.announce('hazard', 'lava');
-      const back = this.lastSafe && this.lastSafe.distanceTo(bot.entity.position) <= 8 ? this.lastSafe : this.safeSpot();
+      // Back the way we came, far enough to be out of it: the last safe spot is where we stood the moment before, and
+      // in a tunnel the lava came into, that was the very cell it filled (one went 0.4 m in a second there, and burned).
+      const me = bot.entity.position;
+      const trail = [...this.trail].reverse().find((p) => p.distanceTo(me) >= 2.5 && p.distanceTo(me) <= 12 && !this.lavaBy(p));
+      const back = trail ?? (this.lastSafe && this.lastSafe.distanceTo(me) >= 1.5 && this.lastSafe.distanceTo(me) <= 8 ? this.lastSafe : this.safeSpot());
       try {
         bot.pathfinder.setGoal(null);
       } catch {

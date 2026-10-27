@@ -100,7 +100,8 @@ export function keepPvpInReach(bot: Bot, pvp: PvpTuning): void {
   let last = 0;
   bot.on('physicsTick', () => {
     const t = pvp.target;
-    if (!t || Date.now() - last < 1000) return;
+    // Blocking, one stands: the follow waits until the shield comes down.
+    if (!t || Date.now() - last < 1000 || SHIELD_UP.get(bot)) return;
     last = Date.now();
     if (bot.pathfinder.isMoving() || t.position.distanceTo(bot.entity.position) <= pvp.attackRange) return;
     const g = bot.pathfinder.goal as { entity?: unknown; x?: number; y?: number; z?: number } | null;

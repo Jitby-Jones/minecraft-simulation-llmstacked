@@ -3393,6 +3393,23 @@ What else the benchmark showed:
   (4)` set out to make a rod from spiders' string. The words players use for kinds of things (a fish: cod or salmon; a
   bed, wool, logs, planks of any colour or wood) now bring up one of the kind: "Catch a fish" brings up cod, "kill one
   where it swims (a blow or two), or fish with a rod".
+- **Lava is stepped back from before it is underfoot.** `solo (9)` dug a tunnel east into lava at y 14. The tunnel
+  stopped on "lava ahead", but the lava flowed into the cell she stood in, and she went 0.4 m in a second and burned
+  from 16 to nothing. The escape made for "where we last stood safely", and that was the very cell the lava filled.
+  Once in lava, a body barely moves. Now the body steps back as soon as lava is beside its feet or head or over its
+  head, before it flows in, along the trail of where it has stood (the most recent point at least 2.5 blocks off
+  with no lava by it). A live case pours lava into the end of a tunnel the body stands in: it gets out 4.5 blocks
+  back with 13 to 17 health. Before this change it burned to death there, twice.
+- **A pillar is climbed only from level ground.** In `solo (8)`, after a creeper's blast at 4.6 health, the body
+  pillared up on a ledge's edge. When the run went on, a step off the pillar's top was a fall of the pillar and
+  the drop both, 9 blocks, and killed her. A pillar now needs ground round its foot at its own level or a step
+  below.
+- **The guard holds still and keeps the shield up long enough.** The walk turned the body along its path every
+  tick, so the shield faced away from the archer when its arrow came. The fight's follow also took the walk up
+  again once a second. And the shield came down half a second after the draw was last seen, which could be before
+  the arrow landed: the draw is seen a reflex tick late, and the arrow takes a third of a second over 10 m. Now,
+  while the shield is up, the walk stops and the follow waits. The body faces the archer every physics tick, and
+  the shield stays up a full second after the draw. In the live case no arrow landed in five runs of nine seconds.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

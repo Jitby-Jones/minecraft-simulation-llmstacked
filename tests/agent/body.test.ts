@@ -825,6 +825,25 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     expect(r.threats().map((t) => t.id).sort()).toEqual([22, 23]);
   });
 
+  it("up a pillar from level ground, not from a ledge's edge (a step off its top would be the pillar and the drop both)", () => {
+    const pillarFrom = (ledge: boolean) => {
+      // Stone below y 64; with a ledge, the ground east of x 1 drops away to y 58.
+      const blockAt = (p: Vec3) => (p.y < 64 && !(ledge && p.x >= 1 && p.y >= 58) ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' });
+      const bot = Object.assign(new EventEmitter(), {
+        entity: { id: 0, position: new Vec3(0.5, 64, 0.5), height: 1.8 },
+        entities: {},
+        health: 8,
+        game: { difficulty: 'normal' },
+        inventory: { items: () => [{ name: 'cobblestone', count: 16 }], slots: [] },
+        blockAt,
+      });
+      const r = new ReflexController(bot as unknown as Bot, { caution: () => 0.5, quirks: () => [], combat: () => 0.5, mayFightBack: () => true } as never, nullLogger());
+      return (r as unknown as { canPillar(t: unknown[]): boolean }).canPillar([{ id: 3, type: 'hostile', name: 'zombie', position: new Vec3(-5, 64, 0.5), height: 1.95 }]);
+    };
+    expect(pillarFrom(false)).toBe(true);
+    expect(pillarFrom(true)).toBe(false);
+  });
+
   it("running that isn't working turns into a fight: still caught, or going nowhere, with it close", () => {
     const r = rig('stone_sword') as unknown as { mode: string; fleeHits: number[]; fleeSince: number; fleeStillSince: number | null; cornered(now: number, t: unknown[]): string | null };
     const spider = { id: 5, type: 'hostile', name: 'spider', position: new Vec3(2, 64, 0), height: 0.9 };
