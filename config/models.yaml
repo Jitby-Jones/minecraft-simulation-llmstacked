@@ -35,6 +35,9 @@ tiers:
 #   3.2 s (the backup); deepseek-v4-pro 29/32; deepseek-v4-flash 24/32; gpt-oss-120b and minimax-m3 with long tails.
 #   320 tokens: the yes/no ones use a few dozen, but the self-summary (up to 120 words) and a talk's promises (up to
 #   four) come near 200, and one cut off is lost.
+# - summary: the self-summary and a merged memory, the check's model. In a duo run with three others going, the
+#   summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed out at the check's 4 s.
+#   The timeouts left both models out of use a while, and the talk's checks with them. Nothing waits on these: 10 s.
 # - plan, reflect, code: glm-5.3 with its thinking on: nothing waits on them.
 # - build: four buildings each (a home, a smithy, a tower, a hall): glm-5.3 drew all four first time in 7-12 s,
 #   buildable and good to look at; deepseek-v4-pro and glm-5.1 needed a second try for some; kimi-k2.6 and qwen3.5-397b
@@ -49,6 +52,7 @@ thoughts:
   speech:    { model: moonshotai/kimi-k2.6, backup: minimax/minimax-m3, maxTokens: 300, timeoutMs: 8000 }
   social:    { model: deepseek/deepseek-v4-pro, backup: minimax/minimax-m3, effort: none, maxTokens: 800, timeoutMs: 10000 }
   check:     { model: xiaomi/mimo-v2.6-flash, backup: qwen/qwen3.8-flash, effort: none, maxTokens: 320, timeoutMs: 4000 }
+  summary:   { model: xiaomi/mimo-v2.6-flash, backup: qwen/qwen3.8-flash, effort: none, maxTokens: 320, timeoutMs: 10000 }
   plan:      { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 4000, timeoutMs: 60000 }
   reflect:   { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 2500, timeoutMs: 60000 }
   build:     { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 4000, timeoutMs: 90000 }

@@ -770,6 +770,9 @@ const HITS_MS = 60_000;
 const DUSK_AT = 10_800;
 /** Coming out into the night stands out so at most this often (in and out of a doorway is one coming out). */
 const NIGHT_OUT_MS = 120_000;
+/** Monsters this near, seen or heard, are noticed as they come about; at most this often. */
+const MONSTERS_NEAR = 24;
+const MONSTERS_EVERY_MS = 45_000;
 
 export class SceneEyes {
   readonly motion: MotionTracker;
@@ -788,6 +791,9 @@ export class SceneEyes {
   private noWay: { key: string; at: number; ids: Set<number> } = { key: '', at: 0, ids: new Set() };
   /** When each creature about was hit lately (it flashed red), by anyone. */
   private readonly hits = new Map<number, number[]>();
+  /** Monsters about at the last look, and when more of them coming about was last noticed. */
+  private monstersBefore = 0;
+  private monstersAt = -Infinity;
   private notices: Notice[] = [];
   /** When an animal last caught a hungry eye. */
   private foodNoticedAt = -Infinity;
@@ -1200,6 +1206,33 @@ export class SceneEyes {
     this.add({ id: `n${now.toString(36)}opened`, ts: now, kind: 'cue', about: 'the world', key: 'opened', text: `The room you are in has been opened up: it is open to the ${holes.slice(0, 2).join(' and the ')} now, where it was shut in on every side`, strength: 0.8, seenBefore: 0 });
   }
 
+  /**
+   * Monsters coming about, seen or heard, before they are on one: as a player stops at the sight of a cave mouth full
+   * of zombies, or at their groans. One exploring by day walked down into an open dripstone cave, and its body met six
+   * zombies 5 m off at once (then ten and a skeleton), with nothing said of them before. Not what has no way to us, nor
+   * when shut in, nor once the body is already in the danger.
+   */
+  private checkMonsters(creatures: readonly SceneCreature[], now: number): void {
+    const near = creatures.filter((c) => c.kind === 'hostile' && c.distance <= MONSTERS_NEAR && !c.relations.some((r) => r.startsWith('no way')));
+    const before = this.monstersBefore;
+    this.monstersBefore = near.length;
+    if (near.length <= before || this.o.store.state.flags.inDanger || now - this.monstersAt < MONSTERS_EVERY_MS) return;
+    if (this.shutIn || isEnclosed(this.o.bot)) return;
+    this.monstersAt = now;
+    const byName = new Map<string, SceneCreature[]>();
+    for (const c of near) byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
+    const groups = [...byName.entries()].map(([name, cs]) => {
+      const ds = cs.map((c) => Math.round(c.distance));
+      const lo = Math.min(...ds);
+      const hi = Math.max(...ds);
+      const ways = [...new Set(cs.map((c) => c.bearing))].slice(0, 2).join('/');
+      return `${countOf(cs.length, name)} ${lo === hi ? lo : `${lo}-${hi}`} m ${ways}${cs.every((c) => !c.visible) ? ' (heard, not seen)' : ''}`;
+    });
+    const coming = near.filter((c) => c.heading === 'toward you').length;
+    const text = `Monsters about: ${groups.join(', ')}${coming > 0 ? `, ${coming === 1 ? 'one' : coming} of them coming your way` : ''}`;
+    this.add({ id: `n${now.toString(36)}monsters`, ts: now, kind: 'cue', about: 'monsters', key: 'monsters', text, strength: near.length >= 2 || coming > 0 ? 0.65 : 0.5, seenBefore: 0 });
+  }
+
   private add(n: Notice | null): void {
     if (!n) return;
     const now = this.o.now();
@@ -1232,6 +1265,7 @@ export class SceneEyes {
       const n = (this.hits.get(c.id) ?? []).filter((t) => now - t < HITS_MS).length;
       if (n > 0 && c.kind !== 'item') c.details.push(n === 1 ? 'hit once lately' : `hit ${n} times lately`);
     }
+    this.checkMonsters(creatures, now);
     this.notices = this.notices.filter((x) => now - x.ts < NOTICE_MS);
     const key = [
       this.where,

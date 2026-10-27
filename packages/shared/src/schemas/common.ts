@@ -51,7 +51,7 @@ export type LlmModule = z.infer<typeof LlmModuleSchema>;
  * Fast thought (the mind, under fire, speech, reading others, quick checks) has no hidden thinking and a short reply;
  * slow thought (plans, reflection, buildings, code, the overseer, new people) has time to think.
  */
-export const THOUGHT_KINDS = ['mind', 'underFire', 'speech', 'social', 'check', 'plan', 'reflect', 'build', 'code', 'oversee', 'persona'] as const;
+export const THOUGHT_KINDS = ['mind', 'underFire', 'speech', 'social', 'check', 'summary', 'plan', 'reflect', 'build', 'code', 'oversee', 'persona'] as const;
 export const ThoughtKindSchema = z.enum(THOUGHT_KINDS);
 export type ThoughtKind = z.infer<typeof ThoughtKindSchema>;
 
@@ -61,10 +61,11 @@ export const MODULE_THOUGHT: Readonly<Record<LlmModule, ThoughtKind>> = {
   cc: 'mind',
   impulse: 'speech',
   social: 'social',
-  selfMonitor: 'check',
+  // What nothing waits on (the self-summary, a merged memory): the quick checks' model with time to finish.
+  selfMonitor: 'summary',
   socialGoal: 'social',
   goal: 'plan',
-  memory: 'check',
+  memory: 'summary',
   reflection: 'reflect',
   learning: 'reflect',
   skillWriter: 'code',

@@ -1,6 +1,6 @@
 // Self-Monitor (§4.2 module 6): keeps a short first-person narrative (`selfSummary`, ≤ 120 words) from working
-// memory and the previous summary. A quick check (`thoughts.check`), debounced 5–10 s after something salient. Code
-// default: a plain summary built from the state.
+// memory and the previous summary. The check's model, given time (`thoughts.summary`), debounced 5–10 s after
+// something salient. Code default: a plain summary built from the state.
 
 import type { Logger, Persona } from '@agora/shared';
 import { type ChatMessage, type LlmClient, SingleFlight } from '@agora/llm';

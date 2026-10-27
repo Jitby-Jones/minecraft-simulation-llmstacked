@@ -128,7 +128,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         const thought = o.thought ?? MODULE_THOUGHT[o.module];
         outcomes.push({ thought, ok: r.ok, ...(r.ok ? {} : { reason: r.reason }), ms: r.ms });
         callLog({ t: 'call', ts: Date.now(), agent: o.agent, module: o.module, thought, ok: r.ok, ...(r.ok ? { model: r.model, ...(r.truncated ? { truncated: true } : {}) } : { reason: r.reason, error: r.error?.slice(0, 200) }), attempts: r.attempts, ms: r.ms });
-        if (thought === 'speech' || thought === 'check') {
+        if (thought === 'speech' || thought === 'check' || thought === 'summary') {
           const line = { ts: Date.now(), agent: o.agent, module: o.module, thought, schema: o.schemaName ?? null, messages: o.messages, ok: r.ok, reply: r.ok ? r.text.slice(0, 2000) : '', ms: r.ms };
           fs.appendFile(promptFile, `${JSON.stringify(line)}\n`, () => undefined);
         }

@@ -253,6 +253,40 @@ describe('whether a monster near can get to one, as one sees it from where one i
   });
 });
 
+describe('monsters coming about are noticed before they are on one', () => {
+  it('two zombies coming into sight 15 m off: noticed, strongly enough to think about; not again at once', () => {
+    // One exploring by day walked into an open cave, and its body met six zombies 5 m off at once.
+    const w = fakeWorld();
+    const zombie = (id: number, x: number) => ({ id, name: 'zombie', type: 'hostile', position: new Vec3(x, 64, 0.5), velocity: new Vec3(0, 0, 0), onGround: true, height: 1.95, width: 0.6, yaw: 0, pitch: 0, metadata: [] });
+    const a = zombie(11, 15.5);
+    const b = zombie(12, 16.5);
+    w.bot.entities[11] = a;
+    w.bot.entities[12] = b;
+    const s = store();
+    const t = { now: 0 };
+    const eyes = new SceneEyes({ bot: w.bot as never, store: s, bus: new AgentBus(), now: () => t.now });
+    eyes.start();
+    t.now = 9000;
+    eyes.tick([]);
+    const seen: Seen[] = [
+      { e: a as never, kind: 'hostile', name: 'zombie', visible: true, distance: 15 },
+      { e: b as never, kind: 'hostile', name: 'zombie', visible: true, distance: 16 },
+    ];
+    t.now = 10_500;
+    eyes.tick(seen);
+    const n = eyes.recent().filter((x) => x.key === 'monsters');
+    expect(n.map((x) => x.text)).toEqual(['Monsters about: 2 zombies 15-16 m east']);
+    expect(n[0]?.strength).toBeGreaterThanOrEqual(0.6);
+    // Still there a moment later, and one more: not told again so soon.
+    const c = zombie(13, 18.5);
+    w.bot.entities[13] = c;
+    t.now = 12_000;
+    eyes.tick([...seen, { e: c as never, kind: 'hostile', name: 'zombie', visible: true, distance: 18 }]);
+    expect(eyes.recent().filter((x) => x.key === 'monsters')).toHaveLength(1);
+    eyes.stop();
+  });
+});
+
 describe('what the game does by itself is no surprise; what comes from nowhere is', () => {
   it('a bee out of its nest is nothing; a cow out of thin air is', () => {
     const w = fakeWorld({ '6,66,0': 'bee_nest' });

@@ -3215,6 +3215,18 @@ What else the benchmark showed:
   safe to break by them, so a block built by someone, one under gravel or one against water is passed over as a
   target, as on any walk.
 
+- **Monsters about, before they are on one.** `novel (2)`, exploring east by day, walked down into an open dripstone
+  cave. Its body met six zombies 5 m off at once (then ten and a skeleton), with nothing said of them before, and died
+  in 20 seconds. The reflexes act within 6 m; the mind heard of them only as a danger. Now monsters coming about
+  within 24 m, seen or heard, are noticed as more of them come: "Monsters about: 6 zombies 14-20 m east, two of them
+  coming your way". That is strong enough to think about at once when there are two or more, or one is coming. It
+  comes at most every 45 s, and not for what has no way to us, nor when shut in, nor once the body is already in the
+  danger.
+- **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
+  other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
+  out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with
+  them ("no model for check"). A merged memory goes the same way; nothing waits on either.
+
 Verified: lint, typecheck, the forbidden-strings check, 770 unit tests; live, `m1-skills` (25: a first full run lost
 three to timeouts with two long runs and two other suites going, and passed 25 of 25 again alone), `melee` with
 `cornered` (12), and the new `hands` tests (a pillar of three, a torch down, a torch at one's side; twice).
