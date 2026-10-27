@@ -78,6 +78,8 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
   const outFile = path.join(repoRoot(), 'data', 'live-test', `${name}.json`);
   const packetFile = path.join(repoRoot(), 'data', 'live-test', `${name}-packets.jsonl`);
   const callFile = path.join(repoRoot(), 'data', 'live-test', `${name}-calls.jsonl`);
+  // What the speech and the quick checks were asked, with the reply: the stuff of their golden sets.
+  const promptFile = path.join(repoRoot(), 'data', 'live-test', `${name}-prompts.jsonl`);
   const logger: Logger = createLogger({ name, logDir: path.join(repoRoot(), 'data', 'live-test', `${name}-agents`), console: process.env.AGORA_DEBUG === '1' });
 
   afterAll(async () => {
@@ -93,6 +95,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
       const srv = server;
       await srv.cmd(`difficulty ${difficulty}`);
       fs.rmSync(callFile, { force: true });
+      fs.rmSync(promptFile, { force: true });
       const callLog = (line: Record<string, unknown>) => fs.appendFile(callFile, `${JSON.stringify(line)}\n`, () => undefined);
       // Every request the models were sent, with what it took (the report sums them by kind of thought and model).
       const requests: CostRecord[] = [];
@@ -119,6 +122,10 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         const thought = o.thought ?? MODULE_THOUGHT[o.module];
         outcomes.push({ thought, ok: r.ok, ...(r.ok ? {} : { reason: r.reason }), ms: r.ms });
         callLog({ t: 'call', ts: Date.now(), agent: o.agent, module: o.module, thought, ok: r.ok, ...(r.ok ? { model: r.model, ...(r.truncated ? { truncated: true } : {}) } : { reason: r.reason, error: r.error?.slice(0, 200) }), attempts: r.attempts, ms: r.ms });
+        if (thought === 'speech' || thought === 'check') {
+          const line = { ts: Date.now(), agent: o.agent, module: o.module, thought, schema: o.schemaName ?? null, messages: o.messages, ok: r.ok, reply: r.ok ? r.text.slice(0, 2000) : '', ms: r.ms };
+          fs.appendFile(promptFile, `${JSON.stringify(line)}\n`, () => undefined);
+        }
         return r;
       }) as typeof rt.client.call;
       const people =
