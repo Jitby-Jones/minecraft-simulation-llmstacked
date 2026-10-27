@@ -149,7 +149,7 @@ each fixed.
 | **Under fire**: a glance and a choice | `cc.ts` in danger | `z-ai/glm-5.3` | none | 600 | 5 s | `deepseek/deepseek-v4-flash` | mimo-v2.6-flash, minimax-m3 |
 | **Speech**: a line said | `talking.ts` (the line) | `moonshotai/kimi-k2.6` | (none set) | 300 | 8 s | `minimax/minimax-m3` | glm-5.3 at none |
 | **Reading others** | `awareness.ts` (social), `socialGoalGen.ts` | `z-ai/glm-5.3` | none | 800 | 10 s | `deepseek/deepseek-v4-pro` | kimi-k2.6 |
-| **Quick checks**: was it kept, was it settled, was it said to me, is it worth remembering, am I stuck | `memory.ts`, `commitments.ts`, `awareness.ts` (promises), `consensus.ts`, `talking.ts` (addressed to me), `selfMonitor.ts` | `deepseek/deepseek-v4-flash` | none | 200 | 4 s | `xiaomi/mimo-v2.6-flash` | qwen3.8-flash, gpt-oss-120b, glm-5.3 at none, llama-3.3-70b (today's, which timed out at 7 s) |
+| **Quick checks**: was it kept, was it settled, was it said to me, is it worth remembering, am I stuck | `memory.ts`, `commitments.ts`, `awareness.ts` (promises), `consensus.ts`, `talking.ts` (addressed to me), `selfMonitor.ts` | `deepseek/deepseek-v4-flash` | none | 320 | 4 s | `xiaomi/mimo-v2.6-flash` | qwen3.8-flash, gpt-oss-120b, glm-5.3 at none, llama-3.3-70b (today's, which timed out at 7 s) |
 | **Plans** | `goalGen.ts` | `z-ai/glm-5.3` | medium | 4,000 | 60 s | `deepseek/deepseek-v4-pro` | kimi-k2.6 |
 | **Lessons and reflection** | `learning.ts`, `reflection.ts` (audit, annotation) | `z-ai/glm-5.3` | medium | 2,500 | 60 s | `deepseek/deepseek-v4-pro` | |
 | **Buildings** | `architect.ts` | `z-ai/glm-5.3` | medium | 4,000 | 90 s | `deepseek/deepseek-v4-pro` | (2026-10-24: glm-5.3 drew 4 of 4 first time) |

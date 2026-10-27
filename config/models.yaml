@@ -25,7 +25,8 @@ tiers:
 # - speech: kimi-k2.6 wrote only the line, in a player's way, in 1.7-2.6 s (2026-10-25); glm-5.1 wrote out its working
 #   before the line three times of three; minimax-m3 (about 1 s) wrote only the line, plainer.
 # - check: yes/no and a few words in the way of what the agent does next; llama-3.3-70b and gemma-4-12b timed out at
-#   7 s 25 times in the 2026-10-25 runs. deepseek-v4-flash, untimed yet.
+#   7 s 25 times in the 2026-10-25 runs. deepseek-v4-flash, untimed yet. 320 tokens: the yes/no ones use a few dozen,
+#   but the self-summary (up to 120 words) and a talk's promises (up to four) come near 200, and one cut off is lost.
 # - plan, reflect, code: glm-5.3 with its thinking on: nothing waits on them.
 # - build: four buildings each (a home, a smithy, a tower, a hall): glm-5.3 drew all four first time in 7-12 s,
 #   buildable and good to look at; deepseek-v4-pro and glm-5.1 needed a second try for some; kimi-k2.6 and qwen3.5-397b
@@ -39,7 +40,7 @@ thoughts:
   underFire: { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-flash, effort: none, maxTokens: 600, timeoutMs: 5000 }
   speech:    { model: moonshotai/kimi-k2.6, backup: minimax/minimax-m3, maxTokens: 300, timeoutMs: 8000 }
   social:    { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: none, maxTokens: 800, timeoutMs: 10000 }
-  check:     { model: deepseek/deepseek-v4-flash, backup: xiaomi/mimo-v2.6-flash, effort: none, maxTokens: 200, timeoutMs: 4000 }
+  check:     { model: deepseek/deepseek-v4-flash, backup: xiaomi/mimo-v2.6-flash, effort: none, maxTokens: 320, timeoutMs: 4000 }
   plan:      { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 4000, timeoutMs: 60000 }
   reflect:   { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 2500, timeoutMs: 60000 }
   build:     { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 4000, timeoutMs: 90000 }
