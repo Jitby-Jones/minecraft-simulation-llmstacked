@@ -1758,12 +1758,14 @@ export class CognitiveController {
     const last = s.actionLog.at(-1);
     const until = last?.skill === 'wait' && typeof last.args?.until === 'string' ? last.args.until : null;
     const cutShort = until !== null && /stopped waiting early/.test(last?.observed ?? '');
-    // A long wait is settled into where one stands, looked at first: one walked to his home's spot, a wall of his hut
-    // by then, stopped outside it, and waited out the night there in the open until a zombie came.
+    // A long wait is settled into where one stands, looked at first, by day or night: one walked to his home's spot, a
+    // wall of his hut by then, stopped outside it, and waited out the night there in the open until a zombie came;
+    // another built a hut at dusk, came out of the build outside it with its doorway open, and waited for the day right
+    // there.
     const step = meant?.steps[0];
     const waitUntil = typeof step?.args?.until === 'string' ? step.args.until : '';
     const longWait = step?.skill === 'wait' && (/^(day|night|timeIs:)/.test(waitUntil) || Number(step.args?.seconds ?? 0) >= 120);
-    const openToWait = longWait && !s.self.isDay && /under the open sky/.test(s.scene.where ?? '');
+    const openToWait = longWait && Boolean(s.scene.where);
     const since = hurtSince
       ? `you have been hurt since you decided (health ${Math.round(meant?.health ?? 0)} to ${Math.round(s.self.health)})`
       : cutShort
@@ -1771,7 +1773,7 @@ export class CognitiveController {
         : meant?.night === false && !s.self.isDay
           ? 'night has fallen since you decided'
           : openToWait
-            ? `where you would wait is out in the dark: ${s.scene.where}`
+            ? `first you look at where you would wait it out: ${s.scene.where}`
             : null;
     if (ok && meant && this.ownOption && meant.steps.length > 0 && goesOn && since) {
       this.o.store.update('mind', (m) => ({ ...m, intention: null }), hurtSince ? 'hurt since' : cutShort ? 'wait cut short' : openToWait ? 'open to wait in' : 'night since');

@@ -3180,6 +3180,27 @@ What else the benchmark showed:
   - The hands can tower up: `place {block, toward: down, count}` sets a block under one's feet at the top of a jump,
     count times, and says how high one stands ("up 3 m above the ground on every side"). Before, only the body's
     reflex could; a mind with 21 dirt and a zombie coming had no way to ask for it. Live: three dirt, up 3.
+- **Into one's own hut, and the way in shut.** In `duo (42)`, Ada built a one-room hut at dusk. Its doorway was open
+  (the build has no door), and she came out of the build outside it. The next step she had meant, "wait until day",
+  started without a look round, so she waited there. A zombie came; her mind saw it ("I'm outside my hut, doorway's
+  open... dart inside, place a block to seal it") but asked only for the block. Her body ran into the hut, and the
+  zombie came in after her. Now:
+  - Before any long wait meant from before, by day or night, the mind looks at where it would wait it out
+    ("first you look at where you would wait it out: ..., outside a room 1 m to the south, open to the north").
+    Before, only a wait out under the open sky at night was looked at first.
+  - Fleeing at night with a hut of its own within a run and the way there clear, the body runs for the hut rather
+    than up a pillar in the open. A pillar keeps off what walks, not what shoots or climbs.
+  - In its own room with something after it, the body shuts the way in with a block it carries, as anyone shuts the
+    door on what chases them: the doorway (the last cell under the roof before the open), or the cell just outside
+    where one stands in the doorway oneself. Something standing in it already means no shutting, and the fight goes
+    on. Live: hurt to 5 at night, a doorless hut 10 m off, a zombie coming: in, and the doorway filled.
+  - A torch "down" goes on the floor where one stands (one in a mine was told "no down in sight within 32 blocks");
+    a block down is a pillar. Each block of a pillar gets a few jumps, from the ground only: in one test of four the
+    first jump, off ground not yet settled after a teleport, went nowhere.
+
+Verified: lint, typecheck, the forbidden-strings check, 770 unit tests; live, `m1-skills` (25: a first full run lost
+three to timeouts with two long runs and two other suites going, and passed 25 of 25 again alone), `melee` with
+`cornered` (12), and the new `hands` tests (a pillar of three, a torch down, a torch at one's side; twice).
 
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes

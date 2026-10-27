@@ -417,6 +417,40 @@ describe.skipIf(!liveJavaPath())('M1 live: skills and reflexes', () => {
       }
     });
 
+    it('caught out at night and hurt, it runs into its own hut with no door and shuts the doorway behind it', async () => {
+      // One built a hut at dusk with no door to it, ran into it from a zombie, and the zombie came in after her.
+      const o = await zone();
+      dangers.length = 0;
+      const c = { x: o.x - 2, z: o.z - 12 };
+      const room = new Vec3(o.x, Y, o.z - 10);
+      const doorway = [new Vec3(o.x, Y, c.z + 4), new Vec3(o.x, Y + 1, c.z + 4)];
+      await server.cmd(`fill ${c.x} ${Y - 1} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:cobblestone hollow`);
+      for (const d of doorway) await server.cmd(`setblock ${d.x} ${d.y} ${d.z} minecraft:air`);
+      rooms.push(room);
+      await server.cmd('give Pip minecraft:dirt 8');
+      await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      await sleep(1000);
+      await waitFor(() => pip.bot.health >= 19, 5000, 'full health');
+      await server.cmd('damage Pip 15');
+      await waitFor(() => pip.bot.health <= 6, 5000, 'hurt');
+      await server.cmd(`summon minecraft:zombie ${o.x + 4} ${Y} ${o.z} {PersistenceRequired:1b}`);
+      try {
+        await waitFor(() => dangers.some((d) => d.kind === 'flee'), 10000, 'flee reflex');
+        const inside = () => Math.abs(pip.bot.entity.position.x - (room.x + 0.5)) <= 1.5 && Math.abs(pip.bot.entity.position.z - (room.z + 0.5)) <= 1.5;
+        await waitFor(inside, 25000, 'in its hut');
+        await waitFor(() => doorway.every((d) => pip.bot.blockAt(d)?.boundingBox === 'block'), 8000, 'doorway shut');
+        await waitFor(() => pip.reflexes.mode === 'idle', 15000, 'safe inside');
+        expect(inside()).toBe(true);
+        expect(pip.bot.health).toBeGreaterThan(0);
+      } finally {
+        rooms.length = 0;
+        await server.cmd('kill @e[type=minecraft:zombie]');
+        await server.cmd(`fill ${c.x} ${Y} ${c.z} ${c.x + 4} ${Y + 3} ${c.z + 4} minecraft:air`);
+        await server.cmd('clear Pip minecraft:dirt');
+        await server.cmd('effect give Pip minecraft:instant_health 1 3');
+      }
+    });
+
     it("in a hut's room at night, its door shut, a zombie at the door outside is no fight to go out to", async () => {
       // One in her companion's hut went out of the door after a zombie at it, left it open, and was taken from 20 to 1.
       const o = await zone();

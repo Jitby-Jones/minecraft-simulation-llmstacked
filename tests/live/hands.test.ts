@@ -1074,6 +1074,21 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`tp Ada ${x + 2} ${Y} 0`);
   }, 120_000);
 
+  it('a torch down goes on the floor where it stands, not up a pillar', async () => {
+    // Asked so in a mine, one was told there was "no down in sight within 32 blocks".
+    const x = 9900;
+    await at(x + 0.5, 0.5);
+    await server.cmd('give Ada minecraft:torch 2');
+    await sleep(1500);
+    const from = body.bot.entity.position.y;
+    const r = await run('place', { block: 'torch', toward: 'down' });
+    logger.info({ r }, 'a torch down');
+    expect(r.ok).toBe(true);
+    expect(body.bot.blockAt(new Vec3(x, Y, 0))?.name).toBe('torch');
+    expect(Math.abs(body.bot.entity.position.y - from)).toBeLessThan(0.5);
+    await server.cmd(`setblock ${x} ${Y} 0 minecraft:air`);
+  }, 120_000);
+
   it('explores a chosen way', async () => {
     const x = 5400;
     await at(x, 0);

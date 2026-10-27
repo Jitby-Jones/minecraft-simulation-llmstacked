@@ -20,7 +20,7 @@ import { REGEN_PER_S, beaten, reckonBlow } from './skills/duel';
 import { COOKS, bestFood, eatNow, equipBestArmor } from './skills/survival';
 import { carefulWhenHurt, createMovements } from './plugins';
 import { isCover, referenceFor } from './skills/building';
-import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isIndoors, isNight, isPlayer, isSolid, wallsAround } from './world';
+import { canSee, entityHealth, entityLabel, isAirLike, isEnclosed, isHostile, isIndoors, isNight, isPlayer, isSolid, overlapsCell, wallsAround } from './world';
 
 const { goals } = pathfinderPkg;
 
@@ -722,6 +722,13 @@ export class ReflexController {
     return [...out.values()].sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me));
   }
 
+  /** At night, the room of a hut of one's own within a run, the way there not through what chases: where to run. */
+  private roomToRunTo(avoid: readonly Entity[]): Vec3 | null {
+    const room = isNight(this.bot) && !this.noRoomRun ? this.nearestRoom() : null;
+    const me = this.bot.entity.position;
+    return room && avoid.every((t) => t.position.distanceTo(room) > me.distanceTo(room) || t.position.distanceTo(me) > 8) ? room : null;
+  }
+
   /** The room of the nearest hut of one's own within a run of here, or null. */
   private nearestRoom(): Vec3 | null {
     const me = this.bot.entity.position;
@@ -735,6 +742,78 @@ export class ReflexController {
     const feet = me.floored();
     if (!isSolid(this.bot.blockAt(feet.offset(0, 2, 0))) && !isSolid(this.bot.blockAt(feet.offset(0, 3, 0)))) return false;
     return (this.hooks.rooms?.() ?? []).some((r) => Math.abs(me.x - (r.x + 0.5)) <= 1.5 && Math.abs(me.z - (r.z + 0.5)) <= 1.5 && Math.abs(feet.y - r.y) < 1);
+  }
+
+  /**
+   * The open way into the room one stands in, at the feet (the head's cell over each goes with it): the doorway, the
+   * last cell under its roof before the open, or the first one out where that is where one stands. Empty for more than
+   * two (no room of a hut, or one too open to shut).
+   */
+  private wayIn(): Vec3[] {
+    const bot = this.bot;
+    const feet = bot.entity.position.floored();
+    const roofed = (c: Vec3) => {
+      for (let dy = 2; dy <= 5; dy++) {
+        const b = bot.blockAt(c.offset(0, dy, 0));
+        if (!b) return false;
+        if (isSolid(b) && !/_leaves$/.test(b.name)) return true;
+      }
+      return false;
+    };
+    const pass = (c: Vec3) => !isSolid(bot.blockAt(c)) && !isSolid(bot.blockAt(c.offset(0, 1, 0))) && !/_door$/.test(bot.blockAt(c)?.name ?? '');
+    const seen = new Set([feet.toString()]);
+    const queue = [feet];
+    const out = new Map<string, Vec3>();
+    for (let c = queue.shift(); c && seen.size < 40; c = queue.shift()) {
+      for (const d of SIDES) {
+        const n = c.plus(d);
+        if (seen.has(n.toString())) continue;
+        seen.add(n.toString());
+        if (!pass(n)) continue;
+        if (roofed(n)) queue.push(n);
+        else {
+          const door = c.equals(feet) ? n : c;
+          out.set(door.toString(), door);
+        }
+      }
+    }
+    return out.size <= 2 ? [...out.values()] : [];
+  }
+
+  /**
+   * Run into one's own room at night with something after one: the way in shut behind one with what one carries, as
+   * anyone shuts the door on what chases them. One built a hut at dusk with no door to it, ran into it from a zombie,
+   * and the zombie came in after her. True if shut.
+   */
+  private async shutTheWayIn(): Promise<boolean> {
+    const bot = this.bot;
+    const way = this.wayIn();
+    const eyes = bot.entity.position.offset(0, 1.62, 0);
+    if (way.length === 0 || way.some((c) => c.offset(0.5, 1, 0.5).distanceTo(eyes) > 4.5)) return false;
+    const cells = way.flatMap((c) => [c, c.offset(0, 1, 0)]).filter((c) => !isSolid(bot.blockAt(c)));
+    const block = () => bot.inventory.items().find((i) => isCover(i.name));
+    if (cells.length === 0 || !block()) return false;
+    this.busy = true;
+    try {
+      bot.pathfinder.setGoal(null);
+      bot.clearControlStates();
+      for (const c of cells) {
+        // Something stands in it already: no shutting it (the fight goes on).
+        if (Object.values(bot.entities).some((e) => e !== bot.entity && e.type !== 'object' && e.type !== 'orb' && overlapsCell(e, c))) return false;
+        const item = block();
+        if (!item) return false;
+        const r = referenceFor(bot, c, item.name);
+        if (!r) continue;
+        await bot.equip(item, 'hand');
+        await bot.placeBlock(r.ref, r.face).catch(() => undefined);
+      }
+      return cells.every((c) => isSolid(bot.blockAt(c)));
+    } catch (err) {
+      this.logger.debug({ module: 'reflex', err: String(err) }, 'could not shut the way in');
+      return false;
+    } finally {
+      this.busy = false;
+    }
   }
 
   /** The mind chose to get away: the body runs, the way it knows (the trail back, a hut of one's own, up out of reach). */
@@ -967,10 +1046,10 @@ export class ReflexController {
     // At night, near a hut of one's own, into it, when the way there isn't through what chases (an agent caught by the
     // water at night, its hut a short run off, fought three zombies and a drowned in the open, and died). A run for it
     // that gets nowhere (the way blocked, the door gone) is given up for this flight.
-    const room = isNight(this.bot) && !this.noRoomRun ? this.nearestRoom() : null;
+    const room = this.roomToRunTo(avoid);
     const me = this.bot.entity.position;
     if (room && this.fleeStillSince !== null && now - this.fleeStillSince > 2500 && me.distanceTo(room.offset(0.5, 0, 0.5)) > 1) this.noRoomRun = true;
-    else if (room && avoid.every((t) => t.position.distanceTo(room) > me.distanceTo(room) || t.position.distanceTo(me) > 8)) {
+    else if (room) {
       this.bot.pathfinder.setGoal(new goals.GoalBlock(room.x, room.y, room.z));
       return;
     }
@@ -1242,6 +1321,11 @@ export class ReflexController {
    */
   private async refuge(threats: Entity[]): Promise<boolean> {
     const bot = this.bot;
+    if (isNight(bot) && this.inOwnRoom() && (await this.shutTheWayIn())) {
+      this.logger.info({ module: 'reflex', health: Math.round(bot.health), from: threats[0]?.name }, 'in its own room: shut the way in behind it');
+      this.clear('shut the way in');
+      return true;
+    }
     if (this.canSeal(threats)) {
       this.takeFlight(threats);
       if (await this.sealAbove(threats)) {
@@ -1250,6 +1334,9 @@ export class ReflexController {
         return true;
       }
     }
+    // A hut of one's own within a run, the way there clear: into it, not up a pillar in the open (a pillar keeps off
+    // what walks, not what shoots or climbs).
+    if (!this.inOwnRoom() && this.roomToRunTo(this.inTheWay(threats))) return false;
     if (Date.now() - this.perchSince < PERCH_MS || !this.canPillar(threats)) return false;
     this.takeFlight(threats);
     if (await this.pillarUp(threats)) {

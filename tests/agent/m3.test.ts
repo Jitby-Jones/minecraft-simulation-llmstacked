@@ -698,7 +698,7 @@ describe('the world changed since the steps were meant', () => {
     cc.stop();
     executor.stop();
     expect(decided).not.toContain('intention:wait');
-    expect(asked.at(-1)).toMatch(/you meant to wait next, but where you would wait is out in the dark: In forest, standing on grass block, under the open sky, outside a room 2 m to the north-west/);
+    expect(asked.at(-1)).toMatch(/you meant to wait next, but first you look at where you would wait it out: In forest, standing on grass block, under the open sky, outside a room 2 m to the north-west/);
   }, 15_000);
 
   it('a little hurt, still day: on to the next step', async () => {
