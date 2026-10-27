@@ -154,7 +154,19 @@ export function buildPacket(i: PacketInput): string {
     const trust = prof && prof.trust < 0.35 ? ', you don\u2019t trust them' : prof && prof.trust > 0.75 ? ', you trust them' : '';
     const record = prof && prof.promisesKept + prof.promisesBroken > 0 ? `, kept ${prof.promisesKept}/${prof.promisesKept + prof.promisesBroken} promises` : '';
     const known = (s.knowledge.beliefs ?? []).filter((b) => b.about === name).map((b) => `you know ${name} ${b.text}`);
-    return [prof ? `you feel ${Math.round(prof.sentiment)}/10 about them` : 'a new face', ...(trust ? [trust.slice(2)] : []), ...(record ? [record.slice(2)] : []), ...(want ? [`seems to want ${want}`] : []), ...known].join(', ');
+    // One's own heart, as one knows it: a pair 80 minutes into a run with a romance to find were told only "5/10".
+    const heart = !prof
+      ? ''
+      : s.family.partner === name || prof.relationship === 'partner'
+        ? 'your partner'
+        : prof.relationship === 'courting'
+          ? 'you are courting them'
+          : prof.relationship === 'crush'
+            ? 'you have a crush on them'
+            : prof.romanticInterest >= 0.3
+              ? 'you are drawn to them'
+              : '';
+    return [prof ? `you feel ${Math.round(prof.sentiment)}/10 about them` : 'a new face', ...(heart ? [heart] : []), ...(trust ? [trust.slice(2)] : []), ...(record ? [record.slice(2)] : []), ...(want ? [`seems to want ${want}`] : []), ...known].join(', ');
   };
   if (s.scene && s.scene.at > 0) {
     out.push(...describeScene(s.scene, now, { people: person }));

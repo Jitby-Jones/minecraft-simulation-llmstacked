@@ -11,6 +11,7 @@ import { type Bot, Vec3 } from '@agora/agent/body/bot';
 import { codeDecision, validateDecision } from '@agora/agent/modules/cc';
 import { Conversations } from '@agora/agent/modules/conversations';
 import { SkillExecutor } from '@agora/agent/modules/executor';
+import { buildPacket } from '@agora/agent/modules/bottleneck';
 import { leversFor } from '@agora/agent/modules/levers';
 import { Talking, needsDecision } from '@agora/agent/modules/talking';
 import { Perception } from '@agora/agent/perception/perception';
@@ -359,7 +360,7 @@ describe('the romance watch (§19.1, §19.2)', () => {
   it('seeks out a crush in sight; a partner who coerces or hits them is left', () => {
     const r = rig();
     r.s.update('social', (all) => ({ ...all, Ivy: { ...(all.Ivy as SocialProfile), perceivedSex: 'female', romanticInterest: 0.55, relationship: 'crush' } }));
-    r.see(['Ivy', 15]);
+    r.see(['Ivy', 20]);
     expect(r.w.courtship()).toEqual({ with: 'Ivy', kind: 'approach' });
     // Paced; and near, only a crush (not yet drawn enough to court): nothing more.
     expect(r.w.courtship()).toBeNull();
@@ -585,3 +586,29 @@ describe('what a suitor sees (§17.4, §19.2)', () => {
     expect(r.seen()?.distance).toBe(1);
   });
 });
+
+describe("one knows one's own heart (the packet)", () => {
+  it('says a crush, a draw, a partner, or nothing more than how one feels', () => {
+    // A pair 80 minutes into a run with a romance to find were told only "you feel 5/10 about them".
+    const persona = PersonaSchema.parse({ name: 'Ada', sex: 'female', orientation: 'hetero', traits: ['kind'] });
+    const bram = PersonaSchema.parse({ name: 'Bram', sex: 'male', traits: ['brave'] });
+    const s0 = createInitialState({ persona, username: 'Ada', now: 0 });
+    const seen = { id: 2, kind: 'player' as const, name: 'Bram', pos: { x: 4, y: 64, z: 0 }, distance: 4, bearing: 'east', dy: 0, motion: 'still' as const, speed: 0, relations: [], details: [], visible: true };
+    const withHeart = (romanticInterest: number, relationship: SocialProfile['relationship']) =>
+      buildPacket({
+        state: {
+          ...s0,
+          social: { Bram: { ...newSocialProfile('Bram', bram, 0), romanticInterest, relationship } },
+          scene: { at: 1, where: 'In plains, standing on grass block, under the open sky', features: [], creatures: [seen], notices: [] },
+        },
+        levers: leversFor(0.5),
+        reason: 'testing',
+        knowledge: [],
+        now: 1000,
+      });
+    expect(withHeart(0.55, 'crush')).toMatch(/Bram \(you feel \d+\/10 about them, you have a crush on them/);
+    expect(withHeart(0.35, 'none')).toMatch(/you are drawn to them/);
+    expect(withHeart(0.05, 'none')).not.toMatch(/crush|drawn to them|your partner/);
+  });
+});
+

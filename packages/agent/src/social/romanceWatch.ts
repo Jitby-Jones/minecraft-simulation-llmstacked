@@ -59,8 +59,9 @@ export function isAdvance(text: string): boolean {
 }
 
 const TICK_MS = 10_000;
-/** Within this, two people are together (§19.2 shared time), which fades with a half-life of half an hour. */
-const TOGETHER = 8;
+/** Within this, and in sight, two people are together (§19.2 shared time), which fades with a half-life of half an
+ * hour. At 8 m, two working side by side for 80 minutes in `duo (8)` had less than two minutes together. */
+const TOGETHER = 16;
 const TOGETHER_HALF_LIFE_MS = 30 * 60_000;
 /** Half an hour of it, lately, is all it can add. */
 const TOGETHER_FULL_S = 30 * 60;

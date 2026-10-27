@@ -3416,6 +3416,13 @@ What else the benchmark showed:
   `use` now clicks the open face toward the eyes first and tries up to three other sides if nothing changes. It
   says what came of it on any side ("cocoa on the jungle log"). A live hands case plants cocoa on a jungle log, and
   the other `use` cases (seeds, doors and the rest) pass as before.
+- **One knows one's own heart; working side by side is time together.** 80 minutes into `duo (8)`, with a romance
+  to find among their tasks, each one's interest in the other stood at 0.04 to 0.05, with liking at a neutral 5.
+  The mind had been told only "you feel 5/10 about them". Time together counted only within 8 m, and two working
+  side by side are rarely that close: they had had under two minutes of it. Now the packet says one's own feelings
+  ("you have a crush on them", "you are drawn to them", "your partner"), and time together counts within 16 m in
+  sight. What draws and what courts is unchanged: shared time, kindness, gifts, how well they get on, each side
+  deciding for itself.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with
