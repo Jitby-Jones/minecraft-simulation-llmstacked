@@ -123,6 +123,11 @@ const TOPICS: readonly { about: RegExp; text: string }[] = [
     about: /\b(night|evening|dusk|nightfall)\b/i,
     text: 'Night: about 8 minutes of dark; monsters (zombies, skeletons, spiders, creepers) spawn in the dark all over the surface and come for anyone near, more of them the longer it lasts; a bed (3 wool and 3 planks) lets you sleep through it and sets where you wake after dying; walls and a roof keep them off (a hole sealed over too, for one caught out with nowhere else), and under a roof, or down a mine of one\'s own where it is dark at any hour anyway, the work goes on through the night as by day, so the night is not lost; zombies and skeletons burn when the sun comes up, unless they stand in shade or water; a torch only keeps them from spawning right beside it; bare-handed a zombie takes some 20 punches, with a wooden sword 5 blows, a stone or iron one 4.',
   },
+  // One out exploring in a thunderstorm at 10 health, hungry, met a zombie villager by day and was killed.
+  {
+    about: /\b(thunderstorm|thunder|storm)\b/i,
+    text: 'A thunderstorm: the sky goes dark enough that monsters spawn and walk about by day as at night, and those out in it do not burn until it passes, a few minutes on; under a roof one is as safe as at night; lightning strikes now and then and can set things on fire.',
+  },
   {
     about: /\b(romance|romantic|partner|relationship|love|date|marry|married|girlfriend|boyfriend)\b/i,
     text: 'People are won over by time spent together, kindness, small gifts and help, and by being asked when the time is right.',

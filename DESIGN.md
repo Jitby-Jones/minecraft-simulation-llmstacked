@@ -3222,6 +3222,10 @@ What else the benchmark showed:
   coming your way". That is strong enough to think about at once when there are two or more, or one is coming. It
   comes at most every 45 s, and not for what has no way to us, nor when shut in, nor once the body is already in the
   danger.
+- **A thunderstorm darkens the day.** In `duo (43)`, Ada (met: the house, at 53 minutes) went exploring in a
+  thunderstorm at 10 health, hungry at food 7, and a zombie villager killed her by day. What the game knows now says,
+  when the where line has a storm in it, that the sky goes dark enough for monsters to spawn and walk about as at
+  night, unburnt until it passes.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with
