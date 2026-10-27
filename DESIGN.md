@@ -419,6 +419,12 @@ What each is for is the mind's to know. `obtain` knows shearing and mob drops as
     L3: { primary: auto, fallbacks: [auto], timeoutMs: 45000, maxTokens: 2000, need: [structured_output] }
   embeddings: { provider: local }   # §22.5 — local by default; NanoGPT embeddings only if subscription-covered
   ```
+- **One model for each kind of thought** (owner request, 2026-10-25: "I don't think models should vary"). `thoughts` in `config/models.yaml` names, for each of the mind, under fire, speech, reading others, quick checks, plans, reflection, buildings, code, the overseer and new people:
+  - a model, and a backup used only while that model is down, never for a malformed reply;
+  - a reasoning effort, sent only to models that reason (`none` turns hidden thinking off);
+  - a reply cap and a time, both set for speed.
+
+  A call names its kind of thought (by default, by its module). A kind with no entry runs on its tier's chain, as below. Startup stops if a model it names is not on the subscription list, rather than vary silently. The choices and their measurements are in the YAML's comments and in `docs/plan-thinking-models.md`.
 - **Client wrapper** `llm.call({tier, module, messages, schema?, signal})`:
   - streaming for Talking (start sending as soon as the first sentence is complete)
   - JSON / structured output with zod validation and one repair retry

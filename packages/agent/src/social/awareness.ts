@@ -449,6 +449,7 @@ export class SocialAwareness {
       const r = await this.o.llm.call<Promises>({
         tier: 'L1',
         module: 'social',
+        thought: 'check',
         agent: this.o.me,
         schema: PromisesSchema,
         schemaName: 'promises',

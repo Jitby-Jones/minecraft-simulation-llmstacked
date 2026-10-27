@@ -160,10 +160,7 @@ export interface ArchitectOptions {
   llm: LlmClient | null;
   repertoire: Repertoire;
   logger: Logger;
-  /** Models tried first (models.yaml architect.models) and the time each may take. */
-  models?: readonly string[];
-  timeoutMs?: number;
-  /** One model only (a bench, a test). */
+  /** One model only (a bench, a test); otherwise the building thought's (models.yaml `thoughts.build`). */
   model?: string;
   signal?: AbortSignal;
 }
@@ -205,9 +202,7 @@ export async function designBuilding(req: DesignRequest, o: ArchitectOptions): P
         schemaName: 'design',
         formatInPrompt: true,
         fallback: () => ({ design: null, note: '' }),
-        ...(o.model ? { model: o.model } : o.models && o.models.length > 0 ? { prefer: o.models } : {}),
-        ...(o.timeoutMs ? { timeoutMs: o.timeoutMs } : {}),
-        maxTokens: 3000,
+        ...(o.model ? { model: o.model } : {}),
         ...(o.signal ? { signal: o.signal } : {}),
       });
       if (r.value.design === null || r.value.design === undefined) break;

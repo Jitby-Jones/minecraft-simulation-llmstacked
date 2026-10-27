@@ -14,6 +14,14 @@ import { LocalRateLimiter, SUBSCRIPTION_BURST, SUBSCRIPTION_RPS, type TokenSourc
 import { type BenchFile, ModelRouter, TIERS, type TierName } from './tiers';
 import { evaluateKeyLock, fetchUsage } from './usage';
 
+/** A kind of thought names a model that is not on the subscription list: choose another rather than vary silently. */
+export class ThoughtModelError extends Error {
+  constructor(missing: readonly string[]) {
+    super(`config/models.yaml thoughts name models that are not on the subscription list: ${missing.join('; ')}. Choose others (they must not vary silently).`);
+    this.name = 'ThoughtModelError';
+  }
+}
+
 export class KeyLockError extends Error {
   constructor(message: string) {
     super(message);
@@ -112,6 +120,12 @@ export async function startLlm(o: StartLlmOptions): Promise<LlmRuntime> {
   const res = router.resolution;
   logger.info({ module: 'llm', chains: res.chains, mappedTo: res.mappedTo, models: allowlist.size }, 'subscription tiers resolved');
   for (const n of res.notes) logger.warn({ module: 'llm' }, n);
+  // Each kind of thought's model must be there; a missing backup only weakens what happens in an outage.
+  const thoughts = Object.entries(config.thoughts);
+  const missing = thoughts.filter(([, t]) => t && !allowlist.has(t.model)).map(([kind, t]) => `${kind}: ${t?.model ?? ''}`);
+  if (missing.length > 0) throw new ThoughtModelError(missing);
+  for (const [kind, t] of thoughts) if (t?.backup && !allowlist.has(t.backup)) logger.warn({ module: 'llm', thought: kind, backup: t.backup }, 'a backup model is not on the subscription list');
+  if (thoughts.length > 0) logger.info({ module: 'llm', thoughts: Object.fromEntries(thoughts.map(([kind, t]) => [kind, t?.model])) }, 'a model for each kind of thought');
 
   const quota = new QuotaWatch({ fetchUsage: (signal) => fetchUsage(http, o.apiKey, signal), pollMs: config.llm.usagePollSec * 1000, logger, now: o.now });
   quota.ingest(usage);
@@ -123,6 +137,7 @@ export async function startLlm(o: StartLlmOptions): Promise<LlmRuntime> {
     meter,
     limiter,
     specs,
+    thoughts: config.thoughts,
     logger,
     fetch: o.fetch,
     onCost: o.onCost,

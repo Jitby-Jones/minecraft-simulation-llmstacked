@@ -200,7 +200,7 @@ describe.skipIf(!liveJavaPath())('Buildings live', () => {
           maxEffort: 120,
           helpers: [{ name: 'Bram', does: 'miner' }],
         },
-        { llm: rt.client, repertoire: rep, logger, models: cfg.architect.models, timeoutMs: cfg.architect.timeoutMs },
+        { llm: rt.client, repertoire: rep, logger },
       );
       note(`[architect] ${r.how} ${r.building.id}: ${describeDesign(r)}`);
       console.log(`[architect] ${r.how} ${r.building.id}: ${describeDesign(r)}`);

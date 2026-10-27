@@ -100,17 +100,6 @@ export interface AgentOptions {
   fightSlot?: { acquire(): Promise<boolean>; release(): void };
   /** Born in-world (§19.4): what it starts out knowing, and when its youth ends. */
   birth?: { facts: BirthFacts; youthUntil: number };
-  /** The tier Talking writes lines with (models.yaml speech.tier). */
-  speechTier?: 'L1' | 'L2' | 'L3';
-  /** Models tried first for a line, and their per-try timeout (models.yaml speech.models, speech.timeoutMs). */
-  speechModels?: readonly string[];
-  speechTimeoutMs?: number;
-  /** The models the mind thinks with first, and its timeout (owner request, 2026-10-24). */
-  mindModels?: readonly string[];
-  mindTimeoutMs?: number;
-  /** The architect's models, tried first when a building is designed, and the time each may take (models.yaml architect). */
-  architectModels?: readonly string[];
-  architectTimeoutMs?: number;
   /** §19.3: the bed ritual done beside our partner: the Hub is told (conception), with what we believe of them. */
   onConception?: (c: { partner: AgentName; bedPos: Vec3; partnerModel: Record<string, number>; partnerSex: Sex | 'unknown' }) => void;
   now?: () => number;
@@ -245,9 +234,6 @@ export class Agent {
       me: username,
       ...(mem ? { recall: (text: string, k: number) => mem.relevantTo(text, k) } : {}),
       rungOf: (name) => this.conflict.rungOf(name),
-      ...(o.speechTier ? { tier: o.speechTier } : {}),
-      ...(o.speechModels && o.speechModels.length > 0 ? { models: o.speechModels } : {}),
-      ...(o.speechTimeoutMs ? { timeoutMs: o.speechTimeoutMs } : {}),
       now,
     });
     this.consensus = new Consensus({ store: this.store, bus: this.bus, logger, llm, conversations: this.conversations, me: username, now });
@@ -263,8 +249,6 @@ export class Agent {
       me: username,
       levers,
       knowledge: () => this.knowledge(),
-      ...(o.mindModels && o.mindModels.length > 0 ? { mindModels: o.mindModels } : {}),
-      ...(o.mindTimeoutMs ? { mindTimeoutMs: o.mindTimeoutMs } : {}),
       bodyInDanger: () => bodyInDanger(body),
       runNow: () => body.reflexes.run(),
       awareness: this.awareness,
@@ -900,8 +884,6 @@ export class Agent {
         llm: isOff(s, 'architect') ? null : llm,
         repertoire: sharedRepertoire(),
         logger: this.o.logger,
-        ...(this.o.architectModels && this.o.architectModels.length > 0 ? { models: this.o.architectModels } : {}),
-        ...(this.o.architectTimeoutMs ? { timeoutMs: this.o.architectTimeoutMs } : {}),
         signal: this.halting.signal,
       },
     );

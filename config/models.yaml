@@ -11,19 +11,41 @@ tiers:
   L2: { primary: auto, fallbacks: [auto], timeoutMs: 8000, maxTokens: 2500, need: [structured_output, tool_calling] }
   L3: { primary: auto, fallbacks: [auto], timeoutMs: 45000, maxTokens: 2000, need: [structured_output] }
 
-# The tier agents' lines are written with, and the models tried first for them. L1 models are quick but small ones
-# cut lines short or miss the timeout. Talk drives how the agents deal with each other, so a line gets a stronger
-# model and up to 8 s a try (owner request, 2026-10-24). Measured with the real speech prompt (8 lines each, DESIGN.md
-# §24): glm-5.1 wrote the clearest lines in the most natural player style (p50 1.6 s, p90 2.1 s); kimi-k2.6 and
-# mimo-v2.6-pro were close; minimax-m3 (L2's first by heuristics) was plainer. Measured again on 2026-10-25, glm-5.1
-# now writes out its working before the line ("Bram asked "so whos on wood?" I need to answer as Mira — ... at most
-# 25 words"), three times of three, and a duo's chat filled with it; kimi-k2.6 (1.7-2.6 s) and minimax-m3 (about
-# 1 s) wrote only the line; mimo-v2.6-pro did too, once taking 20 s. A model not on the subscription list is skipped;
-# after these, the tier's own chain.
-speech:
-  tier: L2
-  models: [moonshotai/kimi-k2.6, minimax/minimax-m3, xiaomi/mimo-v2.6-pro]
-  timeoutMs: 8000
+# Each kind of thought on one model of its own (owner request, 2026-10-25: "I don't think models should vary. L1, L2,
+# L3 should be chosen by you."), with its reasoning effort, reply cap and time. The backup runs only while the model is
+# down (a timeout, a provider error, its circuit open), never for a malformed reply. Cost is not a criterion ("I'm not
+# trying to save any tokens"): a smaller model is used only where a big one can't answer in time, and a reply cap only
+# to keep a thought fast. Every model here must be on the subscription list, or startup stops. Provisional choices,
+# from the measurements below, until `pnpm bench-thoughts` confirms or replaces them (docs/plan-thinking-models.md):
+# - mind, social, under fire: glm-5.3 thought clearest in every careful test (the sheep sheared rather than killed,
+#   the flyer asked how; 3.5-6 s on three situations, 2026-10-24). Its trouble in the long runs was hidden thinking
+#   (10-25 s; at 900 tokens "{}" three times of three) and, from 85% of the old quota, the 200-token L1 cap. Effort
+#   none turns the hidden thinking off; the mind thinks in the open, in its `thought`. Backup: deepseek-v4-pro, good but
+#   7-9 s (2026-10-24), no hidden thinking. Under fire the same mind with a short reply; its backup a fast model.
+# - speech: kimi-k2.6 wrote only the line, in a player's way, in 1.7-2.6 s (2026-10-25); glm-5.1 wrote out its working
+#   before the line three times of three; minimax-m3 (about 1 s) wrote only the line, plainer.
+# - check: yes/no and a few words in the way of what the agent does next; llama-3.3-70b and gemma-4-12b timed out at
+#   7 s 25 times in the 2026-10-25 runs. deepseek-v4-flash, untimed yet.
+# - plan, reflect, code: glm-5.3 with its thinking on: nothing waits on them.
+# - build: four buildings each (a home, a smithy, a tower, a hall): glm-5.3 drew all four first time in 7-12 s,
+#   buildable and good to look at; deepseek-v4-pro and glm-5.1 needed a second try for some; kimi-k2.6 and qwen3.5-397b
+#   often drew what couldn't be built (2026-10-24).
+# - oversee: five cases (a talk going round in circles, a long talk that keeps moving on, a craft failing five times, a
+#   walk stuck in place, a busy talk full of "ok"s): glm-5.3 judged all right every time (4-22 s); kimi-k2.6 was quicker
+#   (2-6 s) but broke up the long talk once in 4 (2026-10-24).
+# - persona: kimi-k2.6, the agents' voice.
+thoughts:
+  mind:      { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: none, maxTokens: 1200, timeoutMs: 12000 }
+  underFire: { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-flash, effort: none, maxTokens: 600, timeoutMs: 5000 }
+  speech:    { model: moonshotai/kimi-k2.6, backup: minimax/minimax-m3, maxTokens: 300, timeoutMs: 8000 }
+  social:    { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: none, maxTokens: 800, timeoutMs: 10000 }
+  check:     { model: deepseek/deepseek-v4-flash, backup: xiaomi/mimo-v2.6-flash, effort: none, maxTokens: 200, timeoutMs: 4000 }
+  plan:      { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 4000, timeoutMs: 60000 }
+  reflect:   { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 2500, timeoutMs: 60000 }
+  build:     { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: medium, maxTokens: 4000, timeoutMs: 90000 }
+  code:      { model: z-ai/glm-5.3, backup: deepseek/deepseek-v4-pro, effort: high, maxTokens: 4000, timeoutMs: 90000 }
+  oversee:   { model: z-ai/glm-5.3, backup: moonshotai/kimi-k2.6, effort: medium, maxTokens: 1500, timeoutMs: 45000 }
+  persona:   { model: moonshotai/kimi-k2.6, backup: z-ai/glm-5.3, maxTokens: 1500, timeoutMs: 45000 }
 
 # §22.5: local by default (all-MiniLM-L6-v2, served once by the Hub). nanogpt only if subscription-covered.
 embeddings: { provider: local }
@@ -35,25 +57,6 @@ llm:
   usagePollSec: 300               # how often the quota is read for the dashboard; it never limits thinking
   structuredOutput: object         # object: JSON reply, schema in the prompt | schema: the API's json_schema format
 
-# The mind (owner request, 2026-10-24): each decision is thought through (what is going on, what surprised, the ways
-# there, the choice), a longer reply than a bare choice. Measured with the real thinking prompt on three situations
-# (the sheep gone and wool still wanted, someone hanging in the air, the first minutes with seven tasks): glm-5.3
-# thought clearest and quickest (3.5-6 s), sheared rather than killed and asked the flyer how; minimax-m3 (L2's first
-# by heuristics) was as quick (3-5 s) but timed out at 8 s four times in a live run; kimi-k2.6 and glm-5.1 were good at
-# 5-10 s; deepseek-v4-pro good but 7-9 s; mimo-v2.6-pro took 26-52 s or failed. After these, the CC's tier chain.
-mind:
-  models: [z-ai/glm-5.3, minimax/minimax-m3, moonshotai/kimi-k2.6, z-ai/glm-5.1]
-  timeoutMs: 15000
-
-# The architect (owner request, 2026-10-24): called only when an agent designs a building, so a strong model and time
-# to think. Measured with the real architect prompt (four buildings each: a home, a smithy, a tower, a hall): glm-5.3
-# drew all four first time in 7-12 s, buildable and good to look at; deepseek-v4-pro and glm-5.1 needed a second try
-# for some; kimi-k2.6 and qwen3.5-397b often drew what couldn't be built. A model not on the subscription list is
-# skipped; after these, the L3 chain.
-architect:
-  models: [z-ai/glm-5.3, z-ai/glm-5.1, deepseek/deepseek-v4-pro]
-  timeoutMs: 90000
-
 # The controller (owner request, 2026-10-24): one master model over all the agents. Code finds what looks wrong (a
 # talk going round in circles, someone standing stuck, the same failure over and over, a mind that won't settle); the
 # model judges each case (most are let be) and words the urge that ends it, which the agent takes as its own. Rare
@@ -61,10 +64,8 @@ architect:
 # going round in circles, a long talk that keeps moving on, a craft failing five times, a walk stuck in place, a busy
 # talk full of "ok"s): glm-5.3 judged all of them right every time (6 of 6 let the long talk be; 4-22 s); kimi-k2.6 was
 # quicker (2-6 s) but broke up the long talk once in 4; deepseek-v4-pro broke it up every time; glm-5.1 once answered
-# "...". A model not on the subscription list is skipped; after these, the L3 chain.
+# "...". Its model is `thoughts.oversee`.
 controller:
   enabled: true
-  models: [z-ai/glm-5.3, moonshotai/kimi-k2.6]
-  timeoutMs: 45000
   everySec: 20
   maxPerHour: 20

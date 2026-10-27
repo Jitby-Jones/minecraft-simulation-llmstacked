@@ -38,7 +38,6 @@ describe.skipIf(!liveJavaPath() || !withModel)('live: a mind under fire', () => 
   });
 
   const agentFor = (body: Body, name: string) => {
-    const cfg = loadModelsConfig();
     return new Agent({
       body,
       persona: PersonaSchema.parse({ name, sex: 'female', traits: ['practical', 'careful'], social: { initiateChance: 0 }, abilities: { intelligence: 0.7 } }),
@@ -48,11 +47,6 @@ describe.skipIf(!liveJavaPath() || !withModel)('live: a mind under fire', () => 
       world: WorldConfigSchema.parse({}),
       goalGen: false,
       socialGoals: false,
-      speechTier: cfg.speech.tier,
-      speechModels: cfg.speech.models,
-      ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
-      mindModels: cfg.mind.models,
-      ...(cfg.mind.timeoutMs ? { mindTimeoutMs: cfg.mind.timeoutMs } : {}),
     });
   };
 

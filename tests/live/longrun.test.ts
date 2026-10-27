@@ -64,7 +64,6 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         calls++;
         return call(o);
       }) as typeof rt.client.call;
-      const cfg = loadModelsConfig();
       const people =
         variant === 'solo'
           ? [{ name: 'Ada', sex: 'female' as const, traits: ['practical', 'determined', 'curious'] }]
@@ -96,11 +95,6 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           world: WorldConfigSchema.parse({}),
           goalGen: true,
           socialGoals: variant === 'duo',
-          speechTier: cfg.speech.tier,
-          speechModels: cfg.speech.models,
-          ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
-          mindModels: cfg.mind.models,
-          ...(cfg.mind.timeoutMs ? { mindTimeoutMs: cfg.mind.timeoutMs } : {}),
         });
         agents.push(agent);
         // What the mind saw at each of its own decisions, to read a fatal choice from the inside: the packet and the

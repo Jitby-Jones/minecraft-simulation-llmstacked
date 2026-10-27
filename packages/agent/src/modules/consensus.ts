@@ -172,6 +172,7 @@ export class Consensus {
         const r = await llm.call<z.infer<typeof SettledSchema>>({
           tier: 'L1',
           module: 'talking',
+          thought: 'check',
           agent: this.o.me,
           schema: SettledSchema,
           schemaName: 'settled',

@@ -355,6 +355,61 @@ describe('the client (§5, §22.2, §22.6)', () => {
 
 });
 
+describe('one model for each kind of thought (owner request, 2026-10-25)', () => {
+  const withThoughts = {
+    ...fastTiers,
+    thoughts: {
+      mind: { model: 'p2-big', backup: 'p3-mid', effort: 'none', maxTokens: 1200, timeoutMs: 600 },
+      check: { model: 'p1-fast', effort: 'low', maxTokens: 50, timeoutMs: 300 },
+    },
+  };
+
+  it('runs each kind on its own model, with its reply cap, time and effort (sent only to a model that reasons)', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    // Slower than L2's 300 ms: only the mind's own 600 ms lets it through.
+    fake.chat = () => ({ text: GOOD, delayMs: 400 });
+    const rt = await runtime(fake, withThoughts);
+    const mind = await ask(rt);
+    expect(mind.ok && mind.model).toBe('p2-big');
+    expect(fake.chatRequests()[0]?.body).toMatchObject({ model: 'p2-big', max_tokens: 1200, reasoning_effort: 'none' });
+    fake.chat = () => ({ text: GOOD });
+    const check = await ask(rt, { tier: 'L1', thought: 'check' });
+    expect(check.ok && check.model).toBe('p1-fast');
+    const body = fake.chatRequests()[1]?.body;
+    expect(body?.max_tokens).toBe(50);
+    expect(body).not.toHaveProperty('reasoning_effort');
+    // A kind with no model of its own runs on its tier's chain, as before.
+    const plan = await ask(rt, { tier: 'L3', module: 'goal' });
+    expect(plan.ok && rt.router.chain('L3')).toContain(plan.ok ? plan.model : '');
+  });
+
+  it('turns to the backup only while the model is down, never for a malformed reply', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = ({ model }) => (model === 'p2-big' ? { status: 503, json: { error: { message: 'overloaded' } } } : { text: GOOD });
+    const rt = await runtime(fake, withThoughts);
+    const down = await ask(rt);
+    expect(down.ok && down.model).toBe('p3-mid');
+    fake.chat = ({ model }) => (model === 'p2-big' ? { text: 'not json at all' } : { text: GOOD });
+    const before = fake.chatRequests().length;
+    expect(await ask(rt)).toMatchObject({ ok: false, value: DEFAULT });
+    expect(fake.chatRequests().slice(before).map((q) => q.body?.model)).toEqual(['p2-big', 'p2-big']);
+  });
+
+  it("still puts the operator's model for the tier first", async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: GOOD });
+    const rt = await runtime(fake, withThoughts);
+    rt.client.setRouting({ tierModel: { L2: 'p1-mid' } });
+    const r = await ask(rt);
+    expect(r.ok && r.model).toBe('p1-mid');
+  });
+
+  it('will not start with a kind of thought on a model the subscription lacks', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    await expect(runtime(fake, { ...fastTiers, thoughts: { mind: { model: 'gone-model', maxTokens: 100, timeoutMs: 1000 } } })).rejects.toThrow(/mind: gone-model/);
+  });
+});
+
 describe('abort-on-stale (§4.2, M2 exit)', () => {
   const persona = PersonaSchema.parse({ name: 'Pip', sex: 'female', traits: ['careful'] });
 

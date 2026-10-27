@@ -1074,9 +1074,6 @@ export interface CCOptions {
   heartbeatMs?: number;
   /** What it knows of the game that bears on now (owner request, 2026-10-24), as lines for the packet. */
   knowledge?: () => string[];
-  /** The models it thinks with first, and the time a thought may take (config/models.yaml `mind`). */
-  mindModels?: readonly string[];
-  mindTimeoutMs?: number;
   /** In danger: what the body is doing by itself right now ("running from 3 zombies, the nearest 2 m off"). */
   bodyInDanger?: () => string;
   /** In danger: the body is to run (the mind chose to get away, and leaves the running to the legs). */
@@ -1515,9 +1512,10 @@ export class CognitiveController {
             tier,
             module: 'cc',
             agent: this.o.me,
-            ...(this.o.mindModels && this.o.mindModels.length > 0 ? { prefer: this.o.mindModels } : {}),
-            // Under fire, a slow reply gives way to the next model sooner (one took 34 s; the danger doesn't wait).
-            ...(ctx.emergency ? { timeoutMs: Math.min(this.o.mindTimeoutMs ?? UNDER_FIRE_TIMEOUT_MS, UNDER_FIRE_TIMEOUT_MS) } : this.o.mindTimeoutMs ? { timeoutMs: this.o.mindTimeoutMs } : {}),
+            // Under fire the same mind, quicker (config/models.yaml `thoughts.underFire`; without one, a slow reply gives
+            // way to the next model sooner: one took 34 s, and the danger doesn't wait).
+            thought: ctx.emergency ? 'underFire' : 'mind',
+            ...(ctx.emergency ? { timeoutMs: UNDER_FIRE_TIMEOUT_MS } : {}),
             messages,
             schema: DecisionOutputSchema,
             schemaName: 'decision',

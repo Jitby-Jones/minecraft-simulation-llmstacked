@@ -5,7 +5,7 @@
 
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { type LlmModule, type Logger, MODULE_PRIORITY } from '@agora/shared';
+import { type LlmModule, type Logger, MODULE_PRIORITY, MODULE_THOUGHT, type ReasoningEffort, type ThoughtConfig, type ThoughtKind } from '@agora/shared';
 import { CircuitBreaker } from './circuit';
 import { LlmError, ModelNotInSubscription, classifyHttpError } from './errors';
 import { ForbiddenEndpointError, ForbiddenOptionError, SUBSCRIPTION_BASE_URL, createGuardedFetch } from './guard';
@@ -57,8 +57,12 @@ export interface LlmCallOptions<T> {
    * list is skipped, never sent anything; the operator's model for the tier still comes first.
    */
   prefer?: readonly string[];
-  /** This call's per-try timeout instead of the tier's. */
+  /** This call's per-try timeout instead of the tier's (when its kind of thought has no model of its own). */
   timeoutMs?: number;
+  /** The kind of thought this is (by default, by its module): its configured model, effort, length and time are used. */
+  thought?: ThoughtKind;
+  /** A reasoning effort for this call instead of its thought's (bench, tests). */
+  effort?: ReasoningEffort;
   /**
    * The prompt already describes the reply's JSON (the CC's decision format): the schema itself isn't appended, only
    * a line asking for that object.
@@ -96,12 +100,19 @@ export interface TierRuntime extends TierSpec {
   maxTokens: number;
 }
 
+/** What one call runs under: its tier's settings, or its kind of thought's, and the reasoning effort to send. */
+interface CallSpec extends TierRuntime {
+  effort?: ReasoningEffort;
+}
+
 export interface LlmClientDeps {
   apiKey: string;
   router: ModelRouter;
   meter: CostMeter;
   limiter: TokenSource;
   specs: Readonly<Record<TierName, TierRuntime>>;
+  /** Each kind of thought's own model (models.yaml `thoughts`); a kind not named runs on its tier's chain. */
+  thoughts?: Partial<Record<ThoughtKind, ThoughtConfig>>;
   logger: Logger;
   /** Underlying fetch (tests inject a fake NanoGPT); always wrapped by the guard. */
   fetch?: typeof fetch;
@@ -270,12 +281,22 @@ export class LlmClient {
     // The tier asked for (or the operator's for this module) is the tier used: the quota never changes it.
     const tier = this.route.moduleTier?.[o.module] ?? o.tier;
 
+    const kind = o.thought ?? MODULE_THOUGHT[o.module];
+    const thought = this.deps.thoughts?.[kind];
+
     // Layer 3: only allowlisted models, refused before anything is sent.
     let chain: string[];
     if (o.model !== undefined) {
       const id = this.deps.router.allowlist.resolve(o.model);
       if (!id) throw new ModelNotInSubscription(o.model);
       chain = [id];
+    } else if (thought) {
+      // One model for this kind of thought, its backup only while that one is down (owner request, 2026-10-25). The
+      // operator's model for the tier still comes first.
+      const routed = this.route.tierModel?.[tier];
+      const named = [...new Set([...(routed ? [routed] : []), thought.model, ...(thought.backup ? [thought.backup] : [])])];
+      chain = named.filter((m) => this.deps.router.allowlist.has(m) && !this.circuit.isOpen(m));
+      if (chain.length === 0) return fallback('failed', `no model for ${kind}: ${named.join(', ')} unavailable`);
     } else {
       if (this.deps.router.codeOnly) return fallback('code-only', 'no subscription model fits any tier');
       chain = this.chainFor(tier).filter((m) => !this.circuit.isOpen(m));
@@ -287,7 +308,14 @@ export class LlmClient {
       }
       if (chain.length === 0) return fallback('failed', `every ${tier} model is circuit-broken`);
     }
-    const spec = o.timeoutMs ? { ...this.deps.specs[tier], timeoutMs: o.timeoutMs } : this.deps.specs[tier];
+    const tierSpec = this.deps.specs[tier];
+    const effort = o.effort ?? thought?.effort;
+    const spec: CallSpec = {
+      ...tierSpec,
+      timeoutMs: thought?.timeoutMs ?? o.timeoutMs ?? tierSpec.timeoutMs,
+      maxTokens: thought?.maxTokens ?? Math.min(o.maxTokens ?? tierSpec.maxTokens, tierSpec.maxTokens),
+      ...(effort ? { effort } : {}),
+    };
 
     let lastError = '';
     for (const model of chain) {
@@ -397,7 +425,7 @@ export class LlmClient {
     this.deps.onCost?.(r);
   }
 
-  private async attempt<T>(o: LlmCallOptions<T>, model: string, spec: TierRuntime): Promise<{ value: T; text: string; usage: LlmUsage; truncated?: boolean }> {
+  private async attempt<T>(o: LlmCallOptions<T>, model: string, spec: CallSpec): Promise<{ value: T; text: string; usage: LlmUsage; truncated?: boolean }> {
     if (!o.schema) {
       const r = await this.request(o, model, spec, o.messages, undefined);
       return { value: r.text as T, text: r.text, usage: r.usage, ...(r.truncated ? { truncated: true } : {}) };
@@ -463,14 +491,16 @@ export class LlmClient {
   private async request(
     o: LlmCallOptions<unknown>,
     model: string,
-    spec: TierRuntime,
+    spec: CallSpec,
     messages: readonly ChatMessage[],
     format: { type: 'json_object' } | { type: 'json_schema'; json_schema: Record<string, unknown> } | undefined,
   ): Promise<Reply> {
     const base = {
       model,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
-      max_tokens: Math.min(o.maxTokens ?? spec.maxTokens, spec.maxTokens),
+      max_tokens: spec.maxTokens,
+      // A model setting, not a provider, billing or cache option (§22.2), sent only to models that reason.
+      ...(spec.effort && this.deps.router.allowlist.get(model)?.capabilities.has('reasoning') ? { reasoning_effort: spec.effort } : {}),
       ...(o.temperature !== undefined ? { temperature: o.temperature } : {}),
     };
     if (o.onText && !format) return this.stream(o, model, spec, messages, base);
@@ -501,7 +531,7 @@ export class LlmClient {
    * take up to three times as long in all, with no pause between pieces longer than the timeout. A reply cut off by a
    * timeout once it was under way is a failure like any other: what streamed so far was only ever a draft.
    */
-  private async stream(o: LlmCallOptions<unknown>, model: string, spec: TierRuntime, messages: readonly ChatMessage[], base: Record<string, unknown>): Promise<Reply> {
+  private async stream(o: LlmCallOptions<unknown>, model: string, spec: CallSpec, messages: readonly ChatMessage[], base: Record<string, unknown>): Promise<Reply> {
     const ac = new AbortController();
     const signal = o.signal ? AbortSignal.any([o.signal, ac.signal]) : ac.signal;
     let why = `no reply within ${spec.timeoutMs} ms`;

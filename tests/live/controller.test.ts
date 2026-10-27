@@ -47,7 +47,7 @@ describe.skipIf(!liveJavaPath())('live: the controller breaks a talk going round
     const controller = new Controller({
       llm: null,
       logger: nullLogger(),
-      config: { enabled: true, models: [], timeoutMs: 5000, everySec: 600, maxPerHour: 20 },
+      config: { enabled: true, everySec: 600, maxPerHour: 20 },
       send: (who, urge) => {
         const a = agents[who];
         if (!a) return false;

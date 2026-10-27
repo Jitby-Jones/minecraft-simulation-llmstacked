@@ -5,7 +5,7 @@
 // that arrive while a reply is pending, from anyone, are answered together (batching), one line at a time.
 
 import { type AgentName, type ConvId, type Decision, type EmotionName, type EmotionState, type Logger, type SpeechIntent, type Utterance, countWords, dropUnfinished, endsSentence, fitWords, maxTurnsFor, mentionsName } from '@agora/shared';
-import type { ChatMessage, LlmClient, TierName } from '@agora/llm';
+import type { ChatMessage, LlmClient } from '@agora/llm';
 import { SingleFlight } from '@agora/llm';
 import { z } from 'zod';
 import type { AgentBus } from '../bus';
@@ -187,11 +187,6 @@ export interface TalkingOptions {
   now?: () => number;
   /** How long a lull must be before a line nobody asked for (tests shorten it). */
   lullMs?: number;
-  /** The tier lines are written with (models.yaml speech.tier; L2 by default). */
-  tier?: TierName;
-  /** Models tried first for a line, and the per-try timeout (models.yaml speech.models, speech.timeoutMs). */
-  models?: readonly string[];
-  timeoutMs?: number;
 }
 
 interface Pending {
@@ -322,6 +317,7 @@ export class Talking {
     const r = await llm.call<{ addressedToMe: boolean }>({
       tier: 'L1',
       module: 'talking',
+      thought: 'check',
       agent: this.o.me,
       schema: AddressedSchema,
       schemaName: 'addressed',
@@ -729,13 +725,14 @@ export class Talking {
         const st: { buf: string; first: string | null; sent: Promise<boolean> | null; broken: boolean } = { buf: '', first: null, sent: null, broken: false };
         const chimingIn = incoming.length > 0 && incoming.every((u) => u.heardAs !== 'me');
         const stillWanted = chimingIn ? () => !incoming.some((u) => this.someoneAnswered(u)) : undefined;
+        // A line is written with the speech model (models.yaml `thoughts.speech`): talk drives how the agents deal with
+        // each other, so it gets a strong model and a few seconds (owner request, 2026-10-24).
         const r = await llm.call<string>({
-          tier: this.o.tier ?? 'L2',
+          tier: 'L2',
           module: 'talking',
+          thought: 'speech',
           agent: this.o.me,
           messages,
-          ...(this.o.models && this.o.models.length > 0 ? { prefer: this.o.models } : {}),
-          ...(this.o.timeoutMs ? { timeoutMs: this.o.timeoutMs } : {}),
           fallback: () => this.canned(intent, false, undefined, to),
           signal: guard.signal,
           isStale: guard.isStale,

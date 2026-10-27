@@ -1,7 +1,7 @@
 // Config file schemas with the design's defaults. Nested objects use .prefault({}) so inner defaults apply.
 
 import { z } from 'zod';
-import { TierNameSchema, Unit } from './common';
+import { ReasoningEffortSchema, ThoughtKindSchema, Unit } from './common';
 
 // ---------------------------------------------------------------------------------------------------------------
 // config/models.yaml (§5, §22.3, §22.7)
@@ -18,6 +18,19 @@ export const TierConfigSchema = z.object({
 });
 export type TierConfig = z.infer<typeof TierConfigSchema>;
 
+/** One kind of thought's model (owner request, 2026-10-25: chosen, never varied by the quota or `auto`). */
+export const ThoughtConfigSchema = z.object({
+  model: z.string().min(1),
+  /** Used only while the model is down (a timeout, a provider error, its circuit open), never for a malformed reply. */
+  backup: z.string().min(1).optional(),
+  /** NanoGPT's reasoning_effort, sent only to models that reason; `none` turns hidden thinking off where allowed. */
+  effort: ReasoningEffortSchema.optional(),
+  /** The reply's length cap: set to keep the thought fast, not to save tokens. */
+  maxTokens: z.number().int().positive(),
+  timeoutMs: z.number().int().min(100).max(300_000),
+});
+export type ThoughtConfig = z.infer<typeof ThoughtConfigSchema>;
+
 export const ModelsConfigSchema = z
   .object({
     tiers: z
@@ -27,41 +40,17 @@ export const ModelsConfigSchema = z
         L3: TierConfigSchema.prefault({ timeoutMs: 45000, maxTokens: 2000, need: ['structured_output'] }),
       })
       .prefault({}),
-    /** What agents speak with: the tier lines are written with (a small model's lines come late and short). */
-    // The tier lines are written with, and models tried first for them (each must be on the subscription list) with
-    // a timeout of their own: talk drives the agents' dealings with each other, so a line is worth a better model and
-    // a few seconds (owner request, 2026-10-24).
-    speech: z
-      .object({
-        tier: TierNameSchema.default('L2'),
-        models: z.array(z.string().min(1)).default([]),
-        timeoutMs: z.number().int().min(1000).max(60_000).optional(),
-      })
-      .prefault({}),
-    // The mind (owner request, 2026-10-24): each decision is thought through (what is going on, what surprised, the ways
-    // there, the choice), a longer reply than a bare choice, so models tried first for it and a timeout of its own.
-    mind: z
-      .object({
-        models: z.array(z.string().min(1)).default([]),
-        timeoutMs: z.number().int().min(1000).max(60_000).optional(),
-      })
-      .prefault({}),
-    // The architect (owner request, 2026-10-24): called only when a building is designed, with the strongest models
-    // tried first and time to think.
-    architect: z
-      .object({
-        models: z.array(z.string().min(1)).default([]),
-        timeoutMs: z.number().int().min(5000).max(300_000).default(90_000),
-      })
-      .prefault({}),
+    /**
+     * The model each kind of thought runs on, with its effort, reply length and time (owner request, 2026-10-25). A
+     * kind not named here runs on its tier's chain. Every model named must be on the subscription list at startup.
+     */
+    thoughts: z.partialRecord(ThoughtKindSchema, ThoughtConfigSchema).default({}),
     // The controller (owner request, 2026-10-24): a master model over all the agents that steps in only on something
     // odd (a talk going round in circles, standing stuck, the same failure over and over). Code finds those; the model
     // judges each and words the urge that ends it.
     controller: z
       .object({
         enabled: z.boolean().default(true),
-        models: z.array(z.string().min(1)).default([]),
-        timeoutMs: z.number().int().min(5000).max(300_000).default(45_000),
         /** How often the agents are looked over. */
         everySec: z.number().int().min(5).max(600).default(20),
         /** At most this many urges an hour, everyone together. */

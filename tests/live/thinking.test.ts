@@ -47,7 +47,6 @@ describe.skipIf(!liveJavaPath())('live: a thinking agent', () => {
   };
 
   const agentFor = (body: Body, name: string, llm: LlmRuntime | null) => {
-    const cfg = loadModelsConfig();
     return new Agent({
       body,
       persona: PersonaSchema.parse({ name, sex: 'female', traits: ['practical', 'curious'], social: { initiateChance: 0 }, abilities: { intelligence: 0.7 } }),
@@ -57,11 +56,6 @@ describe.skipIf(!liveJavaPath())('live: a thinking agent', () => {
       world: WorldConfigSchema.parse({}),
       goalGen: false,
       socialGoals: false,
-      speechTier: cfg.speech.tier,
-      speechModels: cfg.speech.models,
-      ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
-      mindModels: cfg.mind.models,
-      ...(cfg.mind.timeoutMs ? { mindTimeoutMs: cfg.mind.timeoutMs } : {}),
     });
   };
 

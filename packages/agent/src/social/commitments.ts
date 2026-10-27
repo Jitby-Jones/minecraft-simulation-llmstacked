@@ -225,6 +225,7 @@ export class CommitmentTracker {
     const r = await this.o.llm.call<{ kept: boolean; why: string }>({
       tier: 'L1',
       module: 'social',
+      thought: 'check',
       agent: this.o.me,
       schema: JudgmentSchema,
       schemaName: 'judgment',

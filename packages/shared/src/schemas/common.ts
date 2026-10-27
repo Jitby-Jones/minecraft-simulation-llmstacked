@@ -46,6 +46,39 @@ export const LLM_MODULES = [
 export const LlmModuleSchema = z.enum(LLM_MODULES);
 export type LlmModule = z.infer<typeof LlmModuleSchema>;
 
+/**
+ * The kinds of thought, each on one model of its own (owner request, 2026-10-25: "I don't think models should vary").
+ * Fast thought (the mind, under fire, speech, reading others, quick checks) has no hidden thinking and a short reply;
+ * slow thought (plans, reflection, buildings, code, the overseer, new people) has time to think.
+ */
+export const THOUGHT_KINDS = ['mind', 'underFire', 'speech', 'social', 'check', 'plan', 'reflect', 'build', 'code', 'oversee', 'persona'] as const;
+export const ThoughtKindSchema = z.enum(THOUGHT_KINDS);
+export type ThoughtKind = z.infer<typeof ThoughtKindSchema>;
+
+/** A call's kind of thought when it names none, by its module (a quick check names itself). */
+export const MODULE_THOUGHT: Readonly<Record<LlmModule, ThoughtKind>> = {
+  talking: 'speech',
+  cc: 'mind',
+  impulse: 'speech',
+  social: 'social',
+  selfMonitor: 'check',
+  socialGoal: 'social',
+  goal: 'plan',
+  memory: 'check',
+  reflection: 'reflect',
+  learning: 'reflect',
+  skillWriter: 'code',
+  architect: 'build',
+  controller: 'oversee',
+  bench: 'check',
+  persona: 'persona',
+};
+
+/** NanoGPT's reasoning_effort levels; `none` turns hidden thinking off on the models that allow it. */
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const ReasoningEffortSchema = z.enum(REASONING_EFFORTS);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+
 /** Rate-limit priority (higher = served first). Talking > CC > Social > Self-Monitor > Goal > Reflection. */
 export const MODULE_PRIORITY: Readonly<Record<LlmModule, number>> = {
   talking: 100,

@@ -264,7 +264,6 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
       await server.cmd('time set 1000');
       // A few oaks just east of them: wood to be had.
       for (const dz of [-6, 0, 6]) await server.cmd(`place feature minecraft:oak ${x + 12} ${Y} ${dz}`);
-      const cfg = loadModelsConfig();
       const pool = loadPersonaPool();
       const names = ['Mira', 'Pip', 'Wren'] as const;
       const bodies: Body[] = [];
@@ -289,9 +288,6 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
             world: WorldConfigSchema.parse({}),
             goalGen: false,
             socialGoals: false,
-            speechTier: cfg.speech.tier,
-            speechModels: cfg.speech.models,
-            ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
           });
           agent.bus.on('spoke', (e) => void lines.push({ who: name, at: Date.now(), text: e.text }));
           agent.bus.on('agreed', (e) => void agreed.push({ who: name, at: Date.now(), what: e.what, ...(e.mine ? { mine: e.mine } : {}) }));
@@ -339,7 +335,6 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
       const x = 2200;
       const Y = -60;
       await server.cmd(`forceload add ${x - 16} -16 ${x + 16} 16`);
-      const cfg = loadModelsConfig();
       const adaBody = await Body.connect({ host: server.host, port: server.port, username: 'Ada', version: versions.minecraft.version, logger });
       const bo = await Body.connect({ host: server.host, port: server.port, username: 'Bo', version: versions.minecraft.version, logger });
       await server.cmd(`tp Ada ${x} ${Y} 0`);
@@ -354,9 +349,6 @@ describe.skipIf(!enabled)('Live with a key: what only a model does', () => {
         world: WorldConfigSchema.parse({}),
         goalGen: false,
         socialGoals: false,
-        speechTier: cfg.speech.tier,
-        speechModels: cfg.speech.models,
-        ...(cfg.speech.timeoutMs ? { speechTimeoutMs: cfg.speech.timeoutMs } : {}),
       });
       const said: string[] = [];
       const ends: string[] = [];

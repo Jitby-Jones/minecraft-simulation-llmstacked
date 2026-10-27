@@ -17,7 +17,7 @@ function rig(o: { llm?: LlmClient | null; maxPerHour?: number; leaveBe?: (n: str
   const c = new Controller({
     llm: o.llm ?? null,
     logger: nullLogger(),
-    config: { enabled: true, models: [], timeoutMs: 5000, everySec: 20, maxPerHour: o.maxPerHour ?? 20 },
+    config: { enabled: true, everySec: 20, maxPerHour: o.maxPerHour ?? 20 },
     send: (who, urge) => {
       sent.push({ who, urge });
       return true;

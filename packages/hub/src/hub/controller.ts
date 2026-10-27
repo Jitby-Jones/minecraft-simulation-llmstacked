@@ -76,6 +76,8 @@ export interface Track {
 }
 
 const MIN = 60_000;
+/** A whole consideration, tries and all. */
+const CONSIDER_MS = 3 * MIN;
 const KEEP = { lines: 40, skills: 40, states: 160, decisions: 40, convs: 20 } as const;
 /** Skills that do nothing much, or wait by nature: they say nothing about being stuck or busy. */
 const TRIVIAL = new Set(['wait', 'look', 'lookAround', 'say', 'wander']);
@@ -282,8 +284,6 @@ export function describeOddity(o: Oddity, all: ReadonlyMap<string, Track>, now: 
 
 export interface ControllerConfig {
   enabled: boolean;
-  models: readonly string[];
-  timeoutMs: number;
   everySec: number;
   maxPerHour: number;
 }
@@ -464,7 +464,6 @@ export class Controller {
   }
 
   private async consider(o: Oddity): Promise<ControllerStep | null> {
-    const cfg = this.o.config;
     let reply: Reply;
     let by: ControllerStep['by'] = 'code';
     if (this.o.llm) {
@@ -474,10 +473,10 @@ export class Controller {
         agent: 'hub',
         schema: ReplySchema,
         schemaName: 'controller',
-        prefer: cfg.models,
-        timeoutMs: cfg.timeoutMs,
+        // The overseer's own model (models.yaml `thoughts.oversee`); a whole consideration, tries and all, is cut off
+        // after three minutes.
         fallback: () => this.codeReply(o),
-        signal: AbortSignal.any([this.halt.signal, AbortSignal.timeout(cfg.timeoutMs * 3)]),
+        signal: AbortSignal.any([this.halt.signal, AbortSignal.timeout(CONSIDER_MS)]),
         isStale: () => !this.stillOdd(o),
         messages: [
           { role: 'system', content: RULES },
