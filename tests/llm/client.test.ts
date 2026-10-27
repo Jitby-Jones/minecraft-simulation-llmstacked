@@ -283,6 +283,18 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(tokens).toBe(3);
   });
 
+  it('says how much of a call went on waiting for a rate token, apart from the thought itself', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    const slow = { acquire: () => new Promise<void>((r) => setTimeout(r, 300)), rate: 10_000 };
+    const rt = await startLlm({ apiKey: 'test-key', config: ModelsConfigSchema.parse(fastTiers), logger: nullLogger(), fetch: fake.fetch, background: false, limiter: slow });
+    fake.chat = () => ({ text: GOOD, delayMs: 100 });
+    const r = await ask(rt);
+    expect(r.ok).toBe(true);
+    expect(r.waitMs).toBeGreaterThanOrEqual(280);
+    expect(r.ms - r.waitMs).toBeGreaterThanOrEqual(90);
+    expect(r.ms - r.waitMs).toBeLessThan(280);
+  });
+
   it('refreshes the allowlist on "model not found" and hot-swaps when a model disappears', async () => {
     const fake = new FakeNanoGpt(standardModels());
     const rt = await runtime(fake);

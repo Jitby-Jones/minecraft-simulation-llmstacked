@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type BuildProject, createLogger, loadEnv, loadModelsConfig, loadVersionsConfig, sleep } from '@agora/shared';
+import { type BuildProject, createLogger, loadEnv, loadModelsConfigForRuns, loadVersionsConfig, sleep } from '@agora/shared';
 import { startLlm } from '@agora/llm';
 import { Body } from '@agora/agent/body/body';
 import { Vec3 } from '@agora/agent/body/bot';
@@ -184,7 +184,7 @@ describe.skipIf(!liveJavaPath())('Buildings live', () => {
 
   it.skipIf(!realModels)("builds the architect's own design, drawn by the real model with the repertoire as its framework", async () => {
     const o = await zone();
-    const cfg = loadModelsConfig();
+    const cfg = loadModelsConfigForRuns();
     const logger = createLogger({ name: 'build-live-architect', console: false, level: 'debug', logDir: path.join(server.dir, '..', 'logs') });
     const rt = await startLlm({ apiKey: key ?? '', config: cfg, logger, background: false, pollUsage: false });
     try {

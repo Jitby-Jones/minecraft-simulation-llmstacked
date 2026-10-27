@@ -75,6 +75,16 @@ export interface AllConfig {
 export function loadModelsConfig(dir = configDir()): ModelsConfig {
   return loadYaml(ModelsConfigSchema, path.join(dir, 'models.yaml'), true);
 }
+
+/**
+ * The model config for a benchmark or a live test run: as configured, except that `AGORA_ALLOW_PAID_KEY=1` lets a key
+ * that can spend balance be used for the run (the owner's call, 2026-10-27, while the key's "Subscription only"
+ * setting did not show; inference stays on the subscription endpoint all the same). The Hub never reads it.
+ */
+export function loadModelsConfigForRuns(dir = configDir(), env: NodeJS.ProcessEnv = process.env): ModelsConfig {
+  const c = loadModelsConfig(dir);
+  return env.AGORA_ALLOW_PAID_KEY === '1' ? { ...c, llm: { ...c.llm, allowPaidKey: true } } : c;
+}
 export function loadWorldConfig(dir = configDir()): WorldConfig {
   return loadYaml(WorldConfigSchema, path.join(dir, 'world.yaml'), true);
 }

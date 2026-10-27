@@ -6,7 +6,7 @@
 
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type Logger, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, loadModelsConfig, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
+import { type Logger, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, loadModelsConfigForRuns, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
 import { type LlmRuntime, loadBenchFile, startLlm } from '@agora/llm';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
@@ -19,7 +19,7 @@ const versions = loadVersionsConfig();
 const Y = DEEP_GROUND_Y;
 
 function real(logger: Logger): Promise<LlmRuntime> {
-  return startLlm({ apiKey: key ?? '', config: loadModelsConfig(), logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), background: false, pollUsage: false });
+  return startLlm({ apiKey: key ?? '', config: loadModelsConfigForRuns(), logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), background: false, pollUsage: false });
 }
 
 describe.skipIf(!liveJavaPath() || !withModel)('live: a mind under fire', () => {

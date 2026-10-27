@@ -13,6 +13,7 @@ import {
   dataPaths,
   getTrait,
   loadAllConfig,
+  loadModelsConfigForRuns,
   loadPersonaPool,
   maxTurnsFor,
   parseBotToHub,
@@ -23,6 +24,13 @@ import {
 } from '@agora/shared';
 
 describe('config files', () => {
+  it('a run may use a key that can spend balance only when told to (the owner, 2026-10-27); the Hub never', () => {
+    expect(loadModelsConfigForRuns(undefined, {}).llm.allowPaidKey).toBe(false);
+    expect(loadModelsConfigForRuns(undefined, { AGORA_ALLOW_PAID_KEY: '1' }).llm.allowPaidKey).toBe(true);
+    expect(loadModelsConfigForRuns(undefined, { AGORA_ALLOW_PAID_KEY: 'yes' }).llm.allowPaidKey).toBe(false);
+    expect(loadModelsConfigForRuns(undefined, { AGORA_ALLOW_PAID_KEY: '1' }).llm.baseUrl).toBe('subscription');
+  });
+
   it('every config/*.yaml parses with the design defaults', () => {
     const cfg = loadAllConfig();
     expect(cfg.models.tiers.L1.timeoutMs).toBe(7000);

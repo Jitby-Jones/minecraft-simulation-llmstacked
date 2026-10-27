@@ -27,8 +27,8 @@ export interface LlmUsage {
 export type FallbackReason = 'code-only' | 'refused' | 'disabled' | 'stale' | 'aborted' | 'failed';
 
 export type LlmResult<T> =
-  | { ok: true; source: 'llm'; value: T; text: string; model: string; tier: TierName; usage: LlmUsage; ms: number; attempts: number; truncated?: boolean }
-  | { ok: false; source: 'fallback'; value: T; reason: FallbackReason; error?: string; ms: number; attempts: number };
+  | { ok: true; source: 'llm'; value: T; text: string; model: string; tier: TierName; usage: LlmUsage; ms: number; waitMs: number; attempts: number; truncated?: boolean }
+  | { ok: false; source: 'fallback'; value: T; reason: FallbackReason; error?: string; ms: number; waitMs: number; attempts: number };
 
 export interface LlmCallOptions<T> {
   tier: TierName;
@@ -375,6 +375,8 @@ export class LlmClient {
   async call<T>(o: LlmCallOptions<T>): Promise<LlmResult<T>> {
     const t0 = this.now();
     let attempts = 0;
+    // Of `ms`, the time spent waiting for a rate token: the thought's own time is the rest.
+    let waited = 0;
     const fallback = (reason: FallbackReason, error?: string): LlmResult<T> => ({
       ok: false,
       source: 'fallback',
@@ -382,6 +384,7 @@ export class LlmClient {
       reason,
       error,
       ms: this.now() - t0,
+      waitMs: waited,
       attempts,
     });
     if (o.signal?.aborted) return fallback('aborted');
@@ -435,8 +438,10 @@ export class LlmClient {
       }
       // Each try is a request against the key's limit (60 a minute, NanoGPT counts every one, a timed-out one and a
       // fallback model's alike): a rate token each, not one for the whole call.
+      const w0 = this.now();
       try {
         await this.deps.limiter.acquire(MODULE_PRIORITY[o.module], o.signal, o.module);
+        waited += this.now() - w0;
       } catch {
         return fallback('aborted');
       }
@@ -450,7 +455,7 @@ export class LlmClient {
         this.record(o, tier, model, r.usage, this.now() - started, true, { thought: kind, ...(r.truncated ? { truncated: true } : {}) });
         this.circuit.success(model);
         if (o.signal?.aborted || o.isStale?.()) return fallback(o.isStale?.() ? 'stale' : 'aborted', 'state moved on');
-        return { ok: true, source: 'llm', value: r.value, text: r.text, model, tier, usage: r.usage, ms: this.now() - t0, attempts, ...(r.truncated ? { truncated: true } : {}) };
+        return { ok: true, source: 'llm', value: r.value, text: r.text, model, tier, usage: r.usage, ms: this.now() - t0, waitMs: waited, attempts, ...(r.truncated ? { truncated: true } : {}) };
       } catch (err) {
         if (err instanceof ForbiddenEndpointError || err instanceof ForbiddenOptionError || err instanceof ModelNotInSubscription) throw err;
         const usage = err instanceof AttemptError ? err.usage : { inputTokens: 0, outputTokens: 0 };

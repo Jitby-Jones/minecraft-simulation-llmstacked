@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { type Logger, MODULE_THOUGHT, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, loadModelsConfig, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
+import { type Logger, MODULE_THOUGHT, PersonaSchema, WorldConfigSchema, createLogger, loadEnv, loadModelsConfigForRuns, loadVersionsConfig, repoRoot, sleep } from '@agora/shared';
 import { type CostRecord, type LlmRuntime, describeQuota, loadBenchFile, startLlm } from '@agora/llm';
 import { Agent } from '@agora/agent';
 import { Body } from '@agora/agent/body/body';
@@ -25,7 +25,9 @@ import { CROPS, IRON_ARMOR, IRON_TOOLS, blockPositions, cowFarm, doorPositions, 
 loadEnv();
 const key = process.env.NANOGPT_API_KEY?.trim();
 const withModel = Boolean(key) && process.env.AGORA_LIVE_LLM === '1';
-const variant = process.env.AGORA_LONGRUN === 'solo' || process.env.AGORA_LONGRUN === 'duo' ? process.env.AGORA_LONGRUN : null;
+const variant = process.env.AGORA_LONGRUN === 'solo' || process.env.AGORA_LONGRUN === 'duo' || process.env.AGORA_LONGRUN === 'novel' ? process.env.AGORA_LONGRUN : null;
+/** One agent alone: the solo test, or tasks no code was written for. */
+const alone = variant === 'solo' || variant === 'novel';
 const seed = process.env.AGORA_LONGRUN_SEED ?? 'agora-longrun-1';
 const minutes = Number(process.env.AGORA_LONGRUN_MIN ?? 240);
 const difficulty = process.env.AGORA_LONGRUN_DIFFICULTY ?? 'easy';
@@ -33,6 +35,10 @@ const versions = loadVersionsConfig();
 
 const SOLO_TASKS = ['Obtain 12 diamonds.', 'Go to the Nether.', 'Make a full set of iron armor.', 'Make a cow farm.', 'Make a house.', 'Make an enchanting table.', 'Secure a renewable source of food.'];
 const DUO_TASKS = ['Make a house.', 'Form a romantic relationship.', 'Secure a renewable source of food.', 'Make 2 sets of iron armor and iron tools (one for each of you).'];
+// Tasks no code was written for (owner request, 2026-10-27: "when you test it in certain scenarios it can complete
+// tasks you haven't planned for"): what a player would make or do, reached only through the general hands and what the
+// mind knows of the game.
+const NOVEL_TASKS = ['Catch a fish.', 'Make a bow and 8 arrows.', 'Dye some wool blue.', 'Bake a cake.', 'Make a compass.', 'Make a bed and sleep in it.', 'Make a shield.'];
 
 const pct = (xs: number[], q: number) => {
   const a = [...xs].sort((x, y) => x - y);
@@ -90,7 +96,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
     `${variant ?? ''}: seed ${seed}, ${difficulty}, up to ${minutes} min`,
     async () => {
       // Ports by variant, so the two can run side by side (AGORA_LONGRUN_PORT for more at once).
-      const port = Number(process.env.AGORA_LONGRUN_PORT ?? (variant === 'duo' ? 25652 : 25650));
+      const port = Number(process.env.AGORA_LONGRUN_PORT ?? (variant === 'duo' ? 25652 : variant === 'novel' ? 25654 : 25650));
       server = await startLiveServer({ name, port, rconPort: port + 1, flat: false, monsters: true, props: { 'level-seed': seed, 'spawn-protection': '0', 'view-distance': '10', 'simulation-distance': '10' } });
       const srv = server;
       await srv.cmd(`difficulty ${difficulty}`);
@@ -101,7 +107,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
       const requests: CostRecord[] = [];
       const rt: LlmRuntime = await startLlm({
         apiKey: key ?? '',
-        config: loadModelsConfig(),
+        config: loadModelsConfigForRuns(),
         logger,
         bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger),
         background: false,
@@ -129,7 +135,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         return r;
       }) as typeof rt.client.call;
       const people =
-        variant === 'solo'
+        alone
           ? [{ name: 'Ada', sex: 'female' as const, traits: ['practical', 'determined', 'curious'] }]
           : [
               { name: 'Ada', sex: 'female' as const, traits: ['warm', 'practical', 'curious'] },
@@ -152,7 +158,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         const body = bodies[i] as Body;
         const agent = new Agent({
           body,
-          persona: PersonaSchema.parse({ name: p.name, sex: p.sex, traits: p.traits, abilities: { intelligence: 0.75 }, ...(variant === 'solo' ? { social: { initiateChance: 0 } } : {}) }),
+          persona: PersonaSchema.parse({ name: p.name, sex: p.sex, traits: p.traits, abilities: { intelligence: 0.75 }, ...(alone ? { social: { initiateChance: 0 } } : {}) }),
           username: p.name,
           llm: rt.client,
           logger: logOf(p.name),
@@ -173,7 +179,7 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
         });
       }
       for (const a of agents) a.start();
-      const tasks = variant === 'solo' ? SOLO_TASKS : DUO_TASKS;
+      const tasks = variant === 'solo' ? SOLO_TASKS : variant === 'novel' ? NOVEL_TASKS : DUO_TASKS;
       for (const a of agents) for (const t of tasks) a.giveTask(t, 'the operator');
 
       const t0 = Date.now();
@@ -202,7 +208,14 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           sown.add(now.position.toString());
         });
       }
-      const goalsFor = variant === 'solo' ? ['diamonds', 'nether', 'ironArmor', 'cowFarm', 'house', 'enchantingTable', 'renewableFood'] : ['house', 'romance', 'renewableFood', 'ironSets'];
+      const goalsFor =
+        variant === 'solo'
+          ? ['diamonds', 'nether', 'ironArmor', 'cowFarm', 'house', 'enchantingTable', 'renewableFood']
+          : variant === 'novel'
+            ? ['fish', 'bow', 'blueWool', 'cake', 'compass', 'slept', 'shield']
+            : ['house', 'romance', 'renewableFood', 'ironSets'];
+      // A night slept through in a bed of one's own (the novel tasks).
+      for (const [i, b] of bodies.entries()) b.bot.on('sleep', () => mark('slept', `${people[i]?.name ?? '?'} slept in a bed`));
       const check = () => {
         for (const [i, b] of bodies.entries()) {
           const who = people[i]?.name ?? '?';
@@ -227,6 +240,19 @@ describe.skipIf(!liveJavaPath() || !withModel || !variant)('live: the long run',
           }).length;
           if (crops >= 6) mark('renewableFood', `${crops} crops sown by the agents, growing`);
           if (babies.size > 0) mark('renewableFood', `animals bred (${babies.size} young)`);
+        }
+        if (variant === 'novel') {
+          for (const [i, b] of bodies.entries()) {
+            const who = people[i]?.name ?? '?';
+            const has = owned(b.bot);
+            const fish = ['cod', 'salmon', 'tropical_fish', 'pufferfish', 'cooked_cod', 'cooked_salmon'].find((f) => (has.get(f) ?? 0) > 0);
+            if (fish) mark('fish', `${who} has a ${fish}`);
+            if ((has.get('bow') ?? 0) > 0 && (has.get('arrow') ?? 0) >= 8) mark('bow', `${who} has a bow and ${has.get('arrow') ?? 0} arrows`);
+            if ((has.get('blue_wool') ?? 0) > 0) mark('blueWool', `${who} has blue wool`);
+            if ((has.get('cake') ?? 0) > 0) mark('cake', `${who} has a cake`);
+            if ((has.get('compass') ?? 0) > 0) mark('compass', `${who} has a compass`);
+            if ((has.get('shield') ?? 0) > 0) mark('shield', `${who} has a shield`);
+          }
         }
         if (variant === 'duo') {
           const [a, b] = agents;

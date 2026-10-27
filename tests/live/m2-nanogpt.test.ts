@@ -2,7 +2,7 @@
 // AGORA_LIVE_LLM=1. It never sends anything but subscription-path requests to allowlisted models.
 
 import { describe, expect, it } from 'vitest';
-import { createLogger, loadEnv, loadModelsConfig } from '@agora/shared';
+import { createLogger, loadEnv, loadModelsConfigForRuns } from '@agora/shared';
 import { ModelNotInSubscription, TIERS, createGuardedFetch, startLlm } from '@agora/llm';
 
 loadEnv();
@@ -22,7 +22,7 @@ async function balance(): Promise<unknown> {
 
 describe.skipIf(!enabled)('M2 live: NanoGPT subscription lock', () => {
   it('runs 20 calls per tier without the balance changing', async () => {
-    const rt = await startLlm({ apiKey: key ?? '', config: loadModelsConfig(), logger: createLogger({ name: 'm2-live', console: false }), background: false });
+    const rt = await startLlm({ apiKey: key ?? '', config: loadModelsConfigForRuns(), logger: createLogger({ name: 'm2-live', console: false }), background: false });
     try {
       const before = JSON.stringify(await balance());
       let ok = 0;
@@ -46,7 +46,7 @@ describe.skipIf(!enabled)('M2 live: NanoGPT subscription lock', () => {
   }, 900_000);
 
   it('blocks a paid-only model locally, before sending', async () => {
-    const rt = await startLlm({ apiKey: key ?? '', config: loadModelsConfig(), logger: createLogger({ name: 'm2-live', console: false }), background: false });
+    const rt = await startLlm({ apiKey: key ?? '', config: loadModelsConfigForRuns(), logger: createLogger({ name: 'm2-live', console: false }), background: false });
     try {
       await expect(
         rt.client.call<string>({ tier: 'L1', module: 'bench', agent: 'live-test', model: 'openai/gpt-paid-only-model', messages: [{ role: 'user', content: 'hi' }], fallback: () => '' }),

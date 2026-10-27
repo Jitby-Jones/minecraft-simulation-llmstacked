@@ -25,7 +25,7 @@ import {
   getTrait,
   inheritPersona,
   loadEnv,
-  loadModelsConfig,
+  loadModelsConfigForRuns,
   loadPersonaPool,
   loadVersionsConfig,
   repoRoot,
@@ -66,7 +66,7 @@ interface Seen {
 
 /** The real runtime, as the agents start it: the subscription lock, the measured tier order. */
 function real(logger: Logger): Promise<LlmRuntime> {
-  return startLlm({ apiKey: key ?? '', config: loadModelsConfig(), logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), background: false, pollUsage: false });
+  return startLlm({ apiKey: key ?? '', config: loadModelsConfigForRuns(), logger, bench: loadBenchFile(path.join(repoRoot(), 'config', 'model-bench.json'), logger), background: false, pollUsage: false });
 }
 
 /** Each call through `rt` is recorded in `seen` as it comes back. */

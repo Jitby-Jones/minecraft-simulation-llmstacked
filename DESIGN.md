@@ -3121,6 +3121,29 @@ down off the pillar ringed with stalagmites stalled a step short of its goal, an
 long runs wait on the new key being set to "Subscription only": the key check refuses it while NanoGPT reports that it
 can spend balance.
 
+**The models, chosen by measurement (2026-10-27).** The key still reported that it could spend balance; the owner
+said to go on regardless, so benchmarks and live runs take `AGORA_ALLOW_PAID_KEY=1` (`loadModelsConfigForRuns`, read
+by the harnesses only; the Hub never reads it, and inference stays on the subscription endpoint). `pnpm
+bench-thoughts` then picked a model for each kind of thought, the times the model's own (a call's result now says how
+long it waited for a rate token; the first numbers had counted the queue behind the other tries):
+
+| Kind | Chosen | Valid | Score | Median, p90 | Runner-up |
+|---|---|---|---|---|---|
+| The mind (26 cases, 12 s) | deepseek-v4-pro, effort none | 26/26 | 0.79 (2 plainly wrong) | under 6.3 s, 9.5 s | deepseek-v4-flash 23/26, 0.60 |
+| Under fire (12 twice, 8 s) | deepseek-v4-pro, effort none | 21/24 | 0.81 (none wrong) | 4.9 s, 6.5 s | mimo-v2.6-flash 24/24, 0.73 but four deadly picks |
+| Quick checks (32, 4 s) | mimo-v2.6-flash, effort none | 62/64 | 0.91-0.97 | 2.0 s, 2.5 s | qwen3.8-flash 64/64, 0.94-0.97, p90 3.2 s |
+
+What else the benchmark showed:
+- NanoGPT refuses effort none for glm-5.3 ("always thinks"): at low it judged well (no plainly wrong pick among 16)
+  but missed the mind's 12 s on 10 of 26. It keeps the slow kinds (plans, lessons, buildings, skills, the overseer),
+  where its thinking has time.
+- longcat-2.0 refuses the JSON reply format; qwen3.5-397b and glm-5.1 were too slow.
+- No model answers under fire within 4 s at the 90th percentile with the mind's prompt; at 5 s most timed out. The
+  limit is 8 s, the reflexes holding the body meanwhile.
+- One case no model got right says more about the senses than the models: up on a three-high planks pillar at
+  4 health, a zombie below, every model left the pillar for a hut 53 m off. Its packet, from before the ways out,
+  never said the agent stood up out of reach.
+
 **Where it stands.** No run has yet met every condition of either test. The duo met two of its four, a house and a
 renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at 30); the house alone by 5 minutes
 (`duo (21)`) and by 27 (`duo (7)`); and in `duo (12)` the two came to a crush on each other (interest 0.75 and

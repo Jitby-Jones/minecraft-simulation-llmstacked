@@ -8,10 +8,11 @@
 //   pnpm bench-thoughts --kind mind --setups z-ai/glm-5.3@none,z-ai/glm-5.3@low,deepseek/deepseek-v4-pro [--reps 2]
 //                       [--cases pillar,night] [--concurrency 4]
 //   pnpm bench-thoughts --kind check --setups deepseek/deepseek-v4-flash,xiaomi/mimo-v2.6-flash
+//   [--timeout-ms 7000]   the kind's time limit for this run, to see how long the slow replies take
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { DecisionOutputSchema, PersonaSchema, ReasoningEffortSchema, createLogger, loadEnv, loadModelsConfig, repoRoot, requireNanoGptKey } from '@agora/shared';
+import { DecisionOutputSchema, PersonaSchema, ReasoningEffortSchema, createLogger, loadEnv, loadModelsConfigForRuns, repoRoot, requireNanoGptKey } from '@agora/shared';
 import { startLlm } from '@agora/llm';
 import { mindSystemPrompt } from '@agora/agent/modules/prompts';
 import { getSkill, skillCatalog } from '@agora/agent/body/skills/registry';
@@ -28,6 +29,7 @@ interface Args {
   reps: number;
   cases: string[];
   concurrency: number;
+  timeoutMs?: number;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -41,6 +43,7 @@ function parseArgs(argv: readonly string[]): Args {
     else if (v === '--reps') a.reps = Math.max(1, Math.min(5, Number(next()) || 1));
     else if (v === '--cases') a.cases = next().split(',').filter(Boolean);
     else if (v === '--concurrency') a.concurrency = Math.max(1, Math.min(12, Number(next()) || 4));
+    else if (v === '--timeout-ms') a.timeoutMs = Math.max(1000, Math.min(120_000, Number(next()) || 0)) || undefined;
   }
   return a;
 }
@@ -86,7 +89,9 @@ async function pool<T>(jobs: readonly (() => Promise<T>)[], n: number): Promise<
 async function main(): Promise<void> {
   loadEnv();
   const args = parseArgs(process.argv.slice(2));
-  const config = loadModelsConfig();
+  const loaded = loadModelsConfigForRuns();
+  const limit = args.timeoutMs;
+  const config = limit ? { ...loaded, thoughts: Object.fromEntries(Object.entries(loaded.thoughts).map(([k, t]) => [k, args.kinds.includes(k as Kind) && t ? { ...t, timeoutMs: limit } : t])) } : loaded;
   const logger = createLogger({ name: 'bench-thoughts', console: false, logDir: path.join(repoRoot(), 'data', 'bench', 'logs') });
   const rt = await startLlm({ apiKey: requireNanoGptKey(), config, logger, background: false, pollUsage: false });
   const results: BenchResult[] = [];
@@ -124,7 +129,8 @@ async function main(): Promise<void> {
               ok: r.ok,
               ...(r.ok ? {} : { reason: `${r.reason}${r.error ? `: ${r.error.slice(0, 160)}` : ''}` }),
               truncated: Boolean(r.ok && r.truncated),
-              ms: r.ms,
+              // The thought's own time, not the wait for a rate token behind the other tries.
+              ms: r.ms - r.waitMs,
               verdict: r.ok ? checkVerdict(c, r.value) : 'invalid',
               ...(r.ok ? { act: JSON.stringify(r.value).slice(0, 160) } : {}),
             };
@@ -165,7 +171,8 @@ async function main(): Promise<void> {
               ok: r.ok,
               ...(r.ok ? {} : { reason: `${r.reason}${r.error ? `: ${r.error.slice(0, 160)}` : ''}` }),
               truncated: Boolean(r.ok && r.truncated),
-              ms: r.ms,
+              // The thought's own time, not the wait for a rate token behind the other tries.
+              ms: r.ms - r.waitMs,
               verdict: r.ok ? verdict(c, d) : 'invalid',
               ...(a ? { act: `${a.act}${a.args.length > 0 ? ` ${a.args.join(' ')}` : ''}` } : {}),
               ...(d && typeof (d as { thought?: unknown }).thought === 'string' ? { thought: String((d as { thought: string }).thought).slice(0, 400) } : {}),
