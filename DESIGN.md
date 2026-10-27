@@ -57,7 +57,7 @@
 | **M10** the L3 skill writer (sandboxed, self-verified, reused) and reflection's trait annotations | **done** | `pnpm run check` (the sandbox's limits and that nothing of the host is inside; a draft's checks in code; the library in SQLite, offered by relevance; the writer against the mocked NanoGPT: written, tried at once, kept, written again told what went wrong, given up, refused drafts, a trial cut short, the hourly cap and the four gates; private hosts; the CC wanting and offering written skills; formative experiences, the note's form, with and without a model, the five latest) + `pnpm test:live` exit test `m10-skills` on Paper 26.1.2, 1/1: Ada's CC (a scripted model, the full LLM path) reaches for `stock_up_logs`, which she doesn't have; L3 writes it once from her verified skills, it is tried in the world at once (3 logs in 17 s, its check `inventoryHas:oak_log>={qty}` holds) and kept in her memory database; her CC, now offered it, reaches for it again for 6 logs, and it runs as a skill she has without being written again With the key (`real-models`): glm-5.1 wrote `stock_up_logs` at the first try (a `gather` of `qty` oak logs, checked by `inventoryHas:oak_log>={qty}`). Tried at once in the world, it held (3 logs) and was kept. It ran again for 6 without being written again. Its trait annotation found a bug. The model named the experience in its own words ("robbed by Zed"), not by its key, and the note was dropped; such words now count. It had also copied the prompt's example, which was code's own words, so the prompt now gives the form only. Its notes now: "has grown more cautious since losing that fight to Vex". |
 | **Owner requests** (2026-10-23): debug controls (agents, memories, models, modules, the CC); agents that plan for themselves and talk their plans over; wandering and looking around instead of standing still, in company; hiding only when badly scared, alone and far from anyone; whole lines at L2; test mode off, with a switch; seeing what changes around them (a broken shelter) and reacting; each new person written by a master model, a child while it is carried | **done** | `pnpm run check` (576 tests) + the live regression on Paper 26.1.2 (§24 "Owner requests", item 14) + five observation runs with the key (`obs1`–`obs5`, the last two hardcore nights) + `real-models` with the key: the bias audit, a trait annotation, a skill written by L3, a broken shelter seen to and the master model's newcomers and a child, all by glm-5.1 |
 | **Owner requests** (2026-10-24): a server console with Stop and Restart; a death ends everything at once; talk like players, with a stronger model, turns, and an end once agreed; own tools, real chests, armed fights; buildings (a building language, a repertoire from photographs and the game's own files, a builder, an architect for their own designs, moving to flatter land); anvils and enchanting; expeditions to the Nether and the End; a hidden controller for what has gone wrong | **done** | `pnpm run check` + the live tests of each (§24 "Owner requests: a console, deaths, talk, building and more", item 19), the architect's own design drawn by glm-5.3 and built in the world, and the controller's prompt benched on the real models |
-| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (751 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet. The quota governor removed (owner request, 2026-10-25); a model for each kind of thought, mended replies, call logs, a thought benchmark, ways out and a drop the body can take (2026-10-27). Next: the benchmarks and the long runs (`docs/plan-thinking-models.md`) |
+| **Owner requests** (2026-10-24): a thinking mind in place of directives (§4.8): complete senses, expectations and surprise, game knowledge, intentions, tasks, lessons, a player's habits; the console ops anyone; long runs, alone and as a pair | **in progress** | `pnpm run check` (751 unit tests); live `hands`, `melee`, `m1-water`, `m1-skills`, `m1-night`, `cornered`, `m4`, `build`, `thinking` (the flyer); the long runs (`longrun`, §24): the pair has met a house and renewable food, and come to a crush each way; nothing else yet. The quota governor removed (owner request, 2026-10-25); a model for each kind of thought, mended replies, call logs, a thought benchmark, ways out and a drop the body can take (2026-10-27); tasks kept until done, a second look before one is ticked off, a far look, `dig`, a panic that runs from something and on foot, a pocket dug wherever the ceiling is (2026-10-27). The long runs wait for the subscription's weekly allowance to reset (2026-11-02) |
 
 Deviations and implementation findings are logged in **§24** at the end of this file.
 
@@ -3517,17 +3517,26 @@ renewable food source, in `duo (18)` (six crops sown at 13 minutes, the house at
 (some six days of the game); earlier, 8 diamonds by 19 minutes (`solo, seed 2 (4)`). The novel test (tasks nobody
 planned the agent for: a fish, a bow and arrows, blue wool, a cake, a compass, a bed slept in, a shield) has met the
 shield, by 9 minutes in `novel (4)` and by 31 in `novel (3)`, which lived 136 minutes; `novel (4)` met a house as
-well, at 118 minutes (a roofed room of 4 cells behind a door she placed), and lived 140. What ends the runs now is the
+well, at 118 minutes (a roofed room of 4 cells behind a door she placed), and lived 140; `novel (7)` met the fish, at
+20 minutes. Until this day's fixes, every run's agents closed or gave up most of their tasks within the first hour,
+none of them done, so these are what agents did with their tasks half forgotten. What ends the runs now is the
 fight, nearly always in a cave or the dark under trees, outnumbered, with stone tools. Of the last two dozen deaths
 read, eleven were to zombies and five to arrows; the rest were a spider, a creeper, a drowned, lava, a fall, a wall
 and a stalagmite. Each death and stall is answered as above, in the general mind, senses and hands; every death's
-post-mortem says how the last fight went. Verified (2026-10-27): 781 unit tests; live, `m1-skills` (27, among them
-into its own hut and its doorway shut, a shield on the arm through a fight, and a fenced skeleton's arrows all
-blocked), `cornered` (4: a hole, the open, a tunnel, and zombies spread across a room beyond a tunnel), `underfire`
-(both cases, twice running, the five zombies walled off), and `hands` (65; in the last full run 63, and the two that
-failed, a hut's door left open and the climb from 40 deep, passed twice each after the placement timer was fixed).
+post-mortem says how the last fight went. Verified (2026-10-27): 793 unit tests; live, `m1-skills` (30, among them
+into its own hut and its doorway shut, a shield on the arm through a fight, a fenced skeleton's arrows all blocked,
+a run from a shut room that digs nothing, and a hand-over in a shelter one wide), `cornered` (5: a hole, the open, a
+tunnel, zombies spread across a room beyond a tunnel, and skeletons across a cave room ten high; the hole's case lost
+once to a skeleton spawning by its pillar at midnight and passed on the next two runs), `underfire` (both cases,
+twice running, the five zombies walled off), `thinking`'s look at what is near and far, and `hands` (67 of 67, the
+`dig` case among them).
 The long runs go on (`AGORA_LIVE_LLM=1 AGORA_LONGRUN=solo|duo|novel pnpm test:live longrun`), and what they show is
-answered the same way: in the general mind and hands, never for the case.
+answered the same way: in the general mind and hands, never for the case. They stopped at 18:23 UTC on 2026-10-27,
+when the subscription's weekly allowance of input tokens ran out for every model (100.2% used; it resets
+2026-11-02 00:00 UTC). Inference stays on the subscription and never falls back to paid use, so the runs, and the
+live `second-look` case, wait for the reset. Next once they run again: in the duo, a question from the other replaced
+the work in hand with a talk each time (Ada's log-gathering was cut off four times in nine minutes), where a player
+answers while still chopping.
 
 ### Owner request: think as a player would, under fire too (2026-10-24)
 
