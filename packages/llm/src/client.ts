@@ -147,7 +147,11 @@ function estimateTokens(messages: readonly ChatMessage[]): number {
   return Math.ceil(messages.reduce((a, m) => a + m.content.length, 0) / 4);
 }
 
-/** Pulls a JSON value out of a reply (code fences and chatter around it are common with small models). */
+/**
+ * Pulls a JSON value out of a reply: code fences and chatter around it are common with small models, and what is wrong
+ * inside it is mended here when it can be (stray quotes, a missing or trailing comma, a reply cut off part way), so no
+ * model is asked again for what code can put right.
+ */
 export function extractJson(text: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   const body = (fenced?.[1] ?? text).trim();
@@ -155,20 +159,125 @@ export function extractJson(text: string): unknown {
     return JSON.parse(body);
   } catch {
     const start = body.search(/[[{]/);
+    if (start < 0) throw new Error('no JSON object in the reply');
     const end = Math.max(body.lastIndexOf('}'), body.lastIndexOf(']'));
-    if (start < 0 || end <= start) throw new Error('no JSON object in the reply');
-    const slice = body.slice(start, end + 1);
+    const slice = body.slice(start, Math.max(end, start) + 1);
+    let first: unknown;
     try {
       return JSON.parse(slice);
     } catch (err) {
-      // Quotes inside a string left bare, and line breaks: a model asked in plain wrote its thought with "so" in it.
+      first = err;
+    }
+    // Quotes inside a string left bare, and line breaks: a model asked in plain wrote its thought with "so" in it.
+    const tail = body.slice(start);
+    for (const attempt of [() => escapeStrays(slice), () => repairJson(tail), () => repairJson(escapeStrays(tail))]) {
       try {
-        return JSON.parse(escapeStrays(slice));
+        const mended = attempt();
+        if (mended !== null) return JSON.parse(mended);
       } catch {
-        throw err;
+        // the next way
       }
     }
+    throw first instanceof Error ? first : new Error(String(first));
   }
+}
+
+type Mended = 'ok' | 'cut' | 'end' | 'bad';
+
+/**
+ * The JSON with what models get wrong in its shape mended: a comma missing between two members or added after the last
+ * one, and a reply cut off part way (its length ran out). A cut reply is cut back to its last whole member and closed:
+ * the step or field being written when it stopped is dropped, never closed half written, so a cut-off `goTo` is not
+ * kept without its z. Null when it can't be mended.
+ */
+export function repairJson(json: string): string | null {
+  let i = 0;
+  let out = '';
+  const ws = () => {
+    while (i < json.length && /\s/.test(json[i] as string)) i++;
+  };
+  const str = (): Mended => {
+    let j = i + 1;
+    while (j < json.length && json[j] !== '"') j += json[j] === '\\' ? 2 : 1;
+    if (j >= json.length) return 'cut';
+    out += json.slice(i, j + 1);
+    i = j + 1;
+    return 'ok';
+  };
+  const literal = (): Mended => {
+    const m = /^(-?\d+(\.\d+)?([eE][+-]?\d+)?|true|false|null)/.exec(json.slice(i));
+    if (!m) return /^(-|\d|t|f|n)/.test(json.slice(i)) && /^[-\d.eE+tfnrulas]*$/.test(json.slice(i).trim()) ? 'cut' : 'bad';
+    // A number at the very end may have been cut short (120 cut to 12).
+    if (i + m[0].length >= json.length && /\d$/.test(m[0])) return 'cut';
+    out += m[0];
+    i += m[0].length;
+    return 'ok';
+  };
+  const value = (top: boolean): Mended => {
+    ws();
+    if (i >= json.length) return 'cut';
+    const c = json[i];
+    if (c === '{') return container('}', top);
+    if (c === '[') return container(']', top);
+    if (c === '"') return str();
+    return literal();
+  };
+  // A member's value cut off: an array drops the element it was in, and so does the top object; a nested object
+  // passes it up, so the whole member it belongs to goes.
+  const container = (close: '}' | ']', top: boolean): Mended => {
+    const isArray = close === ']';
+    out += json[i];
+    i++;
+    let members = 0;
+    for (;;) {
+      const before = out.length;
+      ws();
+      if (i >= json.length) {
+        out += close;
+        return 'end';
+      }
+      if (json[i] === close) {
+        out += close;
+        i++;
+        return 'ok';
+      }
+      if (json[i] === ',') {
+        i++;
+        continue; // a comma before a member is written with it; a trailing one is never written
+      }
+      if (members > 0) out += ',';
+      let r: Mended;
+      if (isArray) r = value(false);
+      else {
+        if (json[i] !== '"') return 'bad';
+        const k = str();
+        if (k !== 'ok') r = k;
+        else {
+          ws();
+          if (json[i] !== ':') r = i >= json.length ? 'cut' : 'bad';
+          else {
+            i++;
+            out += ':';
+            r = value(false);
+          }
+        }
+      }
+      if (r === 'bad') return 'bad';
+      if (r === 'cut') {
+        if (!isArray && !top) return 'cut';
+        out = out.slice(0, before) + close;
+        return 'end';
+      }
+      members++;
+      if (r === 'end') {
+        out += close;
+        return 'end';
+      }
+    }
+  };
+  ws();
+  const r = value(true);
+  return r === 'ok' || r === 'end' ? out : null;
 }
 
 /**
@@ -331,6 +440,8 @@ export class LlmClient {
       } catch {
         return fallback('aborted');
       }
+      // A thought gone stale while it waited for its turn is not sent at all.
+      if (o.isStale?.()) return fallback('stale', 'state moved on before it was sent');
       if (attempts > 0) o.onRetry?.();
       attempts++;
       const started = this.now();
@@ -453,12 +564,17 @@ export class LlmClient {
       first = { ...plain, usage: { inputTokens: first.usage.inputTokens + plain.usage.inputTokens, outputTokens: first.usage.outputTokens + plain.usage.outputTokens } };
     }
     const p1 = this.validate(first.text, schema, o.prepare);
-    if (p1.ok) return { value: p1.value, text: first.text, usage: first.usage };
-    // One repair retry with the validation error (§4.3).
+    if (p1.ok) return { value: p1.value, text: first.text, usage: first.usage, ...(first.truncated ? { truncated: true } : {}) };
+    // A reply that ran out of length would run out again: it is not asked for twice (its cap is what to change).
+    if (first.truncated) {
+      this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, maxTokens: spec.maxTokens, error: p1.error.slice(0, 300), reply: first.text.slice(0, 4000) }, 'reply cut off by its length');
+      throw new AttemptError(new LlmError('schema_invalid', `reply cut off at ${spec.maxTokens} tokens: ${p1.error}`, { model }), first.usage);
+    }
+    // One repair retry with the validation error (§4.3), small: the reply, what was wrong and the form it should take,
+    // not the whole prompt again, so it comes back quickly.
     const repair: ChatMessage[] = [
-      ...messages,
-      { role: 'assistant', content: first.text.slice(0, 4000) },
-      { role: 'user', content: `That reply was not valid (${p1.error}). Reply again with only the corrected JSON object.` },
+      { role: 'system', content: `You correct replies that came back in the wrong form. Keep what the reply says and decides; change only what makes it invalid. ${replyFormatLine(name, JSON.stringify(jsonSchemaOf(schema)))}` },
+      { role: 'user', content: `This reply was not valid (${p1.error}):\n\n${first.text.slice(0, 6000)}` },
     ];
     let second: Reply;
     try {
@@ -472,7 +588,7 @@ export class LlmClient {
     const p2 = this.validate(second.text, schema, o.prepare);
     if (p2.ok) return { value: p2.value, text: second.text, usage };
     // The first reply and what was wrong with it as well: a model that answers a repair with "{}" hides why it failed.
-    this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, first: first.text.slice(0, 600), firstError: p1.error.slice(0, 300), reply: second.text.slice(0, 600) }, 'reply still invalid after repair');
+    this.deps.logger.info({ module: 'llm', caller: o.module, agent: o.agent, model, first: first.text.slice(0, 4000), firstError: p1.error.slice(0, 300), reply: second.text.slice(0, 2000) }, 'reply still invalid after repair');
     throw new AttemptError(new LlmError('schema_invalid', `invalid reply after repair: ${p2.error}`, { model }), usage);
   }
 

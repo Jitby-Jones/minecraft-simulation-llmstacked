@@ -43,6 +43,8 @@ export interface FakeReply {
   chunks?: string[];
   /** A pause before each streamed piece after the first (a slow or stalled stream). */
   chunkDelayMs?: number;
+  /** Why the reply ended ('length': cut off by max_tokens); 'stop' by default. */
+  finishReason?: string;
 }
 
 export interface RecordedRequest {
@@ -145,7 +147,7 @@ export class FakeNanoGpt {
       object: 'chat.completion',
       created: 0,
       model,
-      choices: [{ index: 0, message: { role: 'assistant', content: reply.text ?? '' }, finish_reason: 'stop' }],
+      choices: [{ index: 0, message: { role: 'assistant', content: reply.text ?? '' }, finish_reason: reply.finishReason ?? 'stop' }],
       usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
     });
   };

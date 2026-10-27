@@ -41,6 +41,14 @@ async function runtime(fake: FakeNanoGpt, cfg: Record<string, unknown> = fastTie
   });
 }
 
+async function until(cond: () => boolean, ms = 2000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error('timed out waiting');
+    await new Promise((res) => setTimeout(res, 2));
+  }
+}
+
 function ask(rt: LlmRuntime, extra: Partial<LlmCallOptions<Decision>> = {}) {
   const opts: LlmCallOptions<Decision> = {
     tier: 'L2',
@@ -152,11 +160,37 @@ describe('the client (§5, §22.2, §22.6)', () => {
     expect(r1.ok).toBe(true);
     const repairMsgs = fake.chatRequests()[1]?.body?.messages as { role: string; content: string }[];
     expect(repairMsgs.at(-1)?.content).toMatch(/not valid/);
+    // The repair is small: the reply and what was wrong with it, not the whole prompt again.
+    expect(repairMsgs).toHaveLength(2);
+    expect(repairMsgs.map((m) => m.content).join('\n')).not.toContain('You are Pip');
+    expect(repairMsgs.at(-1)?.content).toContain('{"option":"dance"}');
 
     fake.chat = () => ({ text: 'I think I will go dancing.' });
     const r2 = await ask(rt);
     expect(r2.ok).toBe(false);
     expect(r2.value).toEqual(DEFAULT);
+  });
+
+  it('does not send a reply cut off by its length back for repair: it would be cut again', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: '{"thought": "I will', finishReason: 'length' });
+    const rt = await runtime(fake);
+    const r = await ask(rt);
+    expect(r).toMatchObject({ ok: false, value: DEFAULT });
+    expect(fake.chatRequests()).toHaveLength(1);
+    // Cut off after its decision, a reply is mended and used.
+    fake.chat = () => ({ text: '{"option": "work", "rationale": "need logs", "then": [{"skill": "craft", "args": {"it', finishReason: 'length' });
+    const mended = await ask(rt);
+    expect(mended).toMatchObject({ ok: true, value: { option: 'work', rationale: 'need logs' }, truncated: true });
+  });
+
+  it('does not send a thought that went stale while it waited for its turn', async () => {
+    const fake = new FakeNanoGpt(standardModels());
+    fake.chat = () => ({ text: GOOD });
+    const rt = await runtime(fake);
+    const r = await ask(rt, { isStale: () => true });
+    expect(r).toMatchObject({ ok: false, reason: 'stale' });
+    expect(fake.chatRequests()).toHaveLength(0);
   });
 
   it('a JSON mode that answers "{}" is no answer: asked again in plain, and in plain from then on', async () => {
@@ -435,6 +469,8 @@ describe('abort-on-stale (§4.2, M2 exit)', () => {
     const store = new AgentStateStore(createInitialState({ persona, username: 'Pip' }));
     const g = store.guard({ ...CC_POLICY, maxChanges: 2 });
     const pending = ask(rt, { signal: g.signal, isStale: g.isStale });
+    // Once the request is out (the reply takes 80 ms), the world moves on.
+    await until(() => fake.chatRequests().length > 0);
     for (let i = 0; i < 3; i++) store.update('perception', (p) => ({ ...p, observedActions: [] }), `tick ${i}`);
     const r = await pending;
     expect(r).toMatchObject({ ok: false, reason: 'stale' });

@@ -18,6 +18,7 @@ import {
   parseModelList,
   parseRetryAfter,
   quotaView,
+  repairJson,
   resolveTiers,
 } from '@agora/llm';
 import { type Logger, MODULE_PRIORITY, nullLogger } from '@agora/shared';
@@ -188,6 +189,25 @@ describe('model list and tiers (§22.3)', () => {
     expect(extractJson(bare)).toEqual({ thought: 'Bram said "hi" so I waved, then "kept going", fine.', option: 'work', then: ['a'] });
     expect(extractJson('{"thought": "one\ntwo", "option": "rest"}')).toEqual({ thought: 'one\ntwo', option: 'rest' });
     expect(extractJson('{"a": "x \\"q\\" y", "b": [1, 2]}')).toEqual({ a: 'x "q" y', b: [1, 2] });
+  });
+
+  it('mends a reply cut off part way, back to its last whole member, and never keeps a step half written', () => {
+    // Cut inside the second step's args: the step goes, the first stays.
+    const cutStep = '{"thought": "logs first", "option": "work", "task": {"skill": "gather", "args": {"item": "oak_log", "qty": 4}}, "then": [{"skill": "craft", "args": {"item": "crafting_table"}}, {"skill": "goTo", "args": {"x": 12, "y":';
+    expect(extractJson(cutStep)).toEqual({ thought: 'logs first', option: 'work', task: { skill: 'gather', args: { item: 'oak_log', qty: 4 } }, then: [{ skill: 'craft', args: { item: 'crafting_table' } }] });
+    // Cut inside the task itself (no list above it): the whole task goes, not a task without its arguments.
+    expect(extractJson('{"thought": "go", "option": "work", "task": {"skill": "goTo", "args": {"x": 1, "y": 2, "z":')).toEqual({ thought: 'go', option: 'work' });
+    // Cut in a string, and in a number that may have lost digits.
+    expect(extractJson('{"option": "rest", "thought": "I was about to say')).toEqual({ option: 'rest' });
+    expect(extractJson('{"option": "work", "then": [{"wait": 12')).toEqual({ option: 'work', then: [] });
+    expect(repairJson('{"a": 1, "b": tru')).toBe('{"a":1}');
+  });
+
+  it('mends a missing comma and a trailing one, and leaves alone what it cannot read', () => {
+    expect(extractJson('{"option": "work" "rationale": "logs"}')).toEqual({ option: 'work', rationale: 'logs' });
+    expect(extractJson('{"then": [{"skill": "a"} {"skill": "b"},], "option": "work",}')).toEqual({ then: [{ skill: 'a' }, { skill: 'b' }], option: 'work' });
+    expect(repairJson('{"a": [1, 2], "b": {"c": null}}')).toBe('{"a":[1,2],"b":{"c":null}}');
+    expect(repairJson("{option: 'work'}")).toBeNull();
   });
 });
 
