@@ -86,6 +86,10 @@ const CALLED_OFF_MS = 30_000;
 const SUBMERGED_MS = 6000;
 /** Running that isn't working (still being hit, or nowhere to go) with the attacker close: stand and fight this long. */
 const STAND_MS = 12_000;
+/** A flight that gets no farther than this (blocks, across or up and down: a jump is less) from where it was for
+ *  FLEE_NOWHERE_MS is going nowhere. */
+const FLEE_PROGRESS = 1.5;
+const FLEE_NOWHERE_MS = 1500;
 /** Whole blocks one can have one's head in and still breathe: they let the light through. */
 const BREATHABLE = /glass|_leaves$|^ice$|^packed_ice$|^blue_ice$|^frosted_ice$|^slime_block$|^honey_block$|^barrier$|^beacon$|^mangrove_roots$/;
 /** Digs at most this many blocks out of the way of one's head before giving the body back. */
@@ -256,8 +260,10 @@ export class ReflexController {
   private fleeHits: number[] = [];
   /** When this flight began. */
   private fleeSince = 0;
-  /** Since when a flight has been going nowhere (the pathfinder not moving), or null. */
+  /** Since when a flight has been going nowhere (not moving, or moving without getting anywhere), or null. */
   private fleeStillSince: number | null = null;
+  /** Where the flight last got to, and when: no farther from there for a while is going nowhere. */
+  private fleeFrom: { pos: Vec3; at: number } | null = null;
   /** This flight's run for a hut of one's own got nowhere: it runs as any other now. */
   private noRoomRun = false;
   /** Until when we stand and fight because running isn't working. */
@@ -825,6 +831,7 @@ export class ReflexController {
     this.mode = 'idle';
     this.fleeHits = [];
     this.fleeStillSince = null;
+    this.fleeFrom = null;
     this.standUntil = 0;
     this.runUntil = 0;
     this.ledFrom = null;
@@ -851,6 +858,7 @@ export class ReflexController {
     this.currentSource = '';
     this.fleeHits = [];
     this.fleeStillSince = null;
+    this.fleeFrom = null;
     this.standUntil = 0;
     this.runUntil = 0;
   }
@@ -891,6 +899,7 @@ export class ReflexController {
     this.noRoomRun = false;
     this.fleeHits = [];
     this.fleeStillSince = null;
+    this.fleeFrom = null;
     this.fleeSince = Date.now();
     // Running away is a run: the skills walk (sprinting costs food). And a run, not a dig: stopping to mine a way
     // through stone with something at your back is no escape.
@@ -910,7 +919,12 @@ export class ReflexController {
     this.takeFlight(threats);
     // Re-plan as the chasers move; a fixed spot beats GoalInvert, which stalls on open ground.
     const now = Date.now();
-    const moving = this.bot.pathfinder.isMoving();
+    // Going nowhere is still, whatever the legs do: one fleeing a zombie through a forest jumped at a trunk for four
+    // seconds, the path "moving" all along, took two more blows and died.
+    const at = this.bot.entity.position;
+    const from = this.fleeFrom;
+    if (!from || Math.hypot(at.x - from.pos.x, at.z - from.pos.z) > FLEE_PROGRESS || Math.abs(at.y - from.pos.y) > FLEE_PROGRESS) this.fleeFrom = { pos: at.clone(), at: now };
+    const moving = this.bot.pathfinder.isMoving() && now - (this.fleeFrom?.at ?? now) < FLEE_NOWHERE_MS;
     this.fleeStillSince = moving ? null : (this.fleeStillSince ?? now);
     if (now - this.fleePlannedAt < 1500 && moving) return;
     this.fleePlannedAt = now;

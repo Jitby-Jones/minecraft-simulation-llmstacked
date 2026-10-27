@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SeededRandom, nullLogger } from '@agora/shared';
 import type { Bot } from '@agora/agent/body/bot';
 import { Vec3 } from '@agora/agent/body/bot';
@@ -845,6 +845,37 @@ describe('defending oneself from monsters (owner request, 2026-10-24)', () => {
     r.fleeHits = [];
     r.fleeStillSince = now - 2500;
     expect(r.cornered(now, [spider])).toBe(true);
+  });
+
+  it('a run that gets nowhere is going nowhere, the path "moving" or not (one jumped at a tree trunk four seconds with a zombie on her)', () => {
+    const r = rig('stone_sword') as unknown as { bot: Record<string, unknown> & { entity: { position: Vec3 } }; mode: string; fleeStillSince: number | null; flee(t: unknown[]): void };
+    const goals: unknown[] = [];
+    Object.assign(r.bot, { time: { timeOfDay: 6000 }, pathfinder: { isMoving: () => true, setGoal: (g: unknown) => goals.push(g) } });
+    r.mode = 'flee';
+    const z = { id: 3, type: 'hostile', name: 'zombie', position: new Vec3(2, 64, 0), height: 1.95 };
+    let t = 1_000_000;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    try {
+      r.flee([z]);
+      expect(r.fleeStillSince).toBeNull();
+      // Jumping in place: the legs going, the body no farther on.
+      t += 800;
+      r.bot.entity.position = new Vec3(0.3, 64.8, 0.2);
+      r.flee([z]);
+      expect(r.fleeStillSince).toBeNull();
+      t += 900;
+      r.flee([z]);
+      expect(r.fleeStillSince).toBe(t);
+      // Going nowhere, the way is planned again at once.
+      expect(goals.length).toBeGreaterThanOrEqual(2);
+      // Off again: going somewhere.
+      t += 500;
+      r.bot.entity.position = new Vec3(-3, 64, 0);
+      r.flee([z]);
+      expect(r.fleeStillSince).toBeNull();
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('runs back the way it came, away from what chases it, never towards it', () => {
