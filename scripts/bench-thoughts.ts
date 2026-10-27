@@ -59,6 +59,16 @@ const picked = <T extends { id: string }>(all: T[], only: readonly string[]) => 
 const loadCases = (kind: string, only: readonly string[]): BenchCase[] => picked(loadLines(kind).map((l) => BenchCaseSchema.parse(l)), only);
 const loadChecks = (only: readonly string[]): CheckCase[] => picked(loadLines('check').map((l) => CheckCaseSchema.parse(l)), only);
 
+/** A job that throws (a model not on the subscription, say) is a failed try, not the end of the run. */
+function safe(setup: string, caseId: string, rep: number, job: () => Promise<BenchResult>): () => Promise<BenchResult> {
+  return () =>
+    job().catch((err: unknown): BenchResult => {
+      const res: BenchResult = { setup, caseId, rep, ok: false, reason: err instanceof Error ? err.message : String(err), truncated: false, ms: 0, verdict: 'invalid' };
+      process.stdout.write(`  ${setup.padEnd(36)} ${caseId.padEnd(26)} FAIL ${res.reason ?? ''}\n`);
+      return res;
+    });
+}
+
 async function pool<T>(jobs: readonly (() => Promise<T>)[], n: number): Promise<T[]> {
   const out: T[] = [];
   let next = 0;
@@ -92,7 +102,7 @@ async function main(): Promise<void> {
         process.stdout.write(`  ${setup.padEnd(36)} ${res.caseId.padEnd(26)} ${res.ok ? `${res.verdict.padEnd(7)} ${String(res.ms).padStart(6)} ms  ${res.act ?? ''}` : `FAIL ${res.reason ?? ''}`}\n`);
       const checkJobs = setups.flatMap((setup) =>
         checks.flatMap((c) =>
-          Array.from({ length: args.reps }, (_, rep) => async (): Promise<BenchResult> => {
+          Array.from({ length: args.reps }, (_, rep) => safe(setup, c.id, rep, async (): Promise<BenchResult> => {
             const { model, effort } = parseSetup(setup);
             const q = checkRequest(c);
             const r = await rt.client.call<unknown>({
@@ -120,12 +130,12 @@ async function main(): Promise<void> {
             };
             show(setup, res);
             return res;
-          }),
+          })),
         ),
       );
       const mindJobs = setups.flatMap((setup) =>
         cases.flatMap((c) =>
-          Array.from({ length: args.reps }, (_, rep) => async (): Promise<BenchResult> => {
+          Array.from({ length: args.reps }, (_, rep) => safe(setup, c.id, rep, async (): Promise<BenchResult> => {
             const { model, effort } = parseSetup(setup);
             const persona = PersonaSchema.parse({ name: c.who, sex: c.sex, traits: c.traits, abilities: { intelligence: 0.75 } });
             const system = mindSystemPrompt(persona, { emergency: kind === 'underFire', skills: skillCatalog() });
@@ -162,7 +172,7 @@ async function main(): Promise<void> {
             };
             show(setup, res);
             return res;
-          }),
+          })),
         ),
       );
       results.push(...(await pool([...checkJobs, ...mindJobs], args.concurrency)));
