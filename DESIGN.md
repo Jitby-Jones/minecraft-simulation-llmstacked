@@ -3290,6 +3290,12 @@ What else the benchmark showed:
   the game gave it back. Now a drop is thrown, a little up, the way with the most open room at eye level, as a
   player throws what they don't want. It says where the stack lies ("40 granite, 3 m south of you") and what the
   game does with it: walked over, it is picked up again; left there, it is gone in 5 minutes.
+- **A wall from a ledge gets a footing first.** `solo, seed 4 (1)` died at 59 minutes on a perch 4 m up in a cave,
+  shot by two skeletons, after fighting an enderman down to 8 health. Twice it asked for four cobblestone toward north
+  to wall them off. Each time it was told "nothing solid to place against": the cell beside a perch has nothing
+  under it or beside it. A player first sets a block against the side of the one under their feet, then builds on
+  that. Now placing toward a way does the same when there is nothing to set a block against. A count of blocks that
+  way is a wall, at the feet and head cells, where before one block or none went in.
 - **The self-summary has time to finish** (`thoughts.summary`: the check's model, 10 s). In `duo (43)`, with three
   other runs going, the summaries took 3.0 s at the median and up to 3.96 s when they came, and one in seven timed
   out at the check's 4 s. The timeouts left both check models out of use for a while, and the talk's checks with

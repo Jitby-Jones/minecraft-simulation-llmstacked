@@ -383,15 +383,26 @@ export const place = defineSkill({
         return isSolid(over) ? { ok: true, observed: `there is ${over?.name.replace(/_/g, ' ') ?? 'a block'} over your head already` } : { ok: false, observed: 'nowhere to put it over your head', error: `the cell over your head is ${over?.name.replace(/_/g, ' ') ?? 'not loaded'}` };
       }
       if (!beside) return { ok: false, observed: `nowhere to put it toward ${args.toward}`, error: whyNotToward(ctx.bot, args.toward) };
-      const had = countItem(ctx.bot, itemMatcher(args.block));
-      try {
-        await placeItemAt(ctx, args.block, beside);
-      } catch (err) {
-        if (err instanceof SkillAbortedError) throw err;
-        return { ok: false, observed: `could not place at ${beside.toString()}`, error: errMsg(err) };
+      // A count of them toward a way is a wall there, at one's feet and head (asked for four toward the skeletons, one
+      // got one block or none).
+      const placed: string[] = [];
+      for (let cell: Vec3 | null = beside, n = 0; cell && n < (args.count ?? 1); n++, cell = besideToward(ctx.bot, args.toward, itemMatcher(args.block).label)) {
+        const had = countItem(ctx.bot, itemMatcher(args.block));
+        let what: string[];
+        try {
+          what = await placeWithFooting(ctx, args.block, cell);
+        } catch (err) {
+          if (err instanceof SkillAbortedError) throw err;
+          if (placed.length > 0) break;
+          return { ok: false, observed: `could not place at ${cell.toString()}`, error: errMsg(err) };
+        }
+        if (!(await setThere(ctx, cell, args.block, had))) {
+          if (placed.length > 0) break;
+          return { ok: false, observed: `nothing came to be at ${cell.x},${cell.y},${cell.z}`, error: 'the block did not stay' };
+        }
+        placed.push(...what);
       }
-      if (!(await setThere(ctx, beside, args.block, had))) return { ok: false, observed: `nothing came to be at ${beside.x},${beside.y},${beside.z}`, error: 'the block did not stay' };
-      return { ok: true, observed: `placed ${args.block} at ${beside.x},${beside.y},${beside.z}, beside you toward ${args.toward}` };
+      return { ok: true, observed: `placed ${args.block} at ${placed.join(' and ')}, beside you toward ${args.toward}` };
     }
     const target = at ? new Vec3(Math.floor(args.x ?? 0), Math.floor(args.y ?? 0), Math.floor(args.z ?? 0)) : await spotOrNotch(ctx, itemMatcher(args.block).label);
     if (!target) return { ok: false, observed: 'no free spot', error: 'no free spot to place a block nearby' };
@@ -406,6 +417,26 @@ export const place = defineSkill({
     return { ok: true, observed: `placed ${args.block} at ${target.x},${target.y},${target.z}` };
   },
 });
+
+/**
+ * A block where there is nothing to set it against: a block under it first, against the side of what is under one's
+ * own feet, as a player builds out from a ledge (on a perch among skeletons, one was told twice "nothing solid to
+ * place against" for the wall she wanted, and was shot). The cells placed, in words.
+ */
+async function placeWithFooting(ctx: SkillContext, block: string, cell: Vec3): Promise<string[]> {
+  const { bot } = ctx;
+  const m = itemMatcher(block);
+  const under = cell.offset(0, -1, 0);
+  const at = (c: Vec3) => `${c.x},${c.y},${c.z}`;
+  if (!referenceFor(bot, cell, m.label) && !ATTACHED.test(m.label) && isAirLike(bot.blockAt(under)) && referenceFor(bot, under, m.label) && countItem(bot, m) >= 2) {
+    await placeItemAt(ctx, block, under);
+    await waitMs(ctx, 150);
+    await placeItemAt(ctx, block, cell);
+    return [`${at(cell)} (on one set under it, at ${at(under)})`];
+  }
+  await placeItemAt(ctx, block, cell);
+  return [at(cell)];
+}
 
 /**
  * A block set down is there, as the world shows it within a moment (the server's word can trail the hand's); then a

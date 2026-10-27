@@ -1099,6 +1099,24 @@ describe.skipIf(!liveJavaPath())('live: the hands', () => {
     await server.cmd(`fill ${x + 3} ${Y} 0 ${x + 3} ${Y + 2} 0 minecraft:air`);
   }, 120_000);
 
+  it('a wall toward a way from a perch: a footing set under it first, then the wall at her feet and head', async () => {
+    // On a perch among skeletons, one was told twice "nothing solid to place against" for the wall she wanted.
+    const x = 10400;
+    await at(x + 0.5, 0.5);
+    await server.cmd(`fill ${x} ${Y} 0 ${x} ${Y + 2} 0 minecraft:stone`);
+    await server.cmd(`tp Ada ${x + 0.5} ${Y + 3} 0.5`);
+    await server.cmd('give Ada minecraft:cobblestone 8');
+    await sleep(2000);
+    const r = await run('place', { block: 'cobblestone', toward: 'north', count: 2 });
+    logger.info({ r }, 'a wall from a perch');
+    expect(r.ok).toBe(true);
+    expect(r.observed).toContain('on one set under it');
+    expect(body.bot.blockAt(new Vec3(x, Y + 3, -1))?.name).toBe('cobblestone');
+    expect(body.bot.blockAt(new Vec3(x, Y + 4, -1))?.name).toBe('cobblestone');
+    await server.cmd(`fill ${x} ${Y} -1 ${x} ${Y + 5} 0 minecraft:air`);
+    await server.cmd(`tp Ada ${x + 3} ${Y} 0`);
+  }, 120_000);
+
   it('a drop goes out into the open, away from her, and is not picked up again where she stands', async () => {
     // Tossed where she was looking, one's junk lay at her feet and two seconds on came back (94 granite, four times).
     const x = 10300;
